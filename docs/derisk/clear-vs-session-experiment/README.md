@@ -34,7 +34,7 @@ Two viable approaches — pick whichever proves the behavior fastest:
 
 **Approach A — TS SDK streaming-input mode (preferred; closest to what clauctl will do).**
 An installed copy of the SDK lives at:
-`/home/anton/git/clauctl/node_modules/@anthropic-ai/claude-agent-sdk`
+`/home/anton/git/geraschenko/clauctl/node_modules/@anthropic-ai/claude-agent-sdk`
 Write a small `.mjs` that calls `query({ prompt: <AsyncIterable of SDKUserMessage> })`, keeps
 the input iterable open, and:
   - yields a user message "Remember: the password is bananas."
@@ -73,27 +73,82 @@ How this experiment was actually run, so a future reader can reproduce or trust 
   model `claude-opus-4-8`) in programmatic stream-json mode via the TypeScript Claude Agent
   SDK's streaming-input API: a single long-lived `query({ prompt: <AsyncIterable of
   SDKUserMessage> })` call whose returned `Query` is an async generator of `SDKMessage`s.
-- Three turns per run: (1) plant a secret ("the password is bananas"), (2) send a slash
-  command (`/clear`, then separately `/new`) as a user message through the input stream,
-  (3) ask the agent to recall the password.
-- A `ps`-based watcher tracked the spawned child PID across the slash command to determine
-  whether the same OS process survived.
+- The harness (`exp.mjs`, inlined in this directory) hand-rolls the async iterable with a
+  `resolveNext`/`pending` queue and advances to the next user message only when it sees a
+  `result` message — so each turn is fully drained before the next prompt is sent, and the
+  input stream is held open the whole time.
+- `query()` was called with `options.permissionMode: "bypassPermissions"` (cheap, no prompts)
+  and `pathToClaudeCodeExecutable` pointing at `~/.local/bin/claude`.
+- The slash command is sent as an ordinary user message whose `content` is the **bare string**
+  `"/clear"` (resp. `"/new"`) — no special command envelope; slash commands ride the normal
+  input stream.
+- Three turns per run: (1) plant a secret ("the password is bananas"), (2) send the slash
+  command, (3) ask the agent to recall the password.
+- A `ps`-based watcher (run separately; its raw output is in `pids-clear.log` / `pids-new.log`)
+  sampled the process table ~2×/sec and recorded the spawned child PID across the slash command
+  to determine whether the same OS process survived. The child is identifiable by its argv:
+  `/home/anton/.local/bin/claude --output-format stream-json --verbose --input-format stream-json --permission-mode bypassPermissions`.
 - We inspected the emitted message stream for `session_id` on each message and which message
   type carried any new id, and checked `~/.claude/projects/<cwd>/` for per-session transcript
   JSONL files.
-- Scratch harness lived in `/tmp/clauctl-derisk/` (exp.mjs, out-*.json, pids-*.log). No
-  changes were made under `~/.claude/` except the transcripts claude itself wrote.
+- Scratch harness originally lived in `/tmp/clauctl-derisk/`; the actual files are now inlined
+  in this directory (see **Files** below). No changes were made under `~/.claude/` except the
+  transcripts claude itself wrote.
+
+### Follow-up: is the per-turn `system/init` a harness bug?
+The main run showed a `system/init` on *every* turn, not just at connection start, which was
+unexpected. We ran two more experiments to find the cause:
+
+1. `exp2-singlesession.mjs` — single session, three plain exchanges, **no** slash command.
+   Result (`out-singlesession.json`): a `system/init` fired on all three turns, all carrying
+   the **same** session_id (`d2ecca6f…`), context preserved (`bananas` → `BANANAS`). Rules out
+   the slash command as the trigger.
+2. `exp3-sessionid.mjs` — same as exp2 but attaching `"session_id":"default"` to every user
+   message (the Rust SDK does this; our other harnesses do not). Result (`out-sessionid.json`):
+   still **three** inits, same id. Rules out the missing `session_id` field as the trigger.
+3. Raw binary, **no SDK at all** — two newline-delimited user messages piped straight to
+   `claude --input-format stream-json --output-format stream-json --verbose` (`raw-out.jsonl`).
+   Result: **two** inits, one per turn, same id, context preserved.
+
+Conclusion: a per-turn `system/init` is genuine `claude` CLI stream-json behavior — every input
+user message begins a new turn whose output stream opens with a fresh `init`. It is not a JS-SDK
+bug, not a harness artifact, and not affected by the `session_id` field.
+
+Why the Rust SDK (`claude-agent-sdk-rs`) appears not to show this: its idiomatic reader
+`receive_response()` breaks at the first `ResultMessage`, handing back exactly one turn at a time
+(`[init, assistant…, result]`), so each turn's leading `init` reads as "the start of this
+response" rather than a surprising duplicate. Our JS harness reads every turn in one continuous
+`for await`, so the inits stack up and look anomalous. Same underlying stream — the continuous
+reader `receive_messages()` would show the repeated inits on the Rust side too. (Older `claude`
+versions may have behaved differently.)
+
+## Files
+- `exp.mjs` — the `/clear` + `/new` harness (run as `node exp.mjs /clear clear` and
+  `node exp.mjs /new new`).
+- `exp2-singlesession.mjs` — single-session follow-up, no slash command, no `session_id` field.
+- `exp3-sessionid.mjs` — single-session follow-up that adds `session_id:"default"` per message.
+- `out-clear.json`, `out-new.json` — slimmed message logs for each slash-command run
+  (type/subtype/session_id plus assistant text and result text).
+- `out-singlesession.json`, `out-sessionid.json` — message logs for the two follow-ups.
+- `raw-out.jsonl` — raw CLI output (no SDK) proving the per-turn `init` at the binary level.
+- `pids-clear.log`, `pids-new.log` — raw `ps` watcher output proving the child PID was stable.
 
 ## Learnings
 - A single long-lived `claude` OS process SURVIVES both `/clear` and `/new` (same PID); the
   SDK generator keeps producing with no terminate or error.
 - Both `/clear` and `/new` start a genuinely fresh conversation IN PLACE: conversation
   context is truly wiped (the planted password is not recalled afterward).
-- The new session_id is delivered as a SECOND `system/init` message on the same connection —
+- The new session_id is delivered via a fresh `system/init` message on the same connection —
   NOT via `SDKSessionStateChangedMessage`. No `session_state_changed` message fired for the id
   transition at all. (`session_state_changed` carries idle/running state, not id rollovers.)
-- Therefore clauctl's rule: "current session_id" = the most-recent `init.session_id`; treat
-  every post-first `system/init` on a connection as a session rollover.
+- IMPORTANT (corrected): a `system/init` fires on **every turn**, not just at connection start
+  or on a reset. Confirmed at the raw-CLI level with no SDK involved (`raw-out.jsonl`): each
+  input user message begins a new turn that opens with a fresh `init` carrying the *same*
+  session_id. So the presence of a post-first `init` does NOT by itself mean a rollover happened.
+- Therefore clauctl's rule: "current session_id" = the most-recent `init.session_id`; a session
+  rollover is when an `init`'s `session_id` **differs** from the current one. Detect rollovers by
+  comparing ids, never by counting inits. (A respawn of the binary will likewise emit an `init`;
+  it may carry the same id, e.g. on resume, or a new one — same comparison rule applies.)
 - Because the process survives, NO respawn is needed for a reset — clauctl keeps the one
   process and re-keys the session. (The SDK type `ExitReason = 'clear'` exists but applies to
   non-streaming/`-p` invocations; in streaming-input mode the loop did not exit on `/clear`.)
