@@ -1,0 +1,614 @@
+[
+  {
+    "seq": 0,
+    "t_ms": 5,
+    "event": "SCENARIO",
+    "label": "x_next_notool",
+    "mechanism": "iterable",
+    "injections": [
+      {
+        "text": "Reply with exactly the word ALPHA and nothing else.",
+        "priority": "next"
+      }
+    ]
+  },
+  {
+    "seq": 1,
+    "t_ms": 221,
+    "event": "msg",
+    "type": "system",
+    "subtype": "init",
+    "session_id": "768fa308-5146-4650-bf3f-1cb0959240ff"
+  },
+  {
+    "seq": 2,
+    "t_ms": 221,
+    "event": "msg",
+    "type": "system",
+    "subtype": "status",
+    "session_id": "768fa308-5146-4650-bf3f-1cb0959240ff"
+  },
+  {
+    "seq": 3,
+    "t_ms": 1757,
+    "event": "partial",
+    "raw_type": "message_start",
+    "session_id": "768fa308-5146-4650-bf3f-1cb0959240ff"
+  },
+  {
+    "seq": 4,
+    "t_ms": 1757,
+    "event": "partial",
+    "raw_type": "content_block_start",
+    "session_id": "768fa308-5146-4650-bf3f-1cb0959240ff",
+    "block_type": "thinking"
+  },
+  {
+    "seq": 5,
+    "t_ms": 1757,
+    "event": "msg",
+    "type": "system",
+    "subtype": "thinking_tokens",
+    "session_id": "768fa308-5146-4650-bf3f-1cb0959240ff"
+  },
+  {
+    "seq": 6,
+    "t_ms": 1757,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "768fa308-5146-4650-bf3f-1cb0959240ff"
+  },
+  {
+    "seq": 7,
+    "t_ms": 1757,
+    "event": "TEXT_TRIGGER"
+  },
+  {
+    "seq": 8,
+    "t_ms": 1757,
+    "event": "INJECT_START",
+    "mechanism": "iterable",
+    "count": 1,
+    "stage": "b0"
+  },
+  {
+    "seq": 9,
+    "t_ms": 1757,
+    "event": "INJECT",
+    "via": "iterable",
+    "text": "Reply with exactly the word ALPHA and nothing else.",
+    "priority": "next",
+    "stage": "b0"
+  },
+  {
+    "seq": 10,
+    "t_ms": 1757,
+    "event": "INJECT_DONE",
+    "stage": "b0"
+  },
+  {
+    "seq": 11,
+    "t_ms": 1757,
+    "event": "msg",
+    "type": "system",
+    "subtype": "thinking_tokens",
+    "session_id": "768fa308-5146-4650-bf3f-1cb0959240ff"
+  },
+  {
+    "seq": 12,
+    "t_ms": 1757,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "768fa308-5146-4650-bf3f-1cb0959240ff"
+  },
+  {
+    "seq": 13,
+    "t_ms": 2035,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "768fa308-5146-4650-bf3f-1cb0959240ff"
+  },
+  {
+    "seq": 14,
+    "t_ms": 2037,
+    "event": "msg",
+    "type": "system",
+    "subtype": "thinking_tokens",
+    "session_id": "768fa308-5146-4650-bf3f-1cb0959240ff"
+  },
+  {
+    "seq": 15,
+    "t_ms": 2037,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "768fa308-5146-4650-bf3f-1cb0959240ff"
+  },
+  {
+    "seq": 16,
+    "t_ms": 2038,
+    "event": "msg",
+    "type": "assistant",
+    "session_id": "768fa308-5146-4650-bf3f-1cb0959240ff",
+    "uuid": "f88dd2ad-2493-4d00-9bb1-fe03ef70083b",
+    "parent_tool_use_id": null,
+    "tool_uses": []
+  },
+  {
+    "seq": 17,
+    "t_ms": 2038,
+    "event": "partial",
+    "raw_type": "content_block_stop",
+    "session_id": "768fa308-5146-4650-bf3f-1cb0959240ff"
+  },
+  {
+    "seq": 18,
+    "t_ms": 2038,
+    "event": "partial",
+    "raw_type": "content_block_start",
+    "session_id": "768fa308-5146-4650-bf3f-1cb0959240ff",
+    "block_type": "text"
+  },
+  {
+    "seq": 19,
+    "t_ms": 2039,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "768fa308-5146-4650-bf3f-1cb0959240ff"
+  },
+  {
+    "seq": 20,
+    "t_ms": 2456,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "768fa308-5146-4650-bf3f-1cb0959240ff"
+  },
+  {
+    "seq": 21,
+    "t_ms": 2780,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "768fa308-5146-4650-bf3f-1cb0959240ff"
+  },
+  {
+    "seq": 22,
+    "t_ms": 3114,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "768fa308-5146-4650-bf3f-1cb0959240ff"
+  },
+  {
+    "seq": 23,
+    "t_ms": 3490,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "768fa308-5146-4650-bf3f-1cb0959240ff"
+  },
+  {
+    "seq": 24,
+    "t_ms": 3870,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "768fa308-5146-4650-bf3f-1cb0959240ff"
+  },
+  {
+    "seq": 25,
+    "t_ms": 4316,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "768fa308-5146-4650-bf3f-1cb0959240ff"
+  },
+  {
+    "seq": 26,
+    "t_ms": 4726,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "768fa308-5146-4650-bf3f-1cb0959240ff"
+  },
+  {
+    "seq": 27,
+    "t_ms": 5004,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "768fa308-5146-4650-bf3f-1cb0959240ff"
+  },
+  {
+    "seq": 28,
+    "t_ms": 5444,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "768fa308-5146-4650-bf3f-1cb0959240ff"
+  },
+  {
+    "seq": 29,
+    "t_ms": 5853,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "768fa308-5146-4650-bf3f-1cb0959240ff"
+  },
+  {
+    "seq": 30,
+    "t_ms": 6138,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "768fa308-5146-4650-bf3f-1cb0959240ff"
+  },
+  {
+    "seq": 31,
+    "t_ms": 6520,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "768fa308-5146-4650-bf3f-1cb0959240ff"
+  },
+  {
+    "seq": 32,
+    "t_ms": 6901,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "768fa308-5146-4650-bf3f-1cb0959240ff"
+  },
+  {
+    "seq": 33,
+    "t_ms": 7282,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "768fa308-5146-4650-bf3f-1cb0959240ff"
+  },
+  {
+    "seq": 34,
+    "t_ms": 7670,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "768fa308-5146-4650-bf3f-1cb0959240ff"
+  },
+  {
+    "seq": 35,
+    "t_ms": 8107,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "768fa308-5146-4650-bf3f-1cb0959240ff"
+  },
+  {
+    "seq": 36,
+    "t_ms": 8515,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "768fa308-5146-4650-bf3f-1cb0959240ff"
+  },
+  {
+    "seq": 37,
+    "t_ms": 8823,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "768fa308-5146-4650-bf3f-1cb0959240ff"
+  },
+  {
+    "seq": 38,
+    "t_ms": 9191,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "768fa308-5146-4650-bf3f-1cb0959240ff"
+  },
+  {
+    "seq": 39,
+    "t_ms": 9571,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "768fa308-5146-4650-bf3f-1cb0959240ff"
+  },
+  {
+    "seq": 40,
+    "t_ms": 10044,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "768fa308-5146-4650-bf3f-1cb0959240ff"
+  },
+  {
+    "seq": 41,
+    "t_ms": 10358,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "768fa308-5146-4650-bf3f-1cb0959240ff"
+  },
+  {
+    "seq": 42,
+    "t_ms": 10712,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "768fa308-5146-4650-bf3f-1cb0959240ff"
+  },
+  {
+    "seq": 43,
+    "t_ms": 11179,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "768fa308-5146-4650-bf3f-1cb0959240ff"
+  },
+  {
+    "seq": 44,
+    "t_ms": 11486,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "768fa308-5146-4650-bf3f-1cb0959240ff"
+  },
+  {
+    "seq": 45,
+    "t_ms": 11894,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "768fa308-5146-4650-bf3f-1cb0959240ff"
+  },
+  {
+    "seq": 46,
+    "t_ms": 12303,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "768fa308-5146-4650-bf3f-1cb0959240ff"
+  },
+  {
+    "seq": 47,
+    "t_ms": 12620,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "768fa308-5146-4650-bf3f-1cb0959240ff"
+  },
+  {
+    "seq": 48,
+    "t_ms": 13021,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "768fa308-5146-4650-bf3f-1cb0959240ff"
+  },
+  {
+    "seq": 49,
+    "t_ms": 13432,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "768fa308-5146-4650-bf3f-1cb0959240ff"
+  },
+  {
+    "seq": 50,
+    "t_ms": 13762,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "768fa308-5146-4650-bf3f-1cb0959240ff"
+  },
+  {
+    "seq": 51,
+    "t_ms": 14143,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "768fa308-5146-4650-bf3f-1cb0959240ff"
+  },
+  {
+    "seq": 52,
+    "t_ms": 14556,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "768fa308-5146-4650-bf3f-1cb0959240ff"
+  },
+  {
+    "seq": 53,
+    "t_ms": 14903,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "768fa308-5146-4650-bf3f-1cb0959240ff"
+  },
+  {
+    "seq": 54,
+    "t_ms": 15378,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "768fa308-5146-4650-bf3f-1cb0959240ff"
+  },
+  {
+    "seq": 55,
+    "t_ms": 15666,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "768fa308-5146-4650-bf3f-1cb0959240ff"
+  },
+  {
+    "seq": 56,
+    "t_ms": 16072,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "768fa308-5146-4650-bf3f-1cb0959240ff"
+  },
+  {
+    "seq": 57,
+    "t_ms": 16431,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "768fa308-5146-4650-bf3f-1cb0959240ff"
+  },
+  {
+    "seq": 58,
+    "t_ms": 16811,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "768fa308-5146-4650-bf3f-1cb0959240ff"
+  },
+  {
+    "seq": 59,
+    "t_ms": 17192,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "768fa308-5146-4650-bf3f-1cb0959240ff"
+  },
+  {
+    "seq": 60,
+    "t_ms": 17576,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "768fa308-5146-4650-bf3f-1cb0959240ff"
+  },
+  {
+    "seq": 61,
+    "t_ms": 18040,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "768fa308-5146-4650-bf3f-1cb0959240ff"
+  },
+  {
+    "seq": 62,
+    "t_ms": 18199,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "768fa308-5146-4650-bf3f-1cb0959240ff"
+  },
+  {
+    "seq": 63,
+    "t_ms": 18200,
+    "event": "msg",
+    "type": "assistant",
+    "session_id": "768fa308-5146-4650-bf3f-1cb0959240ff",
+    "uuid": "5325e25d-37ec-4c60-8976-4af85b0ed344",
+    "parent_tool_use_id": null,
+    "text": "1. Every journey begins with a single step, and this is mine.\n2. Two eyes see the world, yet each person's view remains their own.\n3. Three is the number of acts in a story — beginning, middle, and end.\n4. Four seasons remind us that change is not a disruption but a rhythm.\n5. Five fingers on a hand, each one useless without the others.\n6. Six sides to a cube — there is always another angle to consider.\n7. Seven days in a week, and somehow we always feel there aren't enough.\n8. Eight hours of sleep is a gift we too rarely give ourselves.\n9. Nine lives is a myth, so treat the one you have with care.\n10. Ten is the first number that requires two digits — a small threshold, a quiet milestone.\n11. Eleven feels like a number that stands slightly apart, and there is dignity in that.\n12. Twelve months, and yet the year always seems to slip away faster than expected.\n13. Thirteen is feared by some, but fear of a number says more about us than the number.\n14. Fourteen is the age when many of us first began to question the world around us.\n15. Fifteen minutes of focused attention can change the direction of an entire day.\n16. Sixteen feels like standing at a door you're not quite sure you're ready to open.\n17. Seventeen is the age that poets romanticize, and perhaps rightly so.\n18. Eighteen marks the moment society says you are your own — a heavy and beautiful thing.\n19. Nineteen is the last year of teenage life, and most of us don't realize it until it's gone.\n20. Twenty is young enough to dream wildly and old enough to begin making those dreams real.\n21. Twenty-one opens certain doors, but the most important ones were never locked by age.\n22. Twenty-two, as the song says, feels everything all at once.\n23. Twenty-three is the year many realize that no one actually knows what they're doing either.\n24. Twenty-four hours in a day — enough time for both regret and redemption.\n25. Twenty-five is a quarter century of living, and that deserves a quiet moment of gratitude.\n26. Twenty-six letters in the alphabet, and from them, every human story ever told.\n27. Twenty-seven has a strange gravity to it, a year that asks who you are becoming.\n28. Twenty-eight is when the skin you're in starts to feel a little more familiar.\n29. Twenty-nine is the year of the long exhale before a new decade arrives.\n30. Thirty often feels like a reckoning, but it is more accurately a beginning.\n31. Thirty-one days in some months — the calendar's small generosity.\n32. Thirty-two teeth in a full adult mouth, and still we bite off more than we can chew.\n33. Thirty-three is the age, some say, of great change — and perhaps every age is, if you let it be.\n34. Thirty-four is deep enough into life to know what matters and young enough to act on it.\n35. Thirty-five feels like the halfway point of something, though no one agrees what that something is.\n36. Thirty-six is six squared — a number of unexpected completeness.\n37. Thirty-seven is a prime number, indivisible, and there is something admirable about that.\n38. Thirty-eight is when you stop keeping score and start keeping meaning.\n39. Thirty-nine is the last breath before forty, a year worth savoring slowly.\n40. Forty is not the end of anything — it is the moment you finally trust yourself enough to begin.",
+    "tool_uses": []
+  },
+  {
+    "seq": 64,
+    "t_ms": 18200,
+    "event": "partial",
+    "raw_type": "content_block_stop",
+    "session_id": "768fa308-5146-4650-bf3f-1cb0959240ff"
+  },
+  {
+    "seq": 65,
+    "t_ms": 18256,
+    "event": "partial",
+    "raw_type": "message_delta",
+    "session_id": "768fa308-5146-4650-bf3f-1cb0959240ff",
+    "stop_reason": "end_turn"
+  },
+  {
+    "seq": 66,
+    "t_ms": 18256,
+    "event": "partial",
+    "raw_type": "message_stop",
+    "session_id": "768fa308-5146-4650-bf3f-1cb0959240ff"
+  },
+  {
+    "seq": 67,
+    "t_ms": 18257,
+    "event": "msg",
+    "type": "rate_limit_event",
+    "session_id": "768fa308-5146-4650-bf3f-1cb0959240ff"
+  },
+  {
+    "seq": 68,
+    "t_ms": 18259,
+    "event": "msg",
+    "type": "result",
+    "subtype": "success",
+    "is_error": false,
+    "session_id": "768fa308-5146-4650-bf3f-1cb0959240ff",
+    "result_text": "1. Every journey begins with a single step, and this is mine.\n2. Two eyes see the world, yet each person's view remains their own.\n3. Three is the number of acts in a story — beginning, middle, and end.\n4. Four seasons remind us that change is not a disruption but a rhythm.\n5. Five fingers on a hand, each one useless without the others.\n6. Six sides to a cube — there is always another angle to consider.\n7. Seven days in a week, and somehow we always feel there aren't enough.\n8. Eight hours of sleep is a gift we too rarely give ourselves.\n9. Nine lives is a myth, so treat the one you have with care.\n10. Ten is the first number that requires two digits — a small threshold, a quiet milestone.\n11. Eleven feels like a number that stands slightly apart, and there is dignity in that.\n12. Twelve months, and yet the year always seems to slip away faster than expected.\n13. Thirteen is feared by some, but fear of a number says more about us than the number.\n14. Fourteen is the age when many of us first began to question the world around us.\n15. Fifteen minutes of focused attention can change the direction of an entire day.\n16. Sixteen feels like standing at a door you're not quite sure you're ready to open.\n17. Seventeen is the age that poets romanticize, and perhaps rightly so.\n18. Eighteen marks the moment society says you are your own — a heavy and beautiful thing.\n19. Nineteen is the last year of teenage life, and most of us don't realize it until it's gone.\n20. Twenty is young enough to dream wildly and old enough to begin making those dreams real.\n21. Twenty-one opens certain doors, but the most important ones were never locked by age.\n22. Twenty-two, as the song says, feels everything all at once.\n23. Twenty-three is the year many realize that no one actually knows what they're doing either.\n24. Twenty-four hours in a day — enough time for both regret and redemption.\n25. Twenty-five is a quarter century of living, and that deserves a quiet moment of gratitude.\n26. Twenty-six letters in the alphabet, and from them, every human story ever told.\n27. Twenty-seven has a strange gravity to it, a year that asks who you are becoming.\n28. Twenty-eight is when the skin you're in starts to feel a little more familiar.\n29. Twenty-nine is the year of the long exhale before a new decade arrives.\n30. Thirty often feels like a reckoning, but it is more accurately a beginning.\n31. Thirty-one days in some months — the calendar's small generosity.\n32. Thirty-two teeth in a full adult mouth, and still we bite off more than we can chew.\n33. Thirty-three is the age, some say, of great change — and perhaps every age is, if you let it be.\n34. Thirty-four is deep enough into life to know what matters and young enough to act on it.\n35. Thirty-five feels like the halfway point of something, though no one agrees what that something is.\n36. Thirty-six is six squared — a number of unexpected completeness.\n37. Thirty-seven is a prime number, indivisible, and there is something admirable about that.\n38. Thirty-eight is when you stop keeping score and start keeping meaning.\n39. Thirty-nine is the last breath before forty, a year worth savoring slowly.\n40. Forty is not the end of anything — it is the moment you finally trust yourself enough to begin."
+  },
+  {
+    "seq": 69,
+    "t_ms": 18259,
+    "event": "RESULT_BOUNDARY",
+    "count": 1
+  },
+  {
+    "seq": 70,
+    "t_ms": 18261,
+    "event": "msg",
+    "type": "system",
+    "subtype": "init",
+    "session_id": "768fa308-5146-4650-bf3f-1cb0959240ff"
+  },
+  {
+    "seq": 71,
+    "t_ms": 18261,
+    "event": "msg",
+    "type": "system",
+    "subtype": "status",
+    "session_id": "768fa308-5146-4650-bf3f-1cb0959240ff"
+  },
+  {
+    "seq": 72,
+    "t_ms": 20091,
+    "event": "partial",
+    "raw_type": "message_start",
+    "session_id": "768fa308-5146-4650-bf3f-1cb0959240ff"
+  },
+  {
+    "seq": 73,
+    "t_ms": 20091,
+    "event": "partial",
+    "raw_type": "content_block_start",
+    "session_id": "768fa308-5146-4650-bf3f-1cb0959240ff",
+    "block_type": "text"
+  },
+  {
+    "seq": 74,
+    "t_ms": 20091,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "768fa308-5146-4650-bf3f-1cb0959240ff"
+  },
+  {
+    "seq": 75,
+    "t_ms": 20092,
+    "event": "msg",
+    "type": "assistant",
+    "session_id": "768fa308-5146-4650-bf3f-1cb0959240ff",
+    "uuid": "2a44f929-a567-4ab6-b7dd-fa615280f8f8",
+    "parent_tool_use_id": null,
+    "text": "ALPHA",
+    "tool_uses": []
+  },
+  {
+    "seq": 76,
+    "t_ms": 20092,
+    "event": "partial",
+    "raw_type": "content_block_stop",
+    "session_id": "768fa308-5146-4650-bf3f-1cb0959240ff"
+  },
+  {
+    "seq": 77,
+    "t_ms": 20092,
+    "event": "partial",
+    "raw_type": "message_delta",
+    "session_id": "768fa308-5146-4650-bf3f-1cb0959240ff",
+    "stop_reason": "end_turn"
+  },
+  {
+    "seq": 78,
+    "t_ms": 20093,
+    "event": "partial",
+    "raw_type": "message_stop",
+    "session_id": "768fa308-5146-4650-bf3f-1cb0959240ff"
+  },
+  {
+    "seq": 79,
+    "t_ms": 20094,
+    "event": "msg",
+    "type": "result",
+    "subtype": "success",
+    "is_error": false,
+    "session_id": "768fa308-5146-4650-bf3f-1cb0959240ff",
+    "result_text": "ALPHA"
+  },
+  {
+    "seq": 80,
+    "t_ms": 20094,
+    "event": "RESULT_BOUNDARY",
+    "count": 2
+  },
+  {
+    "seq": 81,
+    "t_ms": 29105,
+    "event": "DRAIN_IDLE_CLOSE"
+  },
+  {
+    "seq": 82,
+    "t_ms": 29121,
+    "event": "GENERATOR_ENDED",
+    "timedOut": false,
+    "session_ids": ["768fa308-5146-4650-bf3f-1cb0959240ff"]
+  }
+]

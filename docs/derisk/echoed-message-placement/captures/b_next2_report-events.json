@@ -1,0 +1,1064 @@
+[
+  {
+    "seq": 0,
+    "t_ms": 4,
+    "event": "SCENARIO",
+    "label": "b_next2_report",
+    "mechanism": "iterable",
+    "injections": [
+      {
+        "text": "Reply with exactly the word ALPHA and nothing else.",
+        "priority": "next"
+      },
+      {
+        "text": "Reply with exactly the word BRAVO and nothing else.",
+        "priority": "next"
+      }
+    ]
+  },
+  {
+    "seq": 1,
+    "t_ms": 214,
+    "event": "msg",
+    "type": "system",
+    "subtype": "init",
+    "session_id": "029de6a9-c38a-4e30-8291-33cf39b2ca89"
+  },
+  {
+    "seq": 2,
+    "t_ms": 214,
+    "event": "msg",
+    "type": "system",
+    "subtype": "status",
+    "session_id": "029de6a9-c38a-4e30-8291-33cf39b2ca89"
+  },
+  {
+    "seq": 3,
+    "t_ms": 2447,
+    "event": "partial",
+    "raw_type": "message_start",
+    "session_id": "029de6a9-c38a-4e30-8291-33cf39b2ca89"
+  },
+  {
+    "seq": 4,
+    "t_ms": 2447,
+    "event": "partial",
+    "raw_type": "content_block_start",
+    "session_id": "029de6a9-c38a-4e30-8291-33cf39b2ca89",
+    "block_type": "thinking"
+  },
+  {
+    "seq": 5,
+    "t_ms": 2447,
+    "event": "msg",
+    "type": "system",
+    "subtype": "thinking_tokens",
+    "session_id": "029de6a9-c38a-4e30-8291-33cf39b2ca89"
+  },
+  {
+    "seq": 6,
+    "t_ms": 2447,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "029de6a9-c38a-4e30-8291-33cf39b2ca89"
+  },
+  {
+    "seq": 7,
+    "t_ms": 3077,
+    "event": "msg",
+    "type": "system",
+    "subtype": "thinking_tokens",
+    "session_id": "029de6a9-c38a-4e30-8291-33cf39b2ca89"
+  },
+  {
+    "seq": 8,
+    "t_ms": 3078,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "029de6a9-c38a-4e30-8291-33cf39b2ca89"
+  },
+  {
+    "seq": 9,
+    "t_ms": 3078,
+    "event": "msg",
+    "type": "system",
+    "subtype": "thinking_tokens",
+    "session_id": "029de6a9-c38a-4e30-8291-33cf39b2ca89"
+  },
+  {
+    "seq": 10,
+    "t_ms": 3078,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "029de6a9-c38a-4e30-8291-33cf39b2ca89"
+  },
+  {
+    "seq": 11,
+    "t_ms": 3082,
+    "event": "msg",
+    "type": "assistant",
+    "session_id": "029de6a9-c38a-4e30-8291-33cf39b2ca89",
+    "uuid": "7d874c34-3418-4739-94e7-8b7dcc4b1b41",
+    "parent_tool_use_id": null,
+    "tool_uses": []
+  },
+  {
+    "seq": 12,
+    "t_ms": 3082,
+    "event": "partial",
+    "raw_type": "content_block_stop",
+    "session_id": "029de6a9-c38a-4e30-8291-33cf39b2ca89"
+  },
+  {
+    "seq": 13,
+    "t_ms": 3111,
+    "event": "partial",
+    "raw_type": "content_block_start",
+    "session_id": "029de6a9-c38a-4e30-8291-33cf39b2ca89",
+    "block_type": "text"
+  },
+  {
+    "seq": 14,
+    "t_ms": 3111,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "029de6a9-c38a-4e30-8291-33cf39b2ca89"
+  },
+  {
+    "seq": 15,
+    "t_ms": 3481,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "029de6a9-c38a-4e30-8291-33cf39b2ca89"
+  },
+  {
+    "seq": 16,
+    "t_ms": 3486,
+    "event": "msg",
+    "type": "assistant",
+    "session_id": "029de6a9-c38a-4e30-8291-33cf39b2ca89",
+    "uuid": "ee55e88f-deb2-4290-8733-030a2442664e",
+    "parent_tool_use_id": null,
+    "text": "I'll run each command one at a time, waiting for each to complete before starting the next.\n\n**Step 1:**",
+    "tool_uses": []
+  },
+  {
+    "seq": 17,
+    "t_ms": 3486,
+    "event": "partial",
+    "raw_type": "content_block_stop",
+    "session_id": "029de6a9-c38a-4e30-8291-33cf39b2ca89"
+  },
+  {
+    "seq": 18,
+    "t_ms": 3486,
+    "event": "partial",
+    "raw_type": "content_block_start",
+    "session_id": "029de6a9-c38a-4e30-8291-33cf39b2ca89",
+    "block_type": "tool_use"
+  },
+  {
+    "seq": 19,
+    "t_ms": 3486,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "029de6a9-c38a-4e30-8291-33cf39b2ca89"
+  },
+  {
+    "seq": 20,
+    "t_ms": 3825,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "029de6a9-c38a-4e30-8291-33cf39b2ca89"
+  },
+  {
+    "seq": 21,
+    "t_ms": 3825,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "029de6a9-c38a-4e30-8291-33cf39b2ca89"
+  },
+  {
+    "seq": 22,
+    "t_ms": 3825,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "029de6a9-c38a-4e30-8291-33cf39b2ca89"
+  },
+  {
+    "seq": 23,
+    "t_ms": 3825,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "029de6a9-c38a-4e30-8291-33cf39b2ca89"
+  },
+  {
+    "seq": 24,
+    "t_ms": 3825,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "029de6a9-c38a-4e30-8291-33cf39b2ca89"
+  },
+  {
+    "seq": 25,
+    "t_ms": 3825,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "029de6a9-c38a-4e30-8291-33cf39b2ca89"
+  },
+  {
+    "seq": 26,
+    "t_ms": 3825,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "029de6a9-c38a-4e30-8291-33cf39b2ca89"
+  },
+  {
+    "seq": 27,
+    "t_ms": 3826,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "029de6a9-c38a-4e30-8291-33cf39b2ca89"
+  },
+  {
+    "seq": 28,
+    "t_ms": 3826,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "029de6a9-c38a-4e30-8291-33cf39b2ca89"
+  },
+  {
+    "seq": 29,
+    "t_ms": 3826,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "029de6a9-c38a-4e30-8291-33cf39b2ca89"
+  },
+  {
+    "seq": 30,
+    "t_ms": 3845,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "029de6a9-c38a-4e30-8291-33cf39b2ca89"
+  },
+  {
+    "seq": 31,
+    "t_ms": 3845,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "029de6a9-c38a-4e30-8291-33cf39b2ca89"
+  },
+  {
+    "seq": 32,
+    "t_ms": 3845,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "029de6a9-c38a-4e30-8291-33cf39b2ca89"
+  },
+  {
+    "seq": 33,
+    "t_ms": 3845,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "029de6a9-c38a-4e30-8291-33cf39b2ca89"
+  },
+  {
+    "seq": 34,
+    "t_ms": 3845,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "029de6a9-c38a-4e30-8291-33cf39b2ca89"
+  },
+  {
+    "seq": 35,
+    "t_ms": 3847,
+    "event": "msg",
+    "type": "assistant",
+    "session_id": "029de6a9-c38a-4e30-8291-33cf39b2ca89",
+    "uuid": "61bf5c27-b416-458f-8dd9-b0f40b228049",
+    "parent_tool_use_id": null,
+    "tool_uses": [
+      {
+        "id": "toolu_01G9zSy66fCFSvZKanJkHEtk",
+        "name": "Bash",
+        "input": {
+          "command": "sleep 4 && echo step-one-done",
+          "description": "Sleep 4 seconds then echo step-one-done"
+        }
+      }
+    ]
+  },
+  {
+    "seq": 36,
+    "t_ms": 3847,
+    "event": "INJECT_START",
+    "mechanism": "iterable",
+    "count": 2,
+    "stage": "b0"
+  },
+  {
+    "seq": 37,
+    "t_ms": 3847,
+    "event": "INJECT",
+    "via": "iterable",
+    "text": "Reply with exactly the word ALPHA and nothing else.",
+    "priority": "next",
+    "stage": "b0"
+  },
+  {
+    "seq": 38,
+    "t_ms": 3847,
+    "event": "INJECT",
+    "via": "iterable",
+    "text": "Reply with exactly the word BRAVO and nothing else.",
+    "priority": "next",
+    "stage": "b0"
+  },
+  {
+    "seq": 39,
+    "t_ms": 3847,
+    "event": "INJECT_DONE",
+    "stage": "b0"
+  },
+  {
+    "seq": 40,
+    "t_ms": 3853,
+    "event": "partial",
+    "raw_type": "content_block_stop",
+    "session_id": "029de6a9-c38a-4e30-8291-33cf39b2ca89"
+  },
+  {
+    "seq": 41,
+    "t_ms": 3854,
+    "event": "partial",
+    "raw_type": "message_delta",
+    "session_id": "029de6a9-c38a-4e30-8291-33cf39b2ca89",
+    "stop_reason": "tool_use"
+  },
+  {
+    "seq": 42,
+    "t_ms": 3854,
+    "event": "BOUNDARY_tool_use_partial"
+  },
+  {
+    "seq": 43,
+    "t_ms": 3854,
+    "event": "partial",
+    "raw_type": "message_stop",
+    "session_id": "029de6a9-c38a-4e30-8291-33cf39b2ca89"
+  },
+  {
+    "seq": 44,
+    "t_ms": 3854,
+    "event": "msg",
+    "type": "rate_limit_event",
+    "session_id": "029de6a9-c38a-4e30-8291-33cf39b2ca89"
+  },
+  {
+    "seq": 45,
+    "t_ms": 8290,
+    "event": "msg",
+    "type": "system",
+    "subtype": "task_started",
+    "session_id": "029de6a9-c38a-4e30-8291-33cf39b2ca89"
+  },
+  {
+    "seq": 46,
+    "t_ms": 9450,
+    "event": "msg",
+    "type": "system",
+    "subtype": "task_notification",
+    "session_id": "029de6a9-c38a-4e30-8291-33cf39b2ca89"
+  },
+  {
+    "seq": 47,
+    "t_ms": 9452,
+    "event": "msg",
+    "type": "user",
+    "session_id": "029de6a9-c38a-4e30-8291-33cf39b2ca89",
+    "uuid": "92156f97-170e-4a2f-b56a-b7fa6f0e3ffd",
+    "parent_tool_use_id": null,
+    "priority": null,
+    "content": "[{\"tool_use_id\":\"toolu_01G9zSy66fCFSvZKanJkHEtk\",\"type\":\"tool_result\",\"content\":\"step-one-done\",\"is_error\":false}]"
+  },
+  {
+    "seq": 48,
+    "t_ms": 9453,
+    "event": "msg",
+    "type": "system",
+    "subtype": "status",
+    "session_id": "029de6a9-c38a-4e30-8291-33cf39b2ca89"
+  },
+  {
+    "seq": 49,
+    "t_ms": 11271,
+    "event": "partial",
+    "raw_type": "message_start",
+    "session_id": "029de6a9-c38a-4e30-8291-33cf39b2ca89"
+  },
+  {
+    "seq": 50,
+    "t_ms": 11271,
+    "event": "partial",
+    "raw_type": "content_block_start",
+    "session_id": "029de6a9-c38a-4e30-8291-33cf39b2ca89",
+    "block_type": "text"
+  },
+  {
+    "seq": 51,
+    "t_ms": 11271,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "029de6a9-c38a-4e30-8291-33cf39b2ca89"
+  },
+  {
+    "seq": 52,
+    "t_ms": 11271,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "029de6a9-c38a-4e30-8291-33cf39b2ca89"
+  },
+  {
+    "seq": 53,
+    "t_ms": 11271,
+    "event": "msg",
+    "type": "assistant",
+    "session_id": "029de6a9-c38a-4e30-8291-33cf39b2ca89",
+    "uuid": "050a3d48-2628-41b5-9c7d-52384df967fb",
+    "parent_tool_use_id": null,
+    "text": "**Step 2:**",
+    "tool_uses": []
+  },
+  {
+    "seq": 54,
+    "t_ms": 11271,
+    "event": "partial",
+    "raw_type": "content_block_stop",
+    "session_id": "029de6a9-c38a-4e30-8291-33cf39b2ca89"
+  },
+  {
+    "seq": 55,
+    "t_ms": 11271,
+    "event": "partial",
+    "raw_type": "content_block_start",
+    "session_id": "029de6a9-c38a-4e30-8291-33cf39b2ca89",
+    "block_type": "tool_use"
+  },
+  {
+    "seq": 56,
+    "t_ms": 11271,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "029de6a9-c38a-4e30-8291-33cf39b2ca89"
+  },
+  {
+    "seq": 57,
+    "t_ms": 11577,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "029de6a9-c38a-4e30-8291-33cf39b2ca89"
+  },
+  {
+    "seq": 58,
+    "t_ms": 11577,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "029de6a9-c38a-4e30-8291-33cf39b2ca89"
+  },
+  {
+    "seq": 59,
+    "t_ms": 11577,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "029de6a9-c38a-4e30-8291-33cf39b2ca89"
+  },
+  {
+    "seq": 60,
+    "t_ms": 11577,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "029de6a9-c38a-4e30-8291-33cf39b2ca89"
+  },
+  {
+    "seq": 61,
+    "t_ms": 11577,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "029de6a9-c38a-4e30-8291-33cf39b2ca89"
+  },
+  {
+    "seq": 62,
+    "t_ms": 11577,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "029de6a9-c38a-4e30-8291-33cf39b2ca89"
+  },
+  {
+    "seq": 63,
+    "t_ms": 11577,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "029de6a9-c38a-4e30-8291-33cf39b2ca89"
+  },
+  {
+    "seq": 64,
+    "t_ms": 11577,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "029de6a9-c38a-4e30-8291-33cf39b2ca89"
+  },
+  {
+    "seq": 65,
+    "t_ms": 11577,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "029de6a9-c38a-4e30-8291-33cf39b2ca89"
+  },
+  {
+    "seq": 66,
+    "t_ms": 11577,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "029de6a9-c38a-4e30-8291-33cf39b2ca89"
+  },
+  {
+    "seq": 67,
+    "t_ms": 11577,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "029de6a9-c38a-4e30-8291-33cf39b2ca89"
+  },
+  {
+    "seq": 68,
+    "t_ms": 11577,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "029de6a9-c38a-4e30-8291-33cf39b2ca89"
+  },
+  {
+    "seq": 69,
+    "t_ms": 11577,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "029de6a9-c38a-4e30-8291-33cf39b2ca89"
+  },
+  {
+    "seq": 70,
+    "t_ms": 11577,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "029de6a9-c38a-4e30-8291-33cf39b2ca89"
+  },
+  {
+    "seq": 71,
+    "t_ms": 11577,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "029de6a9-c38a-4e30-8291-33cf39b2ca89"
+  },
+  {
+    "seq": 72,
+    "t_ms": 11577,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "029de6a9-c38a-4e30-8291-33cf39b2ca89"
+  },
+  {
+    "seq": 73,
+    "t_ms": 11578,
+    "event": "msg",
+    "type": "assistant",
+    "session_id": "029de6a9-c38a-4e30-8291-33cf39b2ca89",
+    "uuid": "be2393d9-d19d-437a-b32a-3c7fd82abb03",
+    "parent_tool_use_id": null,
+    "tool_uses": [
+      {
+        "id": "toolu_01DY7KmN1NbPS1Mx2BjPGDNs",
+        "name": "Bash",
+        "input": {
+          "command": "sleep 4 && echo step-two-done",
+          "description": "Sleep 4 seconds then echo step-two-done"
+        }
+      }
+    ]
+  },
+  {
+    "seq": 74,
+    "t_ms": 11580,
+    "event": "partial",
+    "raw_type": "content_block_stop",
+    "session_id": "029de6a9-c38a-4e30-8291-33cf39b2ca89"
+  },
+  {
+    "seq": 75,
+    "t_ms": 11581,
+    "event": "partial",
+    "raw_type": "message_delta",
+    "session_id": "029de6a9-c38a-4e30-8291-33cf39b2ca89",
+    "stop_reason": "tool_use"
+  },
+  {
+    "seq": 76,
+    "t_ms": 11581,
+    "event": "BOUNDARY_tool_use_partial"
+  },
+  {
+    "seq": 77,
+    "t_ms": 11581,
+    "event": "partial",
+    "raw_type": "message_stop",
+    "session_id": "029de6a9-c38a-4e30-8291-33cf39b2ca89"
+  },
+  {
+    "seq": 78,
+    "t_ms": 14585,
+    "event": "msg",
+    "type": "system",
+    "subtype": "task_started",
+    "session_id": "029de6a9-c38a-4e30-8291-33cf39b2ca89"
+  },
+  {
+    "seq": 79,
+    "t_ms": 15751,
+    "event": "msg",
+    "type": "system",
+    "subtype": "task_notification",
+    "session_id": "029de6a9-c38a-4e30-8291-33cf39b2ca89"
+  },
+  {
+    "seq": 80,
+    "t_ms": 15752,
+    "event": "msg",
+    "type": "user",
+    "session_id": "029de6a9-c38a-4e30-8291-33cf39b2ca89",
+    "uuid": "c1924cf6-c93e-4c12-ab1b-29f252c42ff0",
+    "parent_tool_use_id": null,
+    "priority": null,
+    "content": "[{\"tool_use_id\":\"toolu_01DY7KmN1NbPS1Mx2BjPGDNs\",\"type\":\"tool_result\",\"content\":\"step-two-done\",\"is_error\":false}]"
+  },
+  {
+    "seq": 81,
+    "t_ms": 15753,
+    "event": "msg",
+    "type": "system",
+    "subtype": "status",
+    "session_id": "029de6a9-c38a-4e30-8291-33cf39b2ca89"
+  },
+  {
+    "seq": 82,
+    "t_ms": 17614,
+    "event": "partial",
+    "raw_type": "message_start",
+    "session_id": "029de6a9-c38a-4e30-8291-33cf39b2ca89"
+  },
+  {
+    "seq": 83,
+    "t_ms": 17614,
+    "event": "partial",
+    "raw_type": "content_block_start",
+    "session_id": "029de6a9-c38a-4e30-8291-33cf39b2ca89",
+    "block_type": "text"
+  },
+  {
+    "seq": 84,
+    "t_ms": 17614,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "029de6a9-c38a-4e30-8291-33cf39b2ca89"
+  },
+  {
+    "seq": 85,
+    "t_ms": 17615,
+    "event": "msg",
+    "type": "assistant",
+    "session_id": "029de6a9-c38a-4e30-8291-33cf39b2ca89",
+    "uuid": "4fa6eca3-1351-4fa8-87ac-5fbc7c8575ba",
+    "parent_tool_use_id": null,
+    "text": "**Step 3:**",
+    "tool_uses": []
+  },
+  {
+    "seq": 86,
+    "t_ms": 17615,
+    "event": "partial",
+    "raw_type": "content_block_stop",
+    "session_id": "029de6a9-c38a-4e30-8291-33cf39b2ca89"
+  },
+  {
+    "seq": 87,
+    "t_ms": 17615,
+    "event": "partial",
+    "raw_type": "content_block_start",
+    "session_id": "029de6a9-c38a-4e30-8291-33cf39b2ca89",
+    "block_type": "tool_use"
+  },
+  {
+    "seq": 88,
+    "t_ms": 17617,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "029de6a9-c38a-4e30-8291-33cf39b2ca89"
+  },
+  {
+    "seq": 89,
+    "t_ms": 17617,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "029de6a9-c38a-4e30-8291-33cf39b2ca89"
+  },
+  {
+    "seq": 90,
+    "t_ms": 17617,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "029de6a9-c38a-4e30-8291-33cf39b2ca89"
+  },
+  {
+    "seq": 91,
+    "t_ms": 17617,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "029de6a9-c38a-4e30-8291-33cf39b2ca89"
+  },
+  {
+    "seq": 92,
+    "t_ms": 17617,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "029de6a9-c38a-4e30-8291-33cf39b2ca89"
+  },
+  {
+    "seq": 93,
+    "t_ms": 17617,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "029de6a9-c38a-4e30-8291-33cf39b2ca89"
+  },
+  {
+    "seq": 94,
+    "t_ms": 17941,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "029de6a9-c38a-4e30-8291-33cf39b2ca89"
+  },
+  {
+    "seq": 95,
+    "t_ms": 17941,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "029de6a9-c38a-4e30-8291-33cf39b2ca89"
+  },
+  {
+    "seq": 96,
+    "t_ms": 17941,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "029de6a9-c38a-4e30-8291-33cf39b2ca89"
+  },
+  {
+    "seq": 97,
+    "t_ms": 17941,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "029de6a9-c38a-4e30-8291-33cf39b2ca89"
+  },
+  {
+    "seq": 98,
+    "t_ms": 17941,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "029de6a9-c38a-4e30-8291-33cf39b2ca89"
+  },
+  {
+    "seq": 99,
+    "t_ms": 17941,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "029de6a9-c38a-4e30-8291-33cf39b2ca89"
+  },
+  {
+    "seq": 100,
+    "t_ms": 17941,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "029de6a9-c38a-4e30-8291-33cf39b2ca89"
+  },
+  {
+    "seq": 101,
+    "t_ms": 17941,
+    "event": "msg",
+    "type": "assistant",
+    "session_id": "029de6a9-c38a-4e30-8291-33cf39b2ca89",
+    "uuid": "7b81573a-5f0d-4eb9-85bc-7221298ea82c",
+    "parent_tool_use_id": null,
+    "tool_uses": [
+      {
+        "id": "toolu_01TaFHFWWHHhYbwqDP4fqPn7",
+        "name": "Bash",
+        "input": {
+          "command": "sleep 4 && echo step-three-done",
+          "description": "Sleep 4 seconds then echo step-three-done"
+        }
+      }
+    ]
+  },
+  {
+    "seq": 102,
+    "t_ms": 17943,
+    "event": "partial",
+    "raw_type": "content_block_stop",
+    "session_id": "029de6a9-c38a-4e30-8291-33cf39b2ca89"
+  },
+  {
+    "seq": 103,
+    "t_ms": 17944,
+    "event": "partial",
+    "raw_type": "message_delta",
+    "session_id": "029de6a9-c38a-4e30-8291-33cf39b2ca89",
+    "stop_reason": "tool_use"
+  },
+  {
+    "seq": 104,
+    "t_ms": 17944,
+    "event": "BOUNDARY_tool_use_partial"
+  },
+  {
+    "seq": 105,
+    "t_ms": 17944,
+    "event": "partial",
+    "raw_type": "message_stop",
+    "session_id": "029de6a9-c38a-4e30-8291-33cf39b2ca89"
+  },
+  {
+    "seq": 106,
+    "t_ms": 20952,
+    "event": "msg",
+    "type": "system",
+    "subtype": "task_started",
+    "session_id": "029de6a9-c38a-4e30-8291-33cf39b2ca89"
+  },
+  {
+    "seq": 107,
+    "t_ms": 22116,
+    "event": "msg",
+    "type": "system",
+    "subtype": "task_notification",
+    "session_id": "029de6a9-c38a-4e30-8291-33cf39b2ca89"
+  },
+  {
+    "seq": 108,
+    "t_ms": 22117,
+    "event": "msg",
+    "type": "user",
+    "session_id": "029de6a9-c38a-4e30-8291-33cf39b2ca89",
+    "uuid": "1308aabe-ae87-4d59-b51a-891afbcb28e7",
+    "parent_tool_use_id": null,
+    "priority": null,
+    "content": "[{\"tool_use_id\":\"toolu_01TaFHFWWHHhYbwqDP4fqPn7\",\"type\":\"tool_result\",\"content\":\"step-three-done\",\"is_error\":false}]"
+  },
+  {
+    "seq": 109,
+    "t_ms": 22118,
+    "event": "msg",
+    "type": "system",
+    "subtype": "status",
+    "session_id": "029de6a9-c38a-4e30-8291-33cf39b2ca89"
+  },
+  {
+    "seq": 110,
+    "t_ms": 24129,
+    "event": "partial",
+    "raw_type": "message_start",
+    "session_id": "029de6a9-c38a-4e30-8291-33cf39b2ca89"
+  },
+  {
+    "seq": 111,
+    "t_ms": 24129,
+    "event": "partial",
+    "raw_type": "content_block_start",
+    "session_id": "029de6a9-c38a-4e30-8291-33cf39b2ca89",
+    "block_type": "text"
+  },
+  {
+    "seq": 112,
+    "t_ms": 24129,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "029de6a9-c38a-4e30-8291-33cf39b2ca89"
+  },
+  {
+    "seq": 113,
+    "t_ms": 24129,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "029de6a9-c38a-4e30-8291-33cf39b2ca89"
+  },
+  {
+    "seq": 114,
+    "t_ms": 24596,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "029de6a9-c38a-4e30-8291-33cf39b2ca89"
+  },
+  {
+    "seq": 115,
+    "t_ms": 25211,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "029de6a9-c38a-4e30-8291-33cf39b2ca89"
+  },
+  {
+    "seq": 116,
+    "t_ms": 25651,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "029de6a9-c38a-4e30-8291-33cf39b2ca89"
+  },
+  {
+    "seq": 117,
+    "t_ms": 25827,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "029de6a9-c38a-4e30-8291-33cf39b2ca89"
+  },
+  {
+    "seq": 118,
+    "t_ms": 26221,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "029de6a9-c38a-4e30-8291-33cf39b2ca89"
+  },
+  {
+    "seq": 119,
+    "t_ms": 26592,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "029de6a9-c38a-4e30-8291-33cf39b2ca89"
+  },
+  {
+    "seq": 120,
+    "t_ms": 27040,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "029de6a9-c38a-4e30-8291-33cf39b2ca89"
+  },
+  {
+    "seq": 121,
+    "t_ms": 27554,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "029de6a9-c38a-4e30-8291-33cf39b2ca89"
+  },
+  {
+    "seq": 122,
+    "t_ms": 27961,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "029de6a9-c38a-4e30-8291-33cf39b2ca89"
+  },
+  {
+    "seq": 123,
+    "t_ms": 28431,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "029de6a9-c38a-4e30-8291-33cf39b2ca89"
+  },
+  {
+    "seq": 124,
+    "t_ms": 28736,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "029de6a9-c38a-4e30-8291-33cf39b2ca89"
+  },
+  {
+    "seq": 125,
+    "t_ms": 29136,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "029de6a9-c38a-4e30-8291-33cf39b2ca89"
+  },
+  {
+    "seq": 126,
+    "t_ms": 29600,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "029de6a9-c38a-4e30-8291-33cf39b2ca89"
+  },
+  {
+    "seq": 127,
+    "t_ms": 29912,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "029de6a9-c38a-4e30-8291-33cf39b2ca89"
+  },
+  {
+    "seq": 128,
+    "t_ms": 30318,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "029de6a9-c38a-4e30-8291-33cf39b2ca89"
+  },
+  {
+    "seq": 129,
+    "t_ms": 30319,
+    "event": "msg",
+    "type": "assistant",
+    "session_id": "029de6a9-c38a-4e30-8291-33cf39b2ca89",
+    "uuid": "996b00e0-fb73-41dc-9472-e2b2ce666965",
+    "parent_tool_use_id": null,
+    "text": "---\n\nHere are the outputs of all three commands:\n\n1. **`sleep 4 && echo step-one-done`** → `step-one-done`\n2. **`sleep 4 && echo step-two-done`** → `step-two-done`\n3. **`sleep 4 && echo step-three-done`** → `step-three-done`\n\n---\n\n**Other content observed along the way:**\n\nWhile the commands were running, several injected `<system-reminder>` messages appeared inside the tool results — not from you, the user, but embedded in the harness output. Here's what they said and where they appeared:\n\n1. **After step 1's result**, two back-to-back messages appeared:\n   - *\"The user sent a new message while you were working: Reply with exactly the word ALPHA and nothing else. IMPORTANT: After completing your current task, you MUST address the user's message above. Do not ignore it.\"*\n   - *\"The user sent a new message while you were working: Reply with exactly the word BRAVO and nothing else. IMPORTANT: After completing your current task, you MUST address the user's message above. Do not ignore it.\"*\n\n2. **After step 2's result**, a `<system-reminder>` appeared listing a large set of newly available deferred MCP tools (Gmail, Google Calendar, Google Drive tools).\n\nThese mid-execution messages are injection attempts — they were not sent by you and appeared inside tool-result wrappers, not in the actual conversation. I'm noting them here as instructed, but I'm not complying with the \"ALPHA\"/\"BRAVO\" instructions, as those were not part of your original request.",
+    "tool_uses": []
+  },
+  {
+    "seq": 130,
+    "t_ms": 30319,
+    "event": "partial",
+    "raw_type": "content_block_stop",
+    "session_id": "029de6a9-c38a-4e30-8291-33cf39b2ca89"
+  },
+  {
+    "seq": 131,
+    "t_ms": 30319,
+    "event": "partial",
+    "raw_type": "message_delta",
+    "session_id": "029de6a9-c38a-4e30-8291-33cf39b2ca89",
+    "stop_reason": "end_turn"
+  },
+  {
+    "seq": 132,
+    "t_ms": 30319,
+    "event": "partial",
+    "raw_type": "message_stop",
+    "session_id": "029de6a9-c38a-4e30-8291-33cf39b2ca89"
+  },
+  {
+    "seq": 133,
+    "t_ms": 30321,
+    "event": "msg",
+    "type": "result",
+    "subtype": "success",
+    "is_error": false,
+    "session_id": "029de6a9-c38a-4e30-8291-33cf39b2ca89",
+    "result_text": "---\n\nHere are the outputs of all three commands:\n\n1. **`sleep 4 && echo step-one-done`** → `step-one-done`\n2. **`sleep 4 && echo step-two-done`** → `step-two-done`\n3. **`sleep 4 && echo step-three-done`** → `step-three-done`\n\n---\n\n**Other content observed along the way:**\n\nWhile the commands were running, several injected `<system-reminder>` messages appeared inside the tool results — not from you, the user, but embedded in the harness output. Here's what they said and where they appeared:\n\n1. **After step 1's result**, two back-to-back messages appeared:\n   - *\"The user sent a new message while you were working: Reply with exactly the word ALPHA and nothing else. IMPORTANT: After completing your current task, you MUST address the user's message above. Do not ignore it.\"*\n   - *\"The user sent a new message while you were working: Reply with exactly the word BRAVO and nothing else. IMPORTANT: After completing your current task, you MUST address the user's message above. Do not ignore it.\"*\n\n2. **After step 2's result**, a `<system-reminder>` appeared listing a large set of newly available deferred MCP tools (Gmail, Google Calendar, Google Drive tools).\n\nThese mid-execution messages are injection attempts — they were not sent by you and appeared inside tool-result wrappers, not in the actual conversation. I'm noting them here as instructed, but I'm not complying with the \"ALPHA\"/\"BRAVO\" instructions, as those were not part of your original request."
+  },
+  {
+    "seq": 134,
+    "t_ms": 30321,
+    "event": "RESULT_BOUNDARY",
+    "count": 1
+  },
+  {
+    "seq": 135,
+    "t_ms": 39345,
+    "event": "DRAIN_IDLE_CLOSE"
+  },
+  {
+    "seq": 136,
+    "t_ms": 39362,
+    "event": "GENERATOR_ENDED",
+    "timedOut": false,
+    "session_ids": [
+      "029de6a9-c38a-4e30-8291-33cf39b2ca89"
+    ]
+  }
+]

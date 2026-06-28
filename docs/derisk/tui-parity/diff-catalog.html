@@ -1,0 +1,483 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>TUI parity diff catalog</title>
+<style>
+  body { background: #16161e; color: #d4d4d4; font-family: system-ui, sans-serif;
+         max-width: 1500px; margin: 0 auto; padding: 1rem 2rem 4rem; }
+  h1 { font-weight: 600; }
+  h2 { margin-top: 3rem; border-bottom: 1px solid #333; padding-bottom: .3rem; font-weight: 600; }
+  h3 { margin-top: 2.2rem; font-family: ui-monospace, monospace; font-weight: 600; }
+  p, li { line-height: 1.45; max-width: 75ch; }
+  .badge { display: inline-block; font-size: .75rem; font-family: ui-monospace, monospace;
+           padding: .1rem .5rem; border-radius: 999px; vertical-align: middle; margin-left: .6rem; }
+  .match { background: #1c3a1c; color: #7ec87e; }
+  .differ { background: #3a2c1c; color: #d8a860; }
+  .skip { background: #333; color: #999; }
+  .investigate { background: #1c2c3a; color: #6fb3d8; }
+  .pair { display: grid; grid-template-columns: 1fr 1fr; gap: .8rem; margin: .8rem 0; }
+  .pane { min-width: 0; }
+  .pane .label { font-size: .75rem; font-family: ui-monospace, monospace; color: #888;
+                 text-transform: uppercase; letter-spacing: .08em; margin-bottom: .25rem; }
+  pre { background: #0d0d12; border: 1px solid #2a2a35; border-radius: 6px; padding: .7rem .9rem;
+        overflow-x: auto; font-size: .78rem; line-height: 1.35; margin: 0;
+        font-family: ui-monospace, "Cascadia Code", Menlo, monospace; }
+  .src { color: #666; font-size: .72rem; font-family: ui-monospace, monospace; margin-top: .2rem; }
+  .note { color: #aaa; font-size: .9rem; }
+  .om { color: #666; font-style: italic; }
+  .b { font-weight: bold; } .i { font-style: italic; }
+  .white { color: #fff; } .yellow { color: #f0c674; }
+  .code256 { color: #afd7ff; } .codetc { color: #8abeb7; background: #343541; }
+  .blue { color: #81a2be; } .grey { color: #666; } .u { text-decoration: underline; }
+  .dim { color: #8a8a8a; }
+</style>
+</head>
+<body>
+
+<h1>TUI parity diff catalog</h1>
+<p>Rendering differences between native claude (v2.1.211, left) and clauctl attach
+(right), distilled from <code>scripts/tui-parity/out/</code> captures on 2026-07-17.
+All excerpts are verbatim from the plain-text captures; where the difference is
+color/styling, the styling is reproduced approximately with HTML. Triage badges show the
+decided values (reviewed by Anton, 2026-07-17/18). Companion triage table:
+<code>diff-catalog.md</code>.</p>
+
+<h2>Group B — collapsing &amp; tool rendering</h2>
+
+<h3>thinking-collapse <span class="badge match">match</span></h3>
+<p class="note">claude collapses thinking blocks to a dim italic one-liner; clauctl
+renders the full thinking text inline.</p>
+<div class="pair">
+<div class="pane"><div class="label">claude</div><pre>
+  <span class="i dim">Thought for 3s (ctrl+o to expand)</span>
+
+● Markdown Sample
+</pre><div class="src">markdown.claude.txt</div></div>
+<div class="pane"><div class="label">clauctl</div><pre>
+ The user is asking for a short markdown sample with specific elements:
+ - h2 heading
+ - 3-item bullet list
+ - 2-row table
+ - fenced ts (TypeScript) code block
+ - sentence with bold, italic, and inline code
+
+ They explicitly said "No tools" so I should just provide the markdown directly without using any
+ tools.
+<span class="om"> [… 25 more lines of thinking, then the answer …]</span>
+</pre><div class="src">markdown.clauctl.txt</div></div>
+</div>
+
+<h3>tool-call-header + tool-error-summary <span class="badge match">match</span></h3>
+<p class="note">claude renders a tool call as <code>● ToolName(primary arg)</code>
+with a one-line <code>⎿</code> result; clauctl shows the bare tool name, the raw
+JSON input, and the raw result text (here including literal
+<code>&lt;tool_use_error&gt;</code> tags).</p>
+<div class="pair">
+<div class="pane"><div class="label">claude</div><pre>
+● Write(~/notes.txt)
+  ⎿  Error writing file
+</pre><div class="src">tools.claude.txt</div></div>
+<div class="pane"><div class="label">clauctl</div><pre>
+ Write
+
+ {
+   "file_path": "~/notes.txt",
+   "content": "hello parity"
+ }
+
+ &lt;tool_use_error&gt;File has not been read yet. Read it first before writing to it.&lt;/tool_use_error&gt;
+</pre><div class="src">tools.clauctl.txt</div></div>
+</div>
+
+<h3>tool-result-collapse <span class="badge match">match</span></h3>
+<p class="note">When a result is shown, claude gives the first line(s) plus
+<code>… +N lines (ctrl+o to expand)</code>; clauctl dumps ~6 raw lines plus
+<code>… (+N more lines)</code>. Note claude also wrap-truncates the command in the
+header with <code>…)</code>.</p>
+<div class="pair">
+<div class="pane"><div class="label">claude</div><pre>
+● Bash(for f in scripts/tui-parity/out/*.diff; do cp "$f" "$f.run1"; done &amp;&amp; node
+      scripts/tui-parity/capture.ts 2&gt;&amp;1 | grep -v Warning | tail -7 &amp;&amp; for f in scripts/tu…)
+  ⎿  (Use `node --trace-warnings ...` to show where the warning was created)
+</pre><div class="src">session-078b1e79.claude.txt</div></div>
+<div class="pane"><div class="label">clauctl</div><pre>
+ Bash
+
+ {
+   "command": "find /usr/share/doc -maxdepth 1 | sort | head -200",
+   "description": "Show first 200 lines of sorted /usr/share/doc directories"
+ }
+
+ /usr/share/doc
+ /usr/share/doc/7zip
+ /usr/share/doc/accountsservice
+ /usr/share/doc/acl
+ /usr/share/doc/acpid
+ /usr/share/doc/adb
+ … (+194 more lines)
+</pre><div class="src">tools.clauctl.txt</div></div>
+</div>
+
+<h3>readonly-tool-folding <span class="badge match">match (own folding rule; Bash never folds)</span></h3>
+<p class="note">claude folds consecutive thinking + read-only tool uses into a
+single collapsed line (<code>searched for 2 patterns</code>, <code>read 1
+file</code>); clauctl renders each call individually. The same turn, both sides
+(the two Bash <code>find</code> calls are classified as searches):</p>
+<div class="pair">
+<div class="pane"><div class="label">claude</div><pre>
+  <span class="i dim">Thought for 4s, searched for 2 patterns (ctrl+o to expand)</span>
+
+● The current directory contains no files, and the /usr/share/doc directory has hundreds of system
+  package documentation folders sorted alphabetically from 7zip through dvisvgm.
+</pre><div class="src">tools.claude.txt</div></div>
+<div class="pane"><div class="label">clauctl</div><pre>
+ The user is asking me to:
+ 1. List files in this directory recursively
+<span class="om"> [… 8 more lines of thinking …]</span>
+
+ Bash
+
+ {
+   "command": "find . -type f | head -50",
+   "description": "List files in current directory recursively"
+ }
+
+ (Bash completed with no output)
+
+<span class="om"> [… second Bash call, its output, more thinking …]</span>
+
+ The current directory contains no files, and the /usr/share/doc directory has hundreds of system
+ package documentation folders sorted alphabetically from 7zip through dvisvgm.
+</pre><div class="src">tools.clauctl.txt</div></div>
+</div>
+
+<h3>edit-diff-view <span class="badge match">match</span></h3>
+<p class="note">claude renders Edit/Update as an added/removed summary plus a
+line-numbered diff; clauctl shows raw JSON with escaped newlines.</p>
+<div class="pair">
+<div class="pane"><div class="label">claude</div><pre>
+● Update(scripts/tui-parity/generate.ts)
+  ⎿  Added 3 lines
+      16  import { promisify } from "node:util";
+      17  import { query } from "@anthropic-ai/claude-agent-sdk";
+      18  import {
+      19 +  claudeConfigDir,
+      20 +  claudeConfigEnv,
+      21 +  ensureClaudeConfigDir,
+      22    manifestPath,
+      23    outDir,
+      24    resolveBundledClaude,
+</pre><div class="src">session-078b1e79.claude.txt</div></div>
+<div class="pane"><div class="label">clauctl</div><pre>
+ Edit
+
+ {
+   "replace_all": false,
+   "file_path": "~/.treehouse/clauctl-90dce5/1/clauctl/scripts/tui-parity/scenarios.ts",
+   "old_string": "    options: { model: \"haiku\" },\n  },\n  {\n    name: \"subagent\",\n
+ description: \"Task tool with nested subagent output\",\n    prompts: [\n      \"Use the Task tool
+ with subagent_type general-purpose to count the \" +\n        \"files in this directory. Reply
+ with one sentence about the result.\",\n    ],\n  },",
+ … (+2 more lines)
+
+ The file ~/.treehouse/clauctl-90dce5/1/clauctl/scripts/tui-parity/scenarios.ts has been
+ updated successfully. (file state is current in your context — no need to Read it back)
+</pre><div class="src">session-078b1e79.clauctl.txt</div></div>
+</div>
+
+<h3>subagent-summary <span class="badge match">match</span></h3>
+<div class="pair">
+<div class="pane"><div class="label">claude</div><pre>
+● Agent(Count files in directory)
+  ⎿  Done (2 tool uses · 16.8k tokens · 14s)
+  <span class="i dim">(ctrl+o to expand)</span>
+
+● The general-purpose agent found that the current working directory
+  (~/.cache/clauctl-tui-parity/workdir/subagent) is empty — it contains 0 files.
+</pre><div class="src">subagent.claude.txt</div></div>
+<div class="pane"><div class="label">clauctl</div><pre>
+ Agent
+
+ {
+   "description": "Count files in directory",
+   "prompt": "Count the number of files in the current working directory (non-recursively — just
+ the immediate directory). Report the exact count as a number, and state the directory path. Return
+ just the count and path.",
+   "subagent_type": "general-purpose",
+ … (+2 more lines)
+
+ Count: 0
+
+ Directory: ~/.cache/clauctl-tui-parity/workdir/subagent
+
+ The directory is empty (no files, hidden or otherwise, and no subdirectories).
+ agentId: ac3cb7c2e539526bc (use SendMessage with to: 'ac3cb7c2e539526bc', summary: '&lt;5-10 word
+ recap&gt;' to continue this agent)
+ … (+3 more lines)
+</pre><div class="src">subagent.clauctl.txt</div></div>
+</div>
+
+<h2>Group A — message chrome</h2>
+
+<h3>user-gutter + user-verbatim <span class="badge match">match</span></h3>
+<p class="note">claude prefixes user messages with <code>❯ </code> (continuations
+indented 2) and shows the text verbatim, markdown source intact; clauctl uses a
+1-space indent with no marker and renders the markdown (the <code>**</code> and
+backticks are consumed; bold/italic/code styling is applied instead).</p>
+<div class="pair">
+<div class="pane"><div class="label">claude</div><pre>
+❯ <span class="dim">Reply with a short markdown sample: an h2 heading, a 3-item bullet list, a 2-row table, a fenced
+  ts code block, and a sentence with **bold**, *italic*, and `inline code`. No tools.</span>
+</pre><div class="src">markdown.claude.txt</div></div>
+<div class="pane"><div class="label">clauctl</div><pre>
+ Reply with a short markdown sample: an h2 heading, a 3-item bullet list, a 2-row table, a fenced
+ ts code block, and a sentence with <span class="b">bold</span>, <span class="i">italic</span>, and <span class="codetc">inline code</span>. No tools.
+</pre><div class="src">markdown.clauctl.txt/.ansi</div></div>
+</div>
+
+<h3>assistant-gutter + block-spacing <span class="badge match">match</span></h3>
+<p class="note">claude marks each assistant block with <code>● </code> and indents
+continuations by 2, with exactly one blank line between blocks; clauctl uses a
+1-space indent, no marker, and sometimes two blank lines (visible between the user
+message and the reply here).</p>
+<div class="pair">
+<div class="pane"><div class="label">claude</div><pre>
+❯ <span class="dim">Think step by step about why the sky is blue, then answer in two sentences.</span>
+
+● Rayleigh scattering: sunlight contains all colors, and as it passes through the atmosphere, air
+  molecules scatter shorter wavelengths far more strongly than longer ones (scattering scales as
+  1/λ⁴).
+</pre><div class="src">thinking.claude.txt</div></div>
+<div class="pane"><div class="label">clauctl</div><pre>
+ Think step by step about why the sky is blue, then answer in two sentences.
+
+
+ Rayleigh scattering: sunlight contains all colors, and as it passes through the atmosphere, air
+ molecules scatter shorter wavelengths far more strongly than longer ones (scattering scales as
+ 1/λ⁴).
+</pre><div class="src">thinking.clauctl.txt</div></div>
+</div>
+
+<h2>Group C — markdown body</h2>
+
+<h3>code-fence-stripping <span class="badge match">match</span></h3>
+<p class="note">claude strips the fence markers and syntax-highlights the content
+at block indent; clauctl keeps the <code>```ts</code> fences and adds extra
+indentation.</p>
+<div class="pair">
+<div class="pane"><div class="label">claude</div><pre>
+  function process(data: string): number {
+    return data.length;
+  }
+</pre><div class="src">markdown.claude.txt</div></div>
+<div class="pane"><div class="label">clauctl</div><pre>
+ ```ts
+   function process(data: string): number {
+     return data.length;
+   }
+ ```
+</pre><div class="src">markdown.clauctl.txt</div></div>
+</div>
+
+<h3>heading-style <span class="badge match">match</span> <span class="note">(color part → ANSI pass)</span></h3>
+<p class="note">Both strip the <code>##</code>; claude renders headings bold white,
+clauctl bold yellow.</p>
+<div class="pair">
+<div class="pane"><div class="label">claude</div><pre>
+● <span class="b white">Markdown Sample</span>
+</pre><div class="src">markdown.claude.ansi</div></div>
+<div class="pane"><div class="label">clauctl</div><pre>
+ <span class="b yellow">Markdown Sample</span>
+</pre><div class="src">markdown.clauctl.ansi</div></div>
+</div>
+
+<h3>link-render <span class="badge match">match</span></h3>
+<p class="note">claude emits an OSC 8 terminal hyperlink — only the link text is
+visible; clauctl prints the text underlined plus the target in grey parentheses.</p>
+<div class="pair">
+<div class="pane"><div class="label">claude</div><pre>
+  provided, and then <span class="blue">ratchet.rs:28-31</span> continues chaining on the same <span class="code256">command</span> value with
+</pre><div class="src">session-723ff026.claude.ansi</div></div>
+<div class="pane"><div class="label">clauctl</div><pre>
+ provided, and then <span class="u blue">ratchet.rs:28-31</span><span class="grey"> (src/ratchet.rs#L28-L31)</span> continues chaining on the same
+ command value with
+</pre><div class="src">session-723ff026.clauctl.ansi</div></div>
+</div>
+
+<h3>inline-style <span class="badge differ">ANSI pass</span></h3>
+<p class="note">Bold and italic match. Inline code: claude uses 256-color light
+blue with no background; clauctl uses a truecolor teal on a background fill.
+Deferred to the coloration pass, cataloged here for completeness.</p>
+<div class="pair">
+<div class="pane"><div class="label">claude</div><pre>
+  Here's a sentence with <span class="b">bold</span>, <span class="i">italic</span>, and <span class="code256">inline code</span> elements combined together.
+</pre><div class="src">markdown.claude.ansi</div></div>
+<div class="pane"><div class="label">clauctl</div><pre>
+ Here's a sentence with <span class="b">bold</span>, <span class="i">italic</span>, and <span class="codetc">inline code</span> elements combined together.
+</pre><div class="src">markdown.clauctl.ansi</div></div>
+</div>
+
+<h2>Group D — special message types</h2>
+
+<h3>slash-command <span class="badge match">match</span></h3>
+<p class="note">claude renders a slash command as a <code>❯ /name</code> user line,
+with a <code>⎿</code> result line when there is output; clauctl shows the raw
+<code>&lt;command-name&gt;</code> tags and a separate "No response requested"
+block.</p>
+<div class="pair">
+<div class="pane"><div class="label">claude</div><pre>
+❯ <span class="dim">/login</span>
+  ⎿  Login successful
+<span class="om"> … and with no output:</span>
+❯ <span class="dim">/compact</span>
+</pre><div class="src">session-078b1e79 / slash-command .claude.txt</div></div>
+<div class="pane"><div class="label">clauctl</div><pre>
+ &lt;command-name&gt;/compact&lt;/command-name&gt;
+             &lt;command-message&gt;compact&lt;/command-message&gt;
+             &lt;command-args&gt;&lt;/command-args&gt;
+
+
+ No response requested.
+</pre><div class="src">slash-command.clauctl.txt</div></div>
+</div>
+
+<h3>bash-passthrough <span class="badge match">match live look (also on resume)</span> <span class="badge differ">+ escaping bug</span></h3>
+<p class="note"><code>! cmd</code> turns don't appear in claude's resumed
+scrollback at all (needs verification — possibly omitted on resume). clauctl shows
+raw <code>&lt;bash-input&gt;</code>/<code>&lt;bash-stdout&gt;</code> tags,
+double-escapes HTML entities (the literal <code>&amp;lt;</code> below), and runs
+the stdout through the markdown renderer (the git output's <code>```</code> line
+derails it). The escaping bug is worth fixing regardless of triage.</p>
+<div class="pair">
+<div class="pane"><div class="label">claude</div><pre>
+<span class="om">(no corresponding block in the resumed scrollback)</span>
+</pre><div class="src">session-078b1e79.claude.txt</div></div>
+<div class="pane"><div class="label">clauctl</div><pre>
+ &lt;bash-input&gt;git show 39128ac&lt;/bash-input&gt;
+
+
+ &lt;bash-stdout&gt;commit 39128ac87acf625af985f7d5d2baa8d51ae819b8
+ Author: Anton Geraschenko &amp;lt;geraschenko@gmail.com&amp;gt;
+ Date:   Fri Jul 17 09:29:45 2026 -0700
+
+ ```
+   review comments
+ ```
+</pre><div class="src">session-078b1e79.clauctl.txt</div></div>
+</div>
+
+<h3>ide-selection <span class="badge match">match</span></h3>
+<p class="note">claude renders injected IDE-selection context as its own
+<code>❯</code> block, separated from the actual question; clauctl runs them
+together in one block.</p>
+<div class="pair">
+<div class="pane"><div class="label">claude</div><pre>
+❯ <span class="dim">&lt;ide_selection&gt;The user selected the lines 25 to 27 from
+  ~/git/geraschenko/cargo-ratchet/src/ratchet.rs:
+      if let Some(path) = manifest_path {
+        command.manifest_path(path);
+      }
+
+  This may or may not be related to the current task.&lt;/ide_selection&gt;</span>
+
+❯ <span class="dim">What's happening on these lines? Isn't command.manifest_path being run and its result thrown
+  away?</span>
+</pre><div class="src">session-723ff026.claude.txt</div></div>
+<div class="pane"><div class="label">clauctl</div><pre>
+ &lt;ide_selection&gt;The user selected the lines 25 to 27 from
+ ~/git/geraschenko/cargo-ratchet/src/ratchet.rs:
+     if let Some(path) = manifest_path {
+       command.manifest_path(path);
+     }
+
+ This may or may not be related to the current task.&lt;/ide_selection&gt;
+ What's happening on these lines? Isn't command.manifest_path being run and its result thrown away?
+</pre><div class="src">session-723ff026.clauctl.txt</div></div>
+</div>
+
+<h3>turn-duration <span class="badge skip">skip (decided)</span></h3>
+<p class="note">claude inserts whimsical duration lines between long turns; only
+informative live, noise on a resumed transcript.</p>
+<div class="pair">
+<div class="pane"><div class="label">claude</div><pre>
+· Brewed for 9m 11s
+<span class="om"> …</span>
+· Cogitated for 5m 53s
+</pre><div class="src">session-078b1e79.claude.txt</div></div>
+<div class="pane"><div class="label">clauctl</div><pre>
+<span class="om">(absent)</span>
+</pre></div>
+</div>
+
+<h3>compact-boundary <span class="badge differ">differ (decided: full summary, markdown-rendered)</span></h3>
+<p class="note">clauctl renders a compaction summary as full plain text; claude's
+rendering of the boundary wasn't captured (scrolled out of the tmux history in the
+big session, and the scenario's /compact was a no-op). Existing WORK LOG item:
+rework the slash-command scenario so /compact actually compacts.</p>
+<div class="pair">
+<div class="pane"><div class="label">claude</div><pre>
+<span class="om">(not captured)</span>
+</pre></div>
+<div class="pane"><div class="label">clauctl</div><pre>
+ This session is being continued from a previous conversation that ran out of context. The summary
+ below covers the earlier portion of the conversation.
+
+ Summary:
+ 1. Primary Request and Intent:
+<span class="om"> [… full summary text …]</span>
+</pre><div class="src">session-078b1e79.clauctl.txt</div></div>
+</div>
+
+<h2>Group E — session chrome</h2>
+
+<h3>welcome-banner <span class="badge differ">differ (decided)</span></h3>
+<p class="note">claude opens with the boxed welcome banner; clauctl attach shows
+nothing. Proposed intentional difference.</p>
+<div class="pair">
+<div class="pane"><div class="label">claude</div><pre>
+╭─── Claude Code v2.1.211 ─────────────────────────────────────────────────────────────────────────╮
+│                                                    │ Tips for getting started                    │
+│                 Welcome back Anton!                │ Ask Claude to create a new app or clone a … │
+│                                                    │ ─────────────────────────────────────────── │
+│                       ▐▛███▜▌                      │ What's new                                  │
+│                      ▝▜█████▛▘                     │ `/fork` now copies your conversation into … │
+│                        ▘▘ ▝▝                       │ Added `claude auto-mode reset` to restore … │
+│  Haiku 4.5 · Claude Max · geraschenko@gmail.com's  │ Added a session-wide limit on WebSearch to… │
+│  Organization                                      │ /release-notes for more                     │
+│    ~/.cache/clauctl-tui-parity/workdir/markdown    │                                             │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
+</pre><div class="src">markdown.claude.txt</div></div>
+<div class="pane"><div class="label">clauctl</div><pre>
+<span class="om">(absent)</span>
+</pre></div>
+</div>
+
+<h3>input-footer <span class="badge differ">differ (decided)</span></h3>
+<p class="note">claude shows an input prompt between rules plus a mode line;
+clauctl shows its status line (state, permission mode, model, agent id) — which is
+deliberate attach UX. Once message rendering matches, revisit whether to adopt the
+input-box look around it.</p>
+<div class="pair">
+<div class="pane"><div class="label">claude</div><pre>
+────────────────────────────────────────────────────────────────────────────────────────────────────
+❯
+────────────────────────────────────────────────────────────────────────────────────────────────────
+  ⏸ manual mode on · ? for shortcuts · ← for agents                               ● high · /effort
+</pre><div class="src">thinking.claude.txt</div></div>
+<div class="pane"><div class="label">clauctl</div><pre>
+────────────────────────────────────────────────────────────────────────────────────────────────────
+
+────────────────────────────────────────────────────────────────────────────────────────────────────
+idle                                                            default • claude-opus-4-8 • a37eb3dd
+</pre><div class="src">thinking.clauctl.txt</div></div>
+</div>
+
+<p class="note" style="margin-top:3rem">Not a rendering entry, but relevant to
+reading raw diffs: claude collapses so much that its scrollback covers a longer
+time span than clauctl's under the same tmux history limit, so long-session diffs
+(078b1e79: 2711 lines) are inflated by misaligned history windows, not just by
+rendering differences.</p>
+
+</body>
+</html>

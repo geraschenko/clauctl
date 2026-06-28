@@ -1,0 +1,1 @@
+When set-context uses multiple consecutive (real) user messages, the model seems to only see the last of them. Figure out what the loader behavior actually is and compensate for it. Maybe use the same trick that native compaction does, which is to add an assistant message saying "no response needed" after user messages.

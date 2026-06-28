@@ -1,0 +1,640 @@
+[
+  {
+    "seq": 0,
+    "t_ms": 4,
+    "event": "SCENARIO",
+    "label": "x_none_notool",
+    "mechanism": "iterable",
+    "injections": [
+      {
+        "text": "Reply with exactly the word ALPHA and nothing else."
+      }
+    ]
+  },
+  {
+    "seq": 1,
+    "t_ms": 219,
+    "event": "msg",
+    "type": "system",
+    "subtype": "init",
+    "session_id": "5dd80160-d026-48b8-9ecc-d938796a17e8"
+  },
+  {
+    "seq": 2,
+    "t_ms": 219,
+    "event": "msg",
+    "type": "system",
+    "subtype": "status",
+    "session_id": "5dd80160-d026-48b8-9ecc-d938796a17e8"
+  },
+  {
+    "seq": 3,
+    "t_ms": 7608,
+    "event": "partial",
+    "raw_type": "message_start",
+    "session_id": "5dd80160-d026-48b8-9ecc-d938796a17e8"
+  },
+  {
+    "seq": 4,
+    "t_ms": 7608,
+    "event": "partial",
+    "raw_type": "content_block_start",
+    "session_id": "5dd80160-d026-48b8-9ecc-d938796a17e8",
+    "block_type": "thinking"
+  },
+  {
+    "seq": 5,
+    "t_ms": 7608,
+    "event": "msg",
+    "type": "system",
+    "subtype": "thinking_tokens",
+    "session_id": "5dd80160-d026-48b8-9ecc-d938796a17e8"
+  },
+  {
+    "seq": 6,
+    "t_ms": 7608,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "5dd80160-d026-48b8-9ecc-d938796a17e8"
+  },
+  {
+    "seq": 7,
+    "t_ms": 7608,
+    "event": "TEXT_TRIGGER"
+  },
+  {
+    "seq": 8,
+    "t_ms": 7608,
+    "event": "INJECT_START",
+    "mechanism": "iterable",
+    "count": 1,
+    "stage": "b0"
+  },
+  {
+    "seq": 9,
+    "t_ms": 7608,
+    "event": "INJECT",
+    "via": "iterable",
+    "text": "Reply with exactly the word ALPHA and nothing else.",
+    "priority": null,
+    "stage": "b0"
+  },
+  {
+    "seq": 10,
+    "t_ms": 7608,
+    "event": "INJECT_DONE",
+    "stage": "b0"
+  },
+  {
+    "seq": 11,
+    "t_ms": 7783,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "5dd80160-d026-48b8-9ecc-d938796a17e8"
+  },
+  {
+    "seq": 12,
+    "t_ms": 7840,
+    "event": "msg",
+    "type": "system",
+    "subtype": "thinking_tokens",
+    "session_id": "5dd80160-d026-48b8-9ecc-d938796a17e8"
+  },
+  {
+    "seq": 13,
+    "t_ms": 7840,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "5dd80160-d026-48b8-9ecc-d938796a17e8"
+  },
+  {
+    "seq": 14,
+    "t_ms": 7847,
+    "event": "msg",
+    "type": "assistant",
+    "session_id": "5dd80160-d026-48b8-9ecc-d938796a17e8",
+    "uuid": "ad765259-8478-4f2c-9ee4-9b6622bdfdaf",
+    "parent_tool_use_id": null,
+    "tool_uses": []
+  },
+  {
+    "seq": 15,
+    "t_ms": 7847,
+    "event": "partial",
+    "raw_type": "content_block_stop",
+    "session_id": "5dd80160-d026-48b8-9ecc-d938796a17e8"
+  },
+  {
+    "seq": 16,
+    "t_ms": 7847,
+    "event": "partial",
+    "raw_type": "content_block_start",
+    "session_id": "5dd80160-d026-48b8-9ecc-d938796a17e8",
+    "block_type": "text"
+  },
+  {
+    "seq": 17,
+    "t_ms": 7850,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "5dd80160-d026-48b8-9ecc-d938796a17e8"
+  },
+  {
+    "seq": 18,
+    "t_ms": 8324,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "5dd80160-d026-48b8-9ecc-d938796a17e8"
+  },
+  {
+    "seq": 19,
+    "t_ms": 8626,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "5dd80160-d026-48b8-9ecc-d938796a17e8"
+  },
+  {
+    "seq": 20,
+    "t_ms": 8950,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "5dd80160-d026-48b8-9ecc-d938796a17e8"
+  },
+  {
+    "seq": 21,
+    "t_ms": 9450,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "5dd80160-d026-48b8-9ecc-d938796a17e8"
+  },
+  {
+    "seq": 22,
+    "t_ms": 9731,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "5dd80160-d026-48b8-9ecc-d938796a17e8"
+  },
+  {
+    "seq": 23,
+    "t_ms": 10131,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "5dd80160-d026-48b8-9ecc-d938796a17e8"
+  },
+  {
+    "seq": 24,
+    "t_ms": 10516,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "5dd80160-d026-48b8-9ecc-d938796a17e8"
+  },
+  {
+    "seq": 25,
+    "t_ms": 10904,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "5dd80160-d026-48b8-9ecc-d938796a17e8"
+  },
+  {
+    "seq": 26,
+    "t_ms": 11290,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "5dd80160-d026-48b8-9ecc-d938796a17e8"
+  },
+  {
+    "seq": 27,
+    "t_ms": 11666,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "5dd80160-d026-48b8-9ecc-d938796a17e8"
+  },
+  {
+    "seq": 28,
+    "t_ms": 12111,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "5dd80160-d026-48b8-9ecc-d938796a17e8"
+  },
+  {
+    "seq": 29,
+    "t_ms": 12449,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "5dd80160-d026-48b8-9ecc-d938796a17e8"
+  },
+  {
+    "seq": 30,
+    "t_ms": 12841,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "5dd80160-d026-48b8-9ecc-d938796a17e8"
+  },
+  {
+    "seq": 31,
+    "t_ms": 13240,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "5dd80160-d026-48b8-9ecc-d938796a17e8"
+  },
+  {
+    "seq": 32,
+    "t_ms": 13648,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "5dd80160-d026-48b8-9ecc-d938796a17e8"
+  },
+  {
+    "seq": 33,
+    "t_ms": 13993,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "5dd80160-d026-48b8-9ecc-d938796a17e8"
+  },
+  {
+    "seq": 34,
+    "t_ms": 14467,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "5dd80160-d026-48b8-9ecc-d938796a17e8"
+  },
+  {
+    "seq": 35,
+    "t_ms": 14797,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "5dd80160-d026-48b8-9ecc-d938796a17e8"
+  },
+  {
+    "seq": 36,
+    "t_ms": 15287,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "5dd80160-d026-48b8-9ecc-d938796a17e8"
+  },
+  {
+    "seq": 37,
+    "t_ms": 15596,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "5dd80160-d026-48b8-9ecc-d938796a17e8"
+  },
+  {
+    "seq": 38,
+    "t_ms": 16024,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "5dd80160-d026-48b8-9ecc-d938796a17e8"
+  },
+  {
+    "seq": 39,
+    "t_ms": 16413,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "5dd80160-d026-48b8-9ecc-d938796a17e8"
+  },
+  {
+    "seq": 40,
+    "t_ms": 16790,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "5dd80160-d026-48b8-9ecc-d938796a17e8"
+  },
+  {
+    "seq": 41,
+    "t_ms": 17232,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "5dd80160-d026-48b8-9ecc-d938796a17e8"
+  },
+  {
+    "seq": 42,
+    "t_ms": 17577,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "5dd80160-d026-48b8-9ecc-d938796a17e8"
+  },
+  {
+    "seq": 43,
+    "t_ms": 17999,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "5dd80160-d026-48b8-9ecc-d938796a17e8"
+  },
+  {
+    "seq": 44,
+    "t_ms": 18461,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "5dd80160-d026-48b8-9ecc-d938796a17e8"
+  },
+  {
+    "seq": 45,
+    "t_ms": 18778,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "5dd80160-d026-48b8-9ecc-d938796a17e8"
+  },
+  {
+    "seq": 46,
+    "t_ms": 19280,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "5dd80160-d026-48b8-9ecc-d938796a17e8"
+  },
+  {
+    "seq": 47,
+    "t_ms": 19602,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "5dd80160-d026-48b8-9ecc-d938796a17e8"
+  },
+  {
+    "seq": 48,
+    "t_ms": 19997,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "5dd80160-d026-48b8-9ecc-d938796a17e8"
+  },
+  {
+    "seq": 49,
+    "t_ms": 20343,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "5dd80160-d026-48b8-9ecc-d938796a17e8"
+  },
+  {
+    "seq": 50,
+    "t_ms": 20737,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "5dd80160-d026-48b8-9ecc-d938796a17e8"
+  },
+  {
+    "seq": 51,
+    "t_ms": 21226,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "5dd80160-d026-48b8-9ecc-d938796a17e8"
+  },
+  {
+    "seq": 52,
+    "t_ms": 21562,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "5dd80160-d026-48b8-9ecc-d938796a17e8"
+  },
+  {
+    "seq": 53,
+    "t_ms": 21912,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "5dd80160-d026-48b8-9ecc-d938796a17e8"
+  },
+  {
+    "seq": 54,
+    "t_ms": 22352,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "5dd80160-d026-48b8-9ecc-d938796a17e8"
+  },
+  {
+    "seq": 55,
+    "t_ms": 22750,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "5dd80160-d026-48b8-9ecc-d938796a17e8"
+  },
+  {
+    "seq": 56,
+    "t_ms": 23080,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "5dd80160-d026-48b8-9ecc-d938796a17e8"
+  },
+  {
+    "seq": 57,
+    "t_ms": 23521,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "5dd80160-d026-48b8-9ecc-d938796a17e8"
+  },
+  {
+    "seq": 58,
+    "t_ms": 23900,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "5dd80160-d026-48b8-9ecc-d938796a17e8"
+  },
+  {
+    "seq": 59,
+    "t_ms": 24401,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "5dd80160-d026-48b8-9ecc-d938796a17e8"
+  },
+  {
+    "seq": 60,
+    "t_ms": 24810,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "5dd80160-d026-48b8-9ecc-d938796a17e8"
+  },
+  {
+    "seq": 61,
+    "t_ms": 25105,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "5dd80160-d026-48b8-9ecc-d938796a17e8"
+  },
+  {
+    "seq": 62,
+    "t_ms": 25528,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "5dd80160-d026-48b8-9ecc-d938796a17e8"
+  },
+  {
+    "seq": 63,
+    "t_ms": 25888,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "5dd80160-d026-48b8-9ecc-d938796a17e8"
+  },
+  {
+    "seq": 64,
+    "t_ms": 26345,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "5dd80160-d026-48b8-9ecc-d938796a17e8"
+  },
+  {
+    "seq": 65,
+    "t_ms": 26755,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "5dd80160-d026-48b8-9ecc-d938796a17e8"
+  },
+  {
+    "seq": 66,
+    "t_ms": 27176,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "5dd80160-d026-48b8-9ecc-d938796a17e8"
+  },
+  {
+    "seq": 67,
+    "t_ms": 27184,
+    "event": "msg",
+    "type": "assistant",
+    "session_id": "5dd80160-d026-48b8-9ecc-d938796a17e8",
+    "uuid": "68cc8dff-ac69-4850-aaad-cd02b5ce4ae6",
+    "parent_tool_use_id": null,
+    "text": "1. Every journey begins with a single step, though the destination is rarely what we imagined.\n2. Two sides to every story — and usually a third we haven't thought to ask about.\n3. Three is the number of things I forget I needed from the kitchen every single time.\n4. Four seasons remind us that change is not loss, but rhythm.\n5. Five senses are enough to experience a universe, if we remember to pay attention.\n6. Six degrees of separation suggest we are all already neighbors.\n7. Seven days in a week — enough time to either waste or transform something.\n8. Eight hours of sleep sounds simple, yet remains one of the great uncompleted projects.\n9. Nine lives may be a cat's gift, but we only need one well-lived.\n10. Ten feels like an arrival, though nothing is different from nine.\n11. Eleven is the age when you first suspect that adults don't have it figured out either.\n12. Twelve months pass faster each year, as if time learns to run by watching us.\n13. Thirteen gets a bad reputation it probably doesn't deserve.\n14. Fourteen is that strange hallway between childhood and wherever it is you're going.\n15. Fifteen minutes, Warhol said — though most of us would trade it for lasting quiet.\n16. Sixteen is old enough to feel everything and young enough to survive it.\n17. Seventeen is a prime number and also the age when everything feels urgent and rare.\n18. Eighteen carries a sudden weight of freedom nobody warned you would feel so heavy.\n19. Nineteen is the year you realize your hometown is smaller than you thought.\n20. Twenty years of living and you are only beginning to understand what questions to ask.\n21. Twenty-one: society hands you a drink to toast an adulthood you're still assembling.\n22. Twenty-two is underrated — uncertain enough to be interesting, free enough to be bold.\n23. Twenty-three pairs of chromosomes carry everything you are and everything you might become.\n24. Twenty-four hours in a day, and somehow kindness always seems to fit if you make room.\n25. Twenty-five feels like a checkpoint at which everyone expects a report you haven't written.\n26. Twenty-six letters in the alphabet — and with them, every human thought ever expressed.\n27. Twenty-seven is the age of the infamous club, and also just a Thursday for most of us.\n28. Twenty-eight days in February, that quiet month that doesn't overstay its welcome.\n29. Twenty-nine is often spent bracing for thirty, when thirty turns out to be rather fine.\n30. Thirty arrives and the things you worried about look smaller from this altitude.\n31. Thirty-one flavors, and still most of us return to the same two or three.\n32. Thirty-two teeth at full count — small tools that let us eat, speak, and smile our way through life.\n33. Thirty-three was the age of many beginnings disguised as endings.\n34. Thirty-four is a quiet number, solid and unhurried, like a Wednesday afternoon.\n35. Thirty-five: old enough to know better, young enough to try it anyway.\n36. Thirty-six is six squared — a reminder that foundations, laid early, multiply.\n37. Thirty-seven has a slight prime-number confidence about it, unbothered by divisibility.\n38. Thirty-eight years ago today, someone somewhere made a decision that changed everything without knowing it.\n39. Thirty-nine has one foot in the decade it knows and one eye on the one ahead.\n40. Forty is not the end of youth — it is the beginning of not caring what youth thinks of you.",
+    "tool_uses": []
+  },
+  {
+    "seq": 68,
+    "t_ms": 27184,
+    "event": "partial",
+    "raw_type": "content_block_stop",
+    "session_id": "5dd80160-d026-48b8-9ecc-d938796a17e8"
+  },
+  {
+    "seq": 69,
+    "t_ms": 27226,
+    "event": "partial",
+    "raw_type": "message_delta",
+    "session_id": "5dd80160-d026-48b8-9ecc-d938796a17e8",
+    "stop_reason": "end_turn"
+  },
+  {
+    "seq": 70,
+    "t_ms": 27226,
+    "event": "partial",
+    "raw_type": "message_stop",
+    "session_id": "5dd80160-d026-48b8-9ecc-d938796a17e8"
+  },
+  {
+    "seq": 71,
+    "t_ms": 27227,
+    "event": "msg",
+    "type": "rate_limit_event",
+    "session_id": "5dd80160-d026-48b8-9ecc-d938796a17e8"
+  },
+  {
+    "seq": 72,
+    "t_ms": 27228,
+    "event": "msg",
+    "type": "result",
+    "subtype": "success",
+    "is_error": false,
+    "session_id": "5dd80160-d026-48b8-9ecc-d938796a17e8",
+    "result_text": "1. Every journey begins with a single step, though the destination is rarely what we imagined.\n2. Two sides to every story — and usually a third we haven't thought to ask about.\n3. Three is the number of things I forget I needed from the kitchen every single time.\n4. Four seasons remind us that change is not loss, but rhythm.\n5. Five senses are enough to experience a universe, if we remember to pay attention.\n6. Six degrees of separation suggest we are all already neighbors.\n7. Seven days in a week — enough time to either waste or transform something.\n8. Eight hours of sleep sounds simple, yet remains one of the great uncompleted projects.\n9. Nine lives may be a cat's gift, but we only need one well-lived.\n10. Ten feels like an arrival, though nothing is different from nine.\n11. Eleven is the age when you first suspect that adults don't have it figured out either.\n12. Twelve months pass faster each year, as if time learns to run by watching us.\n13. Thirteen gets a bad reputation it probably doesn't deserve.\n14. Fourteen is that strange hallway between childhood and wherever it is you're going.\n15. Fifteen minutes, Warhol said — though most of us would trade it for lasting quiet.\n16. Sixteen is old enough to feel everything and young enough to survive it.\n17. Seventeen is a prime number and also the age when everything feels urgent and rare.\n18. Eighteen carries a sudden weight of freedom nobody warned you would feel so heavy.\n19. Nineteen is the year you realize your hometown is smaller than you thought.\n20. Twenty years of living and you are only beginning to understand what questions to ask.\n21. Twenty-one: society hands you a drink to toast an adulthood you're still assembling.\n22. Twenty-two is underrated — uncertain enough to be interesting, free enough to be bold.\n23. Twenty-three pairs of chromosomes carry everything you are and everything you might become.\n24. Twenty-four hours in a day, and somehow kindness always seems to fit if you make room.\n25. Twenty-five feels like a checkpoint at which everyone expects a report you haven't written.\n26. Twenty-six letters in the alphabet — and with them, every human thought ever expressed.\n27. Twenty-seven is the age of the infamous club, and also just a Thursday for most of us.\n28. Twenty-eight days in February, that quiet month that doesn't overstay its welcome.\n29. Twenty-nine is often spent bracing for thirty, when thirty turns out to be rather fine.\n30. Thirty arrives and the things you worried about look smaller from this altitude.\n31. Thirty-one flavors, and still most of us return to the same two or three.\n32. Thirty-two teeth at full count — small tools that let us eat, speak, and smile our way through life.\n33. Thirty-three was the age of many beginnings disguised as endings.\n34. Thirty-four is a quiet number, solid and unhurried, like a Wednesday afternoon.\n35. Thirty-five: old enough to know better, young enough to try it anyway.\n36. Thirty-six is six squared — a reminder that foundations, laid early, multiply.\n37. Thirty-seven has a slight prime-number confidence about it, unbothered by divisibility.\n38. Thirty-eight years ago today, someone somewhere made a decision that changed everything without knowing it.\n39. Thirty-nine has one foot in the decade it knows and one eye on the one ahead.\n40. Forty is not the end of youth — it is the beginning of not caring what youth thinks of you."
+  },
+  {
+    "seq": 73,
+    "t_ms": 27228,
+    "event": "RESULT_BOUNDARY",
+    "count": 1
+  },
+  {
+    "seq": 74,
+    "t_ms": 27230,
+    "event": "msg",
+    "type": "system",
+    "subtype": "init",
+    "session_id": "5dd80160-d026-48b8-9ecc-d938796a17e8"
+  },
+  {
+    "seq": 75,
+    "t_ms": 27230,
+    "event": "msg",
+    "type": "system",
+    "subtype": "status",
+    "session_id": "5dd80160-d026-48b8-9ecc-d938796a17e8"
+  },
+  {
+    "seq": 76,
+    "t_ms": 28749,
+    "event": "partial",
+    "raw_type": "message_start",
+    "session_id": "5dd80160-d026-48b8-9ecc-d938796a17e8"
+  },
+  {
+    "seq": 77,
+    "t_ms": 28749,
+    "event": "partial",
+    "raw_type": "content_block_start",
+    "session_id": "5dd80160-d026-48b8-9ecc-d938796a17e8",
+    "block_type": "text"
+  },
+  {
+    "seq": 78,
+    "t_ms": 28749,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "5dd80160-d026-48b8-9ecc-d938796a17e8"
+  },
+  {
+    "seq": 79,
+    "t_ms": 28750,
+    "event": "msg",
+    "type": "assistant",
+    "session_id": "5dd80160-d026-48b8-9ecc-d938796a17e8",
+    "uuid": "241ff7fc-5a4c-4de7-9f63-aec47923f396",
+    "parent_tool_use_id": null,
+    "text": "ALPHA",
+    "tool_uses": []
+  },
+  {
+    "seq": 80,
+    "t_ms": 28750,
+    "event": "partial",
+    "raw_type": "content_block_stop",
+    "session_id": "5dd80160-d026-48b8-9ecc-d938796a17e8"
+  },
+  {
+    "seq": 81,
+    "t_ms": 28750,
+    "event": "partial",
+    "raw_type": "message_delta",
+    "session_id": "5dd80160-d026-48b8-9ecc-d938796a17e8",
+    "stop_reason": "end_turn"
+  },
+  {
+    "seq": 82,
+    "t_ms": 28750,
+    "event": "partial",
+    "raw_type": "message_stop",
+    "session_id": "5dd80160-d026-48b8-9ecc-d938796a17e8"
+  },
+  {
+    "seq": 83,
+    "t_ms": 28751,
+    "event": "msg",
+    "type": "result",
+    "subtype": "success",
+    "is_error": false,
+    "session_id": "5dd80160-d026-48b8-9ecc-d938796a17e8",
+    "result_text": "ALPHA"
+  },
+  {
+    "seq": 84,
+    "t_ms": 28751,
+    "event": "RESULT_BOUNDARY",
+    "count": 2
+  },
+  {
+    "seq": 85,
+    "t_ms": 37763,
+    "event": "DRAIN_IDLE_CLOSE"
+  },
+  {
+    "seq": 86,
+    "t_ms": 37776,
+    "event": "GENERATOR_ENDED",
+    "timedOut": false,
+    "session_ids": ["5dd80160-d026-48b8-9ecc-d938796a17e8"]
+  }
+]

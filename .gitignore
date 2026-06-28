@@ -1,0 +1,8 @@
+node_modules
+dist
+.worktrees
+.fallow
+scripts/tui-parity/out
+__pycache__/
+*.scip
+*.pbtxt

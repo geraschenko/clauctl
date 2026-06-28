@@ -1,0 +1,1 @@
+tui/keybindings.ts has private `readJsonObjectFile`/`writeJsonFileAtomic` (sync, 2-space indent, tmp+rename); registry.ts has its own agent.json I/O (async, fsync, tab indent). Extract a shared helper when a third consumer appears — unifying two divergent call sites isn't worth it yet.

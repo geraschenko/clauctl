@@ -1,0 +1,47 @@
+{
+  "1-no-metadata": {
+    "error": null,
+    "nMessages": 3,
+    "summaryPresent": true,
+    "preservedRedPresent": false,
+    "parentIsPreservedTail": false,
+    "firstNewUserParent": "157bcf99",
+    "relinked": false
+  },
+  "2-empty-uuids": {
+    "error": null,
+    "nMessages": 3,
+    "summaryPresent": true,
+    "preservedRedPresent": false,
+    "parentIsPreservedTail": false,
+    "firstNewUserParent": "b695420f",
+    "relinked": false
+  },
+  "3-no-summary-flag": {
+    "error": null,
+    "nMessages": 3,
+    "summaryPresent": true,
+    "preservedRedPresent": true,
+    "parentIsPreservedTail": true,
+    "firstNewUserParent": "254029a1",
+    "relinked": true
+  },
+  "4-segment-only": {
+    "error": null,
+    "nMessages": 3,
+    "summaryPresent": true,
+    "preservedRedPresent": true,
+    "parentIsPreservedTail": true,
+    "firstNewUserParent": "254029a1",
+    "relinked": true
+  },
+  "5-plain-content": {
+    "error": null,
+    "nMessages": 3,
+    "summaryPresent": true,
+    "preservedRedPresent": true,
+    "parentIsPreservedTail": true,
+    "firstNewUserParent": "254029a1",
+    "relinked": true
+  }
+}
