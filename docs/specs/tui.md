@@ -32,19 +32,18 @@ be **reimplemented on top of the SDK stream** that the daemon already owns.
 
 ## IMPLEMENTATION IDEAS (evolving)
 
-- **Possibly adapt pictl's own TUI** rather than build from scratch (the projects
-  are kept close intentionally). Open question whether pictl's TUI can be retargeted
-  from pi's tty stream to clauctl's `SDKMessage` stream.
-- **`tty.sock` semantics — two candidate designs** (decision deferred to build
-  time; **(a) preferred**):
-  - **(a) Virtual-pty:** clauctl runs its own SDK-stream-driven TUI, renders it
-    into a *headless/virtual terminal*, and proxies those terminal bytes over
-    `tty.sock`. Embedders need only a vt100 terminal widget. Preserves pictl's
-    "implement once, embed anywhere" property and keeps the two projects
-    symmetric (both embedders speak "terminal over `tty.sock`").
-  - **(b) Structured view-model:** `tty.sock` carries a rendered view model that
-    each embedder draws natively. No synthetic terminal, but more per-language
-    work and loses the single-UI property.
+- **Possibly adapt pi's TUI** rather than build from scratch (the projects
+  are kept close intentionally). Open question whether pi's TUI can be retargeted
+  to claude's `SDKMessage` stream.
+- **`tty.sock` semantics — decided: virtual-pty.** clauctl runs its own
+  SDK-stream-driven TUI, renders it into a *headless/virtual terminal*, and proxies
+  those terminal bytes over `tty.sock`. Embedders need only a vt100 terminal widget,
+  which preserves pictl's "implement once, embed anywhere" property and keeps the two
+  projects symmetric (both embedders speak "terminal over `tty.sock`"). This is what
+  `attach` serves. We rejected the alternative of shipping a structured *view model*
+  for each embedder to draw natively: an embedder that wants to draw its own UI can
+  already talk to `sdk.sock` directly. Virtual-pty doesn't preclude that — but
+  `attach` serves *our* TUI over `tty.sock`, not a draw-it-yourself feed.
 - The mapping from `SDKMessage` variants → rendered UI (assistant text, partial
   messages, tool calls/results, permission prompts via `canUseTool`, task
   notifications, status banners, session rollovers on new `system/init`) is the
@@ -56,9 +55,8 @@ be **reimplemented on top of the SDK stream** that the daemon already owns.
 
 ## Open questions / risks
 - **Main risk:** the "TUI → virtual pty → proxy bytes + pipe input/resize back"
-  mechanism in design (a) is **unbuilt in both pictl and clauctl**. Prototype
-  before committing.
-- Can pictl's TUI be reused, or is the `SDKMessage` model different enough to
+  mechanism is **unbuilt in both pi/pictl and clauctl**. Prototype before committing.
+- Can pi's TUI be reused, or is the `SDKMessage` model different enough to
   warrant a fresh render layer?
 - Input/resize/control event protocol over `tty.sock`.
 - How permission prompts (`canUseTool`) surface interactively through the daemon

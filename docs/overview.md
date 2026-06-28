@@ -58,7 +58,7 @@ plane. That is the low-burden, high-leverage place for Rust.
 
 These facts are load-bearing for the architecture and were established by reading
 the SDK's shipped type definitions (`sdk.d.ts`) and by direct experiment (see
-`docs/derisk/`).
+`docs/derisk/clear-vs-session-experiment/`).
 
 - **The `claude` binary is the real authority.** Both the TypeScript and Python
   SDKs are thin wrappers that **spawn the `claude` CLI** and exchange
@@ -89,7 +89,7 @@ the SDK's shipped type definitions (`sdk.d.ts`) and by direct experiment (see
 
 **An agent is not a session.** A single long-lived `claude` process (one clauctl
 **agent**) spans a *sequence* of Claude **session_ids** over its lifetime. This
-was confirmed empirically (`docs/derisk/clear-vs-session-experiment.md`):
+was confirmed empirically (`docs/derisk/clear-vs-session-experiment/`):
 
 - `/clear` and `/new` start a genuinely fresh conversation **in place** — context
   is wiped, a new session_id begins — while the **same OS process survives**
@@ -156,19 +156,21 @@ Each agent exposes two unix sockets in its directory:
 > pi has a terminal. **Claude in programmatic mode has no pty** (it emits
 > structured JSON), and by the constraint above we cannot open a real interactive
 > `claude` alongside the programmatic one. So `tty.sock` for clauctl cannot proxy
-> Claude's terminal; it must carry a presentation layer clauctl synthesizes. Two
-> candidate designs, decided when we build the TUI:
-> - **(a) Virtual-pty (preferred):** clauctl runs its own SDK-stream-driven TUI,
->   renders it into a *headless/virtual* terminal, and proxies those terminal
->   bytes over `tty.sock`. Embedders need only a vt100 widget — preserving pictl's
->   "implement once, embed anywhere" property and keeping the two projects
->   symmetric.
-> - **(b) Structured view-model:** `tty.sock` carries a rendered view model each
->   embedder draws natively. More faithful (no synthetic terminal) but more work
->   per language and loses the single-UI property.
+> Claude's terminal; it must carry a presentation layer clauctl synthesizes.
 >
-> The "TUI → virtual pty" mechanism in (a) is unbuilt in both projects and is the
-> main open risk; it does not block v1 (which is SDK-stream-only).
+> **Design: virtual-pty.** clauctl runs its own SDK-stream-driven TUI, renders it
+> into a *headless/virtual* terminal, and proxies those terminal bytes over
+> `tty.sock`. Embedders need only a vt100 widget — preserving pictl's "implement
+> once, embed anywhere" property and keeping the two projects symmetric (both
+> embedders speak "terminal over `tty.sock`"). This is what `attach` serves.
+>
+> We rejected the alternative of shipping a structured *view model* over `tty.sock`
+> for embedders to draw natively: an embedder that wants to render its own UI can
+> already just talk to `sdk.sock` directly. Virtual-pty doesn't preclude that — but
+> `attach` gives you *our* TUI over `tty.sock`, not a draw-it-yourself feed.
+>
+> The "TUI → virtual pty" mechanism is unbuilt in both projects and is the main open
+> risk; it does not block v1 (which is SDK-stream-only).
 
 ## Roadmap & scope
 
@@ -179,7 +181,7 @@ Each agent exposes two unix sockets in its directory:
 - Convenience: `completion`, `format`.
 
 **Later:**
-- The `sdk.sock`-based interactive **TUI** (possibly adapting pictl's TUI), and
+- The `sdk.sock`-based interactive **TUI** (possibly adapting pi's TUI), and
   the `tty.sock` presentation boundary for cross-language embedding.
 
 ## Document map
