@@ -94,8 +94,10 @@ was confirmed empirically (`docs/derisk/clear-vs-session-experiment/`):
 - `/clear` and `/new` start a genuinely fresh conversation **in place** — context
   is wiped, a new session_id begins — while the **same OS process survives**
   (same PID, generator keeps producing). No respawn is required for a reset.
-- The new session_id is delivered as a **second `system/init`** message on the
-  same connection, **not** via `SDKSessionStateChangedMessage`.
+- A `system/init` fires on **every turn** (confirmed at the raw-CLI level), so its
+  mere presence is not a rollover. A reset shows up as an `init` whose `session_id`
+  **differs** from the current one — delivered via `system/init`, **not**
+  `SDKSessionStateChangedMessage`.
 - Every prior session_id keeps its own transcript JSONL under
   `~/.claude/projects/<cwd>/<session_id>.jsonl` and stays independently resumable.
 
@@ -104,10 +106,10 @@ was confirmed empirically (`docs/derisk/clear-vs-session-experiment/`):
 - The agent is clauctl's durable unit, identified by a clauctl-assigned **agent
   id**. session_id is Claude's per-conversation unit and is **mutable** over an
   agent's life.
-- The daemon's stream reader must treat **every post-first `system/init`** on a
-  connection as a session rollover and update the agent's `currentSessionId`
-  accordingly. (`session_state_changed` is for idle/running state, *not* id
-  transitions.)
+- The daemon's stream reader tracks `currentSessionId` = the most-recent
+  `init.session_id`, and detects a rollover **by id change** — never by counting
+  inits (an `init` fires every turn). (`session_state_changed` is for idle/running
+  state, *not* id transitions.)
 - `/new` is not listed in the init `slash_commands` array yet behaves like
   `/clear`; do not gate valid reset commands on that list.
 

@@ -36,14 +36,18 @@ Expose the `Query` control surface and message stream as ergonomic subcommands
 over `sdk.sock`. Known control methods to surface (from `sdk.d.ts`):
 `streamInput` (send a user turn), `interrupt`, `setPermissionMode`, `setModel`,
 `setMcpServers`, `setMcpPermissionModeOverride`, `backgroundTasks`, `stopTask`,
-`close`. Also: sending slash commands (e.g. `/clear`, `/new`, `/compact`) as user
-messages through the input stream.
+`close`. Also: sending slash commands as user messages through the input stream —
+note `/clear` and `/new` roll the session id (new conversation in place), whereas
+`/compact` stays in the **same** session (emits `SDKCompactBoundaryMessage`); the
+rollover detector must not treat compact as a new session.
 
 ### Data-model requirements (load-bearing — see overview + derisk)
 - **agent id ≠ session id.** One agent spans a sequence of session_ids.
-- The daemon's stream reader MUST treat **every post-first `system/init`** on a
-  connection as a session rollover and update `agent.json.currentSessionId`. Do not
-  rely on `SDKSessionStateChangedMessage` for id transitions (it carries
+- A `system/init` fires on **every turn** (confirmed at the raw-CLI level), so its
+  presence is NOT a rollover signal. The daemon tracks `currentSessionId` = the
+  most-recent `init.session_id`, and detects a rollover **only when an init's
+  `session_id` differs** from the current one — compare ids, never count inits. Do
+  not rely on `SDKSessionStateChangedMessage` for id transitions (it carries
   idle/running state only).
 - `/clear` and `/new` do **not** kill the process; no respawn on reset.
 - **Respawn** (after crash/daemon restart) = persisted `Options` +
@@ -51,20 +55,23 @@ messages through the input stream.
 
 ### Success criteria
 - Spawn an agent, send several turns, observe correct streaming responses.
-- Issue `/clear`; confirm the daemon updates `currentSessionId` from the new
-  `system/init` while the same process keeps serving.
+- Issue `/clear`; confirm the daemon detects the id change and updates
+  `currentSessionId` while the same process keeps serving.
 - Kill the daemon (or the process) and respawn; confirm the agent resumes the
   current session transparently.
 - All SDK control methods reachable via subcommands.
 
 ## IMPLEMENTATION IDEAS (evolving)
 
-- **Reuse pictl's structure**: daemon, per-agent directory + unix-socket model,
-  and stricli-based CLI. Mirror pictl's layout (e.g. its `src/core/` daemon and
-  socket logic) and adapt the RPC layer to the SDK.
-- pictl's `src/core/rpc-commands.ts` is the conceptual analog of clauctl's SDK
-  passthrough layer — but the interface is entirely different (SDK `Query` control
-  methods + `SDKMessage` stream vs pi RPC). Mirror the *shape*, not the calls.
+- **Reuse pictl's structure**: per-agent supervisor daemon (pictl is
+  one-daemon-per-agent), per-agent directory + unix-socket model, and stricli-based
+  CLI. Mirror pictl's layout (e.g. its `src/core/` daemon and CLI wiring).
+- **`sdk.sock` is net-new server code, NOT a port of `pi-socket-client.ts`.** In
+  pictl, *pi itself* serves the socket (`pi --rpc-socket`) and the daemon is a
+  *client* of it (`pi-socket-client.ts`). The SDK gives clauctl only an in-process
+  `Query` over stdio — so clauctl's daemon must **author** the `sdk.sock` server:
+  wire format, request framing, control-method marshalling, `SDKMessage` fan-out,
+  and the permission round-trip. `rpc-commands.ts` is a shape reference at best.
 - The daemon holds the open `AsyncIterable` input and the `Query` async generator;
   `sdk.sock` clients are multiplexed onto it (single programmatic connection
   constraint).
@@ -80,8 +87,10 @@ messages through the input stream.
 ## Open questions for the implementing agent
 - Exact `agent.json` schema and on-disk directory layout (align with pictl).
 - Where agents live on disk (root dir, naming).
-- `wait` semantics: which precise stream signal denotes "turn complete" / "idle"
-  (`result` message? `session_state_changed: idle`?).
+- `wait` semantics: the derisk harness advanced turns on the `result` message, so
+  "turn complete" = `result` for the last-submitted turn. There is no `idle`
+  `SDKStatus`; "idle" is daemon-derived bookkeeping (saw `result`, no turn queued).
+  Pin this model in Phase 0.
 - How `attach`/fan-out handles backpressure and late joiners (replay vs live-tail).
 - Whether `spawn` should support resume/fork directly (attach to an existing
   session_id) in v1.
