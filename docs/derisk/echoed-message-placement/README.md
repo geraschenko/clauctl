@@ -1,5 +1,10 @@
 # Derisking experiment: where does an echoed user message belong in the stream?
 
+> **RESOLVED.** Findings and the echo-placement rule are in [`FINDINGS.md`](FINDINGS.md);
+> the rule is folded into `docs/specs/lifecycle-and-sdk-commands.md`. This README is
+> the original handoff brief, kept for context. Harness `exp.mjs`, renderers
+> `analyze.mjs`/`summarize.mjs`, raw captures in `captures/`.
+
 > **Handoff brief for a fresh-context agent.** Read `docs/overview.md` and
 > `docs/specs/lifecycle-and-sdk-commands.md` (the "`sdk.sock` stream augmentation"
 > section) first. This experiment is **non-blocking**: implementation proceeds with a
