@@ -100,8 +100,28 @@ lifecycle spec are written to these resolutions. Kept here as the decision recor
 ## Proposed order of work
 
 ### Phase 0 — Scaffolding & the load-bearing daemon↔SDK spike
-1. Resolve **[DECISION-1]**; stand up scaffolding accordingly (package.json,
-   tsconfig, eslint/treefmt, stricli `app`/`cli`/`main`, `env-paths`) mirroring pictl.
+> **Spikes 2 and 2b share one harness.** Both must spawn with
+> **`includePartialMessages: true`** and drive **non-trivial turn shapes** — a
+> tool-using turn, a subagent turn, an `interrupt`, and a `max_turns` hit — not just
+> plain text. The 4-state idle model and the echo-flush boundaries are only
+> observable on those shapes (the tool-use boundary is a `message_delta` partial with
+> `stop_reason=tool_use`); a text-only harness would derisk the wrong thing. Both
+> spikes (and clauctl itself) use the **SDK-bundled `claude` binary**, not the system
+> one — so the pinned SDK version controls both the wrapper and the CLI behavior.
+> Keep the experiment + raw captures under `docs/derisk/` (like the `/clear`
+> experiment) so the findings are preserved and auditable. Keep prompts minimal
+> (credits).
+>
+> **Phase-0 exit criteria:** RISK-1 retired when the daemon-context loop demonstrably
+> (a) injects turns, (b) emits the correct 4-state transitions across all the turn
+> shapes above, and (c) tears down via `close()` with no orphaned child `claude`.
+> RISK-8 retired when `--priority` semantics and the flush rule (which queued
+> messages flush at which boundary) are pinned by captured evidence, enough to
+> specify echo placement.
+1. Pin scaffolding from pictl (package.json, tsconfig, eslint/treefmt, stricli
+   `app`/`cli`/`main`, `env-paths`) — copy & diverge per [DECISION-1]. **Pin the SDK
+   exactly** (`@anthropic-ai/claude-agent-sdk` `0.3.195`, no caret): symbol presence
+   varies across versions and job 2 targets a known `Query` shape (see [RISK-6]).
 2. **[SPIKE → RISK-1]** Prove the *daemon* shape of the SDK loop. The derisk harness
    already proved the **single-client** primitive (held-open async iterable, advance
    on `result`). This spike extends it to the daemon context and pins three things:
@@ -128,7 +148,9 @@ lifecycle spec are written to these resolutions. Kept here as the decision recor
    - At a boundary, are **all** queued messages flushed, or just the next one?
    muninn's `handle_message.rs` flush logic (flush-all at tool-use boundary,
    flush-one at `result`) is a **reference, not trusted** — verify it against real
-   stream captures. Keep prompts minimal (credits).
+   stream captures. Keep prompts minimal (credits). **Handoff brief:
+   `docs/derisk/echoed-message-placement/README.md`** (a fresh agent can run this
+   independently; it is non-blocking).
 
 ### Phase 1 — Lifecycle core (`spawn`, `list`, `status`, `archive`)
 3. `agent.json` schema + registry (adapt `registry.ts`/`lifecycle.ts`); per-agent
@@ -192,8 +214,12 @@ lifecycle spec are written to these resolutions. Kept here as the decision recor
   DECISION-3** (v1 assumes the mode auto-decides); leave protocol room, don't build.
 - **[RISK-5] TUI → virtual pty.** The net-new half of the tty.sock plan (driving a
   pty from our own renderer); transport half is reused from pictl.
-- **[RISK-6] SDK/protocol drift.** Closed, versioned stream-json protocol; pin a
-  `claude` binary version and define how we track breaking changes.
+- **[RISK-6] SDK/protocol drift.** Closed, versioned stream-json protocol; symbol
+  presence varies across SDK versions (we verified three control methods absent in
+  0.2.x but present in **0.3.195 / claudeCodeVersion 2.1.195**, our pinned target).
+  Pin the SDK exactly (no caret); clauctl uses the **SDK-bundled `claude` binary**
+  (not the system one), so one pinned SDK version fixes both wrapper and CLI. Define
+  how we track breaking changes on bump.
 - **[RISK-7] Subagents/tasks/MCP surface.** SDK exposes task notifications,
   subagents, MCP management. **DECISION-4 resolved: expose the full `Query` surface**,
   so these ship as subcommands (`backgroundTasks`/`stopTask`/`setMcpServers`/…), not

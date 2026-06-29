@@ -186,10 +186,27 @@ Each agent exposes two unix sockets in its directory:
 - The `sdk.sock`-based interactive **TUI** (possibly adapting pi's TUI), and
   the `tty.sock` presentation boundary for cross-language embedding.
 
+## Reference repositories (local checkouts)
+
+Two sibling repos are referenced throughout these docs and are required reading for
+implementation:
+
+- **pictl** — `/home/anton/git/geraschenko/pictl/` — the sibling control plane we
+  copy-and-diverge from (DECISION-1). Its `src/core/` (daemon, registry, lifecycle,
+  spawn, cli/app/main, attach/tail/wait, tty transport) and `src/format/` are the
+  scaffolding template; `rpc-commands.ts` is the shape reference for SDK passthrough.
+- **muninn runner** — `/home/anton/git/muninn/claude/runner/runner/` — a Rust Claude
+  runner that already solved stream augmentation and state tracking. **Reference, not
+  authority** (we do not trust it is correct). Key files: `src/types/runner_event/`
+  (event superset), `src/claude_runner_local/handle_message.rs` (echo placement),
+  `src/types/runner_state_tracker.rs` (idle/compacting state).
+
 ## Document map
 
 - `docs/overview.md` — this document (project goal, philosophy, foundational decisions).
-- `docs/derisk/` — empirical investigations that de-risked the design.
+- `docs/derisk/` — empirical investigations that de-risk the design
+  (`clear-vs-session-experiment/` = done; `echoed-message-placement/` = a pending,
+  non-blocking handoff brief for the `priority`/echo-placement spike).
 - `docs/specs/lifecycle-and-sdk-commands.md` — v1: lifecycle + SDK passthrough.
 - `docs/specs/tui.md` — the `sdk.sock`-based TUI and `tty.sock` boundary.
 - `docs/specs/convenience-commands.md` — `format` and `completion`.

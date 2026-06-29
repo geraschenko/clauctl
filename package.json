@@ -23,6 +23,9 @@
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "dependencies": {
-    "@anthropic-ai/claude-agent-sdk": "^0.3.195"
+    "@anthropic-ai/claude-agent-sdk": "0.3.195",
+    "@stricli/auto-complete": "^1.2.8",
+    "@stricli/core": "^1.2.8",
+    "prettier": "^3.9.1"
   }
 }

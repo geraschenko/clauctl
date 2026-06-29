@@ -163,6 +163,10 @@ This refines the earlier "idle = saw `result` + no queued turn" into the Idle-vs
   `PermissionRequest`/`Response` augmentation are deferred, not built in v1).
 - **`persistSession: true` is a hard invariant (DECISION-8)** — respawn-via-`resume`
   depends on the per-session transcript JSONL existing.
+- **Use the SDK-bundled `claude` binary**, not the system one (don't override
+  `pathToClaudeCodeExecutable` to a system path). The pinned SDK version then fixes
+  both the wrapper and the CLI behavior. `spawn` also sets `includePartialMessages:
+  true` (needed for echo-placement boundary detection — see below).
 
 ### Success criteria
 - Spawn an agent, send several turns, observe correct streaming responses.
