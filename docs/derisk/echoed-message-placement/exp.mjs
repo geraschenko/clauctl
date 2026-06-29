@@ -45,6 +45,13 @@ const BUSY_PROMPT =
   "(3) `sleep 4 && echo step-three-done`. " +
   "After all three have finished, reply with the single word DONE.";
 
+// A busy turn with NO tools: slow text generation, so there is no inference
+// (tool_use) boundary — only the final turn boundary. Tests whether next/none are
+// removed specifically at inference boundaries or also fail at turn boundaries.
+const BUSY_PROMPT_NOTOOL =
+  "Without using any tools at all, write out the integers from 1 to 40, each on its " +
+  "own line, with a short reflective sentence after each number. Do not call any tool.";
+
 // Injected messages each ask for a one-word ack, so the assistant's reply is an
 // independent witness of WHEN (and in what order) the message was consumed, on top
 // of the ground-truth parentUuid chain position of the user entry itself.
@@ -170,6 +177,59 @@ const SCENARIOS = {
     ],
     mechanism: "streamInput",
   },
+  // streamInput coverage for the cases E omitted: now-interrupt and same-prio merge.
+  e_now_stream: { turnPrompt: BUSY_PROMPT, injections: [{ text: ack("ALPHA"), priority: "now" }], mechanism: "streamInput" },
+  e_now2_stream: {
+    turnPrompt: BUSY_PROMPT,
+    injections: [{ text: ack("ALPHA"), priority: "now" }, { text: ack("BRAVO"), priority: "now" }],
+    mechanism: "streamInput",
+  },
+
+  // Round 2 (reviewer-driven).
+  // Same-priority next/none: do two `next` (or two none) merge, or both drop?
+  b_none2: {
+    turnPrompt: BUSY_PROMPT,
+    injections: [{ text: ack("ALPHA") }, { text: ack("BRAVO") }],
+    mechanism: "iterable",
+  },
+
+  // Mechanism test for "now rescues next": is it special inference-boundary rescue,
+  // or just that `now` ends the turn so the queue drains as normal turns? Inject
+  // next at boundary 0 (during tool-1); inject now at boundary 1 (during tool-2).
+  // If next is removed at tool-1's handoff (turn continued), only now runs -> the
+  // "rescue" was incidental, not special.
+  h_next_then_now: {
+    turnPrompt: BUSY_PROMPT,
+    injections: [
+      { text: ack("CHARLIE"), priority: "next", atBoundary: 0 },
+      { text: ack("BRAVO"), priority: "now", atBoundary: 1 },
+    ],
+    mechanism: "iterable",
+  },
+  // Control: now injected at the SECOND boundary (during tool-2). Generalizes the
+  // interrupt beyond the first boundary — should abort tool-2, run after it.
+  h_now_b1: {
+    turnPrompt: BUSY_PROMPT,
+    injections: [{ text: ack("BRAVO"), priority: "now", atBoundary: 1 }],
+    mechanism: "iterable",
+  },
+  // later@b0 survives tool-1's handoff; now@b1 aborts tool-2; then both drain in
+  // priority order now->later. Tests durable `later` + cross-boundary draining.
+  h_later_then_now: {
+    turnPrompt: BUSY_PROMPT,
+    injections: [
+      { text: ack("ALPHA"), priority: "later", atBoundary: 0 },
+      { text: ack("BRAVO"), priority: "now", atBoundary: 1 },
+    ],
+    mechanism: "iterable",
+  },
+
+  // No-tool busy turn: does `next` survive to the turn boundary when there is no
+  // inference boundary to be removed at? `later` is the durable control.
+  x_next_notool: { turnPrompt: BUSY_PROMPT_NOTOOL, injections: [{ text: ack("ALPHA"), priority: "next" }], mechanism: "iterable", triggerMode: "text" },
+  x_none_notool: { turnPrompt: BUSY_PROMPT_NOTOOL, injections: [{ text: ack("ALPHA") }], mechanism: "iterable", triggerMode: "text" },
+  x_later_notool: { turnPrompt: BUSY_PROMPT_NOTOOL, injections: [{ text: ack("ALPHA"), priority: "later" }], mechanism: "iterable", triggerMode: "text" },
+  x_now_notool: { turnPrompt: BUSY_PROMPT_NOTOOL, injections: [{ text: ack("ALPHA"), priority: "now" }], mechanism: "iterable", triggerMode: "text" },
 };
 
 const label = process.argv[2];
@@ -250,28 +310,37 @@ rec({ event: "SCENARIO", label, mechanism: scenario.mechanism, injections: scena
 // Kick off the busy turn.
 pushToIterable(mkUserMsg(scenario.turnPrompt));
 
-// Inject queued messages exactly once, on the first observed tool_use boundary.
-let injected = false;
-async function doInjection() {
-  if (injected || scenario.injections.length === 0) return;
-  injected = true;
-  rec({ event: "INJECT_START", mechanism: scenario.mechanism, count: scenario.injections.length });
-  const msgs = scenario.injections.map((i) => mkUserMsg(i.text, i.priority));
+// Injections carry an optional `atBoundary` (default 0): the index of the tool_use
+// emission (0 = first tool starts, 1 = second, …) during which to inject them. For
+// no-tool turns (triggerMode "text") everything injects at the first text block.
+let toolBoundaryIdx = -1;
+let textTriggered = false;
+const injectedStages = new Set();
+
+async function injectMsgs(due, stage) {
+  if (!due.length) return;
+  rec({ event: "INJECT_START", mechanism: scenario.mechanism, count: due.length, stage });
+  const msgs = due.map((i) => mkUserMsg(i.text, i.priority));
   if (scenario.mechanism === "iterable") {
     for (const m of msgs) {
-      rec({ event: "INJECT", via: "iterable", text: m.message.content, priority: m.priority ?? null });
+      rec({ event: "INJECT", via: "iterable", text: m.message.content, priority: m.priority ?? null, stage });
       pushToIterable(m);
     }
   } else if (scenario.mechanism === "streamInput") {
     async function* gen() {
       for (const m of msgs) {
-        rec({ event: "INJECT", via: "streamInput", text: m.message.content, priority: m.priority ?? null });
+        rec({ event: "INJECT", via: "streamInput", text: m.message.content, priority: m.priority ?? null, stage });
         yield m;
       }
     }
     await q.streamInput(gen());
   }
-  rec({ event: "INJECT_DONE" });
+  rec({ event: "INJECT_DONE", stage });
+}
+function injectAtBoundary(idx) {
+  if (injectedStages.has(idx)) return;
+  injectedStages.add(idx);
+  return injectMsgs(scenario.injections.filter((i) => (i.atBoundary ?? 0) === idx), `b${idx}`);
 }
 
 let resultsSeen = 0;
@@ -315,7 +384,11 @@ try {
       rec(entry);
       if (ev?.type === "message_delta" && ev.delta?.stop_reason === "tool_use") {
         rec({ event: "BOUNDARY_tool_use_partial" });
-        doInjection();
+      }
+      if (scenario.triggerMode === "text" && !textTriggered && ev?.type === "content_block_delta") {
+        textTriggered = true;
+        rec({ event: "TEXT_TRIGGER" });
+        injectAtBoundary(0);
       }
     } else if (msg.type === "assistant") {
       const blocks = msg.message?.content;
@@ -332,7 +405,10 @@ try {
         text: text || undefined,
         tool_uses: tools.map((t) => ({ id: t.id, name: t.name, input: t.input })),
       });
-      if (tools.length && !injected) doInjection();
+      if (tools.length && scenario.triggerMode !== "text") {
+        toolBoundaryIdx++;
+        injectAtBoundary(toolBoundaryIdx);
+      }
     } else if (msg.type === "user") {
       const c = msg.message?.content;
       rec({
