@@ -11,6 +11,7 @@ passthrough. No TUI in v1 (see `docs/specs/tui.md`); `format`/`completion` are
 specified separately (`docs/specs/convenience-commands.md`).
 
 ### Lifecycle commands
+
 - `spawn` — start a new long-lived `claude` process in **streaming-input mode**
   (`query({ prompt: <AsyncIterable> })`), persist its `agent.json`, and bring up
   its `sdk.sock`. Accepts the spawn `Options` (model, permissionMode,
@@ -23,6 +24,7 @@ specified separately (`docs/specs/convenience-commands.md`).
   for the record / later resume).
 
 ### Monitoring commands
+
 - `tail` — stream an agent's `SDKMessage`s (follow mode).
 - `wait` — block until an agent reaches a condition (e.g. idle / result for the
   current turn). Must use real signals (the message stream / session-state
@@ -33,16 +35,16 @@ specified separately (`docs/specs/convenience-commands.md`).
 
 ### SDK passthrough (job 2)
 
-**Principle (DECISION-4): expose the *full* `Query` surface.** Every method of the
+**Principle (DECISION-4): expose the _full_ `Query` surface.** Every method of the
 `Query` interface (`sdk.d.ts`) gets a subcommand — this is the analog of pictl's
 `src/core/rpc-commands.ts`. Anything less is confusing. We expose **nothing else**
 from the SDK module (not `query`/`startup`, not other types) **except**
-`resolveSettings` (see below). We still *consume* the SDK's parameter types
+`resolveSettings` (see below). We still _consume_ the SDK's parameter types
 (`PermissionMode`, `McpServerConfig`, `Settings`, `MessageParam`, …) internally to
 parse and validate subcommand arguments — "don't expose" ≠ "don't use".
 
 > **Coverage invariant.** A future reader expects all `Query` methods represented
-> 1:1 as subcommands. Therefore **every method that is *not* a plain passthrough
+> 1:1 as subcommands. Therefore **every method that is _not_ a plain passthrough
 > subcommand must carry a code comment explaining the deviation** at its mapping
 > site, so the gap is intentional and obvious, never an oversight.
 
@@ -51,7 +53,7 @@ parse and validate subcommand arguments — "don't expose" ≠ "don't use".
 `setMcpServers`, `reconnectMcpServer`, `toggleMcpServer`, `applyFlagSettings`,
 `reloadPlugins`, `reloadSkills`, `rewindFiles`, `seedReadState`, `stopTask`,
 `backgroundTasks`, and the deprecated `setMaxThinkingTokens` (kept because it is
-the only *runtime* thinking-level control, which DECISION-5 requires us to change
+the only _runtime_ thinking-level control, which DECISION-5 requires us to change
 mid-session and persist; comment the deprecation at the mapping site).
 
 **Plain passthrough subcommands** (reads / introspection — these also back `status`):
@@ -62,6 +64,7 @@ method is experimental and the underlying name will change — pin the SDK versi
 
 **Methods deliberately NOT exposed as passthrough** (each requires a comment at its
 mapping site explaining why):
+
 - `close()` — terminates the child `claude`; this is **lifecycle-owned** (`archive`/
   stop), not a passthrough a client may call, or it would kill the agent out from
   under the daemon's session tracking.
@@ -76,6 +79,7 @@ mapping site explaining why):
 `SDKUserMessage` to the daemon's held-open prompt iterable (Phase-0 spike decides
 iterable-append vs `Query.streamInput`). `SDKUserMessage.message` is a `MessageParam`
 (`content: string | ContentBlockParam[]`), so:
+
 - `--image <path>` adds an `image` content block beside the text, exactly like
   `pictl prompt` (read → base64 → block).
 - `--priority now|next|later` sets `SDKUserMessage.priority` (**behavior unknown —
@@ -84,7 +88,7 @@ iterable-append vs `Query.streamInput`). `SDKUserMessage.message` is a `MessageP
   assistant turn).
 
 **One non-`Query` export we DO expose: `resolveSettings()`** → resolves the
-*effective* settings without spawning a process. Serves DECISION-7 (inherit
+_effective_ settings without spawning a process. Serves DECISION-7 (inherit
 user+project settings): lets `spawn`/`status` show exactly what configuration an
 agent will see. (`filterEscalatingDefaultMode` is used **internally** to honor
 DECISION-3's real-permission-mode posture — not a subcommand.)
@@ -99,11 +103,11 @@ must not treat compact as a new session.
 The SDK **does not echo user turns back**, so multiple clients on one programmatic
 connection cannot see each other's input and the conversation reads as nonsense.
 `sdk.sock` therefore **cannot just forward** `claude`'s stream — the daemon must
-*augment* it. Event set for v1 (modeled on `muninn`'s `RunnerEvent`, treated as a
+_augment_ it. Event set for v1 (modeled on `muninn`'s `RunnerEvent`, treated as a
 **reference, not authority**):
 
 - **forward:** `Message` (the `SDKMessage` stream), `SdkError`, optionally `Stderr`.
-- **synthesize:** `EchoedUserMessage` (the missing echo — emitted when *any* client's
+- **synthesize:** `EchoedUserMessage` (the missing echo — emitted when _any_ client's
   turn is accepted; drop muninn's `<T>` metadata param), `QueueDepthChanged`,
   `CompactionStarted`, `SdkClientConnected` (on every (re)connect/respawn),
   `PermissionModeChanged` (so clients reflect the effective mode).
@@ -117,7 +121,7 @@ connection cannot see each other's input and the conversation reads as nonsense.
 (where queued echoes flush) is done by watching `SDKPartialAssistantMessage`
 stream events for `message_delta` with `stop_reason == "tool_use"`. So **`spawn`
 must set `includePartialMessages: true`**, and the daemon consumes those partials
-*internally* (does not forward them) for boundary detection. **Exactly where each
+_internally_ (does not forward them) for boundary detection. **Exactly where each
 echo lands depends on the unknown `--priority` semantics — see the queue-ordering
 spike (plan [RISK-8]); this is the gating unknown for D6.**
 
@@ -125,6 +129,7 @@ spike (plan [RISK-8]); this is the gating unknown for D6.**
 
 There is no `idle` `SDKStatus`. The daemon derives a 4-state machine (from muninn's
 `runner_state_tracker`, again a reference): **Idle → Pending → Working → Compacting**.
+
 - `EchoedUserMessage` ⇒ Pending (queued, not yet running).
 - `SDKAssistantMessage` ⇒ Working (unless Compacting).
 - `result` ⇒ Idle (and if it was Compacting, the compaction is done).
@@ -135,6 +140,7 @@ This refines the earlier "idle = saw `result` + no queued turn" into the Idle-vs
 **Pending** distinction clients need. `wait` keys off this model. Pin it in Phase 0.
 
 ### Data-model requirements (load-bearing — see overview + derisk)
+
 - **agent id ≠ session id.** One agent spans a sequence of session_ids.
 - A `system/init` fires on **every turn** (confirmed at the raw-CLI level), so its
   presence is NOT a rollover signal. The daemon tracks `currentSessionId` = the
@@ -146,9 +152,9 @@ This refines the earlier "idle = saw `result` + no queued turn" into the Idle-vs
 - **Respawn** (after crash/daemon restart) = persisted `Options` +
   `resume: currentSessionId`, reproducing behavior as if uninterrupted.
 - **Persist mutable runtime state, not just spawn `Options` (DECISION-5).** Anything
-  a client changes *mid-session* via a control method — `permissionMode`, model,
+  a client changes _mid-session_ via a control method — `permissionMode`, model,
   thinking level, MCP overrides, applied flag settings — must be written back to
-  `agent.json` as it changes. On respawn the agent must come up in that *current*
+  `agent.json` as it changes. On respawn the agent must come up in that _current_
   state, so the user's experience is "the session was running the whole time," not
   "it reverted to spawn defaults." (pictl has this same gap.) Store the full
   session-id **history**, not just the current id.
@@ -169,6 +175,7 @@ This refines the earlier "idle = saw `result` + no queued turn" into the Idle-vs
   true` (needed for echo-placement boundary detection — see below).
 
 ### Success criteria
+
 - Spawn an agent, send several turns, observe correct streaming responses.
 - Issue `/clear`; confirm the daemon detects the id change and updates
   `currentSessionId` while the same process keeps serving.
@@ -182,8 +189,8 @@ This refines the earlier "idle = saw `result` + no queued turn" into the Idle-vs
   one-daemon-per-agent), per-agent directory + unix-socket model, and stricli-based
   CLI. Mirror pictl's layout (e.g. its `src/core/` daemon and CLI wiring).
 - **`sdk.sock` is net-new server code, NOT a port of `pi-socket-client.ts`.** In
-  pictl, *pi itself* serves the socket (`pi --rpc-socket`) and the daemon is a
-  *client* of it (`pi-socket-client.ts`). The SDK gives clauctl only an in-process
+  pictl, _pi itself_ serves the socket (`pi --rpc-socket`) and the daemon is a
+  _client_ of it (`pi-socket-client.ts`). The SDK gives clauctl only an in-process
   `Query` over stdio — so clauctl's daemon must **author** the `sdk.sock` server:
   wire format, request framing, control-method marshalling, `SDKMessage` fan-out,
   and the permission round-trip. `rpc-commands.ts` is a shape reference at best.
@@ -197,9 +204,11 @@ This refines the earlier "idle = saw `result` + no queued turn" into the Idle-vs
   (broadcast/fan-out) and how input turns from different clients are serialized.
 
 ## WORK LOG
+
 - (empty) — initial scaffold created from overview + derisk decisions.
 
 ## Open questions for the implementing agent
+
 - Exact `agent.json` schema and on-disk directory layout (align with pictl) — must
   now include the full session-id history **and** the mutable runtime state from
   DECISION-5 (current model, permission mode, thinking level, MCP overrides, applied

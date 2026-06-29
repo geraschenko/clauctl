@@ -25,6 +25,7 @@ how the `priority` field (`now` / `next` / `later`) and queuing interact with
 
 muninn's Rust runner already implements an echo-placement scheme — treat it as a
 hypothesis to verify, not ground truth (we are not confident it is correct):
+
 - `/home/anton/git/muninn/claude/runner/runner/src/claude_runner_local/handle_message.rs`
   — its rule is **flush-all** pending echoes at a tool-use boundary
   (`StreamEvent` `message_delta` with `stop_reason == "tool_use"`), and **flush-one**
@@ -34,14 +35,14 @@ hypothesis to verify, not ground truth (we are not confident it is correct):
 
 ## Questions to answer (priority order)
 
-1. **Is `priority` even honored?** Inject two queued user messages with *different*
+1. **Is `priority` even honored?** Inject two queued user messages with _different_
    `priority` values while the agent is mid-turn. Does their effective ordering differ
    from injection order, or is the field ignored?
 2. **What do `now` / `next` / `later` actually do?** Decide between:
-   - **Hypothesis A:** `now` interrupts current inference and inserts *ahead of all*
+   - **Hypothesis A:** `now` interrupts current inference and inserts _ahead of all_
      queued; `next` inserts at the **front** of the queue; `later` at the **back**.
-   - **Hypothesis B:** `next` ≈ pi's *steer* (insert at the next **inference**
-     boundary), `later` ≈ pi's *follow-up* (insert at the next **turn** boundary);
+   - **Hypothesis B:** `next` ≈ pi's _steer_ (insert at the next **inference**
+     boundary), `later` ≈ pi's _follow-up_ (insert at the next **turn** boundary);
      always appended, but two queues keyed by boundary type.
 3. **Which boundary?** Are queued messages consumed at **inference** boundaries
    (between tool calls — i.e. at a `message_delta` `stop_reason=tool_use` partial), at
@@ -64,6 +65,7 @@ single long-lived `query({ prompt: <AsyncIterable of SDKUserMessage> })`, input
 iterable held open, advancing on `result`.
 
 Required harness settings:
+
 - **`options.includePartialMessages: true`** — mandatory; the inference-boundary
   signal is the `SDKPartialAssistantMessage` `message_delta` with
   `stop_reason == "tool_use"`. Without partials you cannot see boundary 3.
@@ -73,9 +75,10 @@ Required harness settings:
   `persistSession` left at its default-on so a JSONL is written.
 
 Experiment shape:
+
 1. Send a turn that triggers a **slow, multi-step tool** so the agent is demonstrably
-   *busy* with a window to inject into — e.g. a `Bash` command that lists a large tree
-   or `sleep`s a few seconds. (The sleep here is the *agent's tool* simulating real
+   _busy_ with a window to inject into — e.g. a `Bash` command that lists a large tree
+   or `sleep`s a few seconds. (The sleep here is the _agent's tool_ simulating real
    latency — this is fine; it is not a sleep in our own code.)
 2. **During that window**, inject 2–3 user messages with varying `priority`
    (`now`/`next`/`later`) and recognizable distinct content.

@@ -1,6 +1,6 @@
 # clauctl — Project Overview
 
-> The authoritative description of *what* clauctl is, *why* it exists, and the
+> The authoritative description of _what_ clauctl is, _why_ it exists, and the
 > foundational decisions every spec in `docs/specs/` builds on. Start here.
 
 ## What clauctl is
@@ -22,7 +22,7 @@ jobs are identical:
 
 1. **Lifecycle & metadata** — spawn, track, monitor, persist, resume, and archive
    Claude processes, surviving daemon or process restarts transparently.
-2. **Unfettered SDK passthrough** — expose *all* SDK functionality through
+2. **Unfettered SDK passthrough** — expose _all_ SDK functionality through
    subcommands, ergonomically but without hiding capability.
 
 ## Language: TypeScript
@@ -35,7 +35,7 @@ language.** pictl follows pi (TS); clauctl follows the Claude Agent SDK (TS).
 Rationale (the author's general preference is Rust, so this was a deliberate
 override):
 
-- **Coupling to the source of truth.** clauctl's job (2) is "expose *all* SDK
+- **Coupling to the source of truth.** clauctl's job (2) is "expose _all_ SDK
   functionality." That functionality is most complete and most current in the
   TypeScript SDK, and critically, only the TS SDK exposes the SDK's in-process
   callbacks — `hooks`, `canUseTool`, and `createSdkMcpServer` tools — as live
@@ -75,7 +75,7 @@ the SDK's shipped type definitions (`sdk.d.ts`) and by direct experiment (see
 - **Long-lived sessions = streaming-input mode.** `query()` takes
   `prompt: string | AsyncIterable<SDKUserMessage>`. Passing an `AsyncIterable`
   opens a long-lived session: the returned `Query` is an
-  `AsyncGenerator<SDKMessage>` that *also* carries control methods —
+  `AsyncGenerator<SDKMessage>` that _also_ carries control methods —
   `interrupt()`, `setModel()`, `setPermissionMode()`, `setMcpServers()`,
   `streamInput()`, `backgroundTasks()`, `stopTask()`, `close()`. This is the TS
   analog of Python's `ClaudeSDKClient` (the docs under-document it). clauctl uses
@@ -83,12 +83,12 @@ the SDK's shipped type definitions (`sdk.d.ts`) and by direct experiment (see
   into the same warm process.
 - **Stateless resume/fork** is also available via `Options.resume` (session UUID),
   `continue`, `forkSession`, and `resumeSessionAt` — used to reconstruct a session
-  from its persisted transcript in a *fresh* process (e.g. after a crash).
+  from its persisted transcript in a _fresh_ process (e.g. after a crash).
 
 ## Data model: agent id ≠ session id
 
 **An agent is not a session.** A single long-lived `claude` process (one clauctl
-**agent**) spans a *sequence* of Claude **session_ids** over its lifetime. This
+**agent**) spans a _sequence_ of Claude **session_ids** over its lifetime. This
 was confirmed empirically (`docs/derisk/clear-vs-session-experiment/`):
 
 - `/clear` and `/new` start a genuinely fresh conversation **in place** — context
@@ -109,7 +109,7 @@ was confirmed empirically (`docs/derisk/clear-vs-session-experiment/`):
 - The daemon's stream reader tracks `currentSessionId` = the most-recent
   `init.session_id`, and detects a rollover **by id change** — never by counting
   inits (an `init` fires every turn). (`session_state_changed` is for idle/running
-  state, *not* id transitions.)
+  state, _not_ id transitions.)
 - `/new` is not listed in the init `slash_commands` array yet behaves like
   `/clear`; do not gate valid reset commands on that list.
 
@@ -130,15 +130,15 @@ and respawn it transparently. `agent.json` stores:
 agent comes back as if never interrupted.
 
 > **Caveat — code-valued options.** `canUseTool`, `hooks`, and in-process
-> `createSdkMcpServer` tools are *live code*, not serializable config. They are
+> `createSdkMcpServer` tools are _live code_, not serializable config. They are
 > clauctl's own logic and are re-supplied by clauctl on (re)spawn, not stored in
-> `agent.json`. Process-based MCP servers (stdio/http) *are* serializable and are
+> `agent.json`. Process-based MCP servers (stdio/http) _are_ serializable and are
 > stored.
 
 ## Architecture: the daemon and two sockets
 
 Claude **will not allow simultaneous programmatic and interactive connections** to
-one session. So clauctl's daemon owns the *single* programmatic connection to each
+one session. So clauctl's daemon owns the _single_ programmatic connection to each
 `claude` process, and everything else — CLI subcommands, the eventual TUI, any
 embedder — is a **client** that multiplexes through clauctl. This mirrors pictl's
 daemon + per-agent socket model.
@@ -150,26 +150,26 @@ Each agent exposes two unix sockets in its directory:
   is the analog of pictl's `pi.sock` and the substrate for scripting, the
   passthrough subcommands, and the TUI. It is where job (2) is realized.
 - **`tty.sock`** — a **language-agnostic presentation boundary** for embeddable
-  UIs. Its purpose: implement the interactive UI *once* and embed it in any
+  UIs. Its purpose: implement the interactive UI _once_ and embed it in any
   language by speaking a socket protocol, rather than reimplementing a UI per host
   (e.g. embedding a clauctl agent inside a Rust ratatui app).
 
-> **Important difference from pictl.** pictl's `tty.sock` proxies a *real pty* —
+> **Important difference from pictl.** pictl's `tty.sock` proxies a _real pty_ —
 > pi has a terminal. **Claude in programmatic mode has no pty** (it emits
 > structured JSON), and by the constraint above we cannot open a real interactive
 > `claude` alongside the programmatic one. So `tty.sock` for clauctl cannot proxy
 > Claude's terminal; it must carry a presentation layer clauctl synthesizes.
 >
 > **Design: virtual-pty.** clauctl runs its own SDK-stream-driven TUI, renders it
-> into a *headless/virtual* terminal, and proxies those terminal bytes over
+> into a _headless/virtual_ terminal, and proxies those terminal bytes over
 > `tty.sock`. Embedders need only a vt100 widget — preserving pictl's "implement
 > once, embed anywhere" property and keeping the two projects symmetric (both
 > embedders speak "terminal over `tty.sock`"). This is what `attach` serves.
 >
-> We rejected the alternative of shipping a structured *view model* over `tty.sock`
+> We rejected the alternative of shipping a structured _view model_ over `tty.sock`
 > for embedders to draw natively: an embedder that wants to render its own UI can
 > already just talk to `sdk.sock` directly. Virtual-pty doesn't preclude that — but
-> `attach` gives you *our* TUI over `tty.sock`, not a draw-it-yourself feed.
+> `attach` gives you _our_ TUI over `tty.sock`, not a draw-it-yourself feed.
 >
 > The "TUI → virtual pty" mechanism is unbuilt in both projects and is the main open
 > risk; it does not block v1 (which is SDK-stream-only).
@@ -177,12 +177,14 @@ Each agent exposes two unix sockets in its directory:
 ## Roadmap & scope
 
 **v1 (initial implementation):**
+
 - Lifecycle: `spawn`, `list`, `status`, `archive`.
 - Monitoring: `tail`, `wait` (and a raw `attach` onto `sdk.sock`).
 - SDK passthrough subcommands (job 2) over `sdk.sock`.
 - Convenience: `completion`, `format`.
 
 **Later:**
+
 - The `sdk.sock`-based interactive **TUI** (possibly adapting pi's TUI), and
   the `tty.sock` presentation boundary for cross-language embedding.
 

@@ -1,33 +1,37 @@
 # Derisking experiment: does `/clear` (or `/new`) change session_id within one process?
 
 ## Why this matters
+
 clauctl's data model hinges on this. If a single long-lived `claude` process can span
 multiple session_ids (because `/clear`/`/new` starts a fresh conversation in place), then
-clauctl must keep **agent id ≠ session id** (like pictl/pi), tracking a *sequence* of
+clauctl must keep **agent id ≠ session id** (like pictl/pi), tracking a _sequence_ of
 session_ids per agent and updating "current session_id" live from the message stream.
 
 Static evidence already points this way:
+
 - `ExitReason = 'clear' | 'resume' | ...` — the query loop can terminate with reason `clear`.
 - `SDKSessionStateChangedMessage` re-broadcasts `session_id`, implying it changes mid-connection.
 - Slash commands are exposed in stream-json (`SDKLocalCommandOutputMessage`, `slash_commands` in init).
 
-This experiment confirms the *runtime* behavior the types only hint at.
+This experiment confirms the _runtime_ behavior the types only hint at.
 
 ## The questions to answer (in priority order)
-1. **Process survival:** After sending `/clear` (and separately `/new`), does the *same OS
-   process* (same PID) stay alive and keep accepting input — or does the query loop exit
+
+1. **Process survival:** After sending `/clear` (and separately `/new`), does the _same OS
+   process_ (same PID) stay alive and keep accepting input — or does the query loop exit
    (forcing a fresh `query()` / new process)?
 2. **Session id transition:** Does `session_id` in the emitted messages change after `/clear`?
-   Capture the before id, the after id, and *which message type* carries the new id
+   Capture the before id, the after id, and _which message type_ carries the new id
    (`system/init`? `system/session_state_changed`?).
 3. **Context reset:** Before clearing, tell the agent a secret ("the password is bananas").
    After `/clear`, ask "what is the password?" — confirm the context was actually wiped
    (distinguishes a true new session from a cosmetic id change).
 4. **`/new` vs `/clear`:** Repeat for `/new` if it exists as a command. Note any difference.
 5. **Bonus:** Does the old session's transcript JSONL persist under `~/.claude/projects/`
-   under the *old* id after the clear? (Confirms old sessions remain resumable.)
+   under the _old_ id after the clear? (Confirms old sessions remain resumable.)
 
 ## How to run it
+
 The system `claude` binary is at `~/.local/bin/claude` and is already authenticated.
 
 Two viable approaches — pick whichever proves the behavior fastest:
@@ -37,12 +41,13 @@ An installed copy of the SDK lives at:
 `/home/anton/git/geraschenko/clauctl/node_modules/@anthropic-ai/claude-agent-sdk`
 Write a small `.mjs` that calls `query({ prompt: <AsyncIterable of SDKUserMessage> })`, keeps
 the input iterable open, and:
-  - yields a user message "Remember: the password is bananas."
-  - drains assistant output
-  - yields the `/clear` command as a user message (slash commands go through the input stream)
-  - yields "What is the password?"
-  - logs every message's `type`, `subtype`, and `session_id`
-Watch whether the generator keeps producing after `/clear` or terminates.
+
+- yields a user message "Remember: the password is bananas."
+- drains assistant output
+- yields the `/clear` command as a user message (slash commands go through the input stream)
+- yields "What is the password?"
+- logs every message's `type`, `subtype`, and `session_id`
+  Watch whether the generator keeps producing after `/clear` or terminates.
 
 **Approach B — raw CLI stream-json.**
 Run `claude --help` to discover exact flags, then drive
@@ -53,22 +58,27 @@ Track the child PID to answer the survival question directly.
 Prefer Approach A. Fall back to B if the SDK harness is fiddly.
 
 ## Constraints
+
 - Keep all scratch files in `/tmp/clauctl-derisk/`.
 - This consumes the user's Claude subscription/credits — keep it to the minimum prompts
   needed (the secret, the clear, the recall, then `/new` repeat). No loops, no extra turns.
 - Do **not** modify anything under `~/.claude/` except by observing files claude itself writes.
 
 ## Report back (concise, evidence-first)
+
 For each of `/clear` and `/new`:
+
 - PID before / PID after (survived? yes/no)
 - session_id before / after (changed? yes/no) + which message carried the new id
 - password recall after clear (remembered? = context NOT reset)
 - whether the old transcript JSONL still exists
-Then a one-line conclusion: **agent id must be separate from session id (yes/no)** and any
-surprises that affect clauctl's respawn model.
+  Then a one-line conclusion: **agent id must be separate from session id (yes/no)** and any
+  surprises that affect clauctl's respawn model.
 
 ## Methodology
+
 How this experiment was actually run, so a future reader can reproduce or trust it:
+
 - We drove the real, already-authenticated system `claude` binary (`~/.local/bin/claude`,
   model `claude-opus-4-8`) in programmatic stream-json mode via the TypeScript Claude Agent
   SDK's streaming-input API: a single long-lived `query({ prompt: <AsyncIterable of
@@ -96,7 +106,8 @@ How this experiment was actually run, so a future reader can reproduce or trust 
   transcripts claude itself wrote.
 
 ### Follow-up: is the per-turn `system/init` a harness bug?
-The main run showed a `system/init` on *every* turn, not just at connection start, which was
+
+The main run showed a `system/init` on _every_ turn, not just at connection start, which was
 unexpected. We ran two more experiments to find the cause:
 
 1. `exp2-singlesession.mjs` — single session, three plain exchanges, **no** slash command.
@@ -123,6 +134,7 @@ reader `receive_messages()` would show the repeated inits on the Rust side too. 
 versions may have behaved differently.)
 
 ## Files
+
 - `exp.mjs` — the `/clear` + `/new` harness (run as `node exp.mjs /clear clear` and
   `node exp.mjs /new new`).
 - `exp2-singlesession.mjs` — single-session follow-up, no slash command, no `session_id` field.
@@ -134,6 +146,7 @@ versions may have behaved differently.)
 - `pids-clear.log`, `pids-new.log` — raw `ps` watcher output proving the child PID was stable.
 
 ## Learnings
+
 - A single long-lived `claude` OS process SURVIVES both `/clear` and `/new` (same PID); the
   SDK generator keeps producing with no terminate or error.
 - Both `/clear` and `/new` start a genuinely fresh conversation IN PLACE: conversation
@@ -143,7 +156,7 @@ versions may have behaved differently.)
   transition at all. (`session_state_changed` carries idle/running state, not id rollovers.)
 - IMPORTANT (corrected): a `system/init` fires on **every turn**, not just at connection start
   or on a reset. Confirmed at the raw-CLI level with no SDK involved (`raw-out.jsonl`): each
-  input user message begins a new turn that opens with a fresh `init` carrying the *same*
+  input user message begins a new turn that opens with a fresh `init` carrying the _same_
   session_id. So the presence of a post-first `init` does NOT by itself mean a rollover happened.
 - Therefore clauctl's rule: "current session_id" = the most-recent `init.session_id`; a session
   rollover is when an `init`'s `session_id` **differs** from the current one. Detect rollovers by

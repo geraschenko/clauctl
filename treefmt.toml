@@ -1,0 +1,11 @@
+excludes = ["node_modules/**", "dist/**", "package-lock.json"]
+
+[formatter.prettier]
+command = "node_modules/.bin/prettier"
+options = ["--write"]
+includes = ["*.ts", "*.js", "*.json"]
+
+[formatter.dprint]
+command = "dprint"
+options = ["fmt", "--config", "dprint.json"]
+includes = ["*.md", "*.toml"]
