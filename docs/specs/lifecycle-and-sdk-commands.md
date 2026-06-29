@@ -82,8 +82,10 @@ iterable-append vs `Query.streamInput`). `SDKUserMessage.message` is a `MessageP
 
 - `--image <path>` adds an `image` content block beside the text, exactly like
   `pictl prompt` (read → base64 → block).
-- `--priority now|next|later` sets `SDKUserMessage.priority` (**behavior unknown —
-  see the queue-ordering spike in the plan; this gates echo placement**).
+- `--priority now|next|later` sets `SDKUserMessage.priority`. Semantics are resolved
+  (RISK-8): `now` interrupts the current turn, `later` queues a follow-up turn, and
+  `next`/default is **dropped if sent while busy** (see the echo-placement rule under
+  `sdk.sock` augmentation). `query` should reject/warn on `next`/default-while-busy.
 - `--no-query` sets `shouldQuery: false` (append to transcript without triggering an
   assistant turn).
 
@@ -117,13 +119,42 @@ _augment_ it. Event set for v1 (modeled on `muninn`'s `RunnerEvent`, treated as 
 - **not a stream event:** `HistoryEntry` is JSONL deserialization (the Phase-3
   `tail` path), not a live augmentation — keep it separate.
 
-**Echo placement requires partial messages.** Detecting the tool-use turn boundary
-(where queued echoes flush) is done by watching `SDKPartialAssistantMessage`
-stream events for `message_delta` with `stop_reason == "tool_use"`. So **`spawn`
-must set `includePartialMessages: true`**, and the daemon consumes those partials
-_internally_ (does not forward them) for boundary detection. **Exactly where each
-echo lands depends on the unknown `--priority` semantics — see the queue-ordering
-spike (plan [RISK-8]); this is the gating unknown for D6.**
+**Echo placement requires partial messages.** Detecting the inference (tool-use)
+boundary is done by watching `SDKPartialAssistantMessage` stream events for
+`message_delta` with `stop_reason == "tool_use"`. So **`spawn` must set
+`includePartialMessages: true`**, and the daemon consumes those partials _internally_
+(does not forward them) for boundary detection.
+
+**Echo placement rule (RISK-8 — resolved; see `docs/derisk/echoed-message-placement/FINDINGS.md`).**
+`priority` governs where an injected turn lands, and the placement is **deterministic
+CLI behavior**. The `claude` queue's own `enqueue`/`dequeue`/`remove` records are
+**not** on the live SDK stream, so the daemon must **model** placement from the
+priority it sent plus the boundaries it observes — it cannot read the queue. Rule for
+a turn injected **while the agent is busy** (mid-turn):
+
+- **`now`** — **interrupts**: aborts the in-flight inference (cancels the running tool
+  or text generation) and ends the current turn, then runs the injected turn as a new
+  turn. The daemon emits the `EchoedUserMessage` as a new turn at that point. Caveat:
+  the interrupted turn's `result` subtype is `success` when a **tool** was aborted but
+  `error_during_execution` when a **text** inference was aborted — so subtype alone
+  does not flag the interrupt; the daemon must remember it sent a `now`.
+- **`later`** — runs as a new turn at a turn boundary, **after every higher-priority
+  surviving bucket has drained** (not necessarily at the next `result`). `later` is
+  **durable**: it survives tool→result handoffs.
+- **`next` / default while busy** — **dropped** in the common (tool-using) case: the
+  CLI records it as an inert `queued_command` attachment and **never executes** it
+  (it does not even merge into a later real turn). It survives only if the busy turn
+  is **tool-less**, or a **`now`** is co-queued and ends the turn at the same boundary.
+  Because the drop is invisible on the live stream, **the daemon must not synthesize an
+  executed echo for `next`/default while busy** — treat it as unsupported in that state
+  (reject / warn / remap to `now` or `later`). (Injected while **idle**, a default-
+  priority turn is normal — the drop is specific to mid-turn injection.)
+- **Ordering & merge** — multiple surviving turns drain in strict priority order
+  **`now → next → later`**, independent of injection order; each distinct priority is
+  its own turn. Same-priority **executing** messages **merge** (FIFO, joined by `\n`)
+  into a single turn; same-priority `next`/default just drop individually.
+- **Mechanism-independent**: identical whether the daemon injects via held-open
+  iterable-append or `Query.streamInput()` (does not constrain the Phase-0 choice).
 
 ### Idle / activity model (4-state)
 
@@ -160,6 +191,14 @@ Transitions:
 
 This refines the earlier "idle = saw `result` + no queued turn" into the Idle-vs-
 **Pending** distinction clients need. `wait` keys off this model. Pin it in Phase 0.
+
+> **Queue-depth caveat (RISK-8).** A `next`/default turn injected while busy is
+> silently dropped by the CLI (`enqueue`→`remove`, **not** visible on the live
+> stream). If the daemon counted it as Pending / incremented `queueDepth` on inject,
+> the count would never decrement (no `result` ever fires for it). Because the daemon
+> rejects `next`/default-while-busy (above), this case should not arise — but the
+> queue-depth tracker must only count turns the placement rule says will actually run
+> (`now`, `later`, and idle-time default), never a dropped one.
 
 ### Data-model requirements (load-bearing — see overview + derisk)
 
@@ -265,7 +304,12 @@ This refines the earlier "idle = saw `result` + no queued turn" into the Idle-vs
 
 ## WORK LOG
 
-- (empty) — initial scaffold created from overview + derisk decisions.
+- Initial scaffold created from overview + derisk decisions.
+- **RISK-8 (echo placement) resolved** via the `echoed-message-placement` derisk
+  experiment (33 scenarios, adversarially reviewed). `--priority` semantics, the
+  echo-placement rule, and the queue-depth caveat are now folded into the SPEC above;
+  muninn's flush-all/flush-one scheme was disproved. Full evidence + harness:
+  `docs/derisk/echoed-message-placement/FINDINGS.md`.
 
 ## Open questions for the implementing agent
 
@@ -275,14 +319,14 @@ This refines the earlier "idle = saw `result` + no queued turn" into the Idle-vs
   IMPLEMENTATION IDEAS); the remaining unknown is **which fields `resume` already
   restores vs. drops**, pinned by `docs/derisk/resume-persistence/`.
 - Where agents live on disk (root dir, naming).
-- **Queue/priority semantics (gates D6 echo placement)** — how `--priority`
-  (`now`/`next`/`later`) maps to insertion point and inference/turn boundaries. Must
-  be derisked (plan [RISK-8]) before the echo-insertion logic is correct; muninn's
-  approach is a reference we do not yet trust.
 - How `attach`/fan-out handles backpressure and late joiners (replay vs live-tail).
 - Whether `spawn` should support resume/fork directly (attach to an existing
   session_id) in v1.
 
 Resolved since the scaffold: the idle model is the **4-state** machine above (not a
 bare `result`-watch); concurrent writers are **serialized through the daemon**
-(DECISION-6) — no single-writer lock, the daemon interleaves.
+(DECISION-6) — no single-writer lock, the daemon interleaves. **Queue/priority
+semantics (RISK-8)** are resolved — `--priority` maps to the echo-placement rule under
+`sdk.sock` augmentation (`now`=interrupt, `later`=durable follow-up, `next`/default=
+dropped-while-busy); muninn's flush-all/flush-one scheme was tested and found
+**incorrect** (see `FINDINGS.md`).

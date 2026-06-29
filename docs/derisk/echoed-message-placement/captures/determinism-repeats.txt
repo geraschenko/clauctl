@@ -1,0 +1,18 @@
+DETERMINISM REPEATS (4x each)
+a_now            exec:[ALPHA]  inert:[-]  totalToolCalls:1  busyReachedDONE:false
+a_now            exec:[ALPHA]  inert:[-]  totalToolCalls:1  busyReachedDONE:false
+a_now            exec:[ALPHA]  inert:[-]  totalToolCalls:1  busyReachedDONE:false
+a_now            exec:[ALPHA]  inert:[-]  totalToolCalls:1  busyReachedDONE:false
+a_next           exec:[-]  inert:[ALPHA]  totalToolCalls:3  busyReachedDONE:true
+a_next           exec:[-]  inert:[ALPHA]  totalToolCalls:3  busyReachedDONE:true
+a_next           exec:[-]  inert:[ALPHA]  totalToolCalls:3  busyReachedDONE:true
+a_next           exec:[-]  inert:[ALPHA]  totalToolCalls:3  busyReachedDONE:true
+c_mixed          exec:[BRAVO -> CHARLIE -> ALPHA]  inert:[-]  totalToolCalls:1  busyReachedDONE:false
+c_mixed          exec:[BRAVO -> CHARLIE -> ALPHA]  inert:[-]  totalToolCalls:1  busyReachedDONE:false
+c_mixed          exec:[BRAVO -> CHARLIE -> ALPHA]  inert:[-]  totalToolCalls:1  busyReachedDONE:false
+c_mixed          exec:[BRAVO -> CHARLIE -> ALPHA]  inert:[-]  totalToolCalls:1  busyReachedDONE:false
+h_next_then_now  exec:[BRAVO]  inert:[CHARLIE]  totalToolCalls:2  busyReachedDONE:false
+h_next_then_now  exec:[BRAVO]  inert:[CHARLIE]  totalToolCalls:2  busyReachedDONE:false
+h_next_then_now  exec:[BRAVO]  inert:[CHARLIE]  totalToolCalls:2  busyReachedDONE:false
+h_next_then_now  exec:[BRAVO]  inert:[CHARLIE]  totalToolCalls:2  busyReachedDONE:false
+DONE
