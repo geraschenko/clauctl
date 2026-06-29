@@ -208,7 +208,9 @@ implementation:
 - `docs/overview.md` — this document (project goal, philosophy, foundational decisions).
 - `docs/derisk/` — empirical investigations that de-risk the design
   (`clear-vs-session-experiment/` = done; `echoed-message-placement/` = a pending,
-  non-blocking handoff brief for the `priority`/echo-placement spike).
+  non-blocking handoff brief for the `priority`/echo-placement spike;
+  `resume-persistence/` = a pending handoff brief for which `Options` survive a cold
+  `resume`, gating the `agent.json` merge set).
 - `docs/specs/lifecycle-and-sdk-commands.md` — v1: lifecycle + SDK passthrough.
 - `docs/specs/tui.md` — the `sdk.sock`-based TUI and `tty.sock` boundary.
 - `docs/specs/convenience-commands.md` — `format` and `completion`.
