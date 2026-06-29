@@ -40,9 +40,21 @@ half of the TUI.
 > serialize that. That pty-driving model is net-new (see [RISK-5]); only the
 > transport half is reused. `pty.ts` itself is just a macOS node-pty chmod shim.
 
-## Decisions we need from Anton
+## Decisions (resolved by Anton)
 
-These gate the work and we will **not** pick them for you:
+All eight are **answered** — Anton's resolution is recorded inline as `TDC:` after
+each. They are no longer open; the Phases, Risks, and the lifecycle spec below are
+written to the resolved decisions. Kept here as the decision record + rationale.
+
+Resolution summary: **D1** copy-and-diverge now, monorepo later if overlap proves
+high. **D2** one supervisor daemon per agent. **D3** use the user's real permission
+mode (no auto-bypass default); interactive popup + non-interactive fallback deferred.
+**D4** expose the *full* `Query` surface as subcommands (exclusions commented), plus
+`resolveSettings`; see the lifecycle spec. **D5** persist full session-id history
+*and* mutable runtime state (model/permission-mode/thinking/MCP/flag-settings) so
+respawn is transparent. **D6** daemon serializes all writers and **augments** the
+stream (echoes, queue depth, compaction); see the spec. **D7** inherit user+project
+settings by default. **D8** `persistSession: true` is a hard invariant.
 
 - **[DECISION-1] Code-sharing strategy with pictl.** (a) **fork & diverge** — copy
   pictl scaffolding, let them drift; (b) **extract a shared package** — pull
@@ -107,11 +119,28 @@ TDC: yes.
    already proved the **single-client** primitive (held-open async iterable, advance
    on `result`). This spike extends it to the daemon context and pins three things:
    (i) the turn-injection mechanism (held-open iterable + queue, vs `Query.streamInput`);
-   (ii) the **idle/turn-complete model** — there is no `idle` `SDKStatus`; "turn done"
-   = `result` for the last-submitted turn, "idle" = that plus no queued turn (daemon
-   bookkeeping); (iii) clean teardown (`Query.close()` is synchronous/`void` — verify
-   it doesn't orphan the child `claude`).
+   (ii) the **4-state idle model** — there is no `idle` `SDKStatus`; derive
+   **Idle → Pending → Working → Compacting** (`EchoedUserMessage`→Pending,
+   `assistant`→Working, `result`→Idle, `/compact`→Compacting; `busy = state != Idle
+   || queueDepth > 0`). See the lifecycle spec; (iii) clean teardown (`Query.close()`
+   is synchronous/`void` — verify it doesn't orphan the child `claude`).
 TDC: idle/streaming/compacting may be tricky. See /home/anton/git/muninn/claude/runner/runner/src/types/runner_state_tracker.rs for a reference implementation in rust.
+2b. **[SPIKE → RISK-8] Derisk `--priority`/queue ordering** (pure SDK, no daemon —
+   like the `/clear` derisk). The SDK is closed-source and this behavior is *not*
+   documented; it determines **where `EchoedUserMessage` must be inserted**, so D6 is
+   blocked until we know it empirically. Questions to answer with experiments:
+   - What do `priority: 'now' | 'next' | 'later'` actually do? Hypothesis A: `now`
+     interrupts current inference and inserts ahead of all queued; `next` inserts at
+     the **front** of the queue; `later` at the **back**. Hypothesis B: `next` ≈ pi's
+     *steer* (insert at the next **inference** boundary) and `later` ≈ pi's
+     *follow-up* (insert at the next **turn** boundary) — always appended, but two
+     queues keyed by boundary type.
+   - Does `claude` insert queued messages at **inference** boundaries (mid-turn,
+     between tool calls), at **turn** boundaries (`result`), or both — and when?
+   - At a boundary, are **all** queued messages flushed, or just the next one?
+   muninn's `handle_message.rs` flush logic (flush-all at tool-use boundary,
+   flush-one at `result`) is a **reference, not trusted** — verify it against real
+   stream captures. Keep prompts minimal (credits).
 
 ### Phase 1 — Lifecycle core (`spawn`, `list`, `status`, `archive`)
 3. `agent.json` schema + registry (adapt `registry.ts`/`lifecycle.ts`); per-agent
@@ -126,12 +155,21 @@ TDC: idle/streaming/compacting may be tricky. See /home/anton/git/muninn/claude/
    that `close()`/kill doesn't orphan the child.
 
 ### Phase 2 — Author the `sdk.sock` server + passthrough (job 2)
+> Depends on **[SPIKE → RISK-8]** below: echo placement is undefined until the
+> `--priority`/queue-ordering behavior is known.
 7. **Design & build the `sdk.sock` server protocol** (this is the largest net-new
    chunk, not a port): wire/framing, client→daemon control+turns, daemon→clients
-   `SDKMessage` fan-out + late-joiner replay, the **permission round-trip**
-   sub-protocol ([DECISION-3]), and the **writer policy** ([DECISION-6]).
-8. Implement subcommands mapping to `Query` control methods + send-turn + slash
-   commands, scoped by **[DECISION-4]**.
+   **augmented** stream (DECISION-6 — forward `SDKMessage`/`SdkError`; synthesize
+   `EchoedUserMessage`/`QueueDepthChanged`/`CompactionStarted`/`SdkClientConnected`/
+   `PermissionModeChanged`) + late-joiner replay. Requires **`includePartialMessages:
+   true`** at spawn (the daemon consumes partials internally to find tool-use
+   boundaries where echoes flush). Writer policy is settled: the **daemon serializes
+   and interleaves** all clients (no lock). The interactive permission round-trip is
+   **deferred** (DECISION-3) — leave protocol room, don't build it.
+8. Implement subcommands for the **full `Query` surface** (DECISION-4): all methods
+   1:1, with `close`/`streamInput`/`reinitialize` deliberately not exposed (each
+   commented), plus the `query` send-turn subcommand (`--image`/`--priority`/
+   `--no-query`) and slash commands. See the lifecycle spec for the exact mapping.
 
 ### Phase 3 — Monitoring (`tail`, `wait`, raw `attach`)
 9. Reuse `tail`/`attach`/`streaming` transport; `wait` keys off the Phase-0 idle
@@ -159,18 +197,24 @@ TDC: note that tail is going to be somewhat tricky, because claude agent sdk doe
   as-if-uninterrupted is only partly derisked (clear, not cold kill). `close()` is
   synchronous and may orphan the child `claude` — verify.
 - **[RISK-4] Permission/hook round-trip over a socket.** `canUseTool` is a daemon
-  callback; an interactive decision must reach a client/TUI and back. Net-new;
-  blocks non-bypass modes. Couples to [DECISION-3].
+  callback; an interactive decision must reach a client/TUI and back. **Deferred by
+  DECISION-3** (v1 assumes the mode auto-decides); leave protocol room, don't build.
 - **[RISK-5] TUI → virtual pty.** The net-new half of the tty.sock plan (driving a
   pty from our own renderer); transport half is reused from pictl.
 - **[RISK-6] SDK/protocol drift.** Closed, versioned stream-json protocol; pin a
   `claude` binary version and define how we track breaking changes.
 - **[RISK-7] Subagents/tasks/MCP surface.** SDK exposes task notifications,
-  subagents, MCP management; v1 likely defers these (confirm via [DECISION-4]).
+  subagents, MCP management. **DECISION-4 resolved: expose the full `Query` surface**,
+  so these ship as subcommands (`backgroundTasks`/`stopTask`/`setMcpServers`/…), not
+  deferred. Risk is now scope/testing breadth, not whether to include them.
+- **[RISK-8] `--priority`/queue ordering is undocumented and gates D6 echo placement.**
+  Where `EchoedUserMessage` must be inserted depends on how `claude` queues and flushes
+  prioritized messages at inference/turn boundaries — unknown, closed-source. *Retire
+  in Phase 0 ([SPIKE 2b])* before building the `sdk.sock` augmentation. muninn is a
+  reference we do not yet trust.
 
 ## Open questions for Anton (consolidated)
-Beyond the eight DECISIONs above:
-- **[DECISION-1]** is the only one with a real menu we can't narrow further without
-  you: do we pay the shared-package extraction cost now, or fork-and-diverge for v1
-  and extract later? (Note: per-agent daemon model and "author the sdk.sock server"
-  are now settled facts, not open questions — pictl answered them.)
+All eight DECISIONs are resolved (see the resolution summary above). The remaining
+open item is now an **empirical** unknown, not a choice for Anton:
+- **[RISK-8] `--priority`/queue ordering** — must be derisked in Phase 0 ([SPIKE 2b])
+  before the `sdk.sock` echo-augmentation can be implemented correctly.
