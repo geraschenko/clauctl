@@ -60,7 +60,7 @@ anything under the real `~/.claude` at any point.
 - **Use the SDK-bundled `claude` binary** — do not point
   `pathToClaudeCodeExecutable` at the system binary; keeps results tied to the pinned
   version that clauctl ships against.
-- `permissionMode: 'bypassPermissions'` for the _initial_ planting turn (cheap, no
+- `permissionMode: 'auto'` for the _initial_ planting turn (cheap, no
   prompts). Note: this means you must change the mode to something observably
   different (e.g. `'default'` or `'plan'`) during the run to test persistence — see
   below.
@@ -86,7 +86,10 @@ anything under the real `~/.claude` at any point.
    baseline from the _same_ process: `initializationResult()` /
    `getContextUsage()` / `supportedModels()` / `mcpServerStatus()` / `accountInfo()`.
    Record exactly which method surfaces each mutated field (this also tells clauctl
-   how `status` should read each value back).
+   how `status` should read each value back). NOTE: the session jsonl files
+   often have clearer information than the SDK messages. For example, if you
+   cannot observe the new persmission mode in the SDK messages, check the jsonl
+   files.
 4. **Kill the process** (not `/clear` — a real cold kill; e.g. `query.close()` or
    killing the child). Confirm the child `claude` is gone.
 
@@ -96,7 +99,8 @@ anything under the real `~/.claude` at any point.
    `CLAUDE_CONFIG_DIR`**, and the **original spawn `Options` only** — deliberately do
    **not** re-pass the mutated `model`/`permissionMode`/etc. This isolates what
    `resume` restores on its own.
-6. Immediately re-observe the same fields via the same introspection methods. For each
+6. Immediately re-observe the same fields via the same introspection methods (or
+   jsonl files; this may require sending an additional prompt). For each
    field: **restored to the Phase-A value, or reverted to the spawn default?**
 
 **Phase C — confirm the merge fix (optional but valuable).**
@@ -127,10 +131,13 @@ anything under the real `~/.claude` at any point.
 
 ## Constraints
 
-- Keep **all** artifacts in this directory; the scratch `CLAUDE_CONFIG_DIR` must live
-  in this folder or `/tmp/clauctl-resume-derisk/` — never the real `~/.claude`.
-- This spends real credits — keep prompts minimal (one planting turn + the mutations +
-  the introspection reads). No loops, no extra conversation.
+- Keep artifacts to support your conclusions in this directory; the
+  scratch `CLAUDE_CONFIG_DIR` must live in this folder or
+  `/tmp/clauctl-resume-derisk/` — never the real `~/.claude`.
+- This spends real credits — don't be wasteful. You can use sonnet or haiku to
+  make things cheaper. However, it is expected that you'll have to run dozens
+  (maybe even 100-200) actual short sessions to produce this table, and it's
+  important that the table is actually correct.
 
 ## Report back (evidence-first)
 
