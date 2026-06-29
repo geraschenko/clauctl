@@ -1,0 +1,614 @@
+[
+  {
+    "seq": 0,
+    "t_ms": 4,
+    "event": "SCENARIO",
+    "label": "c_mixed",
+    "mechanism": "iterable",
+    "injections": [
+      {
+        "text": "Reply with exactly the word ALPHA and nothing else.",
+        "priority": "later"
+      },
+      {
+        "text": "Reply with exactly the word BRAVO and nothing else.",
+        "priority": "now"
+      },
+      {
+        "text": "Reply with exactly the word CHARLIE and nothing else.",
+        "priority": "next"
+      }
+    ]
+  },
+  {
+    "seq": 1,
+    "t_ms": 222,
+    "event": "msg",
+    "type": "system",
+    "subtype": "init",
+    "session_id": "94545508-07f2-4329-8682-ef3c2ca1df13"
+  },
+  {
+    "seq": 2,
+    "t_ms": 222,
+    "event": "msg",
+    "type": "system",
+    "subtype": "status",
+    "session_id": "94545508-07f2-4329-8682-ef3c2ca1df13"
+  },
+  {
+    "seq": 3,
+    "t_ms": 2734,
+    "event": "partial",
+    "raw_type": "message_start",
+    "session_id": "94545508-07f2-4329-8682-ef3c2ca1df13"
+  },
+  {
+    "seq": 4,
+    "t_ms": 2734,
+    "event": "partial",
+    "raw_type": "content_block_start",
+    "session_id": "94545508-07f2-4329-8682-ef3c2ca1df13",
+    "block_type": "thinking"
+  },
+  {
+    "seq": 5,
+    "t_ms": 2737,
+    "event": "msg",
+    "type": "system",
+    "subtype": "thinking_tokens",
+    "session_id": "94545508-07f2-4329-8682-ef3c2ca1df13"
+  },
+  {
+    "seq": 6,
+    "t_ms": 2737,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "94545508-07f2-4329-8682-ef3c2ca1df13"
+  },
+  {
+    "seq": 7,
+    "t_ms": 3213,
+    "event": "msg",
+    "type": "system",
+    "subtype": "thinking_tokens",
+    "session_id": "94545508-07f2-4329-8682-ef3c2ca1df13"
+  },
+  {
+    "seq": 8,
+    "t_ms": 3213,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "94545508-07f2-4329-8682-ef3c2ca1df13"
+  },
+  {
+    "seq": 9,
+    "t_ms": 3213,
+    "event": "msg",
+    "type": "system",
+    "subtype": "thinking_tokens",
+    "session_id": "94545508-07f2-4329-8682-ef3c2ca1df13"
+  },
+  {
+    "seq": 10,
+    "t_ms": 3213,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "94545508-07f2-4329-8682-ef3c2ca1df13"
+  },
+  {
+    "seq": 11,
+    "t_ms": 3214,
+    "event": "msg",
+    "type": "assistant",
+    "session_id": "94545508-07f2-4329-8682-ef3c2ca1df13",
+    "uuid": "8269a06d-7693-47d0-9919-cfa3ec918862",
+    "parent_tool_use_id": null,
+    "tool_uses": []
+  },
+  {
+    "seq": 12,
+    "t_ms": 3214,
+    "event": "partial",
+    "raw_type": "content_block_stop",
+    "session_id": "94545508-07f2-4329-8682-ef3c2ca1df13"
+  },
+  {
+    "seq": 13,
+    "t_ms": 3214,
+    "event": "partial",
+    "raw_type": "content_block_start",
+    "session_id": "94545508-07f2-4329-8682-ef3c2ca1df13",
+    "block_type": "tool_use"
+  },
+  {
+    "seq": 14,
+    "t_ms": 3221,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "94545508-07f2-4329-8682-ef3c2ca1df13"
+  },
+  {
+    "seq": 15,
+    "t_ms": 3592,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "94545508-07f2-4329-8682-ef3c2ca1df13"
+  },
+  {
+    "seq": 16,
+    "t_ms": 3593,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "94545508-07f2-4329-8682-ef3c2ca1df13"
+  },
+  {
+    "seq": 17,
+    "t_ms": 3593,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "94545508-07f2-4329-8682-ef3c2ca1df13"
+  },
+  {
+    "seq": 18,
+    "t_ms": 3593,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "94545508-07f2-4329-8682-ef3c2ca1df13"
+  },
+  {
+    "seq": 19,
+    "t_ms": 3593,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "94545508-07f2-4329-8682-ef3c2ca1df13"
+  },
+  {
+    "seq": 20,
+    "t_ms": 3593,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "94545508-07f2-4329-8682-ef3c2ca1df13"
+  },
+  {
+    "seq": 21,
+    "t_ms": 3593,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "94545508-07f2-4329-8682-ef3c2ca1df13"
+  },
+  {
+    "seq": 22,
+    "t_ms": 3719,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "94545508-07f2-4329-8682-ef3c2ca1df13"
+  },
+  {
+    "seq": 23,
+    "t_ms": 3720,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "94545508-07f2-4329-8682-ef3c2ca1df13"
+  },
+  {
+    "seq": 24,
+    "t_ms": 3720,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "94545508-07f2-4329-8682-ef3c2ca1df13"
+  },
+  {
+    "seq": 25,
+    "t_ms": 3721,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "94545508-07f2-4329-8682-ef3c2ca1df13"
+  },
+  {
+    "seq": 26,
+    "t_ms": 3723,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "94545508-07f2-4329-8682-ef3c2ca1df13"
+  },
+  {
+    "seq": 27,
+    "t_ms": 3725,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "94545508-07f2-4329-8682-ef3c2ca1df13"
+  },
+  {
+    "seq": 28,
+    "t_ms": 3725,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "94545508-07f2-4329-8682-ef3c2ca1df13"
+  },
+  {
+    "seq": 29,
+    "t_ms": 3728,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "94545508-07f2-4329-8682-ef3c2ca1df13"
+  },
+  {
+    "seq": 30,
+    "t_ms": 3735,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "94545508-07f2-4329-8682-ef3c2ca1df13"
+  },
+  {
+    "seq": 31,
+    "t_ms": 3740,
+    "event": "msg",
+    "type": "assistant",
+    "session_id": "94545508-07f2-4329-8682-ef3c2ca1df13",
+    "uuid": "6e37682c-2123-4ad5-bfd1-4daaea6ef3cc",
+    "parent_tool_use_id": null,
+    "tool_uses": [
+      {
+        "id": "toolu_01USLHd28ikznePXtctrTtQz",
+        "name": "Bash",
+        "input": {
+          "command": "sleep 4 && echo step-one-done",
+          "description": "Step 1: sleep 4 then echo"
+        }
+      }
+    ]
+  },
+  {
+    "seq": 32,
+    "t_ms": 3740,
+    "event": "INJECT_START",
+    "mechanism": "iterable",
+    "count": 3
+  },
+  {
+    "seq": 33,
+    "t_ms": 3740,
+    "event": "INJECT",
+    "via": "iterable",
+    "text": "Reply with exactly the word ALPHA and nothing else.",
+    "priority": "later"
+  },
+  {
+    "seq": 34,
+    "t_ms": 3740,
+    "event": "INJECT",
+    "via": "iterable",
+    "text": "Reply with exactly the word BRAVO and nothing else.",
+    "priority": "now"
+  },
+  {
+    "seq": 35,
+    "t_ms": 3740,
+    "event": "INJECT",
+    "via": "iterable",
+    "text": "Reply with exactly the word CHARLIE and nothing else.",
+    "priority": "next"
+  },
+  {
+    "seq": 36,
+    "t_ms": 3740,
+    "event": "INJECT_DONE"
+  },
+  {
+    "seq": 37,
+    "t_ms": 3749,
+    "event": "partial",
+    "raw_type": "content_block_stop",
+    "session_id": "94545508-07f2-4329-8682-ef3c2ca1df13"
+  },
+  {
+    "seq": 38,
+    "t_ms": 5199,
+    "event": "msg",
+    "type": "user",
+    "session_id": "94545508-07f2-4329-8682-ef3c2ca1df13",
+    "uuid": "dcacae06-0383-49fe-9109-6aff3cba372c",
+    "parent_tool_use_id": null,
+    "priority": null,
+    "content": "[{\"tool_use_id\":\"toolu_01USLHd28ikznePXtctrTtQz\",\"type\":\"tool_result\",\"content\":\"<error>Command was aborted before completion</error>\",\"is_error\":true}]"
+  },
+  {
+    "seq": 39,
+    "t_ms": 5199,
+    "event": "msg",
+    "type": "result",
+    "subtype": "success",
+    "is_error": false,
+    "session_id": "94545508-07f2-4329-8682-ef3c2ca1df13",
+    "result_text": ""
+  },
+  {
+    "seq": 40,
+    "t_ms": 5199,
+    "event": "RESULT_BOUNDARY",
+    "count": 1
+  },
+  {
+    "seq": 41,
+    "t_ms": 5201,
+    "event": "msg",
+    "type": "system",
+    "subtype": "init",
+    "session_id": "94545508-07f2-4329-8682-ef3c2ca1df13"
+  },
+  {
+    "seq": 42,
+    "t_ms": 5201,
+    "event": "msg",
+    "type": "system",
+    "subtype": "status",
+    "session_id": "94545508-07f2-4329-8682-ef3c2ca1df13"
+  },
+  {
+    "seq": 43,
+    "t_ms": 7414,
+    "event": "partial",
+    "raw_type": "message_start",
+    "session_id": "94545508-07f2-4329-8682-ef3c2ca1df13"
+  },
+  {
+    "seq": 44,
+    "t_ms": 7414,
+    "event": "partial",
+    "raw_type": "content_block_start",
+    "session_id": "94545508-07f2-4329-8682-ef3c2ca1df13",
+    "block_type": "text"
+  },
+  {
+    "seq": 45,
+    "t_ms": 7421,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "94545508-07f2-4329-8682-ef3c2ca1df13"
+  },
+  {
+    "seq": 46,
+    "t_ms": 7450,
+    "event": "msg",
+    "type": "assistant",
+    "session_id": "94545508-07f2-4329-8682-ef3c2ca1df13",
+    "uuid": "1cf42f84-77ac-4dcf-bab1-a0dfca86e0fb",
+    "parent_tool_use_id": null,
+    "text": "BRAVO",
+    "tool_uses": []
+  },
+  {
+    "seq": 47,
+    "t_ms": 7450,
+    "event": "partial",
+    "raw_type": "content_block_stop",
+    "session_id": "94545508-07f2-4329-8682-ef3c2ca1df13"
+  },
+  {
+    "seq": 48,
+    "t_ms": 7621,
+    "event": "partial",
+    "raw_type": "message_delta",
+    "session_id": "94545508-07f2-4329-8682-ef3c2ca1df13",
+    "stop_reason": "end_turn"
+  },
+  {
+    "seq": 49,
+    "t_ms": 7621,
+    "event": "partial",
+    "raw_type": "message_stop",
+    "session_id": "94545508-07f2-4329-8682-ef3c2ca1df13"
+  },
+  {
+    "seq": 50,
+    "t_ms": 7621,
+    "event": "msg",
+    "type": "rate_limit_event",
+    "session_id": "94545508-07f2-4329-8682-ef3c2ca1df13"
+  },
+  {
+    "seq": 51,
+    "t_ms": 7622,
+    "event": "msg",
+    "type": "result",
+    "subtype": "success",
+    "is_error": false,
+    "session_id": "94545508-07f2-4329-8682-ef3c2ca1df13",
+    "result_text": "BRAVO"
+  },
+  {
+    "seq": 52,
+    "t_ms": 7622,
+    "event": "RESULT_BOUNDARY",
+    "count": 2
+  },
+  {
+    "seq": 53,
+    "t_ms": 7624,
+    "event": "msg",
+    "type": "system",
+    "subtype": "init",
+    "session_id": "94545508-07f2-4329-8682-ef3c2ca1df13"
+  },
+  {
+    "seq": 54,
+    "t_ms": 7624,
+    "event": "msg",
+    "type": "system",
+    "subtype": "status",
+    "session_id": "94545508-07f2-4329-8682-ef3c2ca1df13"
+  },
+  {
+    "seq": 55,
+    "t_ms": 9675,
+    "event": "partial",
+    "raw_type": "message_start",
+    "session_id": "94545508-07f2-4329-8682-ef3c2ca1df13"
+  },
+  {
+    "seq": 56,
+    "t_ms": 9675,
+    "event": "partial",
+    "raw_type": "content_block_start",
+    "session_id": "94545508-07f2-4329-8682-ef3c2ca1df13",
+    "block_type": "text"
+  },
+  {
+    "seq": 57,
+    "t_ms": 9675,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "94545508-07f2-4329-8682-ef3c2ca1df13"
+  },
+  {
+    "seq": 58,
+    "t_ms": 9676,
+    "event": "msg",
+    "type": "assistant",
+    "session_id": "94545508-07f2-4329-8682-ef3c2ca1df13",
+    "uuid": "57071ffa-b5ab-4e97-bd54-c74e6309f768",
+    "parent_tool_use_id": null,
+    "text": "CHARLIE",
+    "tool_uses": []
+  },
+  {
+    "seq": 59,
+    "t_ms": 9676,
+    "event": "partial",
+    "raw_type": "content_block_stop",
+    "session_id": "94545508-07f2-4329-8682-ef3c2ca1df13"
+  },
+  {
+    "seq": 60,
+    "t_ms": 9676,
+    "event": "partial",
+    "raw_type": "message_delta",
+    "session_id": "94545508-07f2-4329-8682-ef3c2ca1df13",
+    "stop_reason": "end_turn"
+  },
+  {
+    "seq": 61,
+    "t_ms": 9678,
+    "event": "partial",
+    "raw_type": "message_stop",
+    "session_id": "94545508-07f2-4329-8682-ef3c2ca1df13"
+  },
+  {
+    "seq": 62,
+    "t_ms": 9683,
+    "event": "msg",
+    "type": "result",
+    "subtype": "success",
+    "is_error": false,
+    "session_id": "94545508-07f2-4329-8682-ef3c2ca1df13",
+    "result_text": "CHARLIE"
+  },
+  {
+    "seq": 63,
+    "t_ms": 9683,
+    "event": "RESULT_BOUNDARY",
+    "count": 3
+  },
+  {
+    "seq": 64,
+    "t_ms": 9684,
+    "event": "msg",
+    "type": "system",
+    "subtype": "init",
+    "session_id": "94545508-07f2-4329-8682-ef3c2ca1df13"
+  },
+  {
+    "seq": 65,
+    "t_ms": 9684,
+    "event": "msg",
+    "type": "system",
+    "subtype": "status",
+    "session_id": "94545508-07f2-4329-8682-ef3c2ca1df13"
+  },
+  {
+    "seq": 66,
+    "t_ms": 12067,
+    "event": "partial",
+    "raw_type": "message_start",
+    "session_id": "94545508-07f2-4329-8682-ef3c2ca1df13"
+  },
+  {
+    "seq": 67,
+    "t_ms": 12067,
+    "event": "partial",
+    "raw_type": "content_block_start",
+    "session_id": "94545508-07f2-4329-8682-ef3c2ca1df13",
+    "block_type": "text"
+  },
+  {
+    "seq": 68,
+    "t_ms": 12081,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "94545508-07f2-4329-8682-ef3c2ca1df13"
+  },
+  {
+    "seq": 69,
+    "t_ms": 12097,
+    "event": "msg",
+    "type": "assistant",
+    "session_id": "94545508-07f2-4329-8682-ef3c2ca1df13",
+    "uuid": "3e61817c-f8ab-42ed-8f9d-9df48bda31fe",
+    "parent_tool_use_id": null,
+    "text": "ALPHA",
+    "tool_uses": []
+  },
+  {
+    "seq": 70,
+    "t_ms": 12097,
+    "event": "partial",
+    "raw_type": "content_block_stop",
+    "session_id": "94545508-07f2-4329-8682-ef3c2ca1df13"
+  },
+  {
+    "seq": 71,
+    "t_ms": 12146,
+    "event": "partial",
+    "raw_type": "message_delta",
+    "session_id": "94545508-07f2-4329-8682-ef3c2ca1df13",
+    "stop_reason": "end_turn"
+  },
+  {
+    "seq": 72,
+    "t_ms": 12147,
+    "event": "partial",
+    "raw_type": "message_stop",
+    "session_id": "94545508-07f2-4329-8682-ef3c2ca1df13"
+  },
+  {
+    "seq": 73,
+    "t_ms": 12151,
+    "event": "msg",
+    "type": "result",
+    "subtype": "success",
+    "is_error": false,
+    "session_id": "94545508-07f2-4329-8682-ef3c2ca1df13",
+    "result_text": "ALPHA"
+  },
+  {
+    "seq": 74,
+    "t_ms": 12151,
+    "event": "RESULT_BOUNDARY",
+    "count": 4
+  },
+  {
+    "seq": 75,
+    "t_ms": 21156,
+    "event": "DRAIN_IDLE_CLOSE"
+  },
+  {
+    "seq": 76,
+    "t_ms": 21169,
+    "event": "GENERATOR_ENDED",
+    "timedOut": false,
+    "session_ids": [
+      "94545508-07f2-4329-8682-ef3c2ca1df13"
+    ]
+  }
+]
