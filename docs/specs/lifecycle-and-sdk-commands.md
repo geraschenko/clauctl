@@ -130,10 +130,32 @@ spike (plan [RISK-8]); this is the gating unknown for D6.**
 There is no `idle` `SDKStatus`. The daemon derives a 4-state machine (from muninn's
 `runner_state_tracker`, again a reference): **Idle → Pending → Working → Compacting**.
 
-- `EchoedUserMessage` ⇒ Pending (queued, not yet running).
-- `SDKAssistantMessage` ⇒ Working (unless Compacting).
-- `result` ⇒ Idle (and if it was Compacting, the compaction is done).
-- `CompactionStarted` (synthesized when `/compact` is sent) ⇒ Compacting.
+The two concepts are **independent** and must not be conflated:
+
+- **`state` (Pending vs Working) is gated on _SDK evidence_.** We have accepted and
+  echoed a turn, but we have not yet seen any SDK message proving inference started
+  — so the agent is **Pending**. It becomes **Working** only once we see an
+  `SDKAssistantMessage` (or any inference activity) for that turn.
+- **`queueDepth` is _our own echo bookkeeping_**, not an SDK fact. Because the SDK
+  never echoes user turns back, the daemon must _infer_ where each accepted turn
+  belongs and synthesize its `EchoedUserMessage`. `queueDepth` = how many accepted
+  user turns the daemon believes are still queued ahead of being run. (v1 currently
+  assumes turns are **not** queued — see the echo-placement derisk — so `queueDepth`
+  is 0 or transiently 1; the field is retained for when queuing lands.)
+
+Transitions:
+
+- Accept a turn (synthesize `EchoedUserMessage`) ⇒ **Pending**.
+- First `SDKAssistantMessage` for the turn ⇒ **Working** (unless Compacting).
+- `result` ⇒ **Idle** (and if it was Compacting, the compaction is now done).
+- **`/compact`**: only valid when **Idle** (sent directly, never as a queued turn —
+  a queued `/compact` is not parsed as a command). The daemon synthesizes
+  `CompactionStarted` ⇒ **Compacting** on send. The `SDKCompactBoundaryMessage`
+  arrives when compaction **finishes**, so Compacting is exited by the subsequent
+  `result`, not by the boundary message.
+- **`interrupt()`**: state is left **unchanged** when the interrupt is _sent_; the
+  daemon transitions to **Idle** only when it sees the SDK message confirming the
+  interrupt landed (the turn's terminating `result`).
 - `busy = state != Idle || queueDepth > 0`.
 
 This refines the earlier "idle = saw `result` + no queued turn" into the Idle-vs-
@@ -151,13 +173,21 @@ This refines the earlier "idle = saw `result` + no queued turn" into the Idle-vs
 - `/clear` and `/new` do **not** kill the process; no respawn on reset.
 - **Respawn** (after crash/daemon restart) = persisted `Options` +
   `resume: currentSessionId`, reproducing behavior as if uninterrupted.
-- **Persist mutable runtime state, not just spawn `Options` (DECISION-5).** Anything
-  a client changes _mid-session_ via a control method — `permissionMode`, model,
-  thinking level, MCP overrides, applied flag settings — must be written back to
-  `agent.json` as it changes. On respawn the agent must come up in that _current_
-  state, so the user's experience is "the session was running the whole time," not
-  "it reverted to spawn defaults." (pictl has this same gap.) Store the full
-  session-id **history**, not just the current id.
+- **Persist mutable runtime state by merging it back into the spawn `Options`
+  (DECISION-5).** Anything a client changes _mid-session_ via a control method —
+  `permissionMode`, model, thinking level, MCP servers, applied flag settings — is
+  written back into the persisted `Options` as it changes, and **respawn spawns from
+  that merged `Options`** (+ `resume`). On respawn the agent comes up in its
+  _current_ state, so the user's experience is "the session was running the whole
+  time," not "it reverted to spawn defaults." (pictl has this same gap.) This is
+  intentionally **not perfect**: a few runtime controls have no `Options` equivalent
+  (`setMcpPermissionModeOverride`, mcp toggle/reconnect, the thinking _display_ mode)
+  and are either re-applied via their control method after respawn or accepted as
+  lost. The bar is simply to beat the terrible baseline of "respawn with the original
+  spawn `Options`." The exact set of fields `resume` already restores vs. drops (and
+  therefore which we _must_ merge) is pinned by the resume-persistence derisk
+  (`docs/derisk/resume-persistence/`). Store the full session-id **history**, not
+  just the current id.
 - **Settings posture (DECISION-7): inherit by default.** A spawned agent behaves as
   if the user ran `claude` on the CLI with the same env and settings — i.e.
   `settingSources` includes user + project (`CLAUDE.md`), not the SDK's isolated
@@ -197,9 +227,39 @@ This refines the earlier "idle = saw `result` + no queued turn" into the Idle-vs
 - The daemon holds the open `AsyncIterable` input and the `Query` async generator;
   `sdk.sock` clients are multiplexed onto it (single programmatic connection
   constraint).
-- `agent.json` stores only the serializable subset of `Options`. Code-valued
-  options (`canUseTool`, `hooks`, `createSdkMcpServer` tools) are clauctl's own and
-  re-supplied on spawn/respawn.
+- **`agent.json` Options handling** (grounded against the SDK `Options` type at
+  `0.3.195`, ~55 fields). Partition every field into one of four buckets:
+  1. **Persisted config** (round-tripped in `agent.json`, the serializable subset):
+     `model`, `fallbackModel`, `permissionMode`, `allowedTools`, `disallowedTools`,
+     `tools`, `toolAliases`, `agent`, `agents`, `cwd`, `additionalDirectories`,
+     `env`, `extraArgs`, `betas`, `enableFileCheckpointing`, `toolConfig`,
+     `forwardSubagentText`, `thinking`, `effort`, `maxThinkingTokens`, `maxTurns`,
+     `maxBudgetUsd`, `taskBudget`, `mcpServers` (serializable entries only — see
+     below), `planModeInstructions`, `plugins`, `promptSuggestions`,
+     `agentProgressSummaries`, `sandbox`, `settings` (the flag-settings layer),
+     `managedSettings`, `settingSources`, `skills`, `strictMcpConfig`,
+     `allowDangerouslySkipPermissions`, `permissionPromptToolName`,
+     `supportedDialogKinds`.
+  2. **Code-valued — never persisted, re-supplied by clauctl every (re)spawn**:
+     `abortController`, `canUseTool`, `hooks`, `onElicitation`, `onUserDialog`,
+     `sessionStore`, `stderr`, and any **in-process `SdkMcpServer`** entries inside
+     `mcpServers` (process-based stdio/http MCP entries _are_ serializable and live
+     in bucket 1).
+  3. **clauctl-controlled invariants** (clauctl sets these, not user-tunable):
+     `persistSession: true` (DECISION-8), `outputFormat: 'stream-json'`,
+     `includePartialMessages: true`, `pathToClaudeCodeExecutable` left unset so the
+     SDK-bundled binary is used, plus `debug`/`debugFile` diagnostics.
+  4. **Respawn mechanism** (set by clauctl at respawn only, not persisted as config):
+     `resume = currentSessionId`. The spawn-only directives `continue`,
+     `forkSession`, `resumeSessionAt`, `sessionId` are **not** used on respawn —
+     respawn continues the _same_ session, it does not fork or start fresh.
+- **Runtime control → `Options` field merge map** (DECISION-5 merge strategy):
+  `setModel`→`model`, `setPermissionMode`→`permissionMode`, `setMcpServers`→
+  `mcpServers`, `applyFlagSettings`→`settings` (cumulative shallow-merge, `null`
+  clears a key — store the merged result), `setMaxThinkingTokens`→`maxThinkingTokens`.
+  No `Options` equivalent (re-apply via the control method after respawn, or accept
+  loss): `setMcpPermissionModeOverride`, `toggleMcpServer`/`reconnectMcpServer`
+  (transient connection state), and `setMaxThinkingTokens`'s `thinkingDisplay`.
 - Consider how multiple concurrent `sdk.sock` clients share one stream
   (broadcast/fan-out) and how input turns from different clients are serialized.
 
@@ -210,9 +270,10 @@ This refines the earlier "idle = saw `result` + no queued turn" into the Idle-vs
 ## Open questions for the implementing agent
 
 - Exact `agent.json` schema and on-disk directory layout (align with pictl) — must
-  now include the full session-id history **and** the mutable runtime state from
-  DECISION-5 (current model, permission mode, thinking level, MCP overrides, applied
-  flag settings).
+  include the full session-id history **and** the merged runtime state from
+  DECISION-5. The Options partition + control→field merge map are settled (see
+  IMPLEMENTATION IDEAS); the remaining unknown is **which fields `resume` already
+  restores vs. drops**, pinned by `docs/derisk/resume-persistence/`.
 - Where agents live on disk (root dir, naming).
 - **Queue/priority semantics (gates D6 echo placement)** — how `--priority`
   (`now`/`next`/`later`) maps to insertion point and inference/turn boundaries. Must
