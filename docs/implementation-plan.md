@@ -42,73 +42,60 @@ half of the TUI.
 
 ## Decisions (resolved by Anton)
 
-All eight are **answered** — Anton's resolution is recorded inline as `TDC:` after
-each. They are no longer open; the Phases, Risks, and the lifecycle spec below are
-written to the resolved decisions. Kept here as the decision record + rationale.
+All eight are **answered**. They are no longer open; the Phases, Risks, and the
+lifecycle spec are written to these resolutions. Kept here as the decision record
++ rationale.
 
-Resolution summary: **D1** copy-and-diverge now, monorepo later if overlap proves
-high. **D2** one supervisor daemon per agent. **D3** use the user's real permission
-mode (no auto-bypass default); interactive popup + non-interactive fallback deferred.
-**D4** expose the *full* `Query` surface as subcommands (exclusions commented), plus
-`resolveSettings`; see the lifecycle spec. **D5** persist full session-id history
-*and* mutable runtime state (model/permission-mode/thinking/MCP/flag-settings) so
-respawn is transparent. **D6** daemon serializes all writers and **augments** the
-stream (echoes, queue depth, compaction); see the spec. **D7** inherit user+project
-settings by default. **D8** `persistSession: true` is a hard invariant.
-
-- **[DECISION-1] Code-sharing strategy with pictl.** (a) **fork & diverge** — copy
-  pictl scaffolding, let them drift; (b) **extract a shared package** — pull
-  daemon/registry/socket-transport/stricli/format-tree/tty-transport into a common
-  lib both depend on; (c) **monorepo**. Highest-leverage decision; shapes
-  everything. (a) fastest now, doubles future maintenance; (b)/(c) cost refactoring
-  a shipping pictl. *We lean (b) long-term but want your call, and whether to pay
-  that cost now or after a fork-and-diverge v1.*
-TDC: Let's copy and diverge for now. If overlap is high and the tools are proving useful, we'll move to monorepo.
-- **[DECISION-2] Daemon model — confirm, don't re-open.** pictl is unambiguously
-  **one supervisor daemon per agent** (`daemon.ts`: "the per-agent daemon. One per
-  agent."). We recommend clauctl mirror this; the alternative (one process hosting
-  every agent's `Query` in-process) is **rejected** for crash isolation — one SDK
-  throw or one runaway agent would take down the fleet, and each `Query` holds a
-  child `claude` process plus non-serializable closures. We need you to **confirm
-  per-agent supervisor**, or tell us why not.
-TDC: Agreed, one daemon per agent.
-- **[DECISION-3] Permission posture for spawned agents (security).** clauctl
-  supplies `canUseTool`/`permissionMode`. Two coupled sub-questions:
-  - **[3a] Default mode.** The derisk harness used `bypassPermissions` (cheap, no
-    prompts). Is **auto-bypass an acceptable default** for spawned agents (requires
-    `allowDangerouslySkipPermissions: true`), or must v1 ship the interactive
-    round-trip first? This is a safety default; we will not choose it by omission.
-  - **[3b] If interactive:** permission decisions must round-trip from the daemon's
-    `canUseTool` callback to an attached client/TUI and back — a request/response
-    sub-protocol on `sdk.sock` with timeout + "no client attached" fallback.
-    pictl gives us **nothing** here (pi handles its own approvals), so this is
-    net-new and blocks any non-bypass mode in v1.
-TDC: bypass permissions is *not* an acceptable default. We should use the user's actual permission mode. To start with, we can assume the permission mode makes a decision for every request (e.g. "auto" or "bypassPermissions"). Making a permission popup in the UI and deciding what to do if non-interactive is something we can do in a future version.
-- **[DECISION-4] v1 SDK-passthrough scope.** Proposal to react to: v1 ships
-  send-a-turn + core control methods (`interrupt`, `setModel`, `setPermissionMode`,
-  slash commands incl. `/clear`,`/new`,`/compact`) and defers the long tail (MCP
-  management, hooks config, `backgroundTasks`/`stopTask`, subagent/task controls).
-  Which capabilities are must-have for *your* v1 usage?
-TDC: we should expose the *full* SDK surface of the Query type, making exceptions only if there's a very good reason to do so. In terms of what can be targeted at a given agent, we should implement all method of Query (https://code.claude.com/docs/en/agent-sdk/typescript#query-object) as subcommands; this is the analog of pictl's src/core/rpc-commands.ts. Keeping anything less than the full SDK surface is confusing. However, we don't need to keep the SDK function outside of the Query object (e.g. `query` and `startup`) and we don't need any of the types aside from Query. Read the documentation, and highlight anything outside of Query that you think clauctl should expose, or anything within Query that you think clauctl should not expose. I think we should have a `query` subcommand which adds a SDKUserMessage to the prompt iterator used when constructing the Query object. Note that this means we'll need to give the user the ability to add text content and images with `--image`, like pictl prompt does. Does that make sense?
-- **[DECISION-5] Identity & on-disk layout.** Mirror pictl's agent-id scheme,
-  `--tag` targeting, and `env-paths` state dir? Plus clauctl-specifics: do we store
-  `currentSessionId` only, or the full session-id *history* per agent?
-TDC: full session id history, like pictl does. Note that we also need to store anything required to resume state (pictl needs to fix this too, btw). For example, if the permission mode, thinking level, or model changes, we have to persist that in agent.json so that if the daemon is shut down and then restarted later, the effect for the user is that the session was just running the whole time.
-- **[DECISION-6] Concurrent writers on `sdk.sock`.** One programmatic connection,
-  potentially many clients. When two clients submit a turn at once: single-writer
-  lock, queue/interleave, or reject? (Also surfaces in the TUI spec.) Affects the
-  socket protocol design.
-TDC: all commands are serialized through the daemon. So multiple commands coming in on the socket from multiple clients is fine; the daemon picks them up and interleaves them. Note that the claude agent SDK is kind of shitty and doesn't echo user messages back. This is a huge problem for clients, because it means that they can't see what other clients send, which makes the conversation look non-sensicle. This means that the messages sent on sdk.sock cannot simply forward the output from claude's stdout stream. See /home/anton/git/muninn/claude/runner/runner/src/types/runner_event/runner_event.rs for a superset of the various messages we'll have to augment the stream with. Not all of these are critical, but you'll have to look carefully and run the decisions by me. Message is obviously critical (those are regular SDK messages), EchoedUserMessage is critical (but we can drop the type parameter), and I think QueueDepthChanged might be necessary to figure out where to insert the echoed messages, or for clients to be able to figure out if the agent is running vs idle. I think CompactionStarted may also be critical for the client to be able to tell if the agent is in the middle of compaction. See claude/runner/runner/src/claude_runner_local/handle_message.rs for logic around where to insert the echoed messages.
-- **[DECISION-7] `settingSources` default = isolation posture.** When
-  `settingSources` is omitted, the SDK loads **no** filesystem settings and does
-  **not** read project `CLAUDE.md`. Should a spawned clauctl agent inherit the
-  user's `~/.claude` settings + project `CLAUDE.md`, or run isolated by default?
-  This changes what the agent *is*.
-TDC: inherit user and project settings by default. The behavior should be as if the user ran claude on the command line with all the same env variables and settings.
-- **[DECISION-8] Require `persistSession: true`.** Respawn-via-`resume` depends on
-  the per-session transcript JSONL existing; `persistSession: false` disables it.
-  Confirm clauctl treats persisted sessions as a hard invariant.
-TDC: yes.
+- **[DECISION-1] Code-sharing strategy with pictl — copy & diverge now.** The menu
+  was (a) **fork & diverge** (copy pictl scaffolding, let them drift), (b) **extract
+  a shared package** (daemon/registry/socket-transport/stricli/format-tree/tty-
+  transport in a common lib), (c) **monorepo**. **Decision: (a) for now** — copy and
+  diverge. If overlap proves high and both tools prove useful, move to a monorepo
+  later. We avoid paying the shared-package/refactor-a-shipping-pictl cost up front.
+- **[DECISION-2] Daemon model — one supervisor daemon per agent.** Mirrors pictl
+  (`daemon.ts`: "the per-agent daemon. One per agent."). The alternative (one process
+  hosting every agent's `Query` in-process) is **rejected** for crash isolation: one
+  SDK throw or one runaway agent would take down the fleet, and each `Query` holds a
+  child `claude` process plus non-serializable closures.
+- **[DECISION-3] Permission posture — use the user's real permission mode.** Auto-
+  `bypassPermissions` is **not** an acceptable default (the derisk harness used it only
+  for cheap, prompt-free runs). v1 assumes the permission mode auto-decides every
+  request (e.g. `auto` or `bypassPermissions`). The interactive permission popup — the
+  `canUseTool` round-trip from the daemon to an attached client/TUI and back, with a
+  non-interactive fallback — is a **future version**, deferred, not built in v1.
+- **[DECISION-4] SDK-passthrough scope — expose the *full* `Query` surface.** Every
+  `Query` method becomes a subcommand (the analog of pictl's `rpc-commands.ts`);
+  anything less is confusing, and exceptions require a very good reason **and** a
+  comment at the mapping site. We do **not** expose non-`Query` SDK functions (`query`,
+  `startup`) or other types — **except `resolveSettings`** — though we still consume
+  the parameter types internally. Adds a `query` subcommand that appends an
+  `SDKUserMessage` to the held-open prompt iterable, with `--image` (like `pictl
+  prompt`), `--priority`, and `--no-query`. Full mapping + exclusions in the lifecycle
+  spec.
+- **[DECISION-5] Identity & on-disk layout — pictl scheme + full history + runtime
+  state.** Mirror pictl's agent-id scheme, `--tag` targeting, and `env-paths` state
+  dir. Store the **full session-id history** (not just the current id). Critically,
+  also persist **mutable runtime state** changed mid-session — permission mode,
+  thinking level, model, MCP overrides, applied flag settings — so a daemon restart is
+  transparent: the user experiences "the session was running the whole time," not a
+  revert to spawn defaults. (pictl has this same gap.)
+- **[DECISION-6] Concurrent writers — daemon serializes; the stream is augmented.**
+  All commands serialize through the daemon: multiple clients on the one programmatic
+  connection are fine, the daemon picks them up and interleaves them (no single-writer
+  lock, no reject). Because the SDK **does not echo user messages back**, clients can't
+  see each other's input and the conversation reads as nonsense — so `sdk.sock`
+  **cannot simply forward** `claude`'s stdout; the daemon must **augment** the stream
+  (echoes, queue depth, compaction state). Augmentation set in the lifecycle spec.
+  References (treated as *reference, not authority*): muninn's
+  `runner/src/types/runner_event/runner_event.rs` (event superset) and
+  `runner/src/claude_runner_local/handle_message.rs` (where echoes are inserted).
+- **[DECISION-7] `settingSources` default — inherit user + project settings.** A
+  spawned agent behaves as if the user ran `claude` on the CLI with the same env and
+  settings (user `~/.claude` + project `CLAUDE.md`), **not** the SDK's isolated default
+  (which loads no filesystem settings and no project `CLAUDE.md`).
+- **[DECISION-8] `persistSession: true` is a hard invariant.** Respawn-via-`resume`
+  depends on the per-session transcript JSONL existing; `persistSession: false`
+  disables it.
 
 ## Proposed order of work
 
@@ -122,9 +109,10 @@ TDC: yes.
    (ii) the **4-state idle model** — there is no `idle` `SDKStatus`; derive
    **Idle → Pending → Working → Compacting** (`EchoedUserMessage`→Pending,
    `assistant`→Working, `result`→Idle, `/compact`→Compacting; `busy = state != Idle
-   || queueDepth > 0`). See the lifecycle spec; (iii) clean teardown (`Query.close()`
-   is synchronous/`void` — verify it doesn't orphan the child `claude`).
-TDC: idle/streaming/compacting may be tricky. See /home/anton/git/muninn/claude/runner/runner/src/types/runner_state_tracker.rs for a reference implementation in rust.
+   || queueDepth > 0`). Idle/streaming/compacting is expected to be tricky; muninn's
+   `runner/src/types/runner_state_tracker.rs` is a Rust reference (not trusted
+   wholesale). See the lifecycle spec; (iii) clean teardown (`Query.close()` is
+   synchronous/`void` — verify it doesn't orphan the child `claude`).
 2b. **[SPIKE → RISK-8] Derisk `--priority`/queue ordering** (pure SDK, no daemon —
    like the `/clear` derisk). The SDK is closed-source and this behavior is *not*
    documented; it determines **where `EchoedUserMessage` must be inserted**, so D6 is
@@ -174,7 +162,10 @@ TDC: idle/streaming/compacting may be tricky. See /home/anton/git/muninn/claude/
 ### Phase 3 — Monitoring (`tail`, `wait`, raw `attach`)
 9. Reuse `tail`/`attach`/`streaming` transport; `wait` keys off the Phase-0 idle
    model (no sleeps). Define the on-disk/over-wire `SDKMessage` record format.
-TDC: note that tail is going to be somewhat tricky, because claude agent sdk doesn't have sane analogs of pi's get-messages and get-entries methods, so we'll have to figure it out. get-entries can read from the session's jsonl file, but get-messages is trickier because it requires figuring out which of those entries are actually currently in context for the agent.
+   **`tail` is tricky:** the SDK has no sane analogs of pi's `get-messages` /
+   `get-entries`. A `get-entries`-equivalent can read the session's JSONL file
+   directly, but a `get-messages`-equivalent is harder — it requires figuring out
+   which of those entries are **currently in context** for the agent. Needs design.
 
 ### Phase 4 — Convenience (`completion`, `format`)
 10. `completion` via `@stricli/auto-complete` (near-free).
