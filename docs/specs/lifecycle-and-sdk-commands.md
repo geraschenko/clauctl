@@ -277,8 +277,7 @@ This refines the earlier "idle = saw `result` + no queued turn" into the Idle-vs
      below), `planModeInstructions`, `plugins`, `promptSuggestions`,
      `agentProgressSummaries`, `sandbox`, `settings` (the flag-settings layer),
      `managedSettings`, `settingSources`, `skills`, `strictMcpConfig`,
-     `allowDangerouslySkipPermissions`, `permissionPromptToolName`,
-     `supportedDialogKinds`.
+     `allowDangerouslySkipPermissions`, `supportedDialogKinds`.
   2. **Code-valued — never persisted, re-supplied by clauctl every (re)spawn**:
      `abortController`, `canUseTool`, `hooks`, `onElicitation`, `onUserDialog`,
      `sessionStore`, `stderr`, and any **in-process `SdkMcpServer`** entries inside
@@ -287,7 +286,9 @@ This refines the earlier "idle = saw `result` + no queued turn" into the Idle-vs
   3. **clauctl-controlled invariants** (clauctl sets these, not user-tunable):
      `persistSession: true` (DECISION-8), `outputFormat: 'stream-json'`,
      `includePartialMessages: true`, `pathToClaudeCodeExecutable` left unset so the
-     SDK-bundled binary is used, plus `debug`/`debugFile` diagnostics.
+     SDK-bundled binary is used, `permissionPromptToolName` (the interactive-prompt
+     hook — clauctl expects to own permission prompting once the round-trip lands per
+     DECISION-3, so a user does not set this), plus `debug`/`debugFile` diagnostics.
   4. **Respawn mechanism** (set by clauctl at respawn only, not persisted as config):
      `resume = currentSessionId`. The spawn-only directives `continue`,
      `forkSession`, `resumeSessionAt`, `sessionId` are **not** used on respawn —
