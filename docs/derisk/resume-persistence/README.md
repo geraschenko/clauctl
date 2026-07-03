@@ -1,5 +1,9 @@
 # Derisking experiment: which `Options` does `resume` restore, and which does it drop?
 
+> **Implementing clauctl?** Read [`FINDINGS.md`](./FINDINGS.md) — the implementation-facing
+> summary (per-field verdicts + how to persist/re-apply each). This README keeps the full
+> methodology and evidence for how those conclusions were reached.
+
 > **Handoff brief for a fresh-context agent.** Read `docs/overview.md` and
 > `docs/specs/lifecycle-and-sdk-commands.md` (the "Persist mutable runtime state" and
 > "agent.json Options handling" sections) first. This experiment **gates the exact
