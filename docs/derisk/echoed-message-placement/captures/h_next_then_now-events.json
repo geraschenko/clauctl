@@ -705,8 +705,6 @@
     "t_ms": 28418,
     "event": "GENERATOR_ENDED",
     "timedOut": false,
-    "session_ids": [
-      "8833314d-a7c6-4489-b94b-58ae795e32cd"
-    ]
+    "session_ids": ["8833314d-a7c6-4489-b94b-58ae795e32cd"]
   }
 ]

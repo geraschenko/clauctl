@@ -800,8 +800,6 @@
     "t_ms": 24411,
     "event": "GENERATOR_ENDED",
     "timedOut": false,
-    "session_ids": [
-      "4febcc28-22a0-4601-86e0-36a724731a34"
-    ]
+    "session_ids": ["4febcc28-22a0-4601-86e0-36a724731a34"]
   }
 ]

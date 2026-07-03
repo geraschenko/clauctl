@@ -10,25 +10,25 @@
 ## TL;DR
 
 clauctl's respawn recipe is **persisted (merged) `Options` + `resume: sessionId`** in a fresh
-process. `resume` restores the *conversation* but only some *session config*. To make respawn
+process. `resume` restores the _conversation_ but only some _session config_. To make respawn
 faithful, clauctl handles each mutable field by one of three mechanisms:
 
 - **merge** — fold the current value into the stored `Options` and re-pass on respawn.
-- **re-apply** — call the control method again *after* the respawned session initializes
+- **re-apply** — call the control method again _after_ the respawned session initializes
   (no `Options` path exists).
 - **config-dir** — state already persists in `.claude.json`; free as long as respawn reuses
   the same config dir **and** cwd.
 
-| field | mutated via | `resume` alone restores it? | mechanism | notes |
-| ----- | ----------- | --------------------------- | --------- | ----- |
-| `model` | `setModel` | **yes** (carries) | merge (redundant) | pass it anyway so clauctl owns it explicitly |
-| `permissionMode` | `setPermissionMode` | **no** (drops) | **merge** | clean; `bypassPermissions` also needs the spawn dangerous-skip flag |
-| `mcpServers` (dynamic) | `setMcpServers` | **no** (drops) | **merge** | persist only the **dynamic** set clauctl manages, not settings-file/`.mcp.json` servers |
-| `maxThinkingTokens` | `setMaxThinkingTokens` | untested¹ | **merge + normalize** | lossy — see [Normalizing the lossy fields](#normalizing-the-lossy-fields) |
-| thinking `display` | `setMaxThinkingTokens` | untested¹ | **merge + normalize** | lossy |
-| flag `settings` | `applyFlagSettings` | untested¹ | **merge + normalize** | lossy |
-| mcp perm override | `setMcpPermissionModeOverride` | **no** (drops) | **re-apply** | ephemeral in-process; persisted nowhere |
-| mcp server disable | `toggleMcpServer(x, false)` | N/A | **config-dir** | persists in `.claude.json`; to *re-enable* you must `toggleMcpServer(x, true)` |
+| field                  | mutated via                    | `resume` alone restores it? | mechanism             | notes                                                                                   |
+| ---------------------- | ------------------------------ | --------------------------- | --------------------- | --------------------------------------------------------------------------------------- |
+| `model`                | `setModel`                     | **yes** (carries)           | merge (redundant)     | pass it anyway so clauctl owns it explicitly                                            |
+| `permissionMode`       | `setPermissionMode`            | **no** (drops)              | **merge**             | clean; `bypassPermissions` also needs the spawn dangerous-skip flag                     |
+| `mcpServers` (dynamic) | `setMcpServers`                | **no** (drops)              | **merge**             | persist only the **dynamic** set clauctl manages, not settings-file/`.mcp.json` servers |
+| `maxThinkingTokens`    | `setMaxThinkingTokens`         | untested¹                   | **merge + normalize** | lossy — see [Normalizing the lossy fields](#normalizing-the-lossy-fields)               |
+| thinking `display`     | `setMaxThinkingTokens`         | untested¹                   | **merge + normalize** | lossy                                                                                   |
+| flag `settings`        | `applyFlagSettings`            | untested¹                   | **merge + normalize** | lossy                                                                                   |
+| mcp perm override      | `setMcpPermissionModeOverride` | **no** (drops)              | **re-apply**          | ephemeral in-process; persisted nowhere                                                 |
+| mcp server disable     | `toggleMcpServer(x, false)`    | N/A                         | **config-dir**        | persists in `.claude.json`; to _re-enable_ you must `toggleMcpServer(x, true)`          |
 
 ¹ Resume-alone behavior wasn't run for these three. It doesn't affect the decision:
 precedence is field-agnostic (proven in E1) and each has an `Options` equivalent, so merge is
@@ -52,7 +52,7 @@ sources, and picking the wrong one for a field silently loses state:
   disabled state is visible here too), `tools`, `cwd`. clauctl can read these back after any
   spawn.
 - **NOT in `init`, and there is no read-back API**: **thinking budget/display**, **flag
-  `settings`**, **mcp permission override**. For these, clauctl — which *is* the SDK client
+  `settings`**, **mcp permission override**. For these, clauctl — which _is_ the SDK client
   issuing the control calls — must **persist-on-mutation**: whenever it calls
   `setMaxThinkingTokens` / `applyFlagSettings` / `setMcpPermissionModeOverride`, record the
   arguments and fold them into `agent.json` at that moment. Never try to read them back.
@@ -63,12 +63,12 @@ single discipline covers both groups and removes any dependence on introspection
 ## Respawn requirements (must all hold together)
 
 1. **Reuse the same `CLAUDE_CONFIG_DIR`.** Required for `resume` to find the transcript
-   *and* for the disable state to persist (`.claude.json` lives in the config dir).
+   _and_ for the disable state to persist (`.claude.json` lives in the config dir).
 2. **Reuse the same cwd.** The disable state is keyed `projects[<cwd>].disabledMcpServers`.
    Respawning under a different cwd silently loses the disable. (Observed gotcha: the project
    key resolved to the git **main** path, not the worktree path — worktree→main resolution —
    so "same cwd" means the path the CLI resolves to, not necessarily the literal spawn dir.)
-3. **Re-pass merged `Options`** with the current values for every *merge* field.
+3. **Re-pass merged `Options`** with the current values for every _merge_ field.
 4. **Re-apply the mcp permission override after init.** It's a streaming-mode `Query` control
    method, so call `setMcpPermissionModeOverride(server, mode)` once the respawned session has
    initialized, per server, keyed by the exact registered server name.
@@ -108,7 +108,7 @@ single discipline covers both groups and removes any dependence on introspection
   `McpStdioServerConfig`, so it's unavailable for stdio servers and doesn't change the
   required re-apply action. (Structural only; not behaviorally tested.)
 - **Persistence timing is out of scope.** These findings assume the merged `Options` are
-  accurate at crash time. Whether clauctl always persists the latest mutation *before* the
+  accurate at crash time. Whether clauctl always persists the latest mutation _before_ the
   process dies (persist before send? on resolve?) is a clauctl lifecycle concern, not an
   SDK-resume question.
 

@@ -605,8 +605,6 @@
     "t_ms": 20116,
     "event": "GENERATOR_ENDED",
     "timedOut": false,
-    "session_ids": [
-      "eda580d4-484a-476d-b0c1-d5b612ea85a8"
-    ]
+    "session_ids": ["eda580d4-484a-476d-b0c1-d5b612ea85a8"]
   }
 ]

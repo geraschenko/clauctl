@@ -54,12 +54,12 @@ The original Phase B respawns with `resume: currentSessionId` **plus the origina
 `Options`** and asks "what did `resume` restore?". But **a field passed explicitly to
 `query` is expected to override whatever `resume` would have restored from the
 transcript** — and that override is the very mechanism clauctl's merge strategy relies on.
-So for any field the original spawn set explicitly, Phase B measures *the option we
-passed*, not *what `resume` restores* — the two are conflated and the phase answers the
+So for any field the original spawn set explicitly, Phase B measures _the option we
+passed_, not _what `resume` restores_ — the two are conflated and the phase answers the
 wrong question.
 
 That override is a **hypothesis, not an established fact** — proving it is the new job of
-E1 below. It is *not* "almost certainly universal"; it is exactly the load-bearing thing
+E1 below. It is _not_ "almost certainly universal"; it is exactly the load-bearing thing
 to test.
 
 ### The backbone: merge works iff precedence AND equivalence both hold
@@ -70,13 +70,13 @@ value as an explicit option. For that to faithfully reproduce field `F`'s runtim
 **two independent facts** must hold — and the original brief silently conflated them:
 
 - **(a) Precedence** — an explicit option overrides resumed transcript state. This is
-  *shared across all fields* and is tested once, on a few representatives (E1).
-- **(b) Equivalence** — `F`'s mutated runtime state is *faithfully expressible* as an
-  `Options` value. This is *per-field* and mostly a types/normalization question. Several
+  _shared across all fields_ and is tested once, on a few representatives (E1).
+- **(b) Equivalence** — `F`'s mutated runtime state is _faithfully expressible_ as an
+  `Options` value. This is _per-field_ and mostly a types/normalization question. Several
   control methods map to `Options` only lossily (see the equivalence audit below).
 
 "Field has an `Options` equivalent → merge, full stop" is therefore **too strong**: merge
-works only when *both* (a) and (b) hold. If (a) holds but (b) is lossy, clauctl must
+works only when _both_ (a) and (b) hold. If (a) holds but (b) is lossy, clauctl must
 normalize carefully; if (b) is absent entirely, the field falls to E2.
 
 **Scope of the precedence claim:** clauctl ships **no managed-settings layer** and runs
@@ -96,28 +96,28 @@ Verifying `sdk.d.ts` (v0.3.195) against the original table:
 - `toggleMcpServer(server, false)` has **no** `Options` equivalent — `McpStdioServerConfig`
   (and the other server configs) carry no `enabled` field; the disabled/enabled state lives
   only in the `mcp_toggle` control request (`sdk.d.ts:3345`). So the no-`Options` set is
-  **at least two** fields, not one. (`reconnectMcpServer` is an *action*, not persisted
+  **at least two** fields, not one. (`reconnectMcpServer` is an _action_, not persisted
   state — excluded.)
 
 Re-derived table (equivalence column filled by the audit, not yet by experiment):
 
-| field | mutated via | `Options` equivalent? | clauctl handling |
-| ----- | ----------- | --------------------- | ---------------- |
-| `permissionMode` | `setPermissionMode` | yes (`permissionMode`) | merge |
-| `model` | `setModel` | yes (`model`) | merge |
-| `maxThinkingTokens` | `setMaxThinkingTokens` | yes, **lossy** (`thinking`/`maxThinkingTokens`) | merge + normalize |
-| thinking `display` | `setMaxThinkingTokens` | yes, **lossy** (`thinking.display`) | merge + normalize |
-| flag `settings` | `applyFlagSettings` | yes, **lossy** (`settings`) | merge + normalize |
-| `mcpServers` | `setMcpServers` | yes, dynamic-only (`mcpServers`) | merge |
-| **mcp perm override** | `setMcpPermissionModeOverride` | **no** (workaround?) | E2: re-apply / accept loss / workaround |
-| **mcp server disable** | `toggleMcpServer(…, false)` | **no** | E2: re-apply / accept loss |
+| field                  | mutated via                    | `Options` equivalent?                           | clauctl handling                        |
+| ---------------------- | ------------------------------ | ----------------------------------------------- | --------------------------------------- |
+| `permissionMode`       | `setPermissionMode`            | yes (`permissionMode`)                          | merge                                   |
+| `model`                | `setModel`                     | yes (`model`)                                   | merge                                   |
+| `maxThinkingTokens`    | `setMaxThinkingTokens`         | yes, **lossy** (`thinking`/`maxThinkingTokens`) | merge + normalize                       |
+| thinking `display`     | `setMaxThinkingTokens`         | yes, **lossy** (`thinking.display`)             | merge + normalize                       |
+| flag `settings`        | `applyFlagSettings`            | yes, **lossy** (`settings`)                     | merge + normalize                       |
+| `mcpServers`           | `setMcpServers`                | yes, dynamic-only (`mcpServers`)                | merge                                   |
+| **mcp perm override**  | `setMcpPermissionModeOverride` | **no** (workaround?)                            | E2: re-apply / accept loss / workaround |
+| **mcp server disable** | `toggleMcpServer(…, false)`    | **no**                                          | E2: re-apply / accept loss              |
 
 ### Agreed experiment (~8–12 sessions, not 100–200)
 
 Three parts. **E1 runs first** to lock the precedence fact before any MCP work.
 
 **E1 — precedence (~4–6 sessions).** Mutate field → X mid-session, kill, respawn with
-`resume` + an explicit *different* Y; confirm result = Y. Representatives spanning option
+`resume` + an explicit _different_ Y; confirm result = Y. Representatives spanning option
 shapes:
 
 - `model` — scalar; observe `init.model`.
@@ -148,17 +148,17 @@ Output: a per-field `equivalence: clean | lossy(notes)` determination.
 **E2 — no-`Options` fields (~4–6 sessions), behavioral.** With a throwaway stdio MCP
 server, for both `setMcpPermissionModeOverride` and `toggleMcpServer(…, false)`: set the
 state, kill, respawn with `resume` + the server re-declared in `Options.mcpServers` but
-*without* the override/disable. Measure via **behavior** (does the tool prompt? is it
+_without_ the override/disable. Measure via **behavior** (does the tool prompt? is it
 absent?) whether `resume` restored the state on its own. Then probe the workaround:
 `McpServerToolPolicy.permission_policy` (`always_allow|always_ask|always_deny`,
-`sdk.d.ts:1064`) is `Options`-expressible but is *per-tool static policy*, not a clean
-equivalent of the *per-server runtime* override — test whether it reproduces the same
+`sdk.d.ts:1064`) is `Options`-expressible but is _per-tool static policy_, not a clean
+equivalent of the _per-server runtime_ override — test whether it reproduces the same
 effect. Output per field: **re-apply after respawn** | **accept loss** | **workaround
 exists**.
 
 ### Out of scope — persistence timing / crash window
 
-This experiment proves that *if* clauctl's persisted merged `Options` are accurate at crash
+This experiment proves that _if_ clauctl's persisted merged `Options` are accurate at crash
 time, respawn fidelity works. It does **not** address whether clauctl always has the latest
 mutation persisted when the process dies. The transactional ordering of "persist merged
 state" vs "control-method success" (persist before send? persist only on resolve? SDK
@@ -175,21 +175,21 @@ mode. Artifacts: `e1-*.json`, `e2-*.json` in the scratch dir; harness `harness.m
 shapes and, being field-agnostic, is taken as shared; equivalence is per-field (types
 audit); the two no-`Options` fields were tested behaviorally (E2).
 
-| field | mutated via | `resume` restores alone? | `Options` equivalence | clauctl action |
-| ----- | ----------- | ------------------------ | --------------------- | -------------- |
-| `model` | `setModel` | **YES** — carries (E1) | clean | merge (redundant, harmless) |
-| `permissionMode` | `setPermissionMode` | **NO** — drops (E1) | clean¹ | **merge (load-bearing)** |
-| `mcpServers` (dynamic) | `setMcpServers` | **NO** — drops (E1) | clean, dynamic layer only² | **merge (load-bearing)** |
-| `maxThinkingTokens` | `setMaxThinkingTokens` | untested³ | **lossy**⁴ | merge + normalize |
-| thinking `display` | `setMaxThinkingTokens` | untested³ | **lossy**⁴ | merge + normalize |
-| flag `settings` | `applyFlagSettings` | untested³ | **lossy**⁵ | merge + normalize |
-| mcp perm override | `setMcpPermissionModeOverride` | **NO** — drops (E2, behavioral + no trace in config/transcripts) | **none** | **re-apply via control method after respawn** |
-| mcp server disable | `toggleMcpServer(…, false)` | N/A — **config-dir persisted**⁶ | **none** | free if config dir reused; to re-enable must `toggleMcpServer(true)` (Options can't) |
+| field                  | mutated via                    | `resume` restores alone?                                         | `Options` equivalence      | clauctl action                                                                       |
+| ---------------------- | ------------------------------ | ---------------------------------------------------------------- | -------------------------- | ------------------------------------------------------------------------------------ |
+| `model`                | `setModel`                     | **YES** — carries (E1)                                           | clean                      | merge (redundant, harmless)                                                          |
+| `permissionMode`       | `setPermissionMode`            | **NO** — drops (E1)                                              | clean¹                     | **merge (load-bearing)**                                                             |
+| `mcpServers` (dynamic) | `setMcpServers`                | **NO** — drops (E1)                                              | clean, dynamic layer only² | **merge (load-bearing)**                                                             |
+| `maxThinkingTokens`    | `setMaxThinkingTokens`         | untested³                                                        | **lossy**⁴                 | merge + normalize                                                                    |
+| thinking `display`     | `setMaxThinkingTokens`         | untested³                                                        | **lossy**⁴                 | merge + normalize                                                                    |
+| flag `settings`        | `applyFlagSettings`            | untested³                                                        | **lossy**⁵                 | merge + normalize                                                                    |
+| mcp perm override      | `setMcpPermissionModeOverride` | **NO** — drops (E2, behavioral + no trace in config/transcripts) | **none**                   | **re-apply via control method after respawn**                                        |
+| mcp server disable     | `toggleMcpServer(…, false)`    | N/A — **config-dir persisted**⁶                                  | **none**                   | free if config dir reused; to re-enable must `toggleMcpServer(true)` (Options can't) |
 
 ¹ Re-passing `bypassPermissions` also needs the spawn-time dangerous-skip flag; clauctl
 already sets it where it uses bypass. ² `setMcpServers` replaces only the dynamic layer, not
 settings-file/`.mcp.json` servers; persist the dynamic set clauctl manages, not the union
-from `mcpServerStatus()`. A *disabled* server isn't expressible here (no `enabled` on the
+from `mcpServerStatus()`. A _disabled_ server isn't expressible here (no `enabled` on the
 server config) — that's the disable row. ³ Resume-alone behavior not individually run;
 irrelevant to the decision — with precedence (E1, field-agnostic) + equivalence holding,
 merge is correct whether or not resume also restores it (at worst redundant). ⁴ `null` clear
@@ -216,7 +216,7 @@ restores it): **`model`** — harmless, and worth passing so clauctl controls it
 Fields with **no `Options` path**: the **mcp permission override** must be **re-applied via
 `setMcpPermissionModeOverride` after every respawn** (it is ephemeral in-process — dropped on
 respawn, persisted nowhere); the **mcp server disable** needs no action if clauctl reuses the
-config dir (it persists in `.claude.json` independent of resume), but to *re-enable* a server
+config dir (it persists in `.claude.json` independent of resume), but to _re-enable_ a server
 clauctl must call `toggleMcpServer(server, true)` — re-declaring it in `Options.mcpServers`
 will **not** override a config-level disable. **RISK-6 (version-fragile) flag:** that `model`
 carries but `permissionMode` does not is an undocumented SDK asymmetry that could flip on a
@@ -307,15 +307,15 @@ anything under the real `~/.claude` at any point.
 - The session JSONL(s) from the scratch `CLAUDE_CONFIG_DIR` (copied in), if small.
 - The **per-field results table** (the headline deliverable):
 
-  | Options field | mutated via | restored by `resume`? | has Options equiv? | clauctl action |
-  | ------------- | ----------- | --------------------- | ------------------ | -------------- |
-  | `permissionMode` | `setPermissionMode` | ? | yes | merge (expected) |
-  | `model` | `setModel` | ? (expected yes) | yes | merge (redundant) |
-  | `maxThinkingTokens` | `setMaxThinkingTokens` | ? | yes | merge |
-  | thinking `display` | `setMaxThinkingTokens` | ? | no | re-apply / accept loss |
-  | flag `settings` | `applyFlagSettings` | ? | yes (`settings`) | merge |
-  | `mcpServers` | `setMcpServers` | ? | yes | merge |
-  | mcp perm override | `setMcpPermissionModeOverride` | ? | no | re-apply / accept loss |
+  | Options field       | mutated via                    | restored by `resume`? | has Options equiv? | clauctl action         |
+  | ------------------- | ------------------------------ | --------------------- | ------------------ | ---------------------- |
+  | `permissionMode`    | `setPermissionMode`            | ?                     | yes                | merge (expected)       |
+  | `model`             | `setModel`                     | ? (expected yes)      | yes                | merge (redundant)      |
+  | `maxThinkingTokens` | `setMaxThinkingTokens`         | ?                     | yes                | merge                  |
+  | thinking `display`  | `setMaxThinkingTokens`         | ?                     | no                 | re-apply / accept loss |
+  | flag `settings`     | `applyFlagSettings`            | ?                     | yes (`settings`)   | merge                  |
+  | `mcpServers`        | `setMcpServers`                | ?                     | yes                | merge                  |
+  | mcp perm override   | `setMcpPermissionModeOverride` | ?                     | no                 | re-apply / accept loss |
 
   (`clauctl action` ∈ {merge into persisted Options, re-apply via control method after
   respawn, accept loss}.)

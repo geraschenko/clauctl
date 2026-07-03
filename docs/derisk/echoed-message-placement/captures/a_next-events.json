@@ -818,8 +818,6 @@
     "t_ms": 32284,
     "event": "GENERATOR_ENDED",
     "timedOut": false,
-    "session_ids": [
-      "95b82954-5b6e-4c17-a7b8-afc6f93e0715"
-    ]
+    "session_ids": ["95b82954-5b6e-4c17-a7b8-afc6f93e0715"]
   }
 ]

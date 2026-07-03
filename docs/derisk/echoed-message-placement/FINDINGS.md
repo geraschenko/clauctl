@@ -11,42 +11,42 @@
 ## TL;DR
 
 `priority` governs placement. A user message injected while the agent is **busy**
-(mid-turn) is enqueued and consumed by priority, *not* injection order:
+(mid-turn) is enqueued and consumed by priority, _not_ injection order:
 
-| `priority`      | when it runs                                   | effect on the running turn | becomes |
-| --------------- | ---------------------------------------------- | -------------------------- | --- |
-| `now`           | **aborts** the current inference at once, then runs as the next turn | hard interrupt (in-flight tool/inference cancelled) | its own new turn |
-| `later`         | after the current turn's `result`              | none (turn completes)      | its own new turn |
-| `next` / *none* | **only if the turn ends before crossing a tool-result handoff** (no-tool turn, or a co-queued `now` ends the turn at that boundary); otherwise **discarded** at the first tool-result handoff | none | a real turn *iff* it survived, else an inert `queued_command` attachment, never executed |
+| `priority`      | when it runs                                                                                                                                                                                  | effect on the running turn                          | becomes                                                                                  |
+| --------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| `now`           | **aborts** the current inference at once, then runs as the next turn                                                                                                                          | hard interrupt (in-flight tool/inference cancelled) | its own new turn                                                                         |
+| `later`         | after the current turn's `result`                                                                                                                                                             | none (turn completes)                               | its own new turn                                                                         |
+| `next` / _none_ | **only if the turn ends before crossing a tool-result handoff** (no-tool turn, or a co-queued `now` ends the turn at that boundary); otherwise **discarded** at the first tool-result handoff | none                                                | a real turn _iff_ it survived, else an inert `queued_command` attachment, never executed |
 
 The single rule that explains `next`/none: **a `next`/default message is dropped at
 the first tool→result handoff the turn continues across.** It survives only when the
-turn *ends* at (or before) that point — so it executes after a tool-less turn
+turn _ends_ at (or before) that point — so it executes after a tool-less turn
 (`x_next_notool`), or when a co-queued `now` aborts the turn at the same boundary
 (`g_now_next`). It is **not** specially "rescued" by `now`: inject `now` one boundary
-*later* and the `next` is already gone (`h_next_then_now`).
+_later_ and the `next` is already gone (`h_next_then_now`).
 
 - **Execution order when several survive: strictly `now → next → later`, independent
   of injection order** (`c_mixed` vs `c_perm`). Each distinct priority is its **own**
   turn; they drain sequentially across successive turn boundaries, not in one flush.
-- **Same-priority *executing* messages merge** (FIFO, joined by `\n`) into one turn
+- **Same-priority _executing_ messages merge** (FIFO, joined by `\n`) into one turn
   (`now`: `b_now2`; `later`: `b_later2`). Same-priority `next`/none don't merge —
   they each drop individually (`b_next2`, `b_none2`).
 - **Mechanism-independent**: held-open iterable append and `Query.streamInput()`
   behave identically across `now`, `later`, `next`, merge, and mixed cases.
 - **Queue operations are invisible on the live SDK stream** — the daemon sees them
   only as downstream `result`/`user`/`assistant` effects. Placement must be
-  *modeled*, not observed.
+  _modeled_, not observed.
 - **An interrupt's `result` subtype depends on what was cancelled**: aborting a
-  *tool* yields `subtype:"success"` (the abort error rides in the `tool_result`,
-  `a_now`); aborting a *text inference* yields `subtype:"error_during_execution"`
+  _tool_ yields `subtype:"success"` (the abort error rides in the `tool_result`,
+  `a_now`); aborting a _text inference_ yields `subtype:"error_during_execution"`
   (`x_now_notool`). Either way the `now` message then runs.
 
 ## Ground truth: the session JSONL
 
 The transcript (`<config>/projects/<cwd>/<session_id>.jsonl`) is a **parentUuid-linked
 chain** — that linkage, not file order, is the canonical conversation the model saw.
-Alongside the chain, `claude` writes sidecar entries that are *not* part of it:
+Alongside the chain, `claude` writes sidecar entries that are _not_ part of it:
 
 - `queue-operation` — `{operation: "enqueue"|"dequeue"|"remove", content?}`. One
   `enqueue` per accepted message; `dequeue` when it is executed; `remove` when it is
@@ -70,6 +70,7 @@ order tracks **priority**, not injection order.
 
 **Q2 — What do `now`/`next`/`later` do?** Neither README hypothesis is right as
 stated. The real model:
+
 - `now` = **interrupt**: abort the in-flight inference immediately (cancel the running
   tool or text generation), end the current turn, run this message as the next turn.
 - `later` = **follow-up**: let the turn finish, then run this message as a new turn.
@@ -86,28 +87,28 @@ inference) by **aborting** it. `later` acts at the **turn** boundary (`result`).
 non-`now` queue does **not** flush at inference boundaries: `a_later` and
 `g_next_later` ran all three tools to completion; only `now` scenarios stopped before
 completing all three tools. The tool→result handoff is also where a `next`/default
-message is *removed*.
+message is _removed_.
 
 **Q4 — Flush count.** **Flush-all of the same executing priority, merged into one
-turn.** `b_now2` (two `now`) and `b_later2` (two `later`) each produced a *single*
+turn.** `b_now2` (two `now`) and `b_later2` (two `later`) each produced a _single_
 user turn containing both prompts joined by `\n` (`b_later2`'s model even complained
-the two merged instructions contradicted each other). Across *different* priorities
+the two merged instructions contradicted each other). Across _different_ priorities
 each bucket is its own turn, draining over successive turn boundaries (not one flush).
 Within a bucket the merge is FIFO: `b_now2` → `"ALPHA\nBRAVO"`, `b_now2_rev` →
 `"BRAVO\nALPHA"`. Same-priority `next`/none do **not** merge — `b_next2` and `b_none2`
-each dropped *both* messages as separate inert attachments.
+each dropped _both_ messages as separate inert attachments.
 
 **Q5 — Does `now` interrupt?** Yes, hard, and at whichever boundary it lands.
 `a_now` aborted `sleep 4` after ~1.4 s with `<error>Command was aborted before
 completion</error>` (vs ~5.6 s to complete), ending the turn before tools 2–3.
-`h_now_b1` (now injected during the *second* tool) aborted tool-2 — so the interrupt
+`h_now_b1` (now injected during the _second_ tool) aborted tool-2 — so the interrupt
 hits **whichever inference is in flight**, and the tool count before the interrupt
 just depends on the injection boundary (1 for `a_now`, 2 for `h_now_b1`/
 `h_later_then_now`, 0 for `x_now_notool`). The interrupted turn never reaches `DONE`;
 every non-`now` scenario ran all **three** tools and reached `DONE`.
 **Correction (round 2):** the interrupted turn's `result` subtype depends on what was
 aborted — a tool abort still reports `subtype:"success"` (`a_now`), but aborting a
-*text* inference reports `subtype:"error_during_execution"` (`x_now_notool`). So an
+_text_ inference reports `subtype:"error_during_execution"` (`x_now_notool`). So an
 interrupt is sometimes, but not always, invisible in the result.
 
 **Q6 — Injection-mechanism dependence.** None. Via `streamInput()`: `e_next_stream` /
@@ -128,17 +129,17 @@ boundaries:
    to the chain leaf at that point. Multiple `now`s injected before that boundary →
    **one** echo, contents joined by `\n` in injection order.
 2. **`later`** — at a turn boundary, but **only after every higher-priority surviving
-   bucket has drained**, not necessarily at the *next* `result`. With a co-queued
+   bucket has drained**, not necessarily at the _next_ `result`. With a co-queued
    `now`, the order is `now`-turn then `later`-turn (`g_now_later`, `h_later_then_now`,
    `c_mixed`); `later` does **not** fire at the interrupted turn's early `result`.
    `later` is **durable** — it survives tool→result handoffs that would drop a `next`
    (`h_later_then_now`: `later` injected at boundary 0 was still queued at boundary 1).
    Place each `later` echo as a new turn after the higher-priority echoes; multiple
    `later`s merge into one.
-3. **`next` / *none* while busy** — **do not** emit an executed echo unless the busy
+3. **`next` / _none_ while busy** — **do not** emit an executed echo unless the busy
    turn is **tool-less** or a `now` is co-queued. In the common (tool-using) case the
    message is silently recorded as an inert `queued_command` and never runs — it does
-   *not* merge into a subsequent real turn (`f_next`/`f_none`). Safest: treat
+   _not_ merge into a subsequent real turn (`f_next`/`f_none`). Safest: treat
    default/`next`-while-busy as **unsupported**, and reject/warn/remap to `now`/`later`.
    (When the agent is **idle**, an ordinary default-priority message is a normal turn —
    the drop is specific to injecting mid-turn.)
@@ -147,13 +148,13 @@ boundaries:
 
 ## Is muninn's logic correct?
 
-**No.** muninn's rule — *flush-all pending echoes at every `tool_use` boundary,
-flush-one at each `result`* — is wrong on both halves:
+**No.** muninn's rule — _flush-all pending echoes at every `tool_use` boundary,
+flush-one at each `result`_ — is wrong on both halves:
 
 1. **Not every `tool_use` boundary flushes.** Only a queued **`now`** acts at an
    inference boundary, and it does so by **aborting**. A busy turn with no `now` sails
    through every `tool_use` boundary without flushing; default/`next` messages sitting
-   in the queue are *dropped* at the tool→result handoff, not flushed.
+   in the queue are _dropped_ at the tool→result handoff, not flushed.
 2. **`result` is not flush-one.** The entire `later` bucket flushes at the turn
    boundary, **merged into a single turn** (`b_later2`), not one-at-a-time.
 
@@ -163,9 +164,9 @@ steer that survives only a tool-less turn or a co-queued `now`.
 
 ## Surprises affecting `QueueDepthChanged` / idle-model design
 
-- **Interrupts are sometimes invisible in the result.** A `now` that aborts a *tool*
+- **Interrupts are sometimes invisible in the result.** A `now` that aborts a _tool_
   ends with `result subtype:"success"` (`a_now`) — indistinguishable from normal
-  completion; but a `now` that aborts a *text* inference ends with
+  completion; but a `now` that aborts a _text_ inference ends with
   `subtype:"error_during_execution"` (`x_now_notool`). Idle/queue tracking can't rely
   on the subtype to detect an interrupt in general; it must remember it injected a
   `now`.
@@ -184,34 +185,34 @@ steer that survives only a tool-less turn or a co-queued `now`.
 boundary; never reach DONE); others complete (3 tools, DONE). "exec" = executed as a
 real turn; "inert" = recorded as `queued_command`, never run.
 
-| scenario      | injected (priority)                    | result count | outcome |
-| ------------- | -------------------------------------- | ------------ | --- |
-| `exp0`        | none                                   | 1 | baseline: 3 sequential `tool_use` boundaries → DONE |
-| `a_none`      | ALPHA(none)                            | 1 | ALPHA **inert**; turn completes |
-| `a_next`      | ALPHA(next)                            | 1 | ALPHA **inert**; turn completes |
-| `a_now`       | ALPHA(now)                             | 2 | tool-1 **aborted**; ALPHA exec as turn 2 |
-| `a_later`     | ALPHA(later)                           | 2 | turn completes; ALPHA exec after |
-| `b_now2`      | ALPHA(now), BRAVO(now)                 | 2 | merged `"ALPHA\nBRAVO"`, one turn |
-| `b_now2_rev`  | BRAVO(now), ALPHA(now)                 | 2 | merged `"BRAVO\nALPHA"` (FIFO) |
-| `b_later2`    | ALPHA(later), BRAVO(later)             | 2 | merged into one turn (model flags contradiction) |
-| `c_mixed`     | ALPHA(later), BRAVO(now), CHARLIE(next)| 4 | exec `BRAVO → CHARLIE → ALPHA` |
-| `c_mixed2`    | (repro of c_mixed)                     | 4 | identical → **deterministic** |
-| `c_perm`      | CHARLIE(next), ALPHA(later), BRAVO(now)| 4 | exec `BRAVO → CHARLIE → ALPHA` (injection order irrelevant) |
-| `g_now_next`  | BRAVO(now), CHARLIE(next) (both @b0)    | 3 | exec `BRAVO → CHARLIE` — `now` ends the turn at b0, so `next` survives |
-| `g_next_later`| CHARLIE(next), ALPHA(later)            | 2 | CHARLIE **inert**; ALPHA exec (later does not save next) |
-| `g_now_later` | BRAVO(now), ALPHA(later)               | 3 | exec `BRAVO → ALPHA` |
-| `f_next`      | ALPHA(next) + real follow-up turn      | 2 | ALPHA **inert** even though a real turn followed |
-| `f_none`      | ALPHA(none) + real follow-up turn      | 2 | ALPHA **inert** even though a real turn followed |
-| `e_*_stream`  | next/later/mixed/now/now² via `streamInput` | — | identical to iterable equivalents (incl. interrupt + merge) |
-| `b_next2`     | ALPHA(next), BRAVO(next)               | 1 | **both inert** (no merge) |
-| `b_none2`     | ALPHA(none), BRAVO(none)               | 1 | **both inert** (no merge) |
-| `h_next_then_now` | CHARLIE(next)@b0, BRAVO(now)@b1    | 2 | CHARLIE **inert** (dropped at tool-1 handoff); only BRAVO exec — **`now` does not rescue `next`** |
-| `h_now_b1`    | BRAVO(now)@b1                          | 2 | tool-2 aborted; interrupt generalizes past first boundary |
-| `h_later_then_now` | ALPHA(later)@b0, BRAVO(now)@b1    | 3 | `later` **survives** tool-1 handoff; `now` aborts tool-2; exec `BRAVO → ALPHA` — `later` durable + drains after `now` |
-| `x_next_notool` | ALPHA(next), **no-tool** turn        | 2 | essay completes (40/40); ALPHA exec after — `next` survives a tool-less turn |
-| `x_none_notool` | ALPHA(none), no-tool turn            | 2 | identical to `x_next_notool` — default ≡ next here |
-| `x_later_notool`| ALPHA(later), no-tool turn           | 2 | identical to `x_next_notool` |
-| `x_now_notool`| ALPHA(now), no-tool turn               | 2 | essay **never produced**; first result `error_during_execution`; ALPHA exec |
+| scenario           | injected (priority)                         | result count | outcome                                                                                                               |
+| ------------------ | ------------------------------------------- | ------------ | --------------------------------------------------------------------------------------------------------------------- |
+| `exp0`             | none                                        | 1            | baseline: 3 sequential `tool_use` boundaries → DONE                                                                   |
+| `a_none`           | ALPHA(none)                                 | 1            | ALPHA **inert**; turn completes                                                                                       |
+| `a_next`           | ALPHA(next)                                 | 1            | ALPHA **inert**; turn completes                                                                                       |
+| `a_now`            | ALPHA(now)                                  | 2            | tool-1 **aborted**; ALPHA exec as turn 2                                                                              |
+| `a_later`          | ALPHA(later)                                | 2            | turn completes; ALPHA exec after                                                                                      |
+| `b_now2`           | ALPHA(now), BRAVO(now)                      | 2            | merged `"ALPHA\nBRAVO"`, one turn                                                                                     |
+| `b_now2_rev`       | BRAVO(now), ALPHA(now)                      | 2            | merged `"BRAVO\nALPHA"` (FIFO)                                                                                        |
+| `b_later2`         | ALPHA(later), BRAVO(later)                  | 2            | merged into one turn (model flags contradiction)                                                                      |
+| `c_mixed`          | ALPHA(later), BRAVO(now), CHARLIE(next)     | 4            | exec `BRAVO → CHARLIE → ALPHA`                                                                                        |
+| `c_mixed2`         | (repro of c_mixed)                          | 4            | identical → **deterministic**                                                                                         |
+| `c_perm`           | CHARLIE(next), ALPHA(later), BRAVO(now)     | 4            | exec `BRAVO → CHARLIE → ALPHA` (injection order irrelevant)                                                           |
+| `g_now_next`       | BRAVO(now), CHARLIE(next) (both @b0)        | 3            | exec `BRAVO → CHARLIE` — `now` ends the turn at b0, so `next` survives                                                |
+| `g_next_later`     | CHARLIE(next), ALPHA(later)                 | 2            | CHARLIE **inert**; ALPHA exec (later does not save next)                                                              |
+| `g_now_later`      | BRAVO(now), ALPHA(later)                    | 3            | exec `BRAVO → ALPHA`                                                                                                  |
+| `f_next`           | ALPHA(next) + real follow-up turn           | 2            | ALPHA **inert** even though a real turn followed                                                                      |
+| `f_none`           | ALPHA(none) + real follow-up turn           | 2            | ALPHA **inert** even though a real turn followed                                                                      |
+| `e_*_stream`       | next/later/mixed/now/now² via `streamInput` | —            | identical to iterable equivalents (incl. interrupt + merge)                                                           |
+| `b_next2`          | ALPHA(next), BRAVO(next)                    | 1            | **both inert** (no merge)                                                                                             |
+| `b_none2`          | ALPHA(none), BRAVO(none)                    | 1            | **both inert** (no merge)                                                                                             |
+| `h_next_then_now`  | CHARLIE(next)@b0, BRAVO(now)@b1             | 2            | CHARLIE **inert** (dropped at tool-1 handoff); only BRAVO exec — **`now` does not rescue `next`**                     |
+| `h_now_b1`         | BRAVO(now)@b1                               | 2            | tool-2 aborted; interrupt generalizes past first boundary                                                             |
+| `h_later_then_now` | ALPHA(later)@b0, BRAVO(now)@b1              | 3            | `later` **survives** tool-1 handoff; `now` aborts tool-2; exec `BRAVO → ALPHA` — `later` durable + drains after `now` |
+| `x_next_notool`    | ALPHA(next), **no-tool** turn               | 2            | essay completes (40/40); ALPHA exec after — `next` survives a tool-less turn                                          |
+| `x_none_notool`    | ALPHA(none), no-tool turn                   | 2            | identical to `x_next_notool` — default ≡ next here                                                                    |
+| `x_later_notool`   | ALPHA(later), no-tool turn                  | 2            | identical to `x_next_notool`                                                                                          |
+| `x_now_notool`     | ALPHA(now), no-tool turn                    | 2            | essay **never produced**; first result `error_during_execution`; ALPHA exec                                           |
 
 ## Reviewer round 2 (what an adversarial review changed)
 
@@ -220,10 +221,10 @@ resulted, each backed by a new experiment:
 
 1. **"`now` rescues `next`" was a surface description, not a mechanism.** v1 said a
    co-queued `now` makes `next` run. `h_next_then_now` disproves the causal framing:
-   inject `next` at boundary 0 and `now` one boundary *later*, and the `next` is
+   inject `next` at boundary 0 and `now` one boundary _later_, and the `next` is
    already removed (inert) before `now` fires — only the `now` runs. The real rule:
    `next`/default is dropped at the first tool→result handoff the turn crosses; it
-   survives only if the turn *ends* there. `now`-co-queued-at-the-same-boundary
+   survives only if the turn _ends_ there. `now`-co-queued-at-the-same-boundary
    (`g_now_next`) and tool-less turns (`x_next_notool`) are the two ways that happens.
 2. **"Interrupts always report `success`" was false in general.** Only tool aborts do
    (`a_now`); a text-inference abort reports `error_during_execution` (`x_now_notool`).

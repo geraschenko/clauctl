@@ -119,7 +119,7 @@ scratch `.credentials.json` had expired — OAuth tokens time out — and was re
     But `setMcpServers` replaces only the **dynamic** server layer, not settings-file /
     `.mcp.json` servers; the value clauctl persists must be the dynamic set it manages, not
     the union reported by `mcpServerStatus()`. Also `McpStdioServerConfig` has no `enabled`
-    field, so a *disabled* server is NOT expressible here — that's the E2 disable case.
+    field, so a _disabled_ server is NOT expressible here — that's the E2 disable case.
   - **`maxThinkingTokens` / thinking `display` — lossy.** `setMaxThinkingTokens(n: number|
     null, display?: 'summarized'|'omitted'|null)` maps to `Options.thinking?: ThinkingConfig`
     (preferred) or the deprecated `Options.maxThinkingTokens?: number`. Edges:
@@ -137,7 +137,7 @@ scratch `.credentials.json` had expired — OAuth tokens time out — and was re
     is preserved. Edges: (1) if the persisted `Options.settings` is a **path string**, folding
     an object-shaped mutation in requires loading+merging the file or converting to an inline
     object — non-trivial. (2) `applyFlagSettings` shallow-merges top-level keys and uses
-    `null`-to-clear; clauctl must reproduce the *cumulative* shallow-merge (nulls removed),
+    `null`-to-clear; clauctl must reproduce the _cumulative_ shallow-merge (nulls removed),
     which it must track itself (no read-back API).
 - **E2 — no-Options fields:**
   - **disable (`toggleMcpServer(server,false)`): DONE.** Mechanism = **config-dir

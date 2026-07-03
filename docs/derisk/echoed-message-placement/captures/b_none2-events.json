@@ -850,8 +850,6 @@
     "t_ms": 31145,
     "event": "GENERATOR_ENDED",
     "timedOut": false,
-    "session_ids": [
-      "34738abb-9006-42c7-947e-54a6b6cb8b3d"
-    ]
+    "session_ids": ["34738abb-9006-42c7-947e-54a6b6cb8b3d"]
   }
 ]

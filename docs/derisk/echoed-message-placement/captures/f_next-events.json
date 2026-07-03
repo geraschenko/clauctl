@@ -972,8 +972,6 @@
     "t_ms": 33160,
     "event": "GENERATOR_ENDED",
     "timedOut": false,
-    "session_ids": [
-      "ed6674b7-98e5-48f0-93a0-d469dd5eafd1"
-    ]
+    "session_ids": ["ed6674b7-98e5-48f0-93a0-d469dd5eafd1"]
   }
 ]

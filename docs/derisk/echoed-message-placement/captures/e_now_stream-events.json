@@ -401,8 +401,6 @@
     "t_ms": 10663,
     "event": "GENERATOR_ENDED",
     "timedOut": false,
-    "session_ids": [
-      "7c5a8d9f-5fe1-497b-9581-170b254c7b9b"
-    ]
+    "session_ids": ["7c5a8d9f-5fe1-497b-9581-170b254c7b9b"]
   }
 ]
