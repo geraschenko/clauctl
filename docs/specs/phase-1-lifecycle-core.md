@@ -203,22 +203,29 @@ merge events can arrive faster than a write completes.
 
 ### Assistant state (4-state)
 
-There is no `idle` `SDKStatus`; the daemon derives the assistant's state. `phase` and
-`queueDepth` are **independent** and must not be conflated (`phase` = SDK evidence;
-`queueDepth` = our own echo bookkeeping, since the SDK never echoes user turns back).
+There is no `idle` `SDKStatus`; the daemon derives the assistant's state. `activity`
+and `queueDepth` are **independent** and must not be conflated (`activity` = SDK
+evidence; `queueDepth` = our own echo bookkeeping, since the SDK never echoes user
+turns back).
 
 ```ts
-type AssistantPhase = 'idle' | 'pending' | 'working' | 'compacting';
-interface AssistantState { phase: AssistantPhase; queueDepth: number; }
-const isBusy = (s: AssistantState) => s.phase !== 'idle' || s.queueDepth > 0;
+type AssistantActivity = 'idle' | 'pending' | 'working' | 'compacting';
+interface AssistantState { activity: AssistantActivity; queueDepth: number; }
+const isBusy = (s: AssistantState) => s.activity !== 'idle' || s.queueDepth > 0;
 
-type AssistantEvent =
-  | { kind: 'turnAccepted' }      // we injected a runnable turn (now / later / idle-default)
+// The augmented event stream (DECISION-6): every SDK message, plus the events the
+// SDK should emit so an observer can follow what is happening. The tracker consumes
+// exactly the stream Phase-2 `sdk.sock` clients will see.
+type SdkEvent =
+  // A runnable turn was injected. `priority` as sent (absent = idle-time default);
+  // `now` while busy means the current turn's terminating `result` arrives early —
+  // the tracker needs this, and observers can't apply the placement rule without it.
+  | { kind: 'turnAccepted'; priority?: 'now' | 'later' }
   | { kind: 'compactSent' }       // /compact issued while Idle
   | { kind: 'interruptSent' }
   | { kind: 'sdkMessage'; message: SDKMessage };
 
-function nextAssistantState(state: AssistantState, event: AssistantEvent): AssistantState;  // pure
+function nextAssistantState(state: AssistantState, event: SdkEvent): AssistantState;  // pure
 ```
 
 Transitions (pinned empirically by this spike; integrates the echo-placement
@@ -241,8 +248,8 @@ findings, `docs/derisk/echoed-message-placement/FINDINGS.md`):
   terminating `result` per the rule above (subtype alone doesn't flag the interrupt —
   the daemon remembers it sent one).
 
-The `result` rule gives the invariant `phase === 'idle' ⇒ queueDepth === 0`, so
-`isBusy` reduces to `phase !== 'idle'`; the defensive two-clause definition is kept
+The `result` rule gives the invariant `activity === 'idle' ⇒ queueDepth === 0`, so
+`isBusy` reduces to `activity !== 'idle'`; the defensive two-clause definition is kept
 in case the tracker's beliefs and the stream ever disagree.
 
 ### Respawn (RISK-3)

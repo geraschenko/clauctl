@@ -113,9 +113,13 @@ _augment_ it. Event set for v1 (modeled on `muninn`'s `RunnerEvent`, treated as 
 
 - **forward:** `Message` (the `SDKMessage` stream), `SdkError`, optionally `Stderr`.
 - **synthesize:** `EchoedUserMessage` (the missing echo — emitted when _any_ client's
-  turn is accepted; drop muninn's `<T>` metadata param), `QueueDepthChanged`,
-  `CompactionStarted`, `SdkClientConnected` (on every (re)connect/respawn),
-  `PermissionModeChanged` (so clients reflect the effective mode).
+  turn is accepted; carries the turn's `priority` as sent, without which an observer
+  cannot apply the echo-placement rule; drop muninn's `<T>` metadata param),
+  `QueueDepthChanged`,
+  `CompactionStarted`, `InterruptRequested` (so an abruptly-terminated turn is
+  interpretable — the `result` subtype alone does not flag an interrupt),
+  `SdkClientConnected` (on every (re)connect/respawn), `PermissionModeChanged` (so
+  clients reflect the effective mode).
 - **defer (future):** `PermissionRequest`/`PermissionResponse` (only needed for the
   interactive permission round-trip, deferred by DECISION-3), `FreezeDetected`
   (liveness watchdog). Leave protocol room.
