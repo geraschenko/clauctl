@@ -137,6 +137,7 @@ interactive round-trip is deferred, so v1 sets **neither** `canUseTool` nor
 **Bucket 4 — respawn** (set at respawn only, not persisted as config):
 `resume = currentSessionId`. `continue`, `forkSession`, `resumeSessionAt`, `sessionId`
 are **not** used — respawn continues the *same* session.
+TDC: Note that sessionId can be set by the user when they first spawn with the --resume claude flag. This allows users to "wrap" existing claude sessions in a clauctl agent.
 
 ### `spawn` conveys Options by parsing `claude`-style flags
 
@@ -161,6 +162,8 @@ each modeled field → its flag; `extraArgs: Record<string,string|null>` is the 
 into the `agent.json` it writes (preserving "daemon is the sole `agent.json` writer").
 The daemon adds bucket-2 code + bucket-3 invariants at spawn to build the full
 `Options` for `query()`.
+
+TDC: note that clauctl should follow pictl's lead and set CLAUCTL_AGENT_ID in the env when it spawns/respawns a claude instance.
 
 ### Daemon: the SDK loop, session tracking, idle model, persistence
 
@@ -192,9 +195,10 @@ own echo bookkeeping, since the SDK never echoes user turns back).
 
 ```ts
 type AgentActivity = 'idle' | 'pending' | 'working' | 'compacting';
-interface IdleState { activity: AgentActivity; queueDepth: number; }
+interface IdleState { activity: AgentActivity; queueDepth: number; }  // TDC: why "Idle"? This is just state. Maybe AssistantState or ClaudeState?
 const isBusy = (s: IdleState) => s.activity !== 'idle' || s.queueDepth > 0;
 
+// TDC: why "Idle"? These are just events
 type IdleEvent =
   | { kind: 'turnAccepted' }      // we injected a runnable turn (now / later / idle-default)
   | { kind: 'compactSent' }       // /compact issued while Idle
@@ -215,6 +219,8 @@ Transitions (pinned empirically by this spike):
   exited by the subsequent `result`, not the boundary message.
 - `interrupt()` — state unchanged when *sent*; ⇒ **Idle** only on the terminating
   `result` (subtype alone doesn't flag the interrupt — the daemon remembers it sent one).
+
+TDC: Make sure these transitions properly integrate the findings from docs/derisk/echoed-message-placement/FINDINGS.md. If a message was sent with priority "later", then shouldn't `result` move us into state Pending? Conceptually I think it's the same sort of state: a turn has been accepted and we predict the assistant should start working, but haven't gotten confirmation from the SDK.
 
 ### Respawn (RISK-3)
 
@@ -281,6 +287,8 @@ except the `AgentRecord` shape and `readAgentRecord`'s field validation.
   *merged* runtime state (mutated `model`/`permissionMode`/`mcpServers` reproduced,
   mcp override re-applied), not spawn defaults.
 - `list`/`status`/`archive`/`gc` behave against on-disk state.
+
+TDC: how will you inject this stuff when clauctl only has lifecycle commands? Do we need to at minimum implement some form of the `query` subcommand in sdk-commands.ts (and maybe also set-model and set-permission-mode), mirroring pictl's rpc-commands.ts? We can flesh it out in phase 2.
 
 ## IMPLEMENTATION IDEAS (evolving)
 
