@@ -212,5 +212,7 @@ implementation:
   `resume-persistence/` = a pending handoff brief for which `Options` survive a cold
   `resume`, gating the `agent.json` merge set).
 - `docs/specs/lifecycle-and-sdk-commands.md` — v1: lifecycle + SDK passthrough.
+- `docs/specs/phase-1-lifecycle-core.md` — the implementation-ready Phase-1 carve-out
+  (registry, daemon, assistant-state model, respawn, minimal `sdk.sock` command channel).
 - `docs/specs/tui.md` — the `sdk.sock`-based TUI and `tty.sock` boundary.
 - `docs/specs/convenience-commands.md` — `format` and `completion`.

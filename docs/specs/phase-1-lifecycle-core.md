@@ -9,10 +9,11 @@
 
 Phase 1 delivers the durable-agent substrate: create a long-lived `claude` process,
 persist everything needed to talk to it and respawn it, track its session rollovers
-and idle state, and stop it cleanly. It does **not** open `sdk.sock` to clients
-(Phase 2), stream to `tail`/`wait` (Phase 3), or run a TUI (Phase 5). Turns are
-injected by the daemon itself, which is also the **2a spike** (RISK-1): proving the
-daemon-shape SDK loop, the 4-state idle model, and clean teardown.
+and idle state, and stop it cleanly. It includes only a **minimal `sdk.sock`**
+(request/response command channel — no stream fan-out, no augmentation; the full
+protocol is Phase 2), does not stream to `tail`/`wait` (Phase 3), and has no TUI
+(Phase 5). Building the daemon's SDK loop is also the **2a spike** (RISK-1): proving
+the daemon-shape loop, the 4-state assistant-state model, and clean teardown.
 
 ### Commands (v1 lifecycle surface)
 
@@ -31,16 +32,23 @@ daemon-shape SDK loop, the 4-state idle model, and clean teardown.
   transcripts for later resume.
 - **`gc`** — remove tombstoned / corrupt agent dirs.
 
+**Minimal SDK command channel** (just enough to exercise the success criteria; the
+analog of pictl's `rpc-commands.ts`, fleshed out to the full `Query` surface in
+Phase 2): `query` (send a turn; `--priority`), `interrupt`, `set-model`,
+`set-permission-mode`. These speak a minimal request/response protocol over
+`sdk.sock`; the daemon's `SDKMessage` stream is *not* fanned out to clients in
+Phase 1 (observe via `daemon.log` + `agent.json`).
+
 Internal: **`_daemon`** (the per-agent supervisor). Transparent revival of a dormant
 agent (`ensureAgentRunning` + `revive.lock`) is ported from pictl and exercised by
-respawn; the commands that *implicitly* revive (passthrough, attach) land in Phase 2.
+respawn; the remaining commands that *implicitly* revive land in Phase 2.
 
 ### On-disk layout (pictl scheme)
 
 ```
 $CLAUCTL_DIR/<agentId>/
   agent.json     # daemon-only writer; atomic write+fsync+rename
-  sdk.sock       # bound in Phase 2; path reserved now
+  sdk.sock       # minimal command channel in Phase 1; full protocol in Phase 2
   daemon.log     # daemon stdio
   archived       # CLI-written marker (races-free vs daemon)
   tombstone      # gc marker
@@ -134,10 +142,13 @@ diagnostics. `permissionPromptToolName` is **reserved unset in v1**: per DECISIO
 interactive round-trip is deferred, so v1 sets **neither** `canUseTool` nor
 `permissionPromptToolName` (the SDK throws if both are set; the mode auto-decides).
 
-**Bucket 4 — respawn** (set at respawn only, not persisted as config):
-`resume = currentSessionId`. `continue`, `forkSession`, `resumeSessionAt`, `sessionId`
-are **not** used — respawn continues the *same* session.
-TDC: Note that sessionId can be set by the user when they first spawn with the --resume claude flag. This allows users to "wrap" existing claude sessions in a clauctl agent.
+**Bucket 4 — respawn** (set by clauctl, not persisted as config):
+`resume = currentSessionId` on every respawn. Exception at *initial* spawn: the user
+may pass the `--resume <session-id>` claude flag (→ `Options.resume`) to **wrap an
+existing claude session** in a new clauctl agent; the first `system/init` then
+announces that session id and seeds the history. `continue`, `forkSession`,
+`resumeSessionAt`, `sessionId` are **not** used — respawn continues the *same*
+session, it does not fork or start fresh.
 
 ### `spawn` conveys Options by parsing `claude`-style flags
 
@@ -163,9 +174,12 @@ into the `agent.json` it writes (preserving "daemon is the sole `agent.json` wri
 The daemon adds bucket-2 code + bucket-3 invariants at spawn to build the full
 `Options` for `query()`.
 
-TDC: note that clauctl should follow pictl's lead and set CLAUCTL_AGENT_ID in the env when it spawns/respawns a claude instance.
+The daemon sets **`CLAUCTL_AGENT_ID`** in the child env on every (re)spawn (pictl's
+`PI_AGENT_ID` pattern). `Options.env`, when set, **replaces** the subprocess env
+entirely, so the daemon builds the env as
+`{ ...process.env, ...persistedOptions.env, CLAUCTL_AGENT_ID: agentId }`.
 
-### Daemon: the SDK loop, session tracking, idle model, persistence
+### Daemon: the SDK loop, session tracking, assistant state, persistence
 
 The per-agent daemon (ported from pictl `daemon.ts`, but net-new internals — no pty,
 an in-process `Query` instead) is the sole `agent.json` writer. It:
@@ -176,7 +190,7 @@ an in-process `Query` instead) is the sole `agent.json` writer. It:
    rollover **only when an init's `session_id` differs** (an `init` fires every turn —
    never count inits; `/compact` stays in-session). Appends new sessions to history,
    dedup-on-reannounce, and captures `claudeCodeVersion` from `init`.
-3. Derives the **4-state idle model** (below).
+3. Derives the **4-state assistant state** (below).
 4. **Persists mutable runtime state on mutation** (DECISION-5): whenever a control
    method changes a merge field, folds the new value into `persistedOptions` and queues
    an `agent.json` write. (In Phase 1 the daemon issues these itself; in Phase 2 they
@@ -187,40 +201,49 @@ an in-process `Query` instead) is the sole `agent.json` writer. It:
 Agent.json writes are serialized through a promise chain (pictl pattern); session and
 merge events can arrive faster than a write completes.
 
-### Idle / activity model (4-state)
+### Assistant state (4-state)
 
-There is no `idle` `SDKStatus`; the daemon derives it. `state` and `queueDepth` are
-**independent** and must not be conflated (`state` = SDK evidence; `queueDepth` = our
-own echo bookkeeping, since the SDK never echoes user turns back).
+There is no `idle` `SDKStatus`; the daemon derives the assistant's state. `phase` and
+`queueDepth` are **independent** and must not be conflated (`phase` = SDK evidence;
+`queueDepth` = our own echo bookkeeping, since the SDK never echoes user turns back).
 
 ```ts
-type AgentActivity = 'idle' | 'pending' | 'working' | 'compacting';
-interface IdleState { activity: AgentActivity; queueDepth: number; }  // TDC: why "Idle"? This is just state. Maybe AssistantState or ClaudeState?
-const isBusy = (s: IdleState) => s.activity !== 'idle' || s.queueDepth > 0;
+type AssistantPhase = 'idle' | 'pending' | 'working' | 'compacting';
+interface AssistantState { phase: AssistantPhase; queueDepth: number; }
+const isBusy = (s: AssistantState) => s.phase !== 'idle' || s.queueDepth > 0;
 
-// TDC: why "Idle"? These are just events
-type IdleEvent =
+type AssistantEvent =
   | { kind: 'turnAccepted' }      // we injected a runnable turn (now / later / idle-default)
   | { kind: 'compactSent' }       // /compact issued while Idle
   | { kind: 'interruptSent' }
   | { kind: 'sdkMessage'; message: SDKMessage };
 
-function nextIdleState(state: IdleState, event: IdleEvent): IdleState;  // pure
+function nextAssistantState(state: AssistantState, event: AssistantEvent): AssistantState;  // pure
 ```
 
-Transitions (pinned empirically by this spike):
+Transitions (pinned empirically by this spike; integrates the echo-placement
+findings, `docs/derisk/echoed-message-placement/FINDINGS.md`):
 
-- accept a turn ⇒ **Pending** (`queueDepth` counts only turns the echo-placement rule
-  says will actually run — never a dropped `next`/default-while-busy).
+- accept a turn while **Idle** ⇒ **Pending**. Accept a runnable turn while busy
+  (`now`, or a queued `later`) ⇒ increment `queueDepth`. `queueDepth` counts only
+  turns the echo-placement rule says will actually run — never a dropped
+  `next`/default-while-busy.
 - first `SDKAssistantMessage` for the turn ⇒ **Working** (unless Compacting).
-- `result` ⇒ **Idle** (and if Compacting, compaction is now done); decrement `queueDepth`.
+- `result` ⇒ decrement `queueDepth` for the completed turn; then **Pending** if
+  `queueDepth > 0` (a surviving queued turn — e.g. a `later` — is predicted to run
+  next, but the SDK hasn't confirmed it started), else **Idle**. If it was Compacting,
+  the compaction is now done (same Pending-vs-Idle rule applies). Conceptually Pending
+  always means: a turn is accepted and predicted to run, without SDK confirmation yet.
 - `/compact` (only valid when **Idle**; never as a queued turn) ⇒ **Compacting** on
   send. `SDKCompactBoundaryMessage` arrives when compaction *finishes*, so Compacting is
   exited by the subsequent `result`, not the boundary message.
-- `interrupt()` — state unchanged when *sent*; ⇒ **Idle** only on the terminating
-  `result` (subtype alone doesn't flag the interrupt — the daemon remembers it sent one).
+- `interrupt()` — state unchanged when *sent*; the transition happens at the
+  terminating `result` per the rule above (subtype alone doesn't flag the interrupt —
+  the daemon remembers it sent one).
 
-TDC: Make sure these transitions properly integrate the findings from docs/derisk/echoed-message-placement/FINDINGS.md. If a message was sent with priority "later", then shouldn't `result` move us into state Pending? Conceptually I think it's the same sort of state: a turn has been accepted and we predict the assistant should start working, but haven't gotten confirmation from the SDK.
+The `result` rule gives the invariant `phase === 'idle' ⇒ queueDepth === 0`, so
+`isBusy` reduces to `phase !== 'idle'`; the defensive two-clause definition is kept
+in case the tracker's beliefs and the stream ever disagree.
 
 ### Respawn (RISK-3)
 
@@ -275,9 +298,9 @@ except the `AgentRecord` shape and `readAgentRecord`'s field validation.
 
 ### Success criteria
 
-- Spawn an agent, inject several turns from the daemon, observe correct streaming
-  `SDKMessage`s and correct **Idle → Pending → Working → Idle** transitions across a
-  tool-using turn, a subagent turn, an `interrupt`, and a `max_turns` hit.
+- Spawn an agent, send several turns via the `query` subcommand, observe correct
+  streaming `SDKMessage`s and correct **Idle → Pending → Working → Idle** transitions
+  across a tool-using turn, a subagent turn, an `interrupt`, and a `max_turns` hit.
 - Issue `/compact`; confirm **Compacting** entered on send and exited on the subsequent
   `result`, session id unchanged.
 - Issue `/clear`; confirm the daemon detects the session_id change and updates
@@ -288,7 +311,10 @@ except the `AgentRecord` shape and `readAgentRecord`'s field validation.
   mcp override re-applied), not spawn defaults.
 - `list`/`status`/`archive`/`gc` behave against on-disk state.
 
-TDC: how will you inject this stuff when clauctl only has lifecycle commands? Do we need to at minimum implement some form of the `query` subcommand in sdk-commands.ts (and maybe also set-model and set-permission-mode), mirroring pictl's rpc-commands.ts? We can flesh it out in phase 2.
+The criteria are driven end-to-end through the minimal `sdk.sock` command channel
+(`query`, `interrupt`, `set-model`, `set-permission-mode` in `sdk-commands.ts` —
+mirroring pictl's `rpc-commands.ts`); the merge-persistence criterion in particular
+needs `set-model`/`set-permission-mode` to mutate runtime state before the kill.
 
 ## IMPLEMENTATION IDEAS (evolving)
 
@@ -296,14 +322,14 @@ TDC: how will you inject this stuff when clauctl only has lifecycle commands? Do
   `AgentRecord`); `spawn.ts`'s `launchDaemon` fd-3 ready-barrier ports verbatim
   (`DaemonLaunch = { agentDir, agentId, cwd, resume, tag? }`); `daemon.ts` keeps the
   shape (sole writer, serialized write chain, SIGTERM→SIGTERM-forward, ready signal) but
-  the internals are net-new — an in-process `Query` and the idle model replace the
+  the internals are net-new — an in-process `Query` and the assistant-state tracker replace the
   pty/xterm machinery.
 - **The `claude`-flag → `Options` parser** is the inverse of `sdk.mjs`'s `initialize()`
   argv builder (extracted and pinned to 0.3.195). Keep it a small explicit table beside
   the `OPTION_BUCKETS` table; unmodeled flags fall through to `extraArgs`.
 - **`OPTION_BUCKETS` exhaustiveness** is the RISK-6 drift guard — do not replace it with
   a hand-written `PersistedOptions` interface (that rots silently).
-- **`nextIdleState` is pure** — the daemon owns the `IdleState` and feeds it events; the
+- **`nextAssistantState` is pure** — the daemon owns the `AssistantState` and feeds it events; the
   transition body is validated by the 2a spike before it's trusted. Keep raw stream
   captures under `docs/derisk/` per the derisk convention.
 - **`claudePid`** is best-effort: the `Query` surface exposes no pid. Populate only if
@@ -325,5 +351,6 @@ TDC: how will you inject this stuff when clauctl only has lifecycle commands? Do
 - `spawn`'s exact `claude`-flag coverage: which flags get a first-class field vs. the
   `extraArgs` tail (the merge/persist set is fixed; the long tail is a judgment call).
 - `claudePid` feasibility (see above) — resolved by the 2a spike.
-- Whether `spawn` should accept resume/fork directly (attach to an existing session_id)
-  in v1 — leaning no; respawn is the only resume path.
+- ~~Whether `spawn` should accept resume directly~~ — resolved: initial spawn accepts
+  the `--resume <session-id>` claude flag to wrap an existing session (see bucket 4).
+  Fork (`--fork-session`) remains out of scope for v1.

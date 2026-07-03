@@ -1,7 +1,10 @@
 # Spec: Lifecycle & SDK-passthrough commands (v1)
 
 > Status: **scaffold** — captures decisions made so far; to be completed by a
-> fresh agent. Read `docs/overview.md` first.
+> fresh agent. Read `docs/overview.md` first. The **lifecycle half is carved out
+> into `phase-1-lifecycle-core.md`** (implementation-ready, supersedes this doc for
+> Phase 1); this doc remains authoritative for the Phase-2+ surface (`sdk.sock`
+> protocol, full `Query` passthrough, stream augmentation).
 
 ## SPEC (stable requirements)
 
