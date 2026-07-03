@@ -36,12 +36,12 @@ the daemon-shape loop, the 4-state assistant-state model, and clean teardown.
 analog of pictl's `rpc-commands.ts`, fleshed out to the full `Query` surface in
 Phase 2): `query` (send a turn; `--priority`), `interrupt`, `set-model`,
 `set-permission-mode`. These speak a minimal request/response protocol over
-`sdk.sock`; the daemon's `SDKMessage` stream is *not* fanned out to clients in
+`sdk.sock`; the daemon's `SDKMessage` stream is _not_ fanned out to clients in
 Phase 1 (observe via `daemon.log` + `agent.json`).
 
 Internal: **`_daemon`** (the per-agent supervisor). Transparent revival of a dormant
 agent (`ensureAgentRunning` + `revive.lock`) is ported from pictl and exercised by
-respawn; the remaining commands that *implicitly* revive land in Phase 2.
+respawn; the remaining commands that _implicitly_ revive land in Phase 2.
 
 ### On-disk layout (pictl scheme)
 
@@ -64,7 +64,7 @@ verbatim.
 
 The one substantive change from pictl: `piBin`/`spawnArgs` become a persisted
 `Options` subset that is **mutated in place by the DECISION-5 runtime-state merge**.
-There is no separate "runtime state" blob — the merged runtime state *is*
+There is no separate "runtime state" blob — the merged runtime state _is_
 `persistedOptions`.
 
 ```ts
@@ -143,11 +143,11 @@ interactive round-trip is deferred, so v1 sets **neither** `canUseTool` nor
 `permissionPromptToolName` (the SDK throws if both are set; the mode auto-decides).
 
 **Bucket 4 — respawn** (set by clauctl, not persisted as config):
-`resume = currentSessionId` on every respawn. Exception at *initial* spawn: the user
+`resume = currentSessionId` on every respawn. Exception at _initial_ spawn: the user
 may pass the `--resume <session-id>` claude flag (→ `Options.resume`) to **wrap an
 existing claude session** in a new clauctl agent; the first `system/init` then
 announces that session id and seeds the history. `continue`, `forkSession`,
-`resumeSessionAt`, `sessionId` are **not** used — respawn continues the *same*
+`resumeSessionAt`, `sessionId` are **not** used — respawn continues the _same_
 session, it does not fork or start fresh.
 
 ### `spawn` conveys Options by parsing `claude`-style flags
@@ -155,12 +155,12 @@ session, it does not fork or start fresh.
 The SDK's `initialize()` is a fixed **Options → argv** function (invariants hardcoded;
 each modeled field → its flag; `extraArgs: Record<string,string|null>` is the generic
 `--flag [value]` escape hatch appended last). clauctl's `spawn` therefore accepts
-**`claude`-style flags** and maps them to `Options` — the *inverse* of that table:
+**`claude`-style flags** and maps them to `Options` — the _inverse_ of that table:
 
 - Flags the SDK models **and clauctl reads/merges/persists** (`--model`,
   `--permission-mode`, `--mcp-config`, `--thinking`, `--settings`, repeatable
   `--add-dir`, …) → their **first-class `Options` field** (bucket 1). Repeatable and
-  structured flags *must* use the field, not `extraArgs` (unique keys can't repeat).
+  structured flags _must_ use the field, not `extraArgs` (unique keys can't repeat).
 - Any remaining `claude` flag the `Options` type does not model → the **`extraArgs`
   tail**, forwarded verbatim.
 - Invariant flags (`--output-format`, `--input-format`, `--verbose`,
@@ -242,9 +242,9 @@ findings, `docs/derisk/echoed-message-placement/FINDINGS.md`):
   the compaction is now done (same Pending-vs-Idle rule applies). Conceptually Pending
   always means: a turn is accepted and predicted to run, without SDK confirmation yet.
 - `/compact` (only valid when **Idle**; never as a queued turn) ⇒ **Compacting** on
-  send. `SDKCompactBoundaryMessage` arrives when compaction *finishes*, so Compacting is
+  send. `SDKCompactBoundaryMessage` arrives when compaction _finishes_, so Compacting is
   exited by the subsequent `result`, not the boundary message.
-- `interrupt()` — state unchanged when *sent*; the transition happens at the
+- `interrupt()` — state unchanged when _sent_; the transition happens at the
   terminating `result` per the rule above (subtype alone doesn't flag the interrupt —
   the daemon remembers it sent one).
 
@@ -260,15 +260,15 @@ Requirements (all must hold — from `docs/derisk/resume-persistence/FINDINGS.md
 1. **Same config dir + cwd.** `resume` finds the transcript by config dir; the MCP
    disable state is keyed `.claude.json`→`projects[<resolved-cwd>].disabledMcpServers`.
    Both travel with persisted `env`+`cwd`, so re-passing `persistedOptions` satisfies
-   this. ("Same cwd" = the path the CLI *resolves* to — worktrees resolve to the git
+   this. ("Same cwd" = the path the CLI _resolves_ to — worktrees resolve to the git
    main path.)
-2. **Re-pass merged `Options`.** `resume` restores the *conversation* but only some
-   *session config*: it drops `permissionMode` and dynamic `mcpServers` (must merge),
+2. **Re-pass merged `Options`.** `resume` restores the _conversation_ but only some
+   _session config_: it drops `permissionMode` and dynamic `mcpServers` (must merge),
    carries `model` (merge anyway so clauctl owns it explicitly). Merge is correct even
    if the SDK asymmetry flips on a bump (RISK-6).
 3. **Re-apply after init** the runtime controls with **no `Options` path**:
    `setMcpPermissionModeOverride(server, mode)` per server (ephemeral, persisted
-   nowhere). MCP *re-enable* likewise needs `toggleMcpServer(x, true)` (a *disable* is
+   nowhere). MCP _re-enable_ likewise needs `toggleMcpServer(x, true)` (a _disable_ is
    free via config-dir).
 
 ### Runtime control → persistence mechanism (from FINDINGS)
@@ -277,15 +277,15 @@ Record the args of **every state-mutating control call as it is made** — that 
 discipline covers both readable and unreadable fields; never rely on read-back for the
 unreadable ones.
 
-| control call | mechanism | `Options` target |
-| --- | --- | --- |
-| `setModel` | merge (redundant but owned) | `model` |
-| `setPermissionMode` | **merge** | `permissionMode` (+ dangerous-skip flag for `bypassPermissions`) |
-| `setMcpServers` | **merge** (dynamic set only) | `mcpServers` |
-| `setMaxThinkingTokens` | **merge + normalize** | `thinking` (`ThinkingConfig`), *not* deprecated `maxThinkingTokens` |
-| `applyFlagSettings` | **merge + normalize** | `settings` (cumulative shallow-merge; `null` clears; track it — no read-back) |
-| `setMcpPermissionModeOverride` | **re-apply** after init | none |
-| `toggleMcpServer(x,false)` | **config-dir** (persists in `.claude.json`) | none; re-enable via `toggleMcpServer(x,true)` |
+| control call                   | mechanism                                   | `Options` target                                                              |
+| ------------------------------ | ------------------------------------------- | ----------------------------------------------------------------------------- |
+| `setModel`                     | merge (redundant but owned)                 | `model`                                                                       |
+| `setPermissionMode`            | **merge**                                   | `permissionMode` (+ dangerous-skip flag for `bypassPermissions`)              |
+| `setMcpServers`                | **merge** (dynamic set only)                | `mcpServers`                                                                  |
+| `setMaxThinkingTokens`         | **merge + normalize**                       | `thinking` (`ThinkingConfig`), _not_ deprecated `maxThinkingTokens`           |
+| `applyFlagSettings`            | **merge + normalize**                       | `settings` (cumulative shallow-merge; `null` clears; track it — no read-back) |
+| `setMcpPermissionModeOverride` | **re-apply** after init                     | none                                                                          |
+| `toggleMcpServer(x,false)`     | **config-dir** (persists in `.claude.json`) | none; re-enable via `toggleMcpServer(x,true)`                                 |
 
 **`thinking` normalization:** `setMaxThinkingTokens(null,…)` → omit `thinking` /
 `{type:'adaptive'}`; `n===0` → `{type:'disabled'}`; `n>0` →
@@ -314,7 +314,7 @@ except the `AgentRecord` shape and `readAgentRecord`'s field validation.
   `currentSessionId` while the same process keeps serving.
 - `close()` on teardown leaves **no orphaned child `claude`**.
 - Kill the daemon and respawn; confirm the agent resumes the current session with its
-  *merged* runtime state (mutated `model`/`permissionMode`/`mcpServers` reproduced,
+  _merged_ runtime state (mutated `model`/`permissionMode`/`mcpServers` reproduced,
   mcp override re-applied), not spawn defaults.
 - `list`/`status`/`archive`/`gc` behave against on-disk state.
 
@@ -352,6 +352,71 @@ needs `set-model`/`set-permission-mode` to mutate runtime state before the kill.
   `docs/derisk/resume-persistence/FINDINGS.md` (2026-07-02). Echo-placement /
   `--priority` (RISK-8) resolved in `docs/derisk/echoed-message-placement/FINDINGS.md`
   (referenced by the Phase-2 `sdk.sock` spec).
+- 2026-07-03: full implementation skeleton written under `src/core/` (registry,
+  options, assistant-state, sdk-socket, spawn, daemon, lifecycle, inspect,
+  sdk-commands, plus the pictl cli/targets/completion/main ports); `tsc` and eslint
+  green, CLI help runs. Unit tests and the 2a spike are still pending.
+- 2026-07-03: unit tests added (`registry.test.ts` ported from pictl;
+  `assistant-state.test.ts` covering the transition table and the
+  idle-implies-empty-queue invariant; `options.test.ts` covering first-class
+  mappings, `--flag=value`, `extraArgs` fallthrough, and rejected flags); 46 tests,
+  presubmit green.
+- 2026-07-03: 2a spike run against an isolated `CLAUDE_CONFIG_DIR`/`CLAUCTL_DIR`
+  (haiku, minimal turns). Verified: spawn; turns via `query`; Idle → Pending →
+  Working → Idle; `/compact` (Compacting entered on send, exited on `result`,
+  session unchanged, re-announce deduped); `/clear` rollover appended to session
+  history; `interrupt` (result `error_during_execution`, back to Idle);
+  `set-permission-mode` merged into `persistedOptions` and reproduced across
+  archive → revive; revival resumed the same session with full context; archive
+  left no orphaned `claude`; `list`/`status` correct; `gc` removed
+  tombstoned/corrupt dirs and spared the archived agent. Not exercised (credit
+  economy): tool-using/subagent turns, `max_turns`, `set-model` (mechanically
+  identical to `set-permission-mode`). The spike found one design bug — see the
+  ready-barrier decision below.
+- 2026-07-03: post-implementation critical review. Two fixes: daemon teardown now
+  awaits the SDK stream's end (child exit) before `process.exit`, so the SDK's
+  SIGKILL-escalation timer survives long enough to fire on a SIGTERM-ignoring
+  claude (the spike had shown the child briefly outliving the daemon); the
+  `/compact` detection matches only `/compact` or `/compact <args>`, not arbitrary
+  `/compact*` prefixes. Verified with a zero-credit spawn/archive cycle: spawn
+  returns promptly, both daemon and claude are dead immediately after archive.
+  Presubmit green (46 tests).
+
+### Implementation-Time Decisions
+
+- **`queueDepth` includes the in-flight turn (and a pending compaction).** The spec's
+  transition list reads as if only turns accepted _while busy_ are counted, but the
+  `result` rule (decrement, then Pending iff `queueDepth > 0`) mispredicts under that
+  reading: idle → accept → accept-`later` → first `result` would land on Idle with the
+  `later` turn still due to run. Counting every accepted-but-not-completed runnable
+  unit — the running turn, queued `later`/`now` turns, and a sent `/compact` — makes
+  the `result` rule correct and yields the `activity === 'idle' ⇒ queueDepth === 0`
+  invariant. Signatures unchanged.
+- **`wait-idle` added to the minimal `sdk.sock` request set.** `archive`'s polite stop
+  ("wait until Idle") needs an idle signal, and the no-sleeps rule forbids polling.
+  The daemon answers the request when the tracker reaches Idle (immediately if already
+  Idle); the timeout stays client-side. Alternative rejected: a `state` request polled
+  by the CLI.
+- **`OPTION_BUCKETS` is `as const satisfies Record<keyof Options, OptionBucket>`.**
+  The spec's literal `const OPTION_BUCKETS: Record<keyof Options, OptionBucket>`
+  annotation would widen every entry to the `OptionBucket` union, making
+  `PersistedOptionKey` resolve to `never`. `satisfies` keeps the exhaustiveness check
+  (the RISK-6 tripwire) while preserving the per-key literals the mapped type needs.
+  Also `-?` in the mapped type, else optional keys inject `undefined` into the union.
+- **The fd-3 ready barrier is socket-bound only, not first-`system/init`** (spike
+  finding, 2026-07-03). The initial implementation strengthened pictl's barrier to
+  also wait for the first `system/init`, assuming init arrives at startup. It does
+  not: in streaming-input mode claude announces itself only when the first user turn
+  arrives. Consequences observed in the spike: `spawn` blocked indefinitely, and
+  revival deadlocked outright (the reviving CLI holds the turn that would trigger
+  init while waiting for ready). Ready is now `sdk.sock` listening, matching pictl;
+  session history is seeded by whichever init arrives first. Side effect: a fresh
+  agent's `sessions` is empty until its first turn.
+- **`claudePid` is not populated.** Nothing on the `Query` surface exposes the child
+  pid, and the only capture point (`spawnClaudeCodeProcess`) would replace the SDK's
+  own spawn path — not "trivially available" per the spec's criterion. The optional
+  field stays on `AgentRecord`; teardown never depended on it (`query.close()` +
+  `daemonPid` only). Revisit only if the 2a spike surfaces a need.
 
 ## Open questions for the implementing agent
 
