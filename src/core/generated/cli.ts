@@ -1,6 +1,18 @@
+// DO NOT MODIFY — generated from pictl by scripts/sync-from-pictl.mjs.
+// The canonical copy lives in pictl; edit it there and re-run the script.
+
 /**
- * DO NOT MODIFY
- * TODO: this is a byte-for-byte copy of pictl's cli.ts. We'll have to figure out how/if to share it between the two.
+ * I (geraschenko) don't entirely know what I'm doing here. It's possible
+ * there's a cli library out there that just does all this more cleanly. The
+ * goals:
+ * - Subcommands should be pretty easy to define and maintain, keeping
+ *   information about the types of arguments/flags, the help text, and the
+ *   subcommand definition all next to each other in code.
+ * - A subcommand of clauctl must specify whether takes zero, one, or multiple
+ *   target agents with -t/--target. The resolution of targets to AgentRecords
+ *   and the validation of the correct number of targets should be centralized
+ *   (currently in target.ts). I want to be able to set the CLAUCTL_TARGET env var
+ *   to imply a target when there's no target(s) specified.
  */
 import {
   buildCommand,

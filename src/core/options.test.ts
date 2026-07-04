@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, before, test } from "node:test";
 import { parseClaudeFlags } from "./options.ts";
-import { UsageError } from "./util.ts";
+import { UsageError } from "./generated/util.ts";
 
 test("no flags → empty options", () => {
   assert.deepEqual(parseClaudeFlags([]), { persistedOptions: {} });

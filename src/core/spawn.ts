@@ -14,8 +14,8 @@ import {
   restArgs,
   stringFlag,
   type InferFlags,
-} from "./cli.ts";
-import { type CommandContext } from "./targets.ts";
+} from "./generated/cli.ts";
+import { type CommandContext } from "./generated/targets.ts";
 import { parseClaudeFlags } from "./options.ts";
 import {
   agentDirPath,
@@ -25,7 +25,7 @@ import {
   socketPathLengthError,
   spawnOptionsPath,
 } from "./registry.ts";
-import { UsageError } from "./util.ts";
+import { UsageError } from "./generated/util.ts";
 
 interface DaemonLaunch {
   agentDir: string;

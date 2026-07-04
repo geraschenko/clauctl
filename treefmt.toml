@@ -1,4 +1,10 @@
-excludes = ["node_modules/**", "dist/**", "package-lock.json"]
+# Derisk captures are raw recorded evidence; formatting would alter them.
+excludes = [
+  "node_modules/**",
+  "dist/**",
+  "package-lock.json",
+  "docs/derisk/**/captures/**",
+]
 
 [formatter.prettier]
 command = "node_modules/.bin/prettier"

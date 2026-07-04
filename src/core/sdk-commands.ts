@@ -16,12 +16,12 @@ import {
   stringArg,
   stringFlag,
   type InferFlags,
-} from "./cli.ts";
-import { oneTarget, type CommandContext } from "./targets.ts";
+} from "./generated/cli.ts";
+import { oneTarget, type CommandContext } from "./generated/targets.ts";
 import { ensureAgentRunning } from "./lifecycle.ts";
 import { sdkSocketPath } from "./registry.ts";
 import { connectWithRetry, type SdkRequest } from "./sdk-socket.ts";
-import { oneOf } from "./util.ts";
+import { oneOf } from "./generated/util.ts";
 
 const SOCKET_CONNECT_DEADLINE_MS = 5_000;
 

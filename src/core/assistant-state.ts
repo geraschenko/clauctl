@@ -13,7 +13,7 @@
  * yields the invariant `activity === 'idle' ⇒ queueDepth === 0`.
  */
 
-import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
+import type { SdkEvent } from "./sdk-socket.ts";
 
 export type AssistantActivity = "idle" | "pending" | "working" | "compacting";
 
@@ -35,20 +35,6 @@ export const INITIAL_ASSISTANT_STATE: AssistantState = {
 export const isBusy = (state: AssistantState): boolean =>
   state.activity !== "idle" || state.queueDepth > 0;
 
-// TDC: WTF? Why would you define SdkEvent in assistant-state.ts? That makes no sense. Put types where they belong. In this case, SdkEvents are the thing that will be communicated through the socket, so it's logical for it to be in src/core/sdk-socket.ts as part of the socket protocol.
-// The augmented event stream (DECISION-6): every SDK message, plus the events
-// the SDK should emit so an observer can follow what is happening. The tracker
-// consumes exactly the stream Phase-2 `sdk.sock` clients will see.
-export type SdkEvent =
-  // A runnable turn was injected. `priority` as sent (absent = idle-time
-  // default); `now` while busy means the current turn's terminating `result`
-  // arrives early — the tracker needs this, and observers can't apply the
-  // placement rule without it.
-  | { kind: "turnAccepted"; priority?: "now" | "later" }
-  | { kind: "compactSent" } // /compact issued while Idle
-  | { kind: "interruptSent" }
-  | { kind: "sdkMessage"; message: SDKMessage };
-
 export function nextAssistantState(
   state: AssistantState,
   event: SdkEvent,
@@ -59,10 +45,17 @@ export function nextAssistantState(
         return { activity: "pending", queueDepth: state.queueDepth + 1 };
       }
       // While busy, only `now` and a queued `later` will run as their own
-      // turn; a default/`next` is merged into the running turn (echo-placement
-      // findings) and must not be counted.
+      // turn; a default/`next` is demoted by the CLI to an in-turn
+      // `<system-reminder>` steer with no `result` of its own, so counting it
+      // would leak queueDepth (echo-placement FINDINGS, Round 3 + "Silent
+      // demotions leak queue depth").
+      //
+      // A `now` does NOT clear the queue: it aborts the in-flight inference
+      // (whose terminating `result` still arrives, decrementing) and runs as
+      // its own turn, while queued `later`s survive and run after — FINDINGS
+      // `c_perm`: [CHARLIE:next, ALPHA:later, BRAVO:now] executed
+      // BRAVO → CHARLIE → ALPHA.
       if (event.priority === "now" || event.priority === "later") {
-        // TDC: do "now" events clear the queue? Was this determined in our derisking?
         return { ...state, queueDepth: state.queueDepth + 1 };
       }
       return state;

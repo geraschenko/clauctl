@@ -382,6 +382,26 @@ needs `set-model`/`set-permission-mode` to mutate runtime state before the kill.
   `/compact*` prefixes. Verified with a zero-credit spawn/archive cycle: spawn
   returns promptly, both daemon and claude are dead immediately after archive.
   Presubmit green (46 tests).
+- 2026-07-04: user-review round (`e53146e`) landed four changes. (1) **Event bus**:
+  the daemon's assistant state is now updated only by `EventBus.emit`, which
+  serializes the `SdkEvent` to the observation channel (daemon.log) and folds it
+  into the tracker in one step — an applied-but-never-emitted event (the reviewed
+  bug) is structurally unrepresentable, and daemon.log's format is now the
+  `SdkEvent` stream itself (Phase-2 fan-out = more sinks on the same bus; longer
+  term the log shrinks to exceptional events once fan-out exists). (2) **`SdkEvent`
+  moved to `sdk-socket.ts`** — it is protocol, not tracker internals. (3) Tracker
+  comments corrected per the round-3 echo-placement findings (`next`/default while
+  busy is _demoted to an in-turn steer_, not merged/discarded; `now` does not clear
+  the queue — evidence cited inline); Phase 2's `EchoedUserMessage` gains
+  `delivery: "turn" | "steer"`. (4) **Shared pictl files are now generated**:
+  `scripts/sync-from-pictl.mjs` produces `src/core/generated/{cli,completion,
+  targets,util,version}.ts` from pictl's canonical copies (rename + import rewrite
+  - prettier + DO-NOT-MODIFY header); presubmit runs `--check` so drift fails the
+    build. Also: derisk capture files excluded from treefmt (raw evidence); `q`
+    renamed `claudeQuery`. Verified end-to-end with one haiku turn (spawn → query →
+    archive; daemon.log is pure event stream + two exceptional lines). Pending: pictl
+    handoff (`/tmp/pictl-handoff.md`) for daemon-argv derivability and `wait_idle`
+    RPC; clauctl mirrors once pictl lands.
 
 ### Implementation-Time Decisions
 

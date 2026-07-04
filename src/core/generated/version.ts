@@ -1,7 +1,6 @@
-/**
- * DO NOT MODIFY
- * TODO: this is an almost byte-for-byte copy of pictl's. We'll have to figure out how/if to share it between the two.
- */
+// DO NOT MODIFY — generated from pictl by scripts/sync-from-pictl.mjs.
+// The canonical copy lives in pictl; edit it there and re-run the script.
+
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";

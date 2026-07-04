@@ -1,13 +1,13 @@
 import { buildApplication, buildRouteMap, text_en } from "@stricli/core";
-import { type CommandContext } from "./targets.ts";
-import { completionRoute } from "./completion.ts";
+import { type CommandContext } from "./generated/targets.ts";
+import { completionRoute } from "./generated/completion.ts";
 import { internalRoutes } from "./daemon.ts";
 import { listRoute, statusRoute } from "./inspect.ts";
 import { gcRoute, lifecycleRoutes } from "./lifecycle.ts";
 import { sdkRoutes } from "./sdk-commands.ts";
 import { spawnRoute } from "./spawn.ts";
-import { UsageError } from "./util.ts";
-import { VERSION } from "./version.ts";
+import { UsageError } from "./generated/util.ts";
+import { VERSION } from "./generated/version.ts";
 
 const routes = {
   ...spawnRoute,

@@ -16,10 +16,10 @@
 `priority` governs placement. A user message injected while the agent is **busy**
 (mid-turn) is enqueued and consumed by priority, _not_ injection order:
 
-| `priority`      | when it runs                                                                                                                                                                                  | effect on the running turn                          | becomes                                                                                  |
-| --------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------- | ---------------------------------------------------------------------------------------- |
-| `now`           | **aborts** the current inference at once, then runs as the next turn                                                                                                                          | hard interrupt (in-flight tool/inference cancelled) | its own new turn                                                                         |
-| `later`         | after the current turn's `result`                                                                                                                                                             | none (turn completes)                               | its own new turn                                                                         |
+| `priority`      | when it runs                                                                                                                                                                                                                                                     | effect on the running turn                          | becomes                                                                                                          |
+| --------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| `now`           | **aborts** the current inference at once, then runs as the next turn                                                                                                                                                                                             | hard interrupt (in-flight tool/inference cancelled) | its own new turn                                                                                                 |
+| `later`         | after the current turn's `result`                                                                                                                                                                                                                                | none (turn completes)                               | its own new turn                                                                                                 |
 | `next` / _none_ | **as its own turn only if the turn ends before crossing a tool-result handoff** (no-tool turn, or a co-queued `now` ends the turn at that boundary); otherwise **demoted** at the first tool-result handoff to an inline `<system-reminder>` in that tool result | steers the running turn (model's discretion)        | a real turn _iff_ it survived, else one-shot in-context text + a `queued_command` attachment; never its own turn |
 
 The single rule that explains `next`/none: **a `next`/default message is removed from
@@ -252,12 +252,12 @@ changed.)
 | `g_now_next`       | BRAVO(now), CHARLIE(next) (both @b0)        | 3            | exec `BRAVO → CHARLIE` — `now` ends the turn at b0, so `next` survives                                                |
 | `g_next_later`     | CHARLIE(next), ALPHA(later)                 | 2            | CHARLIE **steer**; ALPHA exec (later does not save next)                                                              |
 | `g_now_later`      | BRAVO(now), ALPHA(later)                    | 3            | exec `BRAVO → ALPHA`                                                                                                  |
-| `f_next`           | ALPHA(next) + real follow-up turn           | 2            | ALPHA **steer**; not re-executed by the real follow-up turn                                                                      |
-| `f_none`           | ALPHA(none) + real follow-up turn           | 2            | ALPHA **steer**; not re-executed by the real follow-up turn                                                                      |
+| `f_next`           | ALPHA(next) + real follow-up turn           | 2            | ALPHA **steer**; not re-executed by the real follow-up turn                                                           |
+| `f_none`           | ALPHA(none) + real follow-up turn           | 2            | ALPHA **steer**; not re-executed by the real follow-up turn                                                           |
 | `e_*_stream`       | next/later/mixed/now/now² via `streamInput` | —            | identical to iterable equivalents (incl. interrupt + merge)                                                           |
-| `b_next2`          | ALPHA(next), BRAVO(next)                    | 1            | **both steer** (delivered together inline; no turn)                                                                                             |
-| `b_next2_report`   | ALPHA(next), BRAVO(next), report prompt     | 1            | **both steer** — model quotes two back-to-back individually-wrapped reminders in tool-1's result, injection order                               |
-| `b_none2`          | ALPHA(none), BRAVO(none)                    | 1            | **both steer** (delivered together inline; no turn)                                                                                             |
+| `b_next2`          | ALPHA(next), BRAVO(next)                    | 1            | **both steer** (delivered together inline; no turn)                                                                   |
+| `b_next2_report`   | ALPHA(next), BRAVO(next), report prompt     | 1            | **both steer** — model quotes two back-to-back individually-wrapped reminders in tool-1's result, injection order     |
+| `b_none2`          | ALPHA(none), BRAVO(none)                    | 1            | **both steer** (delivered together inline; no turn)                                                                   |
 | `h_next_then_now`  | CHARLIE(next)@b0, BRAVO(now)@b1             | 2            | CHARLIE **steer** (demoted at tool-1 handoff); only BRAVO exec — **`now` does not rescue `next`**                     |
 | `h_now_b1`         | BRAVO(now)@b1                               | 2            | tool-2 aborted; interrupt generalizes past first boundary                                                             |
 | `h_later_then_now` | ALPHA(later)@b0, BRAVO(now)@b1              | 3            | `later` **survives** tool-1 handoff; `now` aborts tool-2; exec `BRAVO → ALPHA` — `later` durable + drains after `now` |
@@ -360,7 +360,7 @@ It never becomes its own turn — no `dequeue`, no `user` entry, no `result` —
 delivery is invisible on the live SDK stream (the streamed `tool_result` carries only
 the raw tool output; verified in `a_next_report-events.json`).
 
-**What this changes for clauctl:** the *severity framing* flips — this is not a
+**What this changes for clauctl:** the _severity framing_ flips — this is not a
 Claude bug that loses messages; it is deliberate steer-style delivery (the wrapper
 text proves intent). And it changes the echo design: since the delivered content
 demonstrably influences the running turn while being invisible on the live stream,

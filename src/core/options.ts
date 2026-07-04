@@ -17,7 +17,7 @@ import type {
   PermissionMode,
   ThinkingConfig,
 } from "@anthropic-ai/claude-agent-sdk";
-import { oneOf, UsageError } from "./util.ts";
+import { oneOf, UsageError } from "./generated/util.ts";
 
 export type OptionBucket = "persist" | "code" | "invariant" | "respawn";
 

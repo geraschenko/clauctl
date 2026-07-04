@@ -1,21 +1,43 @@
 /**
  * The minimal Phase-1 `sdk.sock` protocol and its client: newline-delimited
  * JSON request/response over a unix socket. No stream fan-out — the daemon's
- * SDKMessage stream is observed via daemon.log until Phase 2 grows this into
+ * SdkEvent stream is observed via daemon.log until Phase 2 grows this into
  * the full protocol.
- * TDC: Ok, I understand. This is why you had to use applyEvent the way you did in src/core/daemon.ts. Let's make sure we fix it in phase 2.
  *
  * The daemon sends a hello record on connect so clients can validate they are
  * talking to a clauctl daemon (and, in Phase 2, negotiate the protocol).
  */
 
 import { connect, type Socket } from "node:net";
-import type { PermissionMode } from "@anthropic-ai/claude-agent-sdk";
+import type {
+  PermissionMode,
+  SDKMessage,
+} from "@anthropic-ai/claude-agent-sdk";
 
 export const SDK_SOCKET_PROTOCOL = "clauctl-sdk-socket";
 export const SDK_SOCKET_VERSION = 1;
 
-// TDC: shouldn't SdkEvent be in this file? That is logically part of the protocol this file is defining.
+/**
+ * The augmented event stream (DECISION-6): every SDK message, plus the events
+ * only the daemon can know about, serialized so an observer can follow what is
+ * happening. This is protocol: the daemon's event bus writes exactly this
+ * stream to its observation channel (daemon.log in Phase 1, sdk.sock fan-out
+ * in Phase 2), and the assistant-state tracker folds over the same stream — so
+ * daemon state is always reconstructible by an observer. Phase 2 grows
+ * `turnAccepted` into the full `EchoedUserMessage`, adding
+ * `delivery: "turn" | "steer"` for `next`/default-while-busy messages the CLI
+ * demotes to an in-turn `<system-reminder>` steer (echo-placement FINDINGS,
+ * Round 3).
+ */
+export type SdkEvent =
+  // A turn was injected. `priority` as sent (absent = idle-time default);
+  // `now` while busy means the current turn's terminating `result` arrives
+  // early — the tracker needs this, and observers can't apply the placement
+  // rule without it.
+  | { kind: "turnAccepted"; priority?: "now" | "later" }
+  | { kind: "compactSent" } // /compact issued while Idle
+  | { kind: "interruptSent" }
+  | { kind: "sdkMessage"; message: SDKMessage };
 
 export type SdkRequest =
   | { type: "query"; text: string; priority?: "now" | "next" | "later" }

@@ -1,6 +1,7 @@
+// DO NOT MODIFY — generated from pictl by scripts/sync-from-pictl.mjs.
+// The canonical copy lives in pictl; edit it there and re-run the script.
+
 /**
- * DO NOT MODIFY
- * TODO: this is an almost byte-for-byte copy of pictl's. We'll have to figure out how/if to share it between the two.
  * Target resolution for clauctl subcommands. A subcommand specifies whether it
  * takes zero, one, or multiple target agents with -t/--target. Resolving target
  * strings to AgentRecords and validating the cardinality is centralized here.
@@ -11,8 +12,8 @@ import {
   type FlagParametersForType,
   type StricliProcess,
 } from "@stricli/core";
-import type { AgentRecord } from "./registry.ts";
-import { listAgentIds, loadAgent } from "./registry.ts";
+import type { AgentRecord } from "../registry.ts";
+import { listAgentIds, loadAgent } from "../registry.ts";
 import { UsageError } from "./util.ts";
 
 export interface CommandContext extends StricliCommandContext {

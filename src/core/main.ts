@@ -2,7 +2,7 @@
 import { realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { app } from "./app.ts";
-import { runCliApp } from "./cli.ts";
+import { runCliApp } from "./generated/cli.ts";
 
 const entryPath = process.argv[1];
 if (

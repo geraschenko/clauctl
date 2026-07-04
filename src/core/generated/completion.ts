@@ -1,8 +1,6 @@
-/**
- * DO NOT MODIFY
- * TODO: this is an almost byte-for-byte copy of pictl's. We'll have to figure out how/if to share it between the two.
- * TDC: Actually, for files that are almost byte-for-byte identical to a file in pictl, I'd like to treat them as generated files. Let's make a src/core/generated/ subdirectory and a script in scripts/ which copies files from pictl, changes "pictl" to "clauctl" (etc), and adds a "DO NOT MODIFY" header. I *really* don't want to deal with these files drifting out of sync.
- */
+// DO NOT MODIFY — generated from pictl by scripts/sync-from-pictl.mjs.
+// The canonical copy lives in pictl; edit it there and re-run the script.
+
 import {
   buildRouteMap,
   proposeCompletions,
@@ -13,7 +11,7 @@ import {
   buildInstallCommand,
   buildUninstallCommand,
 } from "@stricli/auto-complete";
-import { app } from "./app.ts";
+import { app } from "../app.ts";
 import { commandNoTarget, restArgs } from "./cli.ts";
 import { type CommandContext } from "./targets.ts";
 

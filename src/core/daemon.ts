@@ -23,7 +23,6 @@ import {
   INITIAL_ASSISTANT_STATE,
   nextAssistantState,
   type AssistantState,
-  type SdkEvent,
 } from "./assistant-state.ts";
 import {
   booleanFlag,
@@ -32,7 +31,7 @@ import {
   requiredStringFlag,
   stringFlag,
   type InferFlags,
-} from "./cli.ts";
+} from "./generated/cli.ts";
 import { invariantOptions, type SpawnOptionsFile } from "./options.ts";
 import {
   daemonLogPath,
@@ -45,10 +44,11 @@ import {
 import {
   SDK_SOCKET_PROTOCOL,
   SDK_SOCKET_VERSION,
+  type SdkEvent,
   type SdkRequestRecord,
   type SdkResponse,
 } from "./sdk-socket.ts";
-import { type CommandContext } from "./targets.ts";
+import { type CommandContext } from "./generated/targets.ts";
 
 const daemonFlags = {
   agentDir: requiredStringFlag("Agent directory", "path"),
@@ -109,6 +109,49 @@ class TurnQueue implements AsyncIterable<SDKUserMessage> {
       });
       this.wake = undefined;
     }
+  }
+}
+
+/**
+ * The daemon's single mutation path for observable assistant state. `emit`
+ * atomically serializes the event to the observation channel (the sink) and
+ * folds it into the state tracker, so state is a function of the emitted
+ * stream by construction — an observer of the channel can always reconstruct
+ * it. Nothing outside this class may update the tracker: request handlers and
+ * the stream reader only have `emit`, making an applied-but-never-emitted
+ * event unrepresentable.
+ */
+class EventBus {
+  private state: AssistantState = INITIAL_ASSISTANT_STATE;
+  private readonly idleWaiters: Array<() => void> = [];
+  // Not a constructor parameter property: Node's strip-only TS mode rejects
+  // those at runtime (tsc alone doesn't catch it).
+  private readonly sink: (serializedEvent: string) => void;
+
+  constructor(sink: (serializedEvent: string) => void) {
+    this.sink = sink;
+  }
+
+  get assistantState(): AssistantState {
+    return this.state;
+  }
+
+  emit(event: SdkEvent): void {
+    this.sink(`${JSON.stringify(event)}\n`);
+    this.state = nextAssistantState(this.state, event);
+    if (this.state.activity === "idle") {
+      for (const waiter of this.idleWaiters.splice(0)) {
+        waiter();
+      }
+    }
+  }
+
+  /** Resolves once the assistant is Idle (immediately if it already is). */
+  whenIdle(): Promise<void> {
+    if (this.state.activity === "idle") {
+      return Promise.resolve();
+    }
+    return new Promise((resolve) => this.idleWaiters.push(resolve));
   }
 }
 
@@ -224,41 +267,21 @@ async function daemon(this: CommandContext, flags: DaemonFlags): Promise<void> {
   };
 
   const turnQueue = new TurnQueue();
-  // TDC: don't use one-letter variable names for long-lived objects. Call this something like claudeQuery, claude, or claudeClient.
-  const q: Query = query({ prompt: turnQueue, options });
+  const claudeQuery: Query = query({ prompt: turnQueue, options });
 
   await writeAgentRecord(record);
   if (!flags.resume) {
     await rm(spawnOptionsPath(agentDir), { force: true });
   }
 
-  // --- assistant-state tracking ---------------------------------------------
-  let assistantState: AssistantState = INITIAL_ASSISTANT_STATE;
-  const idleWaiters: Array<() => void> = [];
-  const applyEvent = (event: SdkEvent): void => {
-    const before = assistantState;
-    assistantState = nextAssistantState(assistantState, event);
-    if (
-      before.activity !== assistantState.activity ||
-      before.queueDepth !== assistantState.queueDepth
-    ) {
-      // TDC: isn't this going to be super noisy? It's emitting a message for every assistant state change. Are we logging the daemon output to a file anywhere, or is this process completely detached?
-      log(
-        `assistant: ${assistantState.activity} (queueDepth ${assistantState.queueDepth})`,
-      );
-    }
-    if (assistantState.activity === "idle") {
-      for (const waiter of idleWaiters.splice(0)) {
-        waiter();
-      }
-    }
-  };
-  const whenIdle = (): Promise<void> => {
-    if (assistantState.activity === "idle") {
-      return Promise.resolve();
-    }
-    return new Promise((resolve) => idleWaiters.push(resolve));
-  };
+  // The observation channel is daemon.log (stdout) in Phase 1; Phase 2 adds
+  // sdk.sock subscribers as further sinks on the same bus.
+  // TODO(Phase 2+): stop mirroring the full event stream to daemon.log once
+  // fan-out exists — the session is already in claude's jsonl files, and the
+  // log should carry only exceptional events.
+  const events = new EventBus((serializedEvent) =>
+    proc.stdout.write(serializedEvent),
+  );
 
   // --- sdk.sock request handlers ---------------------------------------------
   const handleRequest = async (request: SdkRequestRecord): Promise<unknown> => {
@@ -268,7 +291,7 @@ async function daemon(this: CommandContext, flags: DaemonFlags): Promise<void> {
         const trimmed = text.trim();
         if (trimmed === "/compact" || trimmed.startsWith("/compact ")) {
           // Compaction is only valid while Idle; never queued behind turns.
-          if (assistantState.activity !== "idle") {
+          if (events.assistantState.activity !== "idle") {
             throw new Error("/compact requires an idle assistant");
           }
           turnQueue.push({
@@ -276,8 +299,7 @@ async function daemon(this: CommandContext, flags: DaemonFlags): Promise<void> {
             message: { role: "user", content: text },
             parent_tool_use_id: null,
           });
-          // TDC: This is a problem. You cannot apply an event that's never sent. The assistant state must be a function of the event stream observed by *all* clients. This makes it so that assistant state can change in a way that only the sender of "/compact" is aware of. It's bad. Present a plan to me for how you're going to address this. I don't want just a point fix. I want it to be structurally impossible to make this kind of mistake in the future.
-          applyEvent({ kind: "compactSent" });
+          events.emit({ kind: "compactSent" });
           return undefined;
         }
         turnQueue.push({
@@ -286,10 +308,11 @@ async function daemon(this: CommandContext, flags: DaemonFlags): Promise<void> {
           parent_tool_use_id: null,
           ...(request.priority !== undefined && { priority: request.priority }),
         });
-        // 'next' and default behave identically for state tracking: they run
-        // only when idle and are merged into a running turn otherwise.
-        // TDC: same issue here and in all the cases below.
-        applyEvent({
+        // 'next' and default behave identically for state tracking: while
+        // busy the CLI demotes them to an in-turn steer with no result of
+        // their own (echo-placement FINDINGS, Round 3), so their priority is
+        // not part of the placement-relevant event.
+        events.emit({
           kind: "turnAccepted",
           ...(request.priority === "now" || request.priority === "later"
             ? { priority: request.priority }
@@ -298,18 +321,18 @@ async function daemon(this: CommandContext, flags: DaemonFlags): Promise<void> {
         return undefined;
       }
       case "interrupt":
-        await q.interrupt();
-        applyEvent({ kind: "interruptSent" });
+        await claudeQuery.interrupt();
+        events.emit({ kind: "interruptSent" });
         return undefined;
       case "set-model":
-        await q.setModel(request.model);
+        await claudeQuery.setModel(request.model);
         // DECISION-5 persist-on-mutation: record the args of every
         // state-mutating control call as it is made; never read back.
         record.persistedOptions.model = request.model;
         queueRecordWrite();
         return undefined;
       case "set-permission-mode":
-        await q.setPermissionMode(request.mode);
+        await claudeQuery.setPermissionMode(request.mode);
         record.persistedOptions.permissionMode = request.mode;
         if (request.mode === "bypassPermissions") {
           // Entering bypass requires the spawn-time dangerous-skip flag; a
@@ -319,7 +342,7 @@ async function daemon(this: CommandContext, flags: DaemonFlags): Promise<void> {
         queueRecordWrite();
         return undefined;
       case "wait-idle":
-        await whenIdle();
+        await events.whenIdle();
         return undefined;
     }
   };
@@ -336,7 +359,7 @@ async function daemon(this: CommandContext, flags: DaemonFlags): Promise<void> {
       return;
     }
     exiting = true;
-    q.close();
+    claudeQuery.close();
     turnQueue.close();
     // Wait for the stream to end before exiting: the SDK's close() SIGTERMs
     // claude with a SIGKILL escalation timer that dies with this process, so
@@ -355,8 +378,6 @@ async function daemon(this: CommandContext, flags: DaemonFlags): Promise<void> {
 
   // --- stream reader ---------------------------------------------------------
   const handleMessage = (message: SDKMessage): void => {
-    // The raw stream is the Phase-1 observation channel (daemon.log).
-    proc.stdout.write(`${JSON.stringify(message)}\n`);
     if (message.type === "system" && message.subtype === "init") {
       record.claudeCodeVersion = message.claude_code_version;
       const currentSessionId = record.sessions.at(-1)?.sessionId;
@@ -378,11 +399,11 @@ async function daemon(this: CommandContext, flags: DaemonFlags): Promise<void> {
       }
       queueRecordWrite();
     }
-    applyEvent({ kind: "sdkMessage", message });
+    events.emit({ kind: "sdkMessage", message });
   };
 
   const readerDone = (async () => {
-    for await (const message of q) {
+    for await (const message of claudeQuery) {
       handleMessage(message);
     }
   })();

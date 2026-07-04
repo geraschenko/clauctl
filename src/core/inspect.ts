@@ -12,8 +12,8 @@ import {
   commandNoTarget,
   stringFlag,
   type InferFlags,
-} from "./cli.ts";
-import { multiTargets, type CommandContext } from "./targets.ts";
+} from "./generated/cli.ts";
+import { multiTargets, type CommandContext } from "./generated/targets.ts";
 import {
   type AgentRecord,
   classifyAgentDir,

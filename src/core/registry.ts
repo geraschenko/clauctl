@@ -8,7 +8,7 @@ import { open, readdir, readFile, rename } from "node:fs/promises";
 import { join } from "node:path";
 import envPaths from "env-paths";
 import type { PersistedOptions } from "./options.ts";
-import { fileExists } from "./util.ts";
+import { fileExists } from "./generated/util.ts";
 
 export interface SessionHistoryEntry {
   sessionId: string;

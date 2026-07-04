@@ -6,8 +6,8 @@ import {
   INITIAL_ASSISTANT_STATE,
   isBusy,
   nextAssistantState,
-  type SdkEvent,
 } from "./assistant-state.ts";
+import type { SdkEvent } from "./sdk-socket.ts";
 
 // The tracker only inspects `type`, so a minimal stub suffices.
 function sdkMessage(type: "assistant" | "result" | "system"): SdkEvent {
