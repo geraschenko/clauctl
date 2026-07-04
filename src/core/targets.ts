@@ -1,4 +1,6 @@
 /**
+ * DO NOT MODIFY
+ * TODO: this is an almost byte-for-byte copy of pictl's. We'll have to figure out how/if to share it between the two.
  * Target resolution for clauctl subcommands. A subcommand specifies whether it
  * takes zero, one, or multiple target agents with -t/--target. Resolving target
  * strings to AgentRecords and validating the cardinality is centralized here.

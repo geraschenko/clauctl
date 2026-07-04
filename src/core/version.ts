@@ -1,3 +1,7 @@
+/**
+ * DO NOT MODIFY
+ * TODO: this is an almost byte-for-byte copy of pictl's. We'll have to figure out how/if to share it between the two.
+ */
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";

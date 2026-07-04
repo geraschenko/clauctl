@@ -35,6 +35,7 @@ export const INITIAL_ASSISTANT_STATE: AssistantState = {
 export const isBusy = (state: AssistantState): boolean =>
   state.activity !== "idle" || state.queueDepth > 0;
 
+// TDC: WTF? Why would you define SdkEvent in assistant-state.ts? That makes no sense. Put types where they belong. In this case, SdkEvents are the thing that will be communicated through the socket, so it's logical for it to be in src/core/sdk-socket.ts as part of the socket protocol.
 // The augmented event stream (DECISION-6): every SDK message, plus the events
 // the SDK should emit so an observer can follow what is happening. The tracker
 // consumes exactly the stream Phase-2 `sdk.sock` clients will see.
@@ -61,6 +62,7 @@ export function nextAssistantState(
       // turn; a default/`next` is merged into the running turn (echo-placement
       // findings) and must not be counted.
       if (event.priority === "now" || event.priority === "later") {
+        // TDC: do "now" events clear the queue? Was this determined in our derisking?
         return { ...state, queueDepth: state.queueDepth + 1 };
       }
       return state;

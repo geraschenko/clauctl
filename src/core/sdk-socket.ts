@@ -3,6 +3,7 @@
  * JSON request/response over a unix socket. No stream fan-out — the daemon's
  * SDKMessage stream is observed via daemon.log until Phase 2 grows this into
  * the full protocol.
+ * TDC: Ok, I understand. This is why you had to use applyEvent the way you did in src/core/daemon.ts. Let's make sure we fix it in phase 2.
  *
  * The daemon sends a hello record on connect so clients can validate they are
  * talking to a clauctl daemon (and, in Phase 2, negotiate the protocol).
@@ -13,6 +14,8 @@ import type { PermissionMode } from "@anthropic-ai/claude-agent-sdk";
 
 export const SDK_SOCKET_PROTOCOL = "clauctl-sdk-socket";
 export const SDK_SOCKET_VERSION = 1;
+
+// TDC: shouldn't SdkEvent be in this file? That is logically part of the protocol this file is defining.
 
 export type SdkRequest =
   | { type: "query"; text: string; priority?: "now" | "next" | "later" }
@@ -216,6 +219,7 @@ export async function waitIdle(
   client: SdkSocketClient,
   timeoutMs: number | undefined,
 ): Promise<void> {
+  // TDC: should this ultimately exist as an rpc request? My feeling is that waiting for idle is something that should just involve _monitoring_ the event stream, rather than sending requests. On the other hand, I guess we do have to send a request to get the current state, and then watch the event stream to do state updates until it becomes idle. And the way this rpc request is implemented is effectively delegating all that work to the daemon (including maintaining the assistant state, so literally _nothing_ needs to be sent to the claude process itself). That makes me think this is indeed the correct design, but I'd like to hear your thoughts. Should we implement the same approach in pictl? Right now we make an actual get-state request in waitIdle in pictl.
   const idle = client.request({ type: "wait-idle" });
   if (timeoutMs === undefined) {
     await idle;

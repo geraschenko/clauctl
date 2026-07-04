@@ -1,4 +1,8 @@
-/** Small shared helpers. Keep this file free of clauctl-specific imports. */
+/**
+ * DO NOT MODIFY
+ * TODO: this is an almost byte-for-byte copy of pictl's. We'll have to figure out how/if to share it between the two.
+ * Small shared helpers. Keep this file free of clauctl-specific imports.
+ */
 
 import { access } from "node:fs/promises";
 

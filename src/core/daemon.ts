@@ -224,6 +224,7 @@ async function daemon(this: CommandContext, flags: DaemonFlags): Promise<void> {
   };
 
   const turnQueue = new TurnQueue();
+  // TDC: don't use one-letter variable names for long-lived objects. Call this something like claudeQuery, claude, or claudeClient.
   const q: Query = query({ prompt: turnQueue, options });
 
   await writeAgentRecord(record);
@@ -241,6 +242,7 @@ async function daemon(this: CommandContext, flags: DaemonFlags): Promise<void> {
       before.activity !== assistantState.activity ||
       before.queueDepth !== assistantState.queueDepth
     ) {
+      // TDC: isn't this going to be super noisy? It's emitting a message for every assistant state change. Are we logging the daemon output to a file anywhere, or is this process completely detached?
       log(
         `assistant: ${assistantState.activity} (queueDepth ${assistantState.queueDepth})`,
       );
@@ -274,6 +276,7 @@ async function daemon(this: CommandContext, flags: DaemonFlags): Promise<void> {
             message: { role: "user", content: text },
             parent_tool_use_id: null,
           });
+          // TDC: This is a problem. You cannot apply an event that's never sent. The assistant state must be a function of the event stream observed by *all* clients. This makes it so that assistant state can change in a way that only the sender of "/compact" is aware of. It's bad. Present a plan to me for how you're going to address this. I don't want just a point fix. I want it to be structurally impossible to make this kind of mistake in the future.
           applyEvent({ kind: "compactSent" });
           return undefined;
         }
@@ -285,6 +288,7 @@ async function daemon(this: CommandContext, flags: DaemonFlags): Promise<void> {
         });
         // 'next' and default behave identically for state tracking: they run
         // only when idle and are merged into a running turn otherwise.
+        // TDC: same issue here and in all the cases below.
         applyEvent({
           kind: "turnAccepted",
           ...(request.priority === "now" || request.priority === "later"

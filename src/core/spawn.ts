@@ -31,6 +31,7 @@ interface DaemonLaunch {
   agentDir: string;
   agentId: string;
   cwd: string;
+  // TDC: isn't resume just whether the agentDir/agentId already exists? We shouldn't redundantly pass what can be easily derived. This also suggests we shouldn't have agentDir here, since it's purely derivable from agentId. Same for pictl.
   /** Revival: daemon reads persistedOptions from agent.json and resumes the last session. */
   resume: boolean;
   /** Set only on initial spawn; revival preserves the recorded tag. */
@@ -69,6 +70,7 @@ async function readAll(stream: Readable): Promise<string> {
  */
 export async function launchDaemon(launch: DaemonLaunch): Promise<void> {
   const logFd = openSync(daemonLogPath(launch.agentDir), "a");
+  // TDC: I think I understood this before, but am confused now. Why is it necessary to have a _daemon subcommand which is used by spawn? It seems like it'd be clearer to just call a function here to create the child process rather than re-entering the binary from command line, parsing flags, etc. If we change it here, we should also change in pictl.
   const daemonArgs = [
     mainEntryPath(),
     "_daemon",
