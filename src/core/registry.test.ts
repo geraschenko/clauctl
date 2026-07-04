@@ -3,14 +3,19 @@ import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, before, test } from "node:test";
+import { writeFile } from "node:fs/promises";
 import {
   type AgentRecord,
+  type SpawnOptions,
   agentDirPath,
   agentIdError,
   readAgentRecord,
+  readSpawnOptions,
   resolveAgentId,
   socketPathLengthError,
+  spawnOptionsPath,
   writeAgentRecord,
+  writeSpawnOptions,
 } from "./registry.ts";
 
 /** An agentDir of exactly `len` ASCII bytes. sdk.sock adds 9, the NUL 1 more. */
@@ -126,6 +131,39 @@ test("socketPathLengthError: message names the path and a remedy", () => {
   const msg = socketPathLengthError(agentDirOfLength(200), "linux") ?? "";
   assert.match(msg, /sdk\.sock/);
   assert.match(msg, /--id|CLAUCTL_DIR/);
+});
+
+test("spawn options: write/read round-trips", async () => {
+  const agentDir = agentDirPath("alpha-agent");
+  const options: SpawnOptions = {
+    cwd: "/tmp",
+    tag: "worker",
+    persistedOptions: { model: "sonnet" },
+    resume: "session-123",
+  };
+  await writeSpawnOptions(agentDir, options);
+  assert.deepEqual(await readSpawnOptions(agentDir), { kind: "ok", options });
+});
+
+test("readSpawnOptions reports a missing file", async () => {
+  const agentDir = agentDirPath("never-spawned");
+  assert.deepEqual(await readSpawnOptions(agentDir), { kind: "missing" });
+});
+
+test("readSpawnOptions reports invalid JSON as corrupt", async () => {
+  const agentDir = agentDirPath("beta-agent");
+  await writeFile(spawnOptionsPath(agentDir), "not json\n");
+  const read = await readSpawnOptions(agentDir);
+  assert.equal(read.kind, "corrupt");
+});
+
+test("readSpawnOptions reports missing required fields as corrupt", async () => {
+  const agentDir = agentDirPath("beta-agent");
+  await writeFile(spawnOptionsPath(agentDir), `{"tag":"worker"}\n`);
+  assert.deepEqual(await readSpawnOptions(agentDir), {
+    kind: "corrupt",
+    error: "spawn-options.json missing required fields",
+  });
 });
 
 test("agentIdError: accepts uuids and friendly ids", () => {

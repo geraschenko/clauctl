@@ -123,8 +123,8 @@ export function invariantOptions(): Pick<
   };
 }
 
-/** What `spawn` hands the daemon via the transient spawn-options.json. */
-export interface SpawnOptionsFile {
+/** parseClaudeFlags result; `spawn` folds it into the SpawnOptions handoff. */
+export interface ParsedClaudeFlags {
   persistedOptions: PersistedOptions;
   /** Initial-spawn session wrap (`--resume <session-id>`), bucket-4 exception. */
   resume?: string;
@@ -215,7 +215,7 @@ function splitCommaList(value: string): string[] {
  * tail, forwarded verbatim (a following token is its value unless it looks
  * like another flag). Rejected flags are the ones clauctl owns.
  */
-export function parseClaudeFlags(args: readonly string[]): SpawnOptionsFile {
+export function parseClaudeFlags(args: readonly string[]): ParsedClaudeFlags {
   const options: PersistedOptions = {};
   let resume: string | undefined;
   const extraArgs: Record<string, string | null> = {};

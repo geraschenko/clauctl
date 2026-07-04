@@ -7,7 +7,7 @@
 
 import { once } from "node:events";
 import { closeSync, writeSync } from "node:fs";
-import { readFile, rm } from "node:fs/promises";
+import { rm } from "node:fs/promises";
 import { homedir } from "node:os";
 import { createServer, type Server, type Socket } from "node:net";
 import { join } from "node:path";
@@ -25,17 +25,17 @@ import {
   type AssistantState,
 } from "./assistant-state.ts";
 import {
-  booleanFlag,
   commandNoTarget,
   parsedFlag,
   requiredStringFlag,
-  stringFlag,
   type InferFlags,
 } from "./generated/cli.ts";
-import { invariantOptions, type SpawnOptionsFile } from "./options.ts";
+import { invariantOptions } from "./options.ts";
 import {
+  agentDirPath,
   daemonLogPath,
   readAgentRecord,
+  readSpawnOptions,
   sdkSocketPath,
   spawnOptionsPath,
   writeAgentRecord,
@@ -51,11 +51,7 @@ import {
 import { type CommandContext } from "./generated/targets.ts";
 
 const daemonFlags = {
-  agentDir: requiredStringFlag("Agent directory", "path"),
   agentId: requiredStringFlag("Agent id", "uuid"),
-  cwd: requiredStringFlag("Working directory", "path"),
-  resume: booleanFlag("Revive from agent.json, resuming the last session"),
-  tag: stringFlag("Tag", "str"),
   readyFd: parsedFlag("Ready fd", numberParser, "int"),
 };
 
@@ -185,7 +181,8 @@ function childEnv(
 }
 
 async function daemon(this: CommandContext, flags: DaemonFlags): Promise<void> {
-  const { agentDir, agentId } = flags;
+  const { agentId } = flags;
+  const agentDir = agentDirPath(agentId);
   // _daemon is a Node daemon and needs pid/signals/exit; Stricli's process type
   // intentionally only models portable stdio, so use Node's process here.
   const proc = this.process as NodeJS.Process;
@@ -197,52 +194,48 @@ async function daemon(this: CommandContext, flags: DaemonFlags): Promise<void> {
     signalReady(flags.readyFd, { ok: false, error });
   };
 
+  // Startup classification, from disk state alone: agent.json present →
+  // revival (its recorded state wins over any stale spawn file — once it
+  // exists, the first spawn got far enough that reviving from recorded state
+  // is strictly safer than re-running the initial-spawn path); otherwise
+  // spawn-options.json present → initial spawn; otherwise fail via ready-fd.
   const existing = await readAgentRecord(agentDir);
+  if (existing.kind === "corrupt") {
+    fail(`cannot revive: ${existing.error}`);
+    return;
+  }
 
-  // Initial spawn reads the transient handoff from `spawn`; revival reads the
-  // merged persistedOptions the previous daemon left in agent.json.
-  let spawnOptions: SpawnOptionsFile;
-  if (flags.resume) {
-    if (existing.kind !== "ok") {
+  let record: AgentRecord;
+  let resumeSessionId: string | undefined;
+  if (existing.kind === "ok") {
+    record = existing.record;
+    record.daemonPid = proc.pid;
+    resumeSessionId = record.sessions.at(-1)?.sessionId;
+  } else {
+    const spawnRead = await readSpawnOptions(agentDir);
+    if (spawnRead.kind !== "ok") {
       fail(
-        `cannot revive: ${existing.kind === "missing" ? "no agent.json" : existing.error}`,
+        `cannot start: no agent.json and ${
+          spawnRead.kind === "missing"
+            ? "no spawn-options.json"
+            : spawnRead.error
+        }`,
       );
       return;
     }
-    const lastSession = existing.record.sessions.at(-1);
-    spawnOptions = {
-      persistedOptions: existing.record.persistedOptions,
-      ...(lastSession !== undefined && { resume: lastSession.sessionId }),
+    const spawnOptions = spawnRead.options;
+    record = {
+      id: agentId,
+      createdAt: new Date().toISOString(),
+      cwd: spawnOptions.cwd,
+      ...(spawnOptions.tag !== undefined && { tag: spawnOptions.tag }),
+      persistedOptions: spawnOptions.persistedOptions,
+      sessions: [],
+      daemonPid: proc.pid,
+      agentDir,
     };
-  } else {
-    try {
-      spawnOptions = JSON.parse(
-        await readFile(spawnOptionsPath(agentDir), "utf8"),
-      ) as SpawnOptionsFile;
-    } catch (error) {
-      fail(`cannot read spawn-options.json: ${String(error)}`);
-      return;
-    }
+    resumeSessionId = spawnOptions.resume;
   }
-
-  const record: AgentRecord = {
-    id: agentId,
-    createdAt:
-      existing.kind === "ok"
-        ? existing.record.createdAt
-        : new Date().toISOString(),
-    cwd: flags.cwd,
-    // First spawn carries --tag; revival preserves whatever was recorded.
-    ...(existing.kind === "ok"
-      ? existing.record.tag !== undefined && { tag: existing.record.tag }
-      : flags.tag !== undefined && { tag: flags.tag }),
-    persistedOptions: spawnOptions.persistedOptions,
-    sessions: existing.kind === "ok" ? existing.record.sessions : [],
-    daemonPid: proc.pid,
-    claudeCodeVersion:
-      existing.kind === "ok" ? existing.record.claudeCodeVersion : undefined,
-    agentDir,
-  };
 
   // agent.json writes are serialized through this chain; session and merge
   // events can arrive faster than a write completes.
@@ -261,18 +254,19 @@ async function daemon(this: CommandContext, flags: DaemonFlags): Promise<void> {
   const options: Options = {
     ...record.persistedOptions,
     ...invariantOptions(),
-    cwd: flags.cwd,
+    cwd: record.cwd,
     env: childEnv(record.persistedOptions.env, agentId),
-    ...(spawnOptions.resume !== undefined && { resume: spawnOptions.resume }),
+    ...(resumeSessionId !== undefined && { resume: resumeSessionId }),
   };
 
   const turnQueue = new TurnQueue();
   const claudeQuery: Query = query({ prompt: turnQueue, options });
 
   await writeAgentRecord(record);
-  if (!flags.resume) {
-    await rm(spawnOptionsPath(agentDir), { force: true });
-  }
+  // Unconditional delete after the first successful agent.json write: on
+  // initial spawn this is the handoff cleanup, and on revival it removes a
+  // stale file left by a daemon that died between the write and the delete.
+  await rm(spawnOptionsPath(agentDir), { force: true });
 
   // The observation channel is daemon.log (stdout) in Phase 1; Phase 2 adds
   // sdk.sock subscribers as further sinks on the same bus.

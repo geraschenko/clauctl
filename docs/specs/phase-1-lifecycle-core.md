@@ -402,6 +402,30 @@ needs `set-model`/`set-permission-mode` to mutate runtime state before the kill.
     archive; daemon.log is pure event stream + two exceptional lines). Pending: pictl
     handoff (`/tmp/pictl-handoff.md`) for daemon-argv derivability and `wait_idle`
     RPC; clauctl mirrors once pictl lands.
+- 2026-07-04: mirrored pictl's landed **daemon-argv derivability** change (report:
+  `/tmp/pictl-daemon-derived-args-report.md`; pictl spec
+  `docs/specs/daemon-derived-args.md`). The daemon argv is now
+  `_daemon --agent-id <id> --ready-fd 3`; everything else is derived: agentDir via
+  the inherited `CLAUCTL_DIR`, spawn-vs-revival via the startup classification
+  table (agent.json ok → revival, wins over any stale spawn file; corrupt → fail
+  via ready-fd; missing + spawn-options.json ok → initial spawn; else fail).
+  `SpawnOptions` (`{cwd, tag?, persistedOptions, resume?}`) lives in registry.ts
+  with `writeSpawnOptions`/`readSpawnOptions` (ok/missing/corrupt, mirroring
+  `readAgentRecord`); options.ts's `SpawnOptionsFile` became the parser-local
+  `ParsedClaudeFlags`. `launchDaemon(agentId)` replaced `DaemonLaunch`; the
+  spawn-file delete is a single unconditional `rm` after the first agent.json
+  write (also cleans a stale file on revival). Dropped the redundant
+  `persistedOptions.cwd` copy — cwd's one home is the record. pictl dropped the
+  `wait_idle` half of the handoff on its side (pi owns pi.sock there); clauctl's
+  daemon-side `wait-idle` is already the target shape — no change. pictl's five
+  canonical shared files were untouched, so no regeneration. Verified: presubmit
+  green (50 tests, +4 spawn-options round-trip/missing/corrupt); smoke test under
+  an isolated registry — spawn --tag (spawn file gone, argv exact, agent.json
+  correct), archive, transparent revival resuming the same session (both turns in
+  one session jsonl; the spike config's OAuth token had lapsed, so turns returned
+  synthetic "Not logged in" results — which still exercised the result/idle path;
+  inference itself is unchanged from the verified Phase-1 runs), and both failure
+  rows of the classification table reported through the ready-fd.
 
 ### Implementation-Time Decisions
 

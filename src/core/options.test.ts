@@ -114,7 +114,7 @@ test("skip-permissions spellings set allowDangerouslySkipPermissions", () => {
   }
 });
 
-test("--resume goes to the SpawnOptionsFile, not persistedOptions", () => {
+test("--resume goes to the ParsedClaudeFlags, not persistedOptions", () => {
   const parsed = parseClaudeFlags(["--resume", "sess-123"]);
   assert.equal(parsed.resume, "sess-123");
   assert.deepEqual(parsed.persistedOptions, {});

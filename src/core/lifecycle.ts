@@ -79,12 +79,8 @@ async function reviveAgent(agent: AgentRecord): Promise<AgentRecord> {
     // Reviving an archived agent — including implicitly, by sending it a
     // command — un-archives it.
     await setArchived(agent.agentDir, false);
-    await launchDaemon({
-      agentDir: agent.agentDir,
-      agentId: agent.id,
-      cwd: agent.cwd,
-      resume: true,
-    });
+    // The daemon classifies this as a revival by the presence of agent.json.
+    await launchDaemon(agent.id);
     return await loadAgent(agent.id);
   } finally {
     await rm(lockPath, { force: true });

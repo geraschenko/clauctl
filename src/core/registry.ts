@@ -4,7 +4,7 @@
  * a tombstone file marking the dir for gc.
  */
 
-import { open, readdir, readFile, rename } from "node:fs/promises";
+import { open, readdir, readFile, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import envPaths from "env-paths";
 import type { PersistedOptions } from "./options.ts";
@@ -86,10 +86,72 @@ export function sdkSocketPath(agentDir: string): string {
 /**
  * Transient spawn handoff: `spawn` writes the parsed bucket-1 options here and
  * the daemon folds them into the agent.json it writes (preserving "daemon is
- * the sole agent.json writer"), then removes the file.
+ * the sole agent.json writer"), then removes the file. Its presence also
+ * classifies daemon startup: agent.json present → revival (a present spawn
+ * file is stale and deleted); otherwise this file present → initial spawn;
+ * otherwise startup fails.
  */
 export function spawnOptionsPath(agentDir: string): string {
   return join(agentDir, "spawn-options.json");
+}
+
+/** Field names mirror AgentRecord; the daemon folds these into agent.json. */
+export interface SpawnOptions {
+  cwd: string;
+  /** Optional label set at spawn (`--tag`). */
+  tag?: string;
+  persistedOptions: PersistedOptions;
+  /** Initial-spawn session wrap (`--resume <session-id>`), bucket-4 exception. */
+  resume?: string;
+}
+
+export async function writeSpawnOptions(
+  agentDir: string,
+  options: SpawnOptions,
+): Promise<void> {
+  // Plain writeFile — the daemon (the only reader) is launched after this.
+  await writeFile(
+    spawnOptionsPath(agentDir),
+    `${JSON.stringify(options, null, "\t")}\n`,
+  );
+}
+
+export type SpawnOptionsReadResult =
+  | { kind: "ok"; options: SpawnOptions }
+  | { kind: "missing" }
+  | { kind: "corrupt"; error: string };
+
+export async function readSpawnOptions(
+  agentDir: string,
+): Promise<SpawnOptionsReadResult> {
+  let raw: string;
+  try {
+    raw = await readFile(spawnOptionsPath(agentDir), "utf8");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      return { kind: "missing" };
+    }
+    return { kind: "corrupt", error: String(error) };
+  }
+  try {
+    const options = JSON.parse(raw) as SpawnOptions;
+    if (
+      typeof options.cwd !== "string" ||
+      typeof options.persistedOptions !== "object" ||
+      options.persistedOptions === null
+    ) {
+      return {
+        kind: "corrupt",
+        error: "spawn-options.json missing required fields",
+      };
+    }
+    return { kind: "ok", options };
+  } catch (error) {
+    return {
+      kind: "corrupt",
+      error: `spawn-options.json is not valid JSON: ${String(error)}`,
+    };
+  }
 }
 
 /**
