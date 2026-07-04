@@ -233,8 +233,9 @@ findings, `docs/derisk/echoed-message-placement/FINDINGS.md`):
 
 - accept a turn while **Idle** ⇒ **Pending**. Accept a runnable turn while busy
   (`now`, or a queued `later`) ⇒ increment `queueDepth`. `queueDepth` counts only
-  turns the echo-placement rule says will actually run — never a dropped
-  `next`/default-while-busy.
+  turns the echo-placement rule says will actually run as turns — never a
+  `next`/default-while-busy, which the CLI demotes to an in-turn `<system-reminder>`
+  steer that produces no `result`.
 - first `SDKAssistantMessage` for the turn ⇒ **Working** (unless Compacting).
 - `result` ⇒ decrement `queueDepth` for the completed turn; then **Pending** if
   `queueDepth > 0` (a surviving queued turn — e.g. a `later` — is predicted to run

@@ -1,5 +1,5 @@
 // Compact one-line outcome for a captured run: result count, executed-as-turn
-// markers in chain order, inert (queued_command) markers, busy-turn tool count, and
+// markers in chain order, steer (queued_command) markers, busy-turn tool count, and
 // whether the busy turn was interrupted (no DONE). Usage: node summarize.mjs <label> [sessionFile]
 import { readFileSync, readdirSync } from "fs";
 import { join, dirname } from "path";
@@ -12,7 +12,7 @@ const L = readFileSync(join(CAPTURES, file), "utf8").trim().split("\n").map((l) 
 
 const MARK = /\bword (ALPHA|BRAVO|CHARLIE|ZULU)\b/g;
 const exec = []; // executed as real user turns
-const inert = []; // queued_command attachments
+const steer = []; // queued_command attachments (demoted next/none messages)
 let busyTools = 0;
 let sawDONE = false;
 for (const l of L) {
@@ -22,7 +22,7 @@ for (const l of L) {
   }
   if (l.attachment?.type === "queued_command") {
     const m = l.attachment.prompt.match(/\bword (\w+)\b/);
-    if (m) inert.push(m[1]);
+    if (m) steer.push(m[1]);
   }
   if (l.type === "assistant") {
     const c = l.message?.content || [];
@@ -32,5 +32,5 @@ for (const l of L) {
   }
 }
 console.log(
-  `${label.padEnd(16)} exec:[${exec.join(" -> ") || "-"}]  inert:[${inert.join(",") || "-"}]  totalToolCalls:${busyTools}  busyReachedDONE:${sawDONE}`,
+  `${label.padEnd(16)} exec:[${exec.join(" -> ") || "-"}]  steer:[${steer.join(",") || "-"}]  totalToolCalls:${busyTools}  busyReachedDONE:${sawDONE}`,
 );

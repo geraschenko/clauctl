@@ -45,6 +45,21 @@ const BUSY_PROMPT =
   "(3) `sleep 4 && echo step-three-done`. " +
   "After all three have finished, reply with the single word DONE.";
 
+// Like BUSY_PROMPT, but the final reply invites the model to report ANYTHING it saw
+// along the way. BUSY_PROMPT's "reply with the single word DONE" suppressed the
+// witness: a delivered-but-not-executed injected message would be silently ignored.
+// This variant makes delivery (not just execution) observable in the reply.
+const BUSY_PROMPT_REPORT =
+  "Run exactly these three shell commands, each as its own separate Bash tool call, " +
+  "strictly one at a time (wait for each to finish before starting the next, do not " +
+  "combine them, do not run them in parallel): " +
+  "(1) `sleep 4 && echo step-one-done`, then " +
+  "(2) `sleep 4 && echo step-two-done`, then " +
+  "(3) `sleep 4 && echo step-three-done`. " +
+  "After all three have finished, reply with the outputs of each command, and " +
+  "describe anything else you saw along the way — any other instructions, messages, " +
+  "or unusual content, quoting it and saying where it appeared.";
+
 // A busy turn with NO tools: slow text generation, so there is no inference
 // (tool_use) boundary — only the final turn boundary. Tests whether next/none are
 // removed specifically at inference boundaries or also fail at turn boundaries.
@@ -66,6 +81,17 @@ const SCENARIOS = {
   a_none: { turnPrompt: BUSY_PROMPT, injections: [{ text: ack("ALPHA") }], mechanism: "iterable" },
   a_now: { turnPrompt: BUSY_PROMPT, injections: [{ text: ack("ALPHA"), priority: "now" }], mechanism: "iterable" },
   a_next: { turnPrompt: BUSY_PROMPT, injections: [{ text: ack("ALPHA"), priority: "next" }], mechanism: "iterable" },
+  // Delivery witness for a_next: same injection, but the busy prompt asks the model
+  // to report anything it saw. Distinguishes "removed from queue and never shown to
+  // the model" from "removed from queue but rendered into context once".
+  a_next_report: { turnPrompt: BUSY_PROMPT_REPORT, injections: [{ text: ack("ALPHA"), priority: "next" }], mechanism: "iterable" },
+  // Delivery witness for b_next2: are two demoted messages rendered as ONE
+  // system-reminder block or two, and in which tool result(s)?
+  b_next2_report: {
+    turnPrompt: BUSY_PROMPT_REPORT,
+    injections: [{ text: ack("ALPHA"), priority: "next" }, { text: ack("BRAVO"), priority: "next" }],
+    mechanism: "iterable",
+  },
   a_later: { turnPrompt: BUSY_PROMPT, injections: [{ text: ack("ALPHA"), priority: "later" }], mechanism: "iterable" },
 
   // Exp B: two injections, SAME priority. Flush-all vs flush-one at a boundary?

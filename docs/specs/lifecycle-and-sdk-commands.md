@@ -87,8 +87,12 @@ iterable-append vs `Query.streamInput`). `SDKUserMessage.message` is a `MessageP
   `pictl prompt` (read → base64 → block).
 - `--priority now|next|later` sets `SDKUserMessage.priority`. Semantics are resolved
   (RISK-8): `now` interrupts the current turn, `later` queues a follow-up turn, and
-  `next`/default is **dropped if sent while busy** (see the echo-placement rule under
-  `sdk.sock` augmentation). `query` should reject/warn on `next`/default-while-busy.
+  `next`/default sent while busy is **demoted to an in-turn steer** — delivered once
+  as a `<system-reminder>` on the next tool result, never executed as its own turn.
+  The daemon accepts it and echoes it with `delivery: "steer"` (see the
+  echo-placement rule under `sdk.sock` augmentation); `query` should surface that
+  distinction to the caller (the message steers the running turn instead of becoming
+  one).
 - `--no-query` sets `shouldQuery: false` (append to transcript without triggering an
   assistant turn).
 
@@ -114,7 +118,9 @@ _augment_ it. Event set for v1 (modeled on `muninn`'s `RunnerEvent`, treated as 
 - **forward:** `Message` (the `SDKMessage` stream), `SdkError`, optionally `Stderr`.
 - **synthesize:** `EchoedUserMessage` (the missing echo — emitted when _any_ client's
   turn is accepted; carries the turn's `priority` as sent, without which an observer
-  cannot apply the echo-placement rule; drop muninn's `<T>` metadata param),
+  cannot apply the echo-placement rule, plus `delivery: "turn" | "steer"` — `"steer"`
+  means the CLI demoted the message to a `<system-reminder>` inside a tool result
+  rather than running it as a turn; drop muninn's `<T>` metadata param),
   `QueueDepthChanged`,
   `CompactionStarted`, `InterruptRequested` (so an abruptly-terminated turn is
   interpretable — the `result` subtype alone does not flag an interrupt),
@@ -148,18 +154,31 @@ a turn injected **while the agent is busy** (mid-turn):
 - **`later`** — runs as a new turn at a turn boundary, **after every higher-priority
   surviving bucket has drained** (not necessarily at the next `result`). `later` is
   **durable**: it survives tool→result handoffs.
-- **`next` / default while busy** — **dropped** in the common (tool-using) case: the
-  CLI records it as an inert `queued_command` attachment and **never executes** it
-  (it does not even merge into a later real turn). It survives only if the busy turn
-  is **tool-less**, or a **`now`** is co-queued and ends the turn at the same boundary.
-  Because the drop is invisible on the live stream, **the daemon must not synthesize an
-  executed echo for `next`/default while busy** — treat it as unsupported in that state
-  (reject / warn / remap to `now` or `later`). (Injected while **idle**, a default-
-  priority turn is normal — the drop is specific to mid-turn injection.)
+- **`next` / default while busy** — **demoted to an in-turn steer** in the common
+  (tool-using) case: at the first tool→result handoff the turn continues across, the
+  CLI removes it from the queue and delivers it once as a `<system-reminder>` inside
+  that tool result ("The user sent a new message while you were working: … you MUST
+  address the user's message above"). It **never executes as its own turn** (no
+  `result`, no reply of its own; it does not merge into a later real turn), and
+  compliance is at the model's discretion. It runs as a real turn only if the busy
+  turn is **tool-less**, or a **`now`** is co-queued and ends the turn at the same
+  boundary. The demotion is invisible on the live stream (the streamed `tool_result`
+  carries only raw tool output), so the daemon must synthesize the echo itself —
+  with **`delivery: "steer"`, never as an executed turn** (no user turn exists in
+  the canonical chain; a turn-echo would misrepresent it). Fork detection: seeing a
+  `tool_result` alone is not decisive (a co-queued `now`'s aborted tool also emits
+  one); decide by what follows the first `tool_result` after acceptance —
+  **assistant activity** ⇒ demoted, emit the steer echo anchored to that tool result
+  (multiple pending `next`/default all attach there, individually wrapped, in
+  injection order); the turn's **`result`** ⇒ it executes, emit a normal turn echo.
+  (Injected while **idle**, a default-priority turn is normal — the demotion is
+  specific to mid-turn injection.)
 - **Ordering & merge** — multiple surviving turns drain in strict priority order
   **`now → next → later`**, independent of injection order; each distinct priority is
   its own turn. Same-priority **executing** messages **merge** (FIFO, joined by `\n`)
-  into a single turn; same-priority `next`/default just drop individually.
+  into a single turn; same-priority `next`/default are all demoted together —
+  delivered at the same handoff as separate, individually-wrapped reminders in
+  injection order (`b_next2_report`), never as turns.
 - **Mechanism-independent**: identical whether the daemon injects via held-open
   iterable-append or `Query.streamInput()` (does not constrain the Phase-0 choice).
 
@@ -200,12 +219,13 @@ This refines the earlier "idle = saw `result` + no queued turn" into the Idle-vs
 **Pending** distinction clients need. `wait` keys off this model. Pin it in Phase 0.
 
 > **Queue-depth caveat (RISK-8).** A `next`/default turn injected while busy is
-> silently dropped by the CLI (`enqueue`→`remove`, **not** visible on the live
-> stream). If the daemon counted it as Pending / incremented `queueDepth` on inject,
-> the count would never decrement (no `result` ever fires for it). Because the daemon
-> rejects `next`/default-while-busy (above), this case should not arise — but the
-> queue-depth tracker must only count turns the placement rule says will actually run
-> (`now`, `later`, and idle-time default), never a dropped one.
+> silently demoted by the CLI to an in-turn `<system-reminder>` (`enqueue`→`remove`,
+> **not** visible on the live stream — neither the queue op nor the delivered
+> reminder). If the daemon counted it as Pending / incremented `queueDepth` on
+> inject, the count would never decrement (no `result` ever fires for it). The
+> daemon accepts these (echoing them with `delivery: "steer"`), so the queue-depth
+> tracker must only count turns the placement rule says will actually run as turns
+> (`now`, `later`, and idle-time default), never a demoted one.
 
 ### Data-model requirements (load-bearing — see overview + derisk)
 
@@ -336,5 +356,5 @@ bare `result`-watch); concurrent writers are **serialized through the daemon**
 (DECISION-6) — no single-writer lock, the daemon interleaves. **Queue/priority
 semantics (RISK-8)** are resolved — `--priority` maps to the echo-placement rule under
 `sdk.sock` augmentation (`now`=interrupt, `later`=durable follow-up, `next`/default=
-dropped-while-busy); muninn's flush-all/flush-one scheme was tested and found
-**incorrect** (see `FINDINGS.md`).
+demoted-while-busy to an in-turn steer, never its own turn); muninn's
+flush-all/flush-one scheme was tested and found **incorrect** (see `FINDINGS.md`).
