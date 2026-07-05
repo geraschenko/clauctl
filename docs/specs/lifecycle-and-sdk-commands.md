@@ -3,8 +3,11 @@
 > Status: **scaffold** — captures decisions made so far; to be completed by a
 > fresh agent. Read `docs/overview.md` first. The **lifecycle half is carved out
 > into `phase-1-lifecycle-core.md`** (implementation-ready, supersedes this doc for
-> Phase 1); this doc remains authoritative for the Phase-2+ surface (`sdk.sock`
-> protocol, full `Query` passthrough, stream augmentation).
+> Phase 1), and the **`sdk.sock` protocol half into
+> `phase-2-sdk-sock-protocol.md`** (supersedes this doc for Phase 2, with each
+> deviation called out there); this doc remains the decision record
+> (DECISION-4/5/6, echo-placement FINDINGS summary) and authoritative for the
+> Phase-3+ surface (monitoring: `tail` formatted, `wait`, history reads).
 
 ## SPEC (stable requirements)
 
