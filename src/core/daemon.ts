@@ -129,8 +129,7 @@ class TurnQueue implements AsyncIterable<SDKUserMessage> {
  * applied-but-never-emitted event unrepresentable.
  *
  * Events emitted while no subscriber is connected are observable only through
- * their effects (state snapshot, agent.json, session JSONL) — daemon.log no
- * longer mirrors the stream.
+ * their effects (state snapshot, agent.json, session JSONL).
  */
 class EventBus {
   private state: AssistantState = INITIAL_ASSISTANT_STATE;
@@ -324,7 +323,7 @@ async function daemon(this: CommandContext, flags: DaemonFlags): Promise<void> {
   // stale file left by a daemon that died between the write and the delete.
   await rm(spawnOptionsPath(agentDir), { force: true });
 
-  // daemon.log (stdout) carries only the [daemon]-prefixed exceptional lines;
+  // daemon.log (stdout) carries only exceptional events;
   // the full event stream is observed via sdk.sock subscribers.
   const events = new EventBus();
 
@@ -417,6 +416,7 @@ async function daemon(this: CommandContext, flags: DaemonFlags): Promise<void> {
           data: snapshot,
         };
         connection.write(`${JSON.stringify(response)}\n`);
+        // TDC: why is this only done onClose? Don't we want to subscribe to events immediately?
         connection.onClose(events.subscribe((line) => connection.write(line)));
         return RESPONSE_SENT;
       }
