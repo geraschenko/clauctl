@@ -344,7 +344,7 @@ export type AssistantActivity = "idle" | "pending" | "working" | "compacting";
 export interface QueuedEntry {
   id: number;
   /** shouldQuery !== false — whether this message predicts a future result. */
-  querying: boolean;
+  querying: boolean;  // TDC: let's rename this to shouldQuery. No need for new terminology, right?
 }
 
 export interface AssistantState {
@@ -369,7 +369,7 @@ export interface QueuedMessage {
   id: number;
   message: SDKUserMessage;
   /** Accepted while busy with next/default priority — subject to the demote fork. */
-  demotable: boolean;
+  demotable: boolean;  // TDC: why is this a field rather than a function? It's deducible from `messages`'s `priority` field, isn't it?
   /** A tool_result has been observed since THIS message's acceptance. */
   toolResultSeen: boolean;
 }
