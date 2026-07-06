@@ -618,3 +618,20 @@ encountered.
   sink-attach into an explicit `unsubscribe` variable (Anton's TDC: the
   one-liner read as "subscribe on close"; subscription is immediate, onClose
   only registers the cleanup). Presubmit green; 67/67 tests.
+
+- 2026-07-06 (live walkthrough): all success criteria verified against a real
+  agent (isolated `CLAUCTL_DIR` + `CLAUDE_CONFIG_DIR` with copied
+  `.credentials.json`, haiku, ~$0.10 total). Highlights: (1) tail shows
+  snapshot → queued/dequeued pair → sdkMessage stream; (2) mid-tool-turn
+  default query dequeued `steer` adjacent to its anchoring tool_result, one
+  `result` total; (3) tool-less busy turn: follow-up dequeued `turn` after the
+  first `result`, and a concurrent `archive --timeout` completed only after
+  the second turn — the snapshot taken mid-turn correctly showed
+  `pending` with the follow-up in `queued`; (6) all four mutations emitted
+  `controlApplied` and persisted per DECISION-5; (7) `--image` described the
+  generated PNG; `--no-query` appended with no turn; (8) dormant tail errored
+  without reviving; daemon.log contained only `[daemon]` lines (plus node
+  type-stripping warnings from running `.ts` source). Observed SDK detail
+  worth knowing: a `shouldQuery: false` append still elicits a zero-cost
+  bookkeeping `result` (`num_turns: 0`, empty text) from the CLI; the fold
+  handles it (idle → idle, Q === 0).

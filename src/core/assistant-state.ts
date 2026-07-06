@@ -76,7 +76,7 @@ export function nextAssistantState(
       return { ...state, activity: "compacting" };
     // State is unchanged when the interrupt is *sent*; the transition happens
     // at the terminating `result` (its subtype alone does not flag the
-    // interrupt — the daemon remembers it sent one).
+    // interrupt — the interruptSent event on the stream is the record).
     case "interruptSent":
     case "controlApplied":
       return state;

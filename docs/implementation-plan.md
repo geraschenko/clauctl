@@ -170,6 +170,12 @@ lifecycle spec are written to these resolutions. Kept here as the decision recor
 
 ### Phase 2 — Author the `sdk.sock` server + passthrough (job 2)
 
+> Superseded in detail by `docs/specs/phase-2-sdk-sock-protocol.md`: the event
+> vocabulary became `userMessageQueued`/`userMessageDequeued` (queue model)
+> instead of `EchoedUserMessage`/`QueueDepthChanged`, there is no late-joiner
+> replay (subscribers start at a StateSnapshot), and raw `tail` landed in
+> Phase 2.
+
 > Depends on **[SPIKE → RISK-8]** below: echo placement is undefined until the
 > `--priority`/queue-ordering behavior is known.
 
