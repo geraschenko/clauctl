@@ -111,7 +111,7 @@ boundary yet and must wait for the next one):
   captured. If claude instead discards the queue on interrupt, `queueDepth`
   leaks and `wait-idle` hangs; verify against reality if symptoms appear.
 
-**Ordering rule: resolved echoes are emitted *before* the triggering
+**Ordering rule**: resolved echoes are emitted *before* the triggering
 message's own event.** For the steer case this anchors the echoes adjacent to
 their tool result. For the turn case this is load-bearing for state
 correctness: emitting the `result` first would fold to a transient `idle`
@@ -120,6 +120,7 @@ spuriously between two turns. Echo-first folds 1→2→1 and the state stays
 busy. This ordering looks backwards (an echo preceding the previous turn's
 `result`) and **must carry a prominent comment in the emission code** so a
 future reader doesn't "fix" it and reintroduce the transient idle.
+TDC: On reflection, I really don't like this. Conceptually, the echoed messages occur _after_ the triggering event. Rather than inverting the order to avoid accidental idle state, why don't we just transition the assistant state to "pending" in this situation. The semantics of "pending" is exactly that we _predict_ that the SDK will soon show activity but it has not been empirically confirmed yet. This amounts to simply moving the decrement of queueDepth until _after_ we determine the next activity in src/core/assistant-state.ts. What do you think?
 
 The `query` response returns immediately with no delivery claim — with
 deferred resolution the daemon does not know the delivery at accept time, and
@@ -243,6 +244,8 @@ export type SdkEvent =
 
 export type TurnPriority = "now" | "next" | "later";
 
+// TDC: The separation between SdkControlMutation and SdkControlRead is speculative, right? We don't actually know which query methods mutate internal state, but we're making an educated guess, and sending a controlApplied event just for those that we think mutate state. Is that correct?
+
 /** Query mutations except interrupt; each maps 1:1 to a Query method and emits controlApplied. */
 export type SdkControlMutation =
   | { type: "set-permission-mode"; mode: PermissionMode }
@@ -324,7 +327,7 @@ export function deferEcho(
 
 export interface EchoResolution {
   state: EchoResolverState;
-  /** When set, the daemon emits these echoes BEFORE forwarding the observed message. */
+  /** When set, the daemon emits these echoes BEFORE forwarding the observed message. TDC: let's make this _after_ */
   resolved?: { delivery: EchoDelivery; messages: SDKUserMessage[] };
 }
 
@@ -446,6 +449,7 @@ above. `nextAssistantState` consumes `echoedUserMessage` instead of
 - `SdkSocketClient.subscribe` is single-use per client (a second call is a
   programming error); requests may still be sent on a subscribed connection —
   responses and events interleave, distinguished by `id`.
+  TDC: does this mean that the onEvent callback sees responses as well as events? I don't think we want that, but maybe it's a moot point since I don't expect anything outside of clauctl to use SdkSocketClient.
 - Test seams: echo-resolver scenarios replay the FINDINGS captures' message
   shapes (steer after tool_result+assistant, turn on tool-less result,
   co-queued now, straggler acceptance between tool_result and assistant);
