@@ -76,7 +76,7 @@ SdkEvent =
   `/compact <instructions>` text).
 - `controlApplied` is emitted after **every successful mutating passthrough**
   (every `SdkControlMutation`; `interrupt` keeps its own state-relevant event).
-  The mutation/read split classifies each `Query` method by its *documented*
+  The mutation/read split classifies each `Query` method by its _documented_
   semantics in `sdk.d.ts` (the `set*`/`apply`/`toggle`/`reconnect`/`stop`/
   `background`/`rewind`/`seed`/`reload*` family changes session state; the
   rest are declared getters) — an educated classification, not knowledge of
@@ -107,7 +107,7 @@ Model transitions:
   `userMessageQueued` + `userMessageDequeued` back-to-back (`delivery:
   "turn"`, or `"append"` for a `shouldQuery: false` message).
 - **Accept while busy** — emit `userMessageQueued` only. A `next`/default
-  message is *demotable* (subject to the CLI's demote-vs-execute fork); `now`
+  message is _demotable_ (subject to the CLI's demote-vs-execute fork); `now`
   and `later` are not.
 - **A user message carrying `tool_result` blocks** ⇒ mark `toolResultSeen` on
   every currently queued demotable message. The FINDINGS rule is "what
@@ -129,7 +129,7 @@ Model transitions:
 
 Explicit merge handling fixes a latent Phase-1 bug: two `later`s queued while
 busy count as two under a per-message `queueDepth`, but they run merged as
-*one* turn with *one* `result` — the Phase-1 fold would strand `queueDepth`
+_one_ turn with _one_ `result` — the Phase-1 fold would strand `queueDepth`
 at 1 and never reach idle. Here the merged dequeue carries both ids and
 predicts exactly one `result`.
 
@@ -156,7 +156,7 @@ is native for claude, so accept-and-observe is the model.)
 ### Assistant-state fold
 
 `turnAccepted` disappears. The fold tracks the queue explicitly, and
-`pending`'s meaning — *predicted* activity, not yet confirmed by SDK evidence
+`pending`'s meaning — _predicted_ activity, not yet confirmed by SDK evidence
 — now covers both a dequeued turn that has not shown output and queued
 messages awaiting their boundary. Let **Q** = the number of queued entries
 with `shouldQuery === true` (only those predict a future `result`):
@@ -198,24 +198,24 @@ exclusion; `usage` is the stable alias for
 `set-max-thinking-tokens` is deprecated SDK-side but kept as the only runtime
 thinking control (commented).
 
-| subcommand | args/flags |
-| --- | --- |
-| `set-permission-mode` | `<mode>` (exists) |
-| `set-mcp-permission-mode-override` | `<server> <default\|auto\|clear>` (`clear` → `null`) |
-| `set-model` | `[--model <m>]` (exists) |
-| `set-max-thinking-tokens` | `<n\|clear>` `[--thinking-display summarized\|omitted\|clear]` |
-| `apply-flag-settings` | `<json-or-path>` (inline-JSON-or-file, like `--mcp-config`) |
-| `set-mcp-servers` | `<json-or-path>` (same parse) |
-| `toggle-mcp-server` | `<server> <enabled\|disabled>` |
-| `reconnect-mcp-server` | `<server>` |
-| `stop-task` | `<task-id>` |
-| `background-tasks` | `[--tool-use-id <id>]` |
-| `rewind-files` | `<user-message-id> [--dry-run]` |
-| `seed-read-state` | `<path> <mtime>` |
-| `reload-plugins`, `reload-skills` | — |
-| `interrupt` | (exists) |
-| `initialization-result`, `supported-commands`, `supported-models`, `supported-agents`, `mcp-server-status`, `get-context-usage`, `usage`, `account-info` | — |
-| `read-file` | `<path> [--max-bytes <n>] [--base64]` |
+| subcommand                                                                                                                                               | args/flags                                                     |
+| -------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------- |
+| `set-permission-mode`                                                                                                                                    | `<mode>` (exists)                                              |
+| `set-mcp-permission-mode-override`                                                                                                                       | `<server> <default\|auto\|clear>` (`clear` → `null`)           |
+| `set-model`                                                                                                                                              | `[--model <m>]` (exists)                                       |
+| `set-max-thinking-tokens`                                                                                                                                | `<n\|clear>` `[--thinking-display summarized\|omitted\|clear]` |
+| `apply-flag-settings`                                                                                                                                    | `<json-or-path>` (inline-JSON-or-file, like `--mcp-config`)    |
+| `set-mcp-servers`                                                                                                                                        | `<json-or-path>` (same parse)                                  |
+| `toggle-mcp-server`                                                                                                                                      | `<server> <enabled\|disabled>`                                 |
+| `reconnect-mcp-server`                                                                                                                                   | `<server>`                                                     |
+| `stop-task`                                                                                                                                              | `<task-id>`                                                    |
+| `background-tasks`                                                                                                                                       | `[--tool-use-id <id>]`                                         |
+| `rewind-files`                                                                                                                                           | `<user-message-id> [--dry-run]`                                |
+| `seed-read-state`                                                                                                                                        | `<path> <mtime>`                                               |
+| `reload-plugins`, `reload-skills`                                                                                                                        | —                                                              |
+| `interrupt`                                                                                                                                              | (exists)                                                       |
+| `initialization-result`, `supported-commands`, `supported-models`, `supported-agents`, `mcp-server-status`, `get-context-usage`, `usage`, `account-info` | —                                                              |
+| `read-file`                                                                                                                                              | `<path> [--max-bytes <n>] [--base64]`                          |
 
 **`query`** gains:
 
@@ -448,7 +448,7 @@ above. `nextAssistantState` consumes the queued/dequeued events instead of
   assistant activity after the tool result, so they land adjacent to their
   anchor, in injection order.
 - **Straggler acceptance**: a demotable message accepted after a tool_result
-  but before the following assistant activity is *not* dequeued with that
+  but before the following assistant activity is _not_ dequeued with that
   group (its `toolResultSeen` is false); it waits for its own boundary — the
   next tool_result+assistant handoff, or the turn's `result`.
 - **Undequeued messages at daemon shutdown** are dropped with the connection —
@@ -505,7 +505,7 @@ above. `nextAssistantState` consumes the queued/dequeued events instead of
 ## IMPLEMENTATION IDEAS (evolving)
 
 - **Fold/model split**: `nextAssistantState` stays a pure fold over emitted
-  events; the queue model is a *pre-emission* state machine deciding what to
+  events; the queue model is a _pre-emission_ state machine deciding what to
   emit and when. Keeping them separate keeps both unit-testable without a
   daemon. The daemon remains the only place they meet.
 - `subscribe` handler: capture the snapshot and attach the sink in the same
@@ -569,6 +569,35 @@ encountered.
   TDC 2 resolved (mutation/read split = classification by documented
   semantics, low misclassification cost); TDC 3 resolved (`dispatchLine`
   routes structurally; `onEvent` never sees responses).
+- 2026-07-06 (implementation, session 1): core landed and unit-tested —
+  sdk-socket.ts protocol types + client `subscribe`/event routing;
+  queue-model.ts; assistant-state.ts fold rework; daemon.ts (EventBus
+  fan-out + log shrink, full Query passthrough with controlApplied +
+  DECISION-5 persistence, subscribe handler, queue-model threading);
+  sdk-commands.ts full subcommand set incl. `query --image/--no-query` and
+  `resolve-settings`; tail.ts. `tsc` clean, 67 tests pass (new
+  queue-model.test.ts + rewritten assistant-state.test.ts, incl. the
+  criterion-4 merge regression). Remaining: lint/fmt/presubmit, and the
+  live success-criteria walkthrough (1–3, 5–9).
+
+  ## Implementation-Time Decisions
+
+  - **`RESPONSE_SENT` sentinel for subscribe**: the server's generic respond
+    path runs in a microtask after the handler resolves; an event emitted in
+    that window would hit the wire before the response line. The subscribe
+    handler therefore writes its own response synchronously (snapshot capture,
+    response write, sink attach in one synchronous section) and returns a
+    sentinel telling the server not to respond again.
+  - **Client-side ordering is the subscriber's job**: `SdkSocketClient`
+    delivers events synchronously from the data handler while the subscribe
+    response resolves via microtask, so onEvent can fire before `subscribe()`
+    settles. Rather than fragile microtask-ordering tricks in the client,
+    `tail` gates its output on the snapshot line (buffer, print snapshot,
+    flush) — the only consumer needing strict stdout order.
+  - **`handleSessionInit` split out of `handleMessage`** so the reader's
+    emit-then-observe sequencing (sdkMessage event first, then any dequeues
+    the model implies) reads linearly.
+
 - 2026-07-06 (Anton's second review round, a702d57): `QueuedEntry.querying`
   renamed to `shouldQuery` (the SDK's own term, normalized to a defaulted
   boolean). `QueuedMessage.demotable` replaced by a derived `isDemotable(

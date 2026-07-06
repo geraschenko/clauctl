@@ -7,7 +7,7 @@
 
 import { once } from "node:events";
 import { closeSync, writeSync } from "node:fs";
-import { rm } from "node:fs/promises";
+import { readFile, rm } from "node:fs/promises";
 import { homedir } from "node:os";
 import { createServer, type Server, type Socket } from "node:net";
 import { join } from "node:path";
@@ -18,12 +18,21 @@ import {
   type Query,
   type SDKMessage,
   type SDKUserMessage,
+  type Settings,
 } from "@anthropic-ai/claude-agent-sdk";
 import {
   INITIAL_ASSISTANT_STATE,
+  isBusy,
   nextAssistantState,
   type AssistantState,
 } from "./assistant-state.ts";
+import {
+  acceptUserMessage,
+  INITIAL_QUEUE_MODEL_STATE,
+  observeSdkMessage,
+  type QueueModelState,
+  type QueueTransition,
+} from "./queue-model.ts";
 import {
   commandNoTarget,
   parsedFlag,
@@ -44,9 +53,11 @@ import {
 import {
   SDK_SOCKET_PROTOCOL,
   SDK_SOCKET_VERSION,
+  type SdkControlMutation,
   type SdkEvent,
   type SdkRequestRecord,
   type SdkResponse,
+  type StateSnapshot,
 } from "./sdk-socket.ts";
 import { type CommandContext } from "./generated/targets.ts";
 
@@ -110,30 +121,38 @@ class TurnQueue implements AsyncIterable<SDKUserMessage> {
 
 /**
  * The daemon's single mutation path for observable assistant state. `emit`
- * atomically serializes the event to the observation channel (the sink) and
- * folds it into the state tracker, so state is a function of the emitted
- * stream by construction — an observer of the channel can always reconstruct
- * it. Nothing outside this class may update the tracker: request handlers and
- * the stream reader only have `emit`, making an applied-but-never-emitted
- * event unrepresentable.
+ * atomically serializes the event to every subscribed sink and folds it into
+ * the state tracker, so state is a function of the emitted stream by
+ * construction — an observer holding a StateSnapshot can always reconstruct
+ * it by running the same fold. Nothing outside this class may update the
+ * tracker: request handlers and the stream reader only have `emit`, making an
+ * applied-but-never-emitted event unrepresentable.
+ *
+ * Events emitted while no subscriber is connected are observable only through
+ * their effects (state snapshot, agent.json, session JSONL) — daemon.log no
+ * longer mirrors the stream.
  */
 class EventBus {
   private state: AssistantState = INITIAL_ASSISTANT_STATE;
   private readonly idleWaiters: Array<() => void> = [];
-  // Not a constructor parameter property: Node's strip-only TS mode rejects
-  // those at runtime (tsc alone doesn't catch it).
-  private readonly sink: (serializedEvent: string) => void;
-
-  constructor(sink: (serializedEvent: string) => void) {
-    this.sink = sink;
-  }
+  private readonly sinks = new Set<(serializedEventRecord: string) => void>();
 
   get assistantState(): AssistantState {
     return this.state;
   }
 
+  /** Attach a subscriber sink; returns the unsubscribe function. */
+  subscribe(sink: (serializedEventRecord: string) => void): () => void {
+    this.sinks.add(sink);
+    return () => this.sinks.delete(sink);
+  }
+
   emit(event: SdkEvent): void {
-    this.sink(`${JSON.stringify(event)}\n`);
+    // Serialized once as an SdkEventRecord line, written to every sink.
+    const line = `${JSON.stringify({ event })}\n`;
+    for (const sink of this.sinks) {
+      sink(line);
+    }
     this.state = nextAssistantState(this.state, event);
     if (this.state.activity === "idle") {
       for (const waiter of this.idleWaiters.splice(0)) {
@@ -149,6 +168,43 @@ class EventBus {
     }
     return new Promise((resolve) => this.idleWaiters.push(resolve));
   }
+}
+
+/**
+ * Returned by a handler that wrote its own response (subscribe): the generic
+ * respond path runs in a later microtask, and an event emitted in that window
+ * would hit the wire before the response line.
+ */
+const RESPONSE_SENT: unique symbol = Symbol("response sent");
+
+/** Per-connection handle so subscribe can attach a sink and unhook it on close. */
+interface SdkConnection {
+  write(line: string): void;
+  onClose(cleanup: () => void): void;
+}
+
+/**
+ * DECISION-5 cumulative shallow-merge for apply-flag-settings: `null` clears a
+ * key, everything else replaces it. If the persisted settings is a path string
+ * (spawned via `--settings <file>`), the first apply reads and parses that
+ * file, then merges; from then on the merged object is what persists.
+ */
+async function mergeFlagSettings(
+  current: Options["settings"],
+  applied: { [K in keyof Settings]?: Settings[K] | null },
+): Promise<Settings> {
+  const base: Record<string, unknown> =
+    typeof current === "string"
+      ? (JSON.parse(await readFile(current, "utf8")) as Record<string, unknown>)
+      : { ...current };
+  for (const [key, value] of Object.entries(applied)) {
+    if (value === null) {
+      delete base[key];
+    } else if (value !== undefined) {
+      base[key] = value;
+    }
+  }
+  return base as Settings;
 }
 
 /**
@@ -268,58 +324,107 @@ async function daemon(this: CommandContext, flags: DaemonFlags): Promise<void> {
   // stale file left by a daemon that died between the write and the delete.
   await rm(spawnOptionsPath(agentDir), { force: true });
 
-  // The observation channel is daemon.log (stdout) in Phase 1; Phase 2 adds
-  // sdk.sock subscribers as further sinks on the same bus.
-  // TODO(Phase 2+): stop mirroring the full event stream to daemon.log once
-  // fan-out exists — the session is already in claude's jsonl files, and the
-  // log should carry only exceptional events.
-  const events = new EventBus((serializedEvent) =>
-    proc.stdout.write(serializedEvent),
-  );
+  // daemon.log (stdout) carries only the [daemon]-prefixed exceptional lines;
+  // the full event stream is observed via sdk.sock subscribers.
+  const events = new EventBus();
+
+  // The modeled CLI queue (queue-model.ts). Only the two threading sites below
+  // may advance it; the returned events are emitted immediately, keeping the
+  // model and the emitted stream in lockstep.
+  let queueModel: QueueModelState = INITIAL_QUEUE_MODEL_STATE;
+  const applyQueueTransition = (transition: QueueTransition): void => {
+    queueModel = transition.state;
+    for (const event of transition.events) {
+      events.emit(event);
+    }
+  };
 
   // --- sdk.sock request handlers ---------------------------------------------
-  const handleRequest = async (request: SdkRequestRecord): Promise<unknown> => {
+  const controlApplied = (record: SdkRequestRecord): void => {
+    // The rest-over-a-union needs the cast; the payload is the request as
+    // received, minus the transport id.
+    const { id: _id, ...request } = record as SdkControlMutation & {
+      id: string;
+    };
+    events.emit({
+      kind: "controlApplied",
+      request: request as SdkControlMutation,
+    });
+  };
+
+  const handleRequest = async (
+    request: SdkRequestRecord,
+    connection: SdkConnection,
+  ): Promise<unknown> => {
     switch (request.type) {
       case "query": {
-        const text = request.text;
-        const trimmed = text.trim();
+        const content = request.content;
+        const trimmed = typeof content === "string" ? content.trim() : "";
         if (trimmed === "/compact" || trimmed.startsWith("/compact ")) {
           // Compaction is only valid while Idle; never queued behind turns.
           if (events.assistantState.activity !== "idle") {
             throw new Error("/compact requires an idle assistant");
           }
-          turnQueue.push({
+          const message: SDKUserMessage = {
             type: "user",
-            message: { role: "user", content: text },
+            message: { role: "user", content },
             parent_tool_use_id: null,
-          });
-          events.emit({ kind: "compactSent" });
+          };
+          turnQueue.push(message);
+          events.emit({ kind: "compactSent", message });
           return undefined;
         }
-        turnQueue.push({
+        const message: SDKUserMessage = {
           type: "user",
-          message: { role: "user", content: text },
+          message: { role: "user", content },
           parent_tool_use_id: null,
           ...(request.priority !== undefined && { priority: request.priority }),
-        });
-        // 'next' and default behave identically for state tracking: while
-        // busy the CLI demotes them to an in-turn steer with no result of
-        // their own (echo-placement FINDINGS, Round 3), so their priority is
-        // not part of the placement-relevant event.
-        events.emit({
-          kind: "turnAccepted",
-          ...(request.priority === "now" || request.priority === "later"
-            ? { priority: request.priority }
-            : {}),
-        });
+          ...(request.shouldQuery === false && { shouldQuery: false }),
+        };
+        turnQueue.push(message);
+        applyQueueTransition(
+          acceptUserMessage(queueModel, message, isBusy(events.assistantState)),
+        );
+        // The response makes no delivery claim: a demotable message's fate is
+        // unknown at accept time, and blocking until the next boundary could
+        // hang for minutes. The queued/dequeued events on the stream are the
+        // truth.
         return undefined;
       }
       case "interrupt":
         await claudeQuery.interrupt();
         events.emit({ kind: "interruptSent" });
         return undefined;
+      case "wait-idle":
+        await events.whenIdle();
+        return undefined;
+      case "subscribe": {
+        // Snapshot capture, response write, and sink attach happen in one
+        // synchronous section, so the snapshot is exact: no event is lost or
+        // duplicated between the response line and the first pushed event.
+        // The generic respond path runs in a later microtask — an event
+        // emitted in between would hit the wire before the response — so this
+        // handler writes its own response and returns RESPONSE_SENT.
+        const snapshot: StateSnapshot = {
+          assistantState: events.assistantState,
+          ...(record.sessions.at(-1) !== undefined && {
+            sessionId: record.sessions.at(-1)!.sessionId,
+          }),
+        };
+        const response: SdkResponse = {
+          id: request.id,
+          ok: true,
+          data: snapshot,
+        };
+        connection.write(`${JSON.stringify(response)}\n`);
+        connection.onClose(events.subscribe((line) => connection.write(line)));
+        return RESPONSE_SENT;
+      }
+
+      // --- Query mutations (DECISION-4 passthrough; DECISION-5 persistence) --
       case "set-model":
         await claudeQuery.setModel(request.model);
+        controlApplied(request);
         // DECISION-5 persist-on-mutation: record the args of every
         // state-mutating control call as it is made; never read back.
         record.persistedOptions.model = request.model;
@@ -327,6 +432,7 @@ async function daemon(this: CommandContext, flags: DaemonFlags): Promise<void> {
         return undefined;
       case "set-permission-mode":
         await claudeQuery.setPermissionMode(request.mode);
+        controlApplied(request);
         record.persistedOptions.permissionMode = request.mode;
         if (request.mode === "bypassPermissions") {
           // Entering bypass requires the spawn-time dangerous-skip flag; a
@@ -335,9 +441,117 @@ async function daemon(this: CommandContext, flags: DaemonFlags): Promise<void> {
         }
         queueRecordWrite();
         return undefined;
-      case "wait-idle":
-        await events.whenIdle();
+      case "set-mcp-permission-mode-override": {
+        const data = await claudeQuery.setMcpPermissionModeOverride(
+          request.serverName,
+          request.mode,
+        );
+        controlApplied(request);
+        return data;
+      }
+      case "set-max-thinking-tokens":
+        // Deprecated SDK-side, but kept: the only runtime thinking control
+        // (the `thinking` option is spawn-time only).
+        await claudeQuery.setMaxThinkingTokens(
+          request.maxThinkingTokens,
+          request.thinkingDisplay,
+        );
+        controlApplied(request);
+        // thinkingDisplay has no Options home; accepted as lost across respawn.
+        if (request.maxThinkingTokens === null) {
+          delete record.persistedOptions.maxThinkingTokens;
+        } else {
+          record.persistedOptions.maxThinkingTokens = request.maxThinkingTokens;
+        }
+        queueRecordWrite();
         return undefined;
+      case "apply-flag-settings": {
+        await claudeQuery.applyFlagSettings(request.settings);
+        controlApplied(request);
+        record.persistedOptions.settings = await mergeFlagSettings(
+          record.persistedOptions.settings,
+          request.settings,
+        );
+        queueRecordWrite();
+        return undefined;
+      }
+      case "set-mcp-servers": {
+        const data = await claudeQuery.setMcpServers(request.servers);
+        controlApplied(request);
+        // All entries arrived over JSON, so all are serializable by
+        // construction (in-process SdkMcpServer entries cannot reach here).
+        record.persistedOptions.mcpServers = request.servers;
+        queueRecordWrite();
+        return data;
+      }
+      case "toggle-mcp-server":
+        await claudeQuery.toggleMcpServer(request.serverName, request.enabled);
+        controlApplied(request);
+        return undefined;
+      case "reconnect-mcp-server":
+        await claudeQuery.reconnectMcpServer(request.serverName);
+        controlApplied(request);
+        return undefined;
+      case "stop-task":
+        await claudeQuery.stopTask(request.taskId);
+        controlApplied(request);
+        return undefined;
+      case "background-tasks": {
+        const data = await claudeQuery.backgroundTasks(request.toolUseId);
+        controlApplied(request);
+        return data;
+      }
+      case "rewind-files": {
+        const data = await claudeQuery.rewindFiles(request.userMessageId, {
+          ...(request.dryRun !== undefined && { dryRun: request.dryRun }),
+        });
+        controlApplied(request);
+        return data;
+      }
+      case "seed-read-state":
+        await claudeQuery.seedReadState(request.path, request.mtime);
+        controlApplied(request);
+        return undefined;
+      case "reload-plugins": {
+        const data = await claudeQuery.reloadPlugins();
+        controlApplied(request);
+        return data;
+      }
+      case "reload-skills": {
+        const data = await claudeQuery.reloadSkills();
+        controlApplied(request);
+        return data;
+      }
+
+      // --- Query reads (no controlApplied; reads emit nothing) --------------
+      case "initialization-result":
+        return await claudeQuery.initializationResult();
+      case "supported-commands":
+        return await claudeQuery.supportedCommands();
+      case "supported-models":
+        return await claudeQuery.supportedModels();
+      case "supported-agents":
+        return await claudeQuery.supportedAgents();
+      case "mcp-server-status":
+        return await claudeQuery.mcpServerStatus();
+      case "get-context-usage":
+        return await claudeQuery.getContextUsage();
+      case "usage":
+        // Stable alias for the experimental method; rename here when the SDK
+        // stabilizes it.
+        return await claudeQuery.usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET();
+      case "account-info":
+        return await claudeQuery.accountInfo();
+      case "read-file":
+        return await claudeQuery.readFile(request.path, {
+          ...(request.maxBytes !== undefined && { maxBytes: request.maxBytes }),
+          ...(request.encoding !== undefined && { encoding: request.encoding }),
+        });
+      // Coverage invariant (DECISION-4): every Query method is reachable above
+      // except close (the daemon's teardown owns the connection lifecycle),
+      // streamInput (the daemon's TurnQueue IS the input stream), and
+      // reinitialize (a transport-gap recovery tool for ring-buffer clients;
+      // the daemon never has a transport gap with its own SDK).
     }
   };
 
@@ -373,27 +587,37 @@ async function daemon(this: CommandContext, flags: DaemonFlags): Promise<void> {
   // --- stream reader ---------------------------------------------------------
   const handleMessage = (message: SDKMessage): void => {
     if (message.type === "system" && message.subtype === "init") {
-      record.claudeCodeVersion = message.claude_code_version;
-      const currentSessionId = record.sessions.at(-1)?.sessionId;
-      // An init fires every turn; a rollover is an init whose session_id
-      // *differs*. The history is duplicate-free: re-announcing a known
-      // session moves it to the end (most recent).
-      if (message.session_id !== currentSessionId) {
-        const previousIndex = record.sessions.findIndex(
-          (s) => s.sessionId === message.session_id,
-        );
-        if (previousIndex !== -1) {
-          record.sessions.splice(previousIndex, 1);
-        }
-        record.sessions.push({
-          sessionId: message.session_id,
-          sessionFile: sessionFilePath(record.cwd, message.session_id),
-        });
-        log(`session: ${message.session_id}`);
-      }
-      queueRecordWrite();
+      handleSessionInit(message);
     }
     events.emit({ kind: "sdkMessage", message });
+    // Dequeues follow their trigger: the model observes the message after its
+    // own sdkMessage event is on the stream, so any userMessageDequeued it
+    // implies lands immediately after.
+    applyQueueTransition(observeSdkMessage(queueModel, message));
+  };
+
+  const handleSessionInit = (
+    message: SDKMessage & { type: "system"; subtype: "init" },
+  ): void => {
+    record.claudeCodeVersion = message.claude_code_version;
+    const currentSessionId = record.sessions.at(-1)?.sessionId;
+    // An init fires every turn; a rollover is an init whose session_id
+    // *differs*. The history is duplicate-free: re-announcing a known
+    // session moves it to the end (most recent).
+    if (message.session_id !== currentSessionId) {
+      const previousIndex = record.sessions.findIndex(
+        (s) => s.sessionId === message.session_id,
+      );
+      if (previousIndex !== -1) {
+        record.sessions.splice(previousIndex, 1);
+      }
+      record.sessions.push({
+        sessionId: message.session_id,
+        sessionFile: sessionFilePath(record.cwd, message.session_id),
+      });
+      log(`session: ${message.session_id}`);
+    }
+    queueRecordWrite();
   };
 
   const readerDone = (async () => {
@@ -435,10 +659,19 @@ async function daemon(this: CommandContext, flags: DaemonFlags): Promise<void> {
   cleanupAndExit(0);
 }
 
-/** JSONL request/response server on sdk.sock; hello on connect. */
+/**
+ * JSONL server on sdk.sock; hello on connect. Requests get responses; a
+ * subscribed connection additionally receives pushed SdkEventRecord lines
+ * (written by the EventBus sink the subscribe handler attaches). Sinks are
+ * fire-and-forget socket writes: a slow subscriber buffers in its socket,
+ * never blocks the daemon or other clients.
+ */
 function startSdkServer(
   socketPath: string,
-  handleRequest: (request: SdkRequestRecord) => Promise<unknown>,
+  handleRequest: (
+    request: SdkRequestRecord,
+    connection: SdkConnection,
+  ) => Promise<unknown>,
 ): Server {
   const server = createServer((socket: Socket) => {
     socket.on("error", () => socket.destroy());
@@ -449,10 +682,18 @@ function startSdkServer(
         version: SDK_SOCKET_VERSION,
       })}\n`,
     );
+    const connection: SdkConnection = {
+      write: (line) => {
+        if (!socket.destroyed) {
+          socket.write(line);
+        }
+      },
+      onClose: (cleanup) => {
+        socket.on("close", cleanup);
+      },
+    };
     const respond = (response: SdkResponse): void => {
-      if (!socket.destroyed) {
-        socket.write(`${JSON.stringify(response)}\n`);
-      }
+      connection.write(`${JSON.stringify(response)}\n`);
     };
     let buffer = "";
     socket.on("data", (chunk) => {
@@ -468,13 +709,16 @@ function startSdkServer(
           } catch {
             continue;
           }
-          void handleRequest(request).then(
-            (data) =>
-              respond({
-                id: request.id,
-                ok: true,
-                ...(data !== undefined && { data }),
-              }),
+          void handleRequest(request, connection).then(
+            (data) => {
+              if (data !== RESPONSE_SENT) {
+                respond({
+                  id: request.id,
+                  ok: true,
+                  ...(data !== undefined && { data }),
+                });
+              }
+            },
             (error: unknown) =>
               respond({
                 id: request.id,

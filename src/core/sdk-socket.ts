@@ -1,52 +1,131 @@
 /**
- * The minimal Phase-1 `sdk.sock` protocol and its client: newline-delimited
- * JSON request/response over a unix socket. No stream fan-out — the daemon's
- * SdkEvent stream is observed via daemon.log until Phase 2 grows this into
- * the full protocol.
- *
- * The daemon sends a hello record on connect so clients can validate they are
- * talking to a clauctl daemon (and, in Phase 2, negotiate the protocol).
+ * The `sdk.sock` protocol and its client: newline-delimited JSON over a unix
+ * socket. Three record shapes flow daemon→client, distinguished structurally:
+ * the hello (first line on connect, so clients can validate they are talking
+ * to a clauctl daemon), responses (have an `id`), and pushed events (`{ event:
+ * SdkEvent }`, only on connections that sent `subscribe`).
  */
 
 import { connect, type Socket } from "node:net";
+import type { ContentBlockParam } from "@anthropic-ai/sdk/resources";
 import type {
+  McpServerConfig,
   PermissionMode,
   SDKMessage,
+  SDKUserMessage,
+  Settings,
 } from "@anthropic-ai/claude-agent-sdk";
+import type { AssistantState } from "./assistant-state.ts";
 
 export const SDK_SOCKET_PROTOCOL = "clauctl-sdk-socket";
 export const SDK_SOCKET_VERSION = 1;
+
+export type MessageDelivery = "turn" | "steer" | "append";
 
 /**
  * The augmented event stream (DECISION-6): every SDK message, plus the events
  * only the daemon can know about, serialized so an observer can follow what is
  * happening. This is protocol: the daemon's event bus writes exactly this
- * stream to its observation channel (daemon.log in Phase 1, sdk.sock fan-out
- * in Phase 2), and the assistant-state tracker folds over the same stream — so
- * daemon state is always reconstructible by an observer. Phase 2 grows
- * `turnAccepted` into the full `EchoedUserMessage`, adding
- * `delivery: "turn" | "steer"` for `next`/default-while-busy messages the CLI
- * demotes to an in-turn `<system-reminder>` steer (echo-placement FINDINGS,
- * Round 3).
+ * stream to every subscriber, and the assistant-state tracker folds over the
+ * same stream — so daemon state is always reconstructible by an observer.
+ *
+ * The CLI's queue operations are invisible on the live stream, so the daemon
+ * models the queue (queue-model.ts) and synthesizes the queued/dequeued pair:
+ * `userMessageQueued` at acceptance, `userMessageDequeued` immediately after
+ * the SDK message that triggered the dequeue. Dequeues reference
+ * daemon-assigned ids, so out-of-order dequeuing (a `next` cutting ahead of a
+ * `later`) is unambiguous. A merged same-priority bucket dequeues as one event
+ * carrying all its ids — the whole bucket runs as a single turn with a single
+ * `result`.
  */
 export type SdkEvent =
-  // A turn was injected. `priority` as sent (absent = idle-time default);
-  // `now` while busy means the current turn's terminating `result` arrives
-  // early — the tracker needs this, and observers can't apply the placement
-  // rule without it.
-  | { kind: "turnAccepted"; priority?: "now" | "later" }
-  | { kind: "compactSent" } // /compact issued while Idle
+  | { kind: "userMessageQueued"; id: number; message: SDKUserMessage }
+  | { kind: "userMessageDequeued"; delivery: MessageDelivery; ids: number[] }
+  | { kind: "compactSent"; message: SDKUserMessage } // /compact issued while Idle
   | { kind: "interruptSent" }
+  | { kind: "controlApplied"; request: SdkControlMutation }
   | { kind: "sdkMessage"; message: SDKMessage };
 
-export type SdkRequest =
-  | { type: "query"; text: string; priority?: "now" | "next" | "later" }
-  | { type: "interrupt" }
-  | { type: "set-model"; model?: string }
+export type TurnPriority = "now" | "next" | "later";
+
+/**
+ * Query mutations except interrupt; each maps 1:1 to a Query method and emits
+ * `controlApplied` on success. The mutation/read split classifies each method
+ * by its documented semantics in sdk.d.ts; a misclassification costs a missing
+ * or superfluous event, nothing worse.
+ */
+export type SdkControlMutation =
   | { type: "set-permission-mode"; mode: PermissionMode }
+  | {
+      type: "set-mcp-permission-mode-override";
+      serverName: string;
+      mode: "default" | "auto" | null;
+    }
+  | { type: "set-model"; model?: string }
+  | {
+      type: "set-max-thinking-tokens";
+      maxThinkingTokens: number | null;
+      thinkingDisplay?: "summarized" | "omitted" | null;
+    }
+  | {
+      type: "apply-flag-settings";
+      settings: { [K in keyof Settings]?: Settings[K] | null };
+    }
+  | { type: "set-mcp-servers"; servers: Record<string, McpServerConfig> }
+  | { type: "toggle-mcp-server"; serverName: string; enabled: boolean }
+  | { type: "reconnect-mcp-server"; serverName: string }
+  | { type: "stop-task"; taskId: string }
+  | { type: "background-tasks"; toolUseId?: string }
+  | { type: "rewind-files"; userMessageId: string; dryRun?: boolean }
+  | { type: "seed-read-state"; path: string; mtime: number }
+  | { type: "reload-plugins" }
+  | { type: "reload-skills" };
+
+/** Query reads; the response `data` is the method's return value. */
+export type SdkControlRead =
+  | { type: "initialization-result" }
+  | { type: "supported-commands" }
+  | { type: "supported-models" }
+  | { type: "supported-agents" }
+  | { type: "mcp-server-status" }
+  | { type: "get-context-usage" }
+  | { type: "usage" }
+  | { type: "account-info" }
+  | {
+      type: "read-file";
+      path: string;
+      maxBytes?: number;
+      encoding?: "utf-8" | "base64";
+    };
+
+export type SdkRequest =
+  | {
+      type: "query";
+      content: string | ContentBlockParam[];
+      priority?: TurnPriority;
+      shouldQuery?: false;
+    }
+  | { type: "interrupt" }
   // Resolves once the assistant is Idle; the polite-stop path (archive) waits
   // on this instead of polling.
-  | { type: "wait-idle" };
+  | { type: "wait-idle" }
+  // Response data is a StateSnapshot; every event emitted after it follows as
+  // an SdkEventRecord line until the connection closes. No history replay — a
+  // subscriber starts at "now".
+  | { type: "subscribe" }
+  | SdkControlMutation
+  | SdkControlRead;
+
+/** A pushed stream event on a subscribed connection; no `id`, unlike responses. */
+export interface SdkEventRecord {
+  event: SdkEvent;
+}
+
+/** What a subscriber starts from; no history replay. */
+export interface StateSnapshot {
+  assistantState: AssistantState;
+  sessionId?: string;
+}
 
 export type SdkRequestRecord = SdkRequest & { id: string };
 
@@ -65,6 +144,7 @@ export class SdkSocketClient {
   private readonly closedPromise: Promise<void>;
   private requestCounter = 0;
   private closed = false;
+  private onEvent: ((event: SdkEvent) => void) | undefined;
 
   private constructor(socket: Socket) {
     this.socket = socket;
@@ -138,18 +218,24 @@ export class SdkSocketClient {
     return client;
   }
 
+  // Routes structurally: records with an `id` resolve pending requests,
+  // records with an `event` go to onEvent — so onEvent never sees responses.
   private dispatchLine(line: string): void {
-    let record: { id?: string };
+    let record: { id?: string; event?: SdkEvent };
     try {
-      record = JSON.parse(line) as { id?: string };
+      record = JSON.parse(line) as { id?: string; event?: SdkEvent };
     } catch {
+      return;
+    }
+    if (record.event !== undefined) {
+      this.onEvent?.(record.event);
       return;
     }
     const pending =
       record.id === undefined ? undefined : this.pending.get(record.id);
     if (pending) {
       this.pending.delete(record.id!);
-      pending.resolve(record as SdkResponse);
+      pending.resolve(record as unknown as SdkResponse);
     }
   }
 
@@ -167,6 +253,26 @@ export class SdkSocketClient {
       throw new Error(`daemon rejected ${request.type}: ${response.error}`);
     }
     return response.data;
+  }
+
+  /**
+   * Turn this connection into a subscriber: onEvent fires for every
+   * SdkEventRecord the daemon pushes after the snapshot. Single-use per
+   * client; requests may still be sent on a subscribed connection.
+   *
+   * The daemon writes the snapshot response before any event line, but
+   * response resolution is a microtask while onEvent is called synchronously
+   * from the data handler — so onEvent may fire before the returned promise
+   * settles. Every delivered event is post-snapshot regardless; a caller that
+   * needs strict output ordering (tail) gates on the snapshot itself.
+   */
+  async subscribe(onEvent: (event: SdkEvent) => void): Promise<StateSnapshot> {
+    if (this.onEvent !== undefined) {
+      throw new Error("sdk socket client is already subscribed");
+    }
+    this.onEvent = onEvent;
+    const data = await this.request({ type: "subscribe" });
+    return data as StateSnapshot;
   }
 
   /** Resolves when the daemon closes the socket. */

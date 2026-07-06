@@ -1,31 +1,46 @@
 /**
- * The 4-state assistant-state model (spec: Phase 1, "Assistant state").
+ * The 4-state assistant-state model (spec: Phase 2, "Assistant-state fold").
  *
- * There is no `idle` SDKStatus; the daemon derives the assistant's state.
- * `activity` and `queueDepth` are independent and must not be conflated:
- * `activity` is SDK evidence, `queueDepth` is our own echo bookkeeping (the
- * SDK never echoes user turns back).
+ * There is no `idle` SDKStatus; the daemon derives the assistant's state by
+ * folding over the emitted event stream — so any observer holding a snapshot
+ * can reconstruct it by running the same fold. `pending` means *predicted*
+ * activity, not yet confirmed by SDK evidence: a dequeued turn that has not
+ * shown output, or queued messages awaiting their boundary.
  *
- * `queueDepth` counts every accepted-but-not-completed runnable unit —
- * including the one currently in flight and a pending compaction. That is the
- * only reading under which the spec's `result` rule (decrement, then Pending
- * iff queueDepth > 0) predicts a surviving queued turn correctly, and it
- * yields the invariant `activity === 'idle' ⇒ queueDepth === 0`.
+ * At a `result`, the bucket the CLI consumes next is still in this fold's
+ * queue (its `userMessageDequeued` follows the `result` on the stream), so
+ * remaining work is counted, not guessed — the fold never passes through a
+ * transient `idle` between a busy turn and a queued turn that runs next.
+ * Invariant: `activity === "idle"` ⇒ no querying entries remain queued
+ * (entries with `shouldQuery === false` may sit across idle — they run merged
+ * into the next querying message).
  */
 
 import type { SdkEvent } from "./sdk-socket.ts";
 
 export type AssistantActivity = "idle" | "pending" | "working" | "compacting";
 
+/** An accepted-but-not-yet-dequeued message, as the fold tracks it. */
+export interface QueuedEntry {
+  id: number;
+  /** Normalized SDK field (`shouldQuery !== false`) — whether this message predicts a future result. */
+  shouldQuery: boolean;
+}
+
 export interface AssistantState {
   activity: AssistantActivity;
-  queueDepth: number;
+  queued: QueuedEntry[];
 }
 
 export const INITIAL_ASSISTANT_STATE: AssistantState = {
   activity: "idle",
-  queueDepth: 0,
+  queued: [],
 };
+
+/** Queued entries that predict a future `result` ("Q" in the spec). */
+function queryingCount(state: AssistantState): number {
+  return state.queued.filter((entry) => entry.shouldQuery).length;
+}
 
 /**
  * The invariant above makes the second clause redundant; the defensive
@@ -33,39 +48,37 @@ export const INITIAL_ASSISTANT_STATE: AssistantState = {
  * ever disagree.
  */
 export const isBusy = (state: AssistantState): boolean =>
-  state.activity !== "idle" || state.queueDepth > 0;
+  state.activity !== "idle" || queryingCount(state) > 0;
 
 export function nextAssistantState(
   state: AssistantState,
   event: SdkEvent,
 ): AssistantState {
   switch (event.kind) {
-    case "turnAccepted": {
-      if (state.activity === "idle") {
-        return { activity: "pending", queueDepth: state.queueDepth + 1 };
-      }
-      // While busy, only `now` and a queued `later` will run as their own
-      // turn; a default/`next` is demoted by the CLI to an in-turn
-      // `<system-reminder>` steer with no `result` of its own, so counting it
-      // would leak queueDepth (echo-placement FINDINGS, Round 3 + "Silent
-      // demotions leak queue depth").
-      //
-      // A `now` does NOT clear the queue: it aborts the in-flight inference
-      // (whose terminating `result` still arrives, decrementing) and runs as
-      // its own turn, while queued `later`s survive and run after — FINDINGS
-      // `c_perm`: [CHARLIE:next, ALPHA:later, BRAVO:now] executed
-      // BRAVO → CHARLIE → ALPHA.
-      if (event.priority === "now" || event.priority === "later") {
-        return { ...state, queueDepth: state.queueDepth + 1 };
-      }
-      return state;
+    case "userMessageQueued": {
+      const entry = {
+        id: event.id,
+        shouldQuery: event.message.shouldQuery !== false,
+      };
+      const queued = [...state.queued, entry];
+      return entry.shouldQuery && state.activity === "idle"
+        ? { activity: "pending", queued }
+        : { ...state, queued };
     }
+    // Activity is unchanged: a "turn" dequeue arrives after a `result` that
+    // already set pending; "steer" and "append" have no activity of their own.
+    case "userMessageDequeued":
+      return {
+        ...state,
+        queued: state.queued.filter((entry) => !event.ids.includes(entry.id)),
+      };
     case "compactSent":
-      return { activity: "compacting", queueDepth: state.queueDepth + 1 };
+      return { ...state, activity: "compacting" };
     // State is unchanged when the interrupt is *sent*; the transition happens
     // at the terminating `result` (its subtype alone does not flag the
     // interrupt — the daemon remembers it sent one).
     case "interruptSent":
+    case "controlApplied":
       return state;
     case "sdkMessage": {
       const message = event.message;
@@ -76,12 +89,12 @@ export function nextAssistantState(
         return { ...state, activity: "working" };
       }
       if (message.type === "result") {
-        const queueDepth = Math.max(0, state.queueDepth - 1);
-        return queueDepth > 0
-          ? // A surviving queued turn is predicted to run next, but the SDK
-            // has not confirmed it started.
-            { activity: "pending", queueDepth }
-          : { activity: "idle", queueDepth };
+        // The about-to-run bucket (if any) is still in `queued` — its dequeue
+        // event follows this result — so pending-vs-idle is decided here.
+        return {
+          ...state,
+          activity: queryingCount(state) > 0 ? "pending" : "idle",
+        };
       }
       return state;
     }

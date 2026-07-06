@@ -168,11 +168,15 @@ const EFFORT_LEVELS = ["low", "medium", "high", "xhigh", "max"] as const;
 const THINKING_DISPLAYS = ["summarized", "omitted"] as const;
 
 /**
- * `--mcp-config` accepts inline JSON or a file path (matching the claude CLI).
- * The SDK wraps the servers as `{"mcpServers": {...}}` when emitting the flag;
- * accept both the wrapped and bare forms.
+ * Inline-JSON-or-file-path MCP server config (matching the claude CLI's
+ * `--mcp-config`; `set-mcp-servers` reuses the same parse). The SDK wraps the
+ * servers as `{"mcpServers": {...}}` when emitting the flag; accept both the
+ * wrapped and bare forms. `what` names the flag/argument in errors.
  */
-function parseMcpConfig(value: string): Record<string, McpServerConfig> {
+export function parseMcpConfig(
+  value: string,
+  what = "--mcp-config",
+): Record<string, McpServerConfig> {
   const raw = value.trimStart().startsWith("{")
     ? value
     : readFileSync(value, "utf8");
@@ -180,15 +184,15 @@ function parseMcpConfig(value: string): Record<string, McpServerConfig> {
   try {
     parsed = JSON.parse(raw);
   } catch (error) {
-    throw new UsageError(`--mcp-config is not valid JSON: ${String(error)}`);
+    throw new UsageError(`${what} is not valid JSON: ${String(error)}`);
   }
   if (typeof parsed !== "object" || parsed === null) {
-    throw new UsageError("--mcp-config must be a JSON object");
+    throw new UsageError(`${what} must be a JSON object`);
   }
   const wrapped = (parsed as { mcpServers?: unknown }).mcpServers;
   const servers = wrapped ?? parsed;
   if (typeof servers !== "object" || servers === null) {
-    throw new UsageError("--mcp-config .mcpServers must be a JSON object");
+    throw new UsageError(`${what} .mcpServers must be a JSON object`);
   }
   return servers as Record<string, McpServerConfig>;
 }
