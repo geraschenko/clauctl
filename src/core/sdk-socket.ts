@@ -347,7 +347,11 @@ export async function waitIdle(
   client: SdkSocketClient,
   timeoutMs: number | undefined,
 ): Promise<void> {
-  // TDC: should this ultimately exist as an rpc request? My feeling is that waiting for idle is something that should just involve _monitoring_ the event stream, rather than sending requests. On the other hand, I guess we do have to send a request to get the current state, and then watch the event stream to do state updates until it becomes idle. And the way this rpc request is implemented is effectively delegating all that work to the daemon (including maintaining the assistant state, so literally _nothing_ needs to be sent to the claude process itself). That makes me think this is indeed the correct design, but I'd like to hear your thoughts. Should we implement the same approach in pictl? Right now we make an actual get-state request in waitIdle in pictl.
+  // Waiting is delegated to the daemon rather than monitored client-side: the
+  // daemon owns the state fold, so its whenIdle is an atomic check-or-enqueue
+  // with no gap between "read current state" and "watch for transitions" —
+  // the race a subscribe-then-fold client would have to close itself. Nothing
+  // is sent to the claude process either way.
   const idle = client.request({ type: "wait-idle" });
   if (timeoutMs === undefined) {
     await idle;

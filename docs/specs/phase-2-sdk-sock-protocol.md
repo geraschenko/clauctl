@@ -133,18 +133,26 @@ _one_ turn with _one_ `result` — the Phase-1 fold would strand `queueDepth`
 at 1 and never reach idle. Here the merged dequeue carries both ids and
 predicts exactly one `result`.
 
-**Flagged assumptions** (model choices consistent with FINDINGS but not
-directly captured; a derisk pass can pin them down if symptoms appear):
+**Flagged assumptions** — both verified live on 2026-07-06; methodology,
+exact commands, pass criteria, and the raw tail capture are in
+`docs/derisk/echoed-message-placement/PHASE2-VERIFICATION.md`:
 
 - A `result` terminated by `interrupt()` dequeues like any other: FINDINGS
   `c_perm` shows a queued `next` executing after a `now`-abort ended the turn
   (an interrupt-like abort), but `Query.interrupt()` itself was never
-  captured. If claude instead discards the queue on interrupt, the model and
-  reality diverge and `wait-idle` hangs.
+  captured. **Verified**: interrupting a running turn with a `later` queued
+  produced `result (error_during_execution)` → `dequeued turn` → the queued
+  turn's own `result` — the queue keeps draining, so `wait-idle` cannot hang
+  on an interrupt.
 - `shouldQuery: false` messages follow the same queueing/dequeuing rules as
   their priority implies: one that would dequeue as `steer` still steers; one
   that would dequeue as its own turn becomes `"append"` instead (per the SDK
   doc: appended to the transcript, merged into the next querying message).
+  **Verified** both halves: a no-query message sent mid-tool-turn dequeued
+  `steer` at its boundary; one sent during a tool-less turn dequeued `append`
+  at the `result` with only a zero-turn (`num_turns: 0`) bookkeeping result.
+  In each case the next querying turn recalled the message's content, proving
+  it entered context.
 
 The `query` response returns immediately with no delivery claim — the daemon
 does not know a demotable message's fate at accept time, and blocking the
@@ -635,3 +643,17 @@ encountered.
   worth knowing: a `shouldQuery: false` append still elicits a zero-cost
   bookkeeping `result` (`num_turns: 0`, empty text) from the CLI; the fold
   handles it (idle → idle, Q === 0).
+
+- 2026-07-06 (assumption experiments): both flagged assumptions verified live
+  (same sandbox, haiku). Full methodology and the raw capture:
+  `docs/derisk/echoed-message-placement/PHASE2-VERIFICATION.md`. Interrupt: a queued `later` dequeued as `turn`
+  immediately after the interrupted turn's `result` (subtype
+  `error_during_execution`) and ran normally — the queue drains through
+  interrupts. shouldQuery:false: mid-tool-turn no-query dequeued `steer`;
+  during a tool-less turn it dequeued `append` at the `result` (zero-turn
+  bookkeeping result only); both were recalled verbatim by the next querying
+  turn. Incidental observation: when the copied OAuth token expired mid-run,
+  turns "succeeded" instantly with result text "Not logged in · Please run
+  /login" (subtype `success`!) — after refreshing credentials, the CLI
+  flushed the affected messages into the next turn. The fold and queue model
+  stayed coherent throughout.

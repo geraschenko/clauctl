@@ -4,6 +4,11 @@
 > the rule is folded into `docs/specs/lifecycle-and-sdk-commands.md`. This README is
 > the original handoff brief, kept for context. Harness `exp.mjs`, renderers
 > `analyze.mjs`/`summarize.mjs`, raw captures in `captures/`.
+>
+> **Phase-2 addendum:** the two assumptions the Phase-2 queue model layered on
+> these findings (interrupt keeps the queue draining; `shouldQuery: false`
+> placement) were verified live against clauctl itself — methodology and
+> capture in [`PHASE2-VERIFICATION.md`](PHASE2-VERIFICATION.md).
 
 > **Handoff brief for a fresh-context agent.** Read `docs/overview.md` and
 > `docs/specs/lifecycle-and-sdk-commands.md` (the "`sdk.sock` stream augmentation"
