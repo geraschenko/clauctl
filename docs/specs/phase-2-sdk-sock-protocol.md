@@ -159,11 +159,10 @@ is native for claude, so accept-and-observe is the model.)
 `pending`'s meaning — *predicted* activity, not yet confirmed by SDK evidence
 — now covers both a dequeued turn that has not shown output and queued
 messages awaiting their boundary. Let **Q** = the number of queued entries
-with `querying === true` (`shouldQuery !== false`; only those predict a
-future `result`):
+with `shouldQuery === true` (only those predict a future `result`):
 
-- `userMessageQueued` → append `{ id, querying }`; if querying and `idle` →
-  `pending`.
+- `userMessageQueued` → append `{ id, shouldQuery }`; if `shouldQuery` and
+  `idle` → `pending`.
 - `userMessageDequeued` → remove the ids; activity unchanged (`"turn"`
   dequeues arrive after a `result` that already set `pending`; `"steer"` and
   `"append"` have no activity of their own).
@@ -175,8 +174,8 @@ future `result`):
 - `compactSent` → `compacting` (no queue entry; its terminating `result`
   follows the rule above). `interruptSent`, `controlApplied` → state
   unchanged.
-- Invariant: `activity === "idle"` ⇒ Q === 0 (non-querying entries may
-  remain queued while idle).
+- Invariant: `activity === "idle"` ⇒ Q === 0 (entries with `shouldQuery ===
+  false` may remain queued while idle).
 
 ### daemon.log shrink
 
@@ -343,8 +342,8 @@ export type AssistantActivity = "idle" | "pending" | "working" | "compacting";
 /** An accepted-but-not-yet-dequeued message, as the fold tracks it. */
 export interface QueuedEntry {
   id: number;
-  /** shouldQuery !== false — whether this message predicts a future result. */
-  querying: boolean;  // TDC: let's rename this to shouldQuery. No need for new terminology, right?
+  /** Normalized SDK field (`shouldQuery !== false`) — whether this message predicts a future result. */
+  shouldQuery: boolean;
 }
 
 export interface AssistantState {
@@ -368,8 +367,6 @@ import type { SdkEvent } from "./sdk-socket.ts";
 export interface QueuedMessage {
   id: number;
   message: SDKUserMessage;
-  /** Accepted while busy with next/default priority — subject to the demote fork. */
-  demotable: boolean;  // TDC: why is this a field rather than a function? It's deducible from `messages`'s `priority` field, isn't it?
   /** A tool_result has been observed since THIS message's acceptance. */
   toolResultSeen: boolean;
 }
@@ -380,6 +377,14 @@ export interface QueueModelState {
 }
 
 export const INITIAL_QUEUE_MODEL_STATE: QueueModelState;
+
+/**
+ * Subject to the demote fork: priority next/default. Demotability also
+ * requires acceptance while busy, but every entry *resident* in the queue was
+ * accepted while busy (idle acceptance dequeues immediately), so for queued
+ * messages this is purely a function of priority.
+ */
+function isDemotable(message: SDKUserMessage): boolean;
 
 export interface QueueTransition {
   state: QueueModelState;
@@ -564,3 +569,9 @@ encountered.
   TDC 2 resolved (mutation/read split = classification by documented
   semantics, low misclassification cost); TDC 3 resolved (`dispatchLine`
   routes structurally; `onEvent` never sees responses).
+- 2026-07-06 (Anton's second review round, a702d57): `QueuedEntry.querying`
+  renamed to `shouldQuery` (the SDK's own term, normalized to a defaulted
+  boolean). `QueuedMessage.demotable` replaced by a derived `isDemotable(
+  message)` — valid because every queue-resident entry was accepted while
+  busy, so demotability reduces to priority alone; the invariant is stated at
+  the function.
