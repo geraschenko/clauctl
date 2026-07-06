@@ -18,9 +18,10 @@ back — DECISION-6). Phase 2 delivers the full protocol:
 
 1. **Stream fan-out** — any client can subscribe to the daemon's augmented
    `SdkEvent` stream over `sdk.sock`, starting from a state snapshot.
-2. **Echo augmentation** — the daemon synthesizes `EchoedUserMessage` events
-   with `delivery: "turn" | "steer"` per the echo-placement rule
-   (`docs/derisk/echoed-message-placement/FINDINGS.md`, Round 3).
+2. **Queue augmentation** — the daemon models the CLI's message queue and
+   synthesizes `userMessageQueued`/`userMessageDequeued` events per the
+   placement rule (`docs/derisk/echoed-message-placement/FINDINGS.md`,
+   Round 3), so observers see every accepted message and where it lands.
 3. **Full `Query` passthrough** (DECISION-4) — every `Query` method as a
    subcommand, plus `query --image/--no-query` and `resolve-settings`.
 4. **`tail`** — the raw stream watcher (the Phase-3 formatted `tail` will build
@@ -49,7 +50,7 @@ duplicated between them. **There is no history replay** — a subscriber starts
 at "now"; conversation history is Phase-3 territory (a `get-messages`-style
 read of the session JSONL). This supersedes the scaffold's "late-joiner
 replay". The scaffold's `SdkClientConnected` event is dropped (the snapshot
-serves its purpose) and `QueueDepthChanged` is dropped (queue depth is
+serves its purpose) and `QueueDepthChanged` is dropped (queue state is
 derivable — observers run the same `nextAssistantState` fold from the
 snapshot).
 
@@ -57,91 +58,125 @@ snapshot).
 
 ```
 SdkEvent =
-  | echoedUserMessage { message: SDKUserMessage, delivery: "turn" | "steer" }
-  | compactSent       { message: SDKUserMessage }
+  | userMessageQueued   { id: number, message: SDKUserMessage }
+  | userMessageDequeued { delivery: "turn" | "steer" | "append", ids: number[] }
+  | compactSent         { message: SDKUserMessage }
   | interruptSent
-  | controlApplied    { request: SdkControlMutation }
-  | sdkMessage        { message: SDKMessage }
+  | controlApplied      { request: SdkControlMutation }
+  | sdkMessage          { message: SDKMessage }
 ```
 
-- `echoedUserMessage` replaces Phase 1's `turnAccepted`. `message` is the exact
-  `SDKUserMessage` pushed to the SDK — it natively carries `priority` and
-  `shouldQuery`, which observers need to apply the placement rule.
-  `delivery: "steer"` means the CLI demoted the message to an in-turn
-  `<system-reminder>`; it never runs as its own turn.
+- `userMessageQueued`/`userMessageDequeued` replace Phase 1's `turnAccepted`
+  (see "Queue model" below). `id` is daemon-assigned at acceptance; dequeues
+  reference ids explicitly, so out-of-order dequeuing (a `next` cutting ahead
+  of a `later`) is unambiguous. `message` is the exact `SDKUserMessage` pushed
+  to the SDK — it natively carries `priority` and `shouldQuery`, which
+  observers need to interpret placement.
 - `compactSent` gains the pushed message (observers could not previously see
   `/compact <instructions>` text).
 - `controlApplied` is emitted after **every successful mutating passthrough**
   (every `SdkControlMutation`; `interrupt` keeps its own state-relevant event).
-  The payload is the request as received — the same trigger and payload as
-  DECISION-5's persist-on-mutation, so observers track option changes exactly
-  as the record does. Reads emit nothing.
+  The mutation/read split classifies each `Query` method by its *documented*
+  semantics in `sdk.d.ts` (the `set*`/`apply`/`toggle`/`reconnect`/`stop`/
+  `background`/`rewind`/`seed`/`reload*` family changes session state; the
+  rest are declared getters) — an educated classification, not knowledge of
+  hidden internals; a misclassification costs a missing or superfluous event,
+  nothing worse. The payload is the request as received — the same trigger
+  and payload as DECISION-5's persist-on-mutation, so observers track option
+  changes exactly as the record does. Reads emit nothing.
 - `sdkMessage` forwards **everything, including partials**
   (`stream_event`). Deviation from the scaffold ("consumed internally, not
   forwarded"): `tail` is explicitly raw, a future TUI wants partials, and the
   Phase-3 formatted `tail` is where filtering will live. No filtering in this
   phase.
 
-### Echo placement (deferred fork resolution)
+### Queue model
 
-`now`, `later`, and idle-time default turns have certain delivery: echo
-immediately at acceptance with `delivery: "turn"`.
+The CLI's queue operations are invisible on the live stream, but its placement
+behavior is deterministic (FINDINGS), so the daemon **models the queue**: it
+knows every accepted message, its priority, and the drain rules, and emits
+`userMessageQueued` at acceptance and `userMessageDequeued` when the model
+says the CLI consumed messages. Events are emitted in true order — queued at
+acceptance, dequeued immediately **after** the SDK message that triggered the
+dequeue — and observers reconstruct the conversation from dequeue events
+alone.
 
-A `next`/default turn accepted **while busy** is demote-*able*: it becomes a
-steer in the common tool-using case but runs as a real turn if the busy turn
-is tool-less or a co-queued `now` ends the turn at the same boundary
-(FINDINGS `c_perm`). Delivery is therefore **not knowable at acceptance**; the
-daemon defers the echo until the fork resolves. With partials on, resolution
-follows within moments, so the deferral has almost no cost. Resolution rules,
-watching the SDK stream after acceptance — the FINDINGS rule is "what follows
-the first tool_result **after acceptance**", so the tool-result marker is
-tracked **per pending message**, not globally (a message accepted between a
-tool_result and the following assistant activity has not seen its own
-boundary yet and must wait for the next one):
+Model transitions:
 
-- A user message carrying `tool_result` blocks ⇒ mark `toolResultSeen` on
-  every currently pending message.
-- Assistant activity (`assistant` or `stream_event`) ⇒ resolve the **marked**
-  pending messages as `steer`, in injection order; unmarked ones stay pending.
-- The turn's `result` ⇒ resolve **all** pending as `turn` (covers both the
-  tool-less busy turn and the co-queued-`now` case). This includes a `result`
-  terminated by `interrupt()` — an assumption, not a captured fact: FINDINGS
+- **Accept while idle** — the message runs immediately: emit
+  `userMessageQueued` + `userMessageDequeued` back-to-back (`delivery:
+  "turn"`, or `"append"` for a `shouldQuery: false` message).
+- **Accept while busy** — emit `userMessageQueued` only. A `next`/default
+  message is *demotable* (subject to the CLI's demote-vs-execute fork); `now`
+  and `later` are not.
+- **A user message carrying `tool_result` blocks** ⇒ mark `toolResultSeen` on
+  every currently queued demotable message. The FINDINGS rule is "what
+  follows the first tool_result **after acceptance**", so the marker is per
+  message, not global — a straggler accepted between a tool_result and the
+  following assistant activity has not seen its own boundary and must wait
+  for the next one.
+- **Assistant activity** (`assistant` or `stream_event`) ⇒ dequeue the
+  **marked** demotable messages as `delivery: "steer"` (ids in injection
+  order): the CLI removed them from the queue and delivered them as
+  `<system-reminder>`s inside that tool result; they never run as turns.
+- **`result`** ⇒ dequeue the highest-priority bucket present — priority order
+  `now` → `next`/default → `later` — **all of it, as one merged turn**
+  (FINDINGS: same-priority executing messages merge FIFO into a single turn,
+  so the whole bucket is one predicted `result`). `delivery: "turn"`, unless
+  every message in the bucket has `shouldQuery: false`, in which case
+  `"append"` (the content enters the transcript with no turn of its own).
+  Remaining buckets drain at subsequent `result`s.
+
+Explicit merge handling fixes a latent Phase-1 bug: two `later`s queued while
+busy count as two under a per-message `queueDepth`, but they run merged as
+*one* turn with *one* `result` — the Phase-1 fold would strand `queueDepth`
+at 1 and never reach idle. Here the merged dequeue carries both ids and
+predicts exactly one `result`.
+
+**Flagged assumptions** (model choices consistent with FINDINGS but not
+directly captured; a derisk pass can pin them down if symptoms appear):
+
+- A `result` terminated by `interrupt()` dequeues like any other: FINDINGS
   `c_perm` shows a queued `next` executing after a `now`-abort ended the turn
   (an interrupt-like abort), but `Query.interrupt()` itself was never
-  captured. If claude instead discards the queue on interrupt, `queueDepth`
-  leaks and `wait-idle` hangs; verify against reality if symptoms appear.
+  captured. If claude instead discards the queue on interrupt, the model and
+  reality diverge and `wait-idle` hangs.
+- `shouldQuery: false` messages follow the same queueing/dequeuing rules as
+  their priority implies: one that would dequeue as `steer` still steers; one
+  that would dequeue as its own turn becomes `"append"` instead (per the SDK
+  doc: appended to the transcript, merged into the next querying message).
 
-**Ordering rule**: resolved echoes are emitted *before* the triggering
-message's own event.** For the steer case this anchors the echoes adjacent to
-their tool result. For the turn case this is load-bearing for state
-correctness: emitting the `result` first would fold to a transient `idle`
-(queueDepth 1→0) before the echo re-raises it, firing `wait-idle` waiters
-spuriously between two turns. Echo-first folds 1→2→1 and the state stays
-busy. This ordering looks backwards (an echo preceding the previous turn's
-`result`) and **must carry a prominent comment in the emission code** so a
-future reader doesn't "fix" it and reintroduce the transient idle.
-TDC: On reflection, I really don't like this. Conceptually, the echoed messages occur _after_ the triggering event. Rather than inverting the order to avoid accidental idle state, why don't we just transition the assistant state to "pending" in this situation. The semantics of "pending" is exactly that we _predict_ that the SDK will soon show activity but it has not been empirically confirmed yet. This amounts to simply moving the decrement of queueDepth until _after_ we determine the next activity in src/core/assistant-state.ts. What do you think?
-
-The `query` response returns immediately with no delivery claim — with
-deferred resolution the daemon does not know the delivery at accept time, and
-blocking the response until the next boundary could hang the CLI for minutes.
-The echo on the stream is the truth. (Deviation from the scaffold's "`query`
-should surface that distinction to the caller"; queuing is native for claude,
-so accept-and-observe is the model.)
+The `query` response returns immediately with no delivery claim — the daemon
+does not know a demotable message's fate at accept time, and blocking the
+response until the next boundary could hang the CLI for minutes. The
+queued/dequeued events on the stream are the truth. (Deviation from the
+scaffold's "`query` should surface that distinction to the caller"; queuing
+is native for claude, so accept-and-observe is the model.)
 
 ### Assistant-state fold
 
-`turnAccepted` disappears; delivery is explicit on the echo, so the demotion
-special-casing leaves the fold:
+`turnAccepted` disappears. The fold tracks the queue explicitly, and
+`pending`'s meaning — *predicted* activity, not yet confirmed by SDK evidence
+— now covers both a dequeued turn that has not shown output and queued
+messages awaiting their boundary. Let **Q** = the number of queued entries
+with `querying === true` (`shouldQuery !== false`; only those predict a
+future `result`):
 
-- `echoedUserMessage` with `delivery: "turn"` → `queueDepth + 1`; `idle` →
+- `userMessageQueued` → append `{ id, querying }`; if querying and `idle` →
   `pending`.
-- `echoedUserMessage` with `delivery: "steer"` → state unchanged.
-- `controlApplied` → state unchanged.
-- `compactSent`, `interruptSent`, `sdkMessage` → as in Phase 1.
-
-The invariant `activity === "idle" ⇒ queueDepth === 0` and the `result`
-decrement rule are unchanged.
+- `userMessageDequeued` → remove the ids; activity unchanged (`"turn"`
+  dequeues arrive after a `result` that already set `pending`; `"steer"` and
+  `"append"` have no activity of their own).
+- `result` → `pending` iff Q > 0, else `idle`. The bucket the CLI consumes at
+  this boundary is still in the fold's queue (its dequeue event follows the
+  `result`), so remaining work is counted, not guessed — no transient idle,
+  no spurious `wait-idle` wake.
+- First `assistant` message (outside compacting) → `working`, as in Phase 1.
+- `compactSent` → `compacting` (no queue entry; its terminating `result`
+  follows the rule above). `interruptSent`, `controlApplied` → state
+  unchanged.
+- Invariant: `activity === "idle"` ⇒ Q === 0 (non-querying entries may
+  remain queued while idle).
 
 ### daemon.log shrink
 
@@ -233,18 +268,17 @@ import type {
 } from "@anthropic-ai/claude-agent-sdk";
 import type { AssistantState } from "./assistant-state.ts";
 
-export type EchoDelivery = "turn" | "steer";
+export type MessageDelivery = "turn" | "steer" | "append";
 
 export type SdkEvent =
-  | { kind: "echoedUserMessage"; message: SDKUserMessage; delivery: EchoDelivery }
+  | { kind: "userMessageQueued"; id: number; message: SDKUserMessage }
+  | { kind: "userMessageDequeued"; delivery: MessageDelivery; ids: number[] }
   | { kind: "compactSent"; message: SDKUserMessage }
   | { kind: "interruptSent" }
   | { kind: "controlApplied"; request: SdkControlMutation }
   | { kind: "sdkMessage"; message: SDKMessage };
 
 export type TurnPriority = "now" | "next" | "later";
-
-// TDC: The separation between SdkControlMutation and SdkControlRead is speculative, right? We don't actually know which query methods mutate internal state, but we're making an educated guess, and sending a controlApplied event just for those that we think mutate state. Is that correct?
 
 /** Query mutations except interrupt; each maps 1:1 to a Query method and emits controlApplied. */
 export type SdkControlMutation =
@@ -301,40 +335,70 @@ export class SdkSocketClient {
 }
 ```
 
-`src/core/echo-resolver.ts` (new; pure, unit-tested):
+`src/core/assistant-state.ts` (revised fold state):
+
+```ts
+export type AssistantActivity = "idle" | "pending" | "working" | "compacting";
+
+/** An accepted-but-not-yet-dequeued message, as the fold tracks it. */
+export interface QueuedEntry {
+  id: number;
+  /** shouldQuery !== false — whether this message predicts a future result. */
+  querying: boolean;
+}
+
+export interface AssistantState {
+  activity: AssistantActivity;
+  queued: QueuedEntry[];
+}
+
+export const INITIAL_ASSISTANT_STATE: AssistantState;
+export const isBusy: (state: AssistantState) => boolean;
+export function nextAssistantState(state: AssistantState, event: SdkEvent): AssistantState;
+```
+
+`src/core/queue-model.ts` (new, replacing nothing — the CLI-queue model; pure,
+unit-tested):
 
 ```ts
 import type { SDKMessage, SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
-import type { EchoDelivery } from "./sdk-socket.ts";
+import type { SdkEvent } from "./sdk-socket.ts";
 
-export interface PendingEcho {
+/** One accepted-but-not-yet-dequeued message in the modeled CLI queue. */
+export interface QueuedMessage {
+  id: number;
   message: SDKUserMessage;
+  /** Accepted while busy with next/default priority — subject to the demote fork. */
+  demotable: boolean;
   /** A tool_result has been observed since THIS message's acceptance. */
   toolResultSeen: boolean;
 }
 
-export interface EchoResolverState {
-  pending: PendingEcho[]; // unresolved next/default-while-busy, injection order
+export interface QueueModelState {
+  nextId: number;
+  queued: QueuedMessage[];
 }
 
-export const INITIAL_ECHO_RESOLVER_STATE: EchoResolverState;
+export const INITIAL_QUEUE_MODEL_STATE: QueueModelState;
 
-/** A next/default turn accepted while busy: echo deferred until the fork resolves. */
-export function deferEcho(
-  state: EchoResolverState,
+export interface QueueTransition {
+  state: QueueModelState;
+  /** Events to emit, in order, immediately after the triggering occurrence. */
+  events: SdkEvent[];
+}
+
+/** Accept a turn from a client; emits userMessageQueued (plus the immediate dequeue when idle). */
+export function acceptUserMessage(
+  state: QueueModelState,
   message: SDKUserMessage,
-): EchoResolverState;
+  busy: boolean,
+): QueueTransition;
 
-export interface EchoResolution {
-  state: EchoResolverState;
-  /** When set, the daemon emits these echoes BEFORE forwarding the observed message. TDC: let's make this _after_ */
-  resolved?: { delivery: EchoDelivery; messages: SDKUserMessage[] };
-}
-
+/** Fold an observed SDK message into the model; emits any dequeues it implies. */
 export function observeSdkMessage(
-  state: EchoResolverState,
+  state: QueueModelState,
   message: SDKMessage,
-): EchoResolution;
+): QueueTransition;
 ```
 
 `src/core/daemon.ts` (EventBus and server revisions):
@@ -364,34 +428,35 @@ function startSdkServer(
 agent and checks `isPidAlive(daemonPid)` itself (no `ensureAgentRunning` — by
 design it must not revive).
 
-Dependency notes: the daemon's `query` handler calls `deferEcho` (busy
-`next`/default) or emits the echo directly; the stream reader threads every
-`SDKMessage` through `observeSdkMessage` and emits any resolved echoes before
-the message's own `sdkMessage` event; every `SdkControlMutation` handler
+Dependency notes: the daemon's `query` handler calls `acceptUserMessage`
+(with `busy` from the EventBus state) and emits the returned events; the
+stream reader threads every `SDKMessage` through `observeSdkMessage`, emits
+the message's own `sdkMessage` event, then emits any dequeues the model
+returned (dequeues follow their trigger). Every `SdkControlMutation` handler
 calls its `Query` method, emits `controlApplied`, then persists per the map
-above. `nextAssistantState` consumes `echoedUserMessage` instead of
+above. `nextAssistantState` consumes the queued/dequeued events instead of
 `turnAccepted`.
 
 ### Edge cases
 
-- **Steer echo anchoring is positional**: steers are emitted before the first
+- **Steer anchoring is positional**: steer dequeues are emitted at the first
   assistant activity after the tool result, so they land adjacent to their
-  anchor; multiple pending `next`/defaults resolve together, in injection
-  order, individually (one echo event each).
-- **Straggler acceptance**: a `next`/default accepted after a tool_result but
-  before the following assistant activity is *not* resolved with that group
-  (its `toolResultSeen` is false); it waits for its own boundary — the next
-  tool_result+assistant handoff, or the turn's `result`.
-- **Unresolved echoes at daemon shutdown** are dropped with the connection —
-  the messages were handed to the SDK; whether claude delivered them is not
-  ours to guarantee mid-teardown.
+  anchor, in injection order.
+- **Straggler acceptance**: a demotable message accepted after a tool_result
+  but before the following assistant activity is *not* dequeued with that
+  group (its `toolResultSeen` is false); it waits for its own boundary — the
+  next tool_result+assistant handoff, or the turn's `result`.
+- **Undequeued messages at daemon shutdown** are dropped with the connection —
+  they were handed to the SDK; whether claude delivered them is not ours to
+  guarantee mid-teardown.
 - **Subscriber backpressure**: sinks are fire-and-forget socket writes; a slow
   subscriber buffers in its socket, never blocks the daemon or other clients.
-- **`/compact` routing is unchanged** (idle-only, `compactSent`); it is not an
-  `echoedUserMessage`.
-- **`wait-idle` and the deferred turn echo**: the echo-before-`result`
-  ordering guarantees no transient idle, so `wait-idle` cannot resolve between
-  a busy turn and a queued turn that will run next.
+- **`/compact` routing is unchanged** (idle-only, `compactSent`); it is not a
+  queued user message.
+- **`wait-idle` correctness**: at a `result`, the about-to-run bucket is still
+  in the fold's queue (its dequeue event follows), so the fold moves to
+  `pending`, never through a transient `idle` — `wait-idle` cannot resolve
+  between a busy turn and a queued turn that will run next.
 
 ### Non-goals
 
@@ -405,37 +470,39 @@ above. `nextAssistantState` consumes `echoedUserMessage` instead of
 ### Success criteria
 
 1. `clauctl tail` on a running agent prints the snapshot record, then live
-   events; a `query` from a second terminal appears on the tail as an
-   `echoedUserMessage` followed by the turn's `sdkMessage` stream.
+   events; a `query` from a second terminal appears on the tail as a
+   `userMessageQueued` (and its dequeue) followed by the turn's `sdkMessage`
+   stream.
 2. Steer demotion is observable: a default-priority `query` sent mid-tool-turn
-   yields an echo with `delivery: "steer"` positioned adjacent to the
-   anchoring tool result, and no extra `result` for it.
-3. The deferred-turn fork is correct: a default-priority `query` sent during a
-   tool-less busy turn yields a `delivery: "turn"` echo emitted before the
-   busy turn's `result`, and a concurrent `archive --timeout` (wait-idle) does
-   not fire between the two turns.
-4. Every `Query` method is reachable as a subcommand (coverage invariant:
+   yields `userMessageQueued` at acceptance and a
+   `userMessageDequeued { delivery: "steer" }` adjacent to the anchoring tool
+   result, with no extra `result` for it.
+3. The demote-vs-execute fork is correct: a default-priority `query` sent
+   during a tool-less busy turn yields a `userMessageDequeued { delivery:
+   "turn" }` after the busy turn's `result`, and a concurrent
+   `archive --timeout` (wait-idle) does not fire between the two turns.
+4. Merge accounting is correct (unit-tested): two `later` messages queued
+   while busy produce one `userMessageDequeued` carrying both ids, and the
+   fold reaches `idle` after their single `result`.
+5. Every `Query` method is reachable as a subcommand (coverage invariant:
    the three exclusions are commented); reads print JSON.
-5. `set-model`/`set-permission-mode`/`apply-flag-settings`/`set-mcp-servers`
+6. `set-model`/`set-permission-mode`/`apply-flag-settings`/`set-mcp-servers`
    emit `controlApplied` on the stream and persist per the DECISION-5 map.
-6. `query --image` sends an image block claude describes; `query --no-query`
+7. `query --image` sends an image block claude describes; `query --no-query`
    appends without triggering a turn.
-7. `tail` on a dormant agent errors without reviving it; daemon.log of a fresh
+8. `tail` on a dormant agent errors without reviving it; daemon.log of a fresh
    agent contains only `[daemon]` lines (no event stream).
-8. `resolve-settings` prints the effective settings for a cwd without
+9. `resolve-settings` prints the effective settings for a cwd without
    spawning anything.
-9. `npm run presubmit` passes (tsc, eslint, sync --check, treefmt, all tests,
-   including new echo-resolver and fold unit tests).
+10. `npm run presubmit` passes (tsc, eslint, sync --check, treefmt, all
+    tests, including new queue-model and fold unit tests).
 
 ## IMPLEMENTATION IDEAS (evolving)
 
-- **Fold/resolver split**: `nextAssistantState` stays a pure fold over emitted
-  events; the echo resolver is a *pre-emission* state machine deciding what to
+- **Fold/model split**: `nextAssistantState` stays a pure fold over emitted
+  events; the queue model is a *pre-emission* state machine deciding what to
   emit and when. Keeping them separate keeps both unit-testable without a
-  daemon.
-- The emission-ordering comment (echo before triggering event) belongs at the
-  daemon's stream-reader emission site *and* in `observeSdkMessage`'s doc
-  comment — the invariant spans both.
+  daemon. The daemon remains the only place they meet.
 - `subscribe` handler: capture the snapshot and attach the sink in the same
   synchronous section as the response write; `emit` is synchronous, so no gap.
 - The `usage` alias and `set-max-thinking-tokens` deprecation comments go at
@@ -447,13 +514,17 @@ above. `nextAssistantState` consumes `echoedUserMessage` instead of
   layer); unknown `type` falls through the exhaustive `switch` to an error
   response.
 - `SdkSocketClient.subscribe` is single-use per client (a second call is a
-  programming error); requests may still be sent on a subscribed connection —
-  responses and events interleave, distinguished by `id`.
-  TDC: does this mean that the onEvent callback sees responses as well as events? I don't think we want that, but maybe it's a moot point since I don't expect anything outside of clauctl to use SdkSocketClient.
-- Test seams: echo-resolver scenarios replay the FINDINGS captures' message
-  shapes (steer after tool_result+assistant, turn on tool-less result,
-  co-queued now, straggler acceptance between tool_result and assistant);
-  fold tests extend `assistant-state.test.ts` to the new event kinds.
+  programming error); requests may still be sent on a subscribed connection.
+  `dispatchLine` routes structurally — records with `id` resolve pending
+  requests, records with `event` go to `onEvent` — so the event callback
+  never sees responses.
+- Test seams: queue-model scenarios replay the FINDINGS captures' shapes —
+  `c_perm` drain order (now → next → later, each its own turn), `b_next2`
+  group demotion, same-priority merge, straggler acceptance between
+  tool_result and assistant, idle-time accept (queued+dequeued pair), and the
+  `shouldQuery: false` variants (steer stays steer; solo turn becomes
+  append). Fold tests extend `assistant-state.test.ts` to the new event kinds
+  and the merge-leak regression (criterion 4).
 
 ## WORK LOG
 
@@ -469,9 +540,27 @@ encountered.
   claim; partials forwarded unfiltered; `apply-flag-settings` reads a
   path-string `settings` file before first merge; hello stays version 1.
 - 2026-07-04 (critique pass): two revisions. (1) `toolResultSeen` moved from
-  resolver-global to per-pending-message (`PendingEcho`) — a global flag would
-  wrongly resolve a message accepted between a tool_result and the following
+  resolver-global to per-pending-message — a global flag would wrongly
+  resolve a message accepted between a tool_result and the following
   assistant activity ("straggler") with the earlier group. (2) Documented the
   interrupt assumption: a `result` terminated by `interrupt()` resolves
   pending deferred echoes as `turn`, backed by the `c_perm` now-abort analogy
   but not by a direct capture.
+- 2026-07-06 (Anton's review round): the echo design replaced wholesale by
+  the **queue model**. Anton rejected the emit-echo-before-trigger ordering
+  inversion (conceptually backwards); working his fold-deferral idea through
+  led to acceptance-time events plus explicit dequeues: `userMessageQueued
+  { id, message }` at acceptance, `userMessageDequeued { delivery, ids }`
+  after the trigger, with daemon-assigned ids making cross-priority dequeue
+  order unambiguous. "Echo" terminology purged (it wrongly implied insertion
+  point). Fold reworked to track queued entries; `result` → pending iff
+  querying messages remain queued — no ordering inversion needed. Found and
+  fixed a latent Phase-1 leak: same-priority merged turns produce one
+  `result` for N accepted messages; the merged dequeue carries all ids.
+  Anton's `shouldQuery: false` rule: no-query messages follow normal
+  queue/dequeue placement; would-be-steer stays steer, would-be-turn becomes
+  `append`; Q counts querying messages only. Flagged assumptions for optional
+  empirical derisk: interrupt keeps the queue draining; no-query placement.
+  TDC 2 resolved (mutation/read split = classification by documented
+  semantics, low misclassification cost); TDC 3 resolved (`dispatchLine`
+  routes structurally; `onEvent` never sees responses).
