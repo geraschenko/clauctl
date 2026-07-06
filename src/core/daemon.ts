@@ -7,7 +7,7 @@
 
 import { once } from "node:events";
 import { closeSync, writeSync } from "node:fs";
-import { readFile, rm } from "node:fs/promises";
+import { rm } from "node:fs/promises";
 import { homedir } from "node:os";
 import { createServer, type Server, type Socket } from "node:net";
 import { join } from "node:path";
@@ -18,7 +18,6 @@ import {
   type Query,
   type SDKMessage,
   type SDKUserMessage,
-  type Settings,
 } from "@anthropic-ai/claude-agent-sdk";
 import {
   INITIAL_ASSISTANT_STATE,
@@ -50,6 +49,12 @@ import {
   writeAgentRecord,
   type AgentRecord,
 } from "./registry.ts";
+import {
+  applyMutation,
+  isControlMutation,
+  persistedOptionsAfter,
+  runRead,
+} from "./sdk-passthrough.ts";
 import {
   SDK_SOCKET_PROTOCOL,
   SDK_SOCKET_VERSION,
@@ -180,30 +185,6 @@ const RESPONSE_SENT: unique symbol = Symbol("response sent");
 interface SdkConnection {
   write(line: string): void;
   onClose(cleanup: () => void): void;
-}
-
-/**
- * DECISION-5 cumulative shallow-merge for apply-flag-settings: `null` clears a
- * key, everything else replaces it. If the persisted settings is a path string
- * (spawned via `--settings <file>`), the first apply reads and parses that
- * file, then merges; from then on the merged object is what persists.
- */
-async function mergeFlagSettings(
-  current: Options["settings"],
-  applied: { [K in keyof Settings]?: Settings[K] | null },
-): Promise<Settings> {
-  const base: Record<string, unknown> =
-    typeof current === "string"
-      ? (JSON.parse(await readFile(current, "utf8")) as Record<string, unknown>)
-      : { ...current };
-  for (const [key, value] of Object.entries(applied)) {
-    if (value === null) {
-      delete base[key];
-    } else if (value !== undefined) {
-      base[key] = value;
-    }
-  }
-  return base as Settings;
 }
 
 /**
@@ -416,143 +397,28 @@ async function daemon(this: CommandContext, flags: DaemonFlags): Promise<void> {
           data: snapshot,
         };
         connection.write(`${JSON.stringify(response)}\n`);
-        // TDC: why is this only done onClose? Don't we want to subscribe to events immediately?
-        connection.onClose(events.subscribe((line) => connection.write(line)));
+        const unsubscribe = events.subscribe((line) => connection.write(line));
+        connection.onClose(unsubscribe);
         return RESPONSE_SENT;
       }
-
-      // --- Query mutations (DECISION-4 passthrough; DECISION-5 persistence) --
-      case "set-model":
-        await claudeQuery.setModel(request.model);
-        controlApplied(request);
-        // DECISION-5 persist-on-mutation: record the args of every
-        // state-mutating control call as it is made; never read back.
-        record.persistedOptions.model = request.model;
-        queueRecordWrite();
-        return undefined;
-      case "set-permission-mode":
-        await claudeQuery.setPermissionMode(request.mode);
-        controlApplied(request);
-        record.persistedOptions.permissionMode = request.mode;
-        if (request.mode === "bypassPermissions") {
-          // Entering bypass requires the spawn-time dangerous-skip flag; a
-          // session that entered it once keeps the capability across respawn.
-          record.persistedOptions.allowDangerouslySkipPermissions = true;
-        }
-        queueRecordWrite();
-        return undefined;
-      case "set-mcp-permission-mode-override": {
-        const data = await claudeQuery.setMcpPermissionModeOverride(
-          request.serverName,
-          request.mode,
-        );
-        controlApplied(request);
-        return data;
-      }
-      case "set-max-thinking-tokens":
-        // Deprecated SDK-side, but kept: the only runtime thinking control
-        // (the `thinking` option is spawn-time only).
-        await claudeQuery.setMaxThinkingTokens(
-          request.maxThinkingTokens,
-          request.thinkingDisplay,
-        );
-        controlApplied(request);
-        // thinkingDisplay has no Options home; accepted as lost across respawn.
-        if (request.maxThinkingTokens === null) {
-          delete record.persistedOptions.maxThinkingTokens;
-        } else {
-          record.persistedOptions.maxThinkingTokens = request.maxThinkingTokens;
-        }
-        queueRecordWrite();
-        return undefined;
-      case "apply-flag-settings": {
-        await claudeQuery.applyFlagSettings(request.settings);
-        controlApplied(request);
-        record.persistedOptions.settings = await mergeFlagSettings(
-          record.persistedOptions.settings,
-          request.settings,
-        );
-        queueRecordWrite();
-        return undefined;
-      }
-      case "set-mcp-servers": {
-        const data = await claudeQuery.setMcpServers(request.servers);
-        controlApplied(request);
-        // All entries arrived over JSON, so all are serializable by
-        // construction (in-process SdkMcpServer entries cannot reach here).
-        record.persistedOptions.mcpServers = request.servers;
-        queueRecordWrite();
-        return data;
-      }
-      case "toggle-mcp-server":
-        await claudeQuery.toggleMcpServer(request.serverName, request.enabled);
-        controlApplied(request);
-        return undefined;
-      case "reconnect-mcp-server":
-        await claudeQuery.reconnectMcpServer(request.serverName);
-        controlApplied(request);
-        return undefined;
-      case "stop-task":
-        await claudeQuery.stopTask(request.taskId);
-        controlApplied(request);
-        return undefined;
-      case "background-tasks": {
-        const data = await claudeQuery.backgroundTasks(request.toolUseId);
-        controlApplied(request);
-        return data;
-      }
-      case "rewind-files": {
-        const data = await claudeQuery.rewindFiles(request.userMessageId, {
-          ...(request.dryRun !== undefined && { dryRun: request.dryRun }),
-        });
-        controlApplied(request);
-        return data;
-      }
-      case "seed-read-state":
-        await claudeQuery.seedReadState(request.path, request.mtime);
-        controlApplied(request);
-        return undefined;
-      case "reload-plugins": {
-        const data = await claudeQuery.reloadPlugins();
-        controlApplied(request);
-        return data;
-      }
-      case "reload-skills": {
-        const data = await claudeQuery.reloadSkills();
-        controlApplied(request);
-        return data;
-      }
-
-      // --- Query reads (no controlApplied; reads emit nothing) --------------
-      case "initialization-result":
-        return await claudeQuery.initializationResult();
-      case "supported-commands":
-        return await claudeQuery.supportedCommands();
-      case "supported-models":
-        return await claudeQuery.supportedModels();
-      case "supported-agents":
-        return await claudeQuery.supportedAgents();
-      case "mcp-server-status":
-        return await claudeQuery.mcpServerStatus();
-      case "get-context-usage":
-        return await claudeQuery.getContextUsage();
-      case "usage":
-        // Stable alias for the experimental method; rename here when the SDK
-        // stabilizes it.
-        return await claudeQuery.usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET();
-      case "account-info":
-        return await claudeQuery.accountInfo();
-      case "read-file":
-        return await claudeQuery.readFile(request.path, {
-          ...(request.maxBytes !== undefined && { maxBytes: request.maxBytes }),
-          ...(request.encoding !== undefined && { encoding: request.encoding }),
-        });
-      // Coverage invariant (DECISION-4): every Query method is reachable above
-      // except close (the daemon's teardown owns the connection lifecycle),
-      // streamInput (the daemon's TurnQueue IS the input stream), and
-      // reinitialize (a transport-gap recovery tool for ring-buffer clients;
-      // the daemon never has a transport gap with its own SDK).
     }
+    // Everything else is the Query passthrough (DECISION-4), delegated to
+    // sdk-passthrough.ts: mutations emit controlApplied and persist per
+    // DECISION-5; reads emit nothing.
+    if (isControlMutation(request)) {
+      const data = await applyMutation(claudeQuery, request);
+      controlApplied(request);
+      const persisted = await persistedOptionsAfter(
+        request,
+        record.persistedOptions,
+      );
+      if (persisted !== undefined) {
+        record.persistedOptions = persisted;
+        queueRecordWrite();
+      }
+      return data;
+    }
+    return await runRead(claudeQuery, request);
   };
 
   const sdkServer: Server = startSdkServer(

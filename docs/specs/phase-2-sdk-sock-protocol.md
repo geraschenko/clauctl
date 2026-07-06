@@ -604,3 +604,17 @@ encountered.
   message)` — valid because every queue-resident entry was accepted while
   busy, so demotability reduces to priority alone; the invariant is stated at
   the function.
+
+- 2026-07-06 (implementation review round, 621bca3): to shrink the surface
+  that changes when the SDK changes, the Query passthrough moved out of
+  daemon.ts into a new `sdk-passthrough.ts` (`isControlMutation`,
+  `applyMutation`, `runRead`, and `persistedOptionsAfter` — the DECISION-5
+  persistence map, including `mergeFlagSettings`). The SDK-churn zone is now
+  exactly three sibling files: sdk-socket.ts (wire types), sdk-passthrough.ts
+  (daemon dispatch), sdk-commands.ts (CLI); daemon.ts and the state machines
+  never name individual Query methods. `MUTATION_TYPES` is a
+  `Record<SdkControlMutation["type"], true>` so a new mutation variant is a
+  compile error at the guard. Also split the subscribe handler's
+  sink-attach into an explicit `unsubscribe` variable (Anton's TDC: the
+  one-liner read as "subscribe on close"; subscription is immediate, onClose
+  only registers the cleanup). Presubmit green; 67/67 tests.
