@@ -79,6 +79,7 @@ fixes. Concretely:
 
 ### Type design
 
+TDC: let's change "attach-mode"/AttachMode/runAttach to "interactive-mode"/InteractiveMode/runInteractive. "attach" specifically refers to `clauctl attach`, which will come later. This is just regular interactive mode, and it makes the parallel to pi clearer.
 ```
 src/tui/
   attach-mode.ts        // AttachMode — assembly + event dispatch (mirrors interactive-mode.ts)
@@ -156,6 +157,7 @@ The `SDKMessage` union has ~36 variants (status, task notifications, hook
 events, rate limits, …); this pass renders the conversation-bearing ones
 above and deliberately drops the rest. `SDKUserMessageReplay` is ignored
 (the queued/dequeued events are our echo mechanism, DECISION-6).
+TDC: Note that we will eventually want to implement some kind of rendering for a bunch of those other message variants. This spec is keeping it narrow so that we can derisk and get a working skeleton.
 
 ### Success criteria
 
