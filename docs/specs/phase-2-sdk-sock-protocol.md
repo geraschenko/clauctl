@@ -657,3 +657,13 @@ encountered.
   /login" (subtype `success`!) — after refreshing credentials, the CLI
   flushed the affected messages into the next turn. The fold and queue model
   stayed coherent throughout.
+
+- 2026-07-06 (review flag resolved — mutation serialization): the review pass
+  flagged that concurrent control mutations could lose a persisted-options
+  update: request dispatch is deliberately concurrent (a pending `wait-idle`
+  must not block the `interrupt` that resolves it), so the mutation branch's
+  read-modify-write of `record.persistedOptions` spans awaits. Fixed by
+  chaining control mutations through a promise (`mutationChain` in
+  `daemon.ts`) — the actor property restored for mutations only; they never
+  wait on daemon state, so the chain cannot deadlock. Reads, subscribe,
+  wait-idle, and query stay concurrent.

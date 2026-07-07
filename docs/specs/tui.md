@@ -22,10 +22,10 @@ The command is `clauctl _tui --sdk-socket <path>` — internal (underscore),
 taking a raw socket path with **no registry resolution**. Reasoning: the
 end-state attach architecture is that the **daemon spawns `_tui` inside a pty**
 and proxies the terminal bytes over `tty.sock` using the same protocol pictl
-uses. Then *any* code that speaks the tty protocol — including non-TS clients
+uses. Then _any_ code that speaks the tty protocol — including non-TS clients
 such as a Rust ratatui app — implements attachment to our claude TUI with just
 a vt100 widget, never reimplementing UI logic. `_tui` is the process whose
-stdio *is* that pty, so it must be spawnable with nothing but a socket path;
+stdio _is_ that pty, so it must be spawnable with nothing but a socket path;
 it is equally runnable by hand in a terminal, which is how this phase ships
 and tests it. (This refines the scaffold's "virtual-pty" decision: no headless
 terminal machinery inside the TUI — it is an ordinary terminal program, and
@@ -46,7 +46,7 @@ the pty wrapping is entirely the daemon's future concern.)
     tool's component;
   - a **pending area** just above the editor: queued messages rendered grey
     (driven by `userMessageQueued`), moved into the transcript at their
-    `userMessageDequeued` position — the stream position *is* the correct
+    `userMessageDequeued` position — the stream position _is_ the correct
     transcript position (phase-2 queue model);
   - footer: assistant activity, queue depth, model.
 - **Keybindings** (mirroring claude): Enter submits a `query`; Esc sends
@@ -141,19 +141,19 @@ connects (`SdkSocketClient.connect`) and hands off to `runInteractive`.
 
 Event → UI dispatch (the `InteractiveMode.handleEvent` switch):
 
-| `SdkEvent` | UI action |
-|---|---|
-| `userMessageQueued` | add grey entry to the pending area |
-| `userMessageDequeued` | move ids from pending into the transcript as user messages |
-| `sdkMessage: stream_event` | fold into the live streaming component (created at `message_start`) |
-| `sdkMessage: assistant` | finalize the streaming component with authoritative content; create tool-execution components for its toolCalls |
-| `sdkMessage: user` | attach contained tool results to their tool-execution components |
-| `sdkMessage: result` | loader off; footer update |
-| `sdkMessage: system` (init) | footer: model, session |
-| any with `parent_tool_use_id` | route into the owning tool-execution component (nested) |
-| `interruptSent`, compact boundary | transcript marker / banner |
-| `controlApplied`, `compactSent` | footer refresh / banner as applicable |
-| any other `SDKMessage` variant | ignored this pass |
+| `SdkEvent`                        | UI action                                                                                                       |
+| --------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| `userMessageQueued`               | add grey entry to the pending area                                                                              |
+| `userMessageDequeued`             | move ids from pending into the transcript as user messages                                                      |
+| `sdkMessage: stream_event`        | fold into the live streaming component (created at `message_start`)                                             |
+| `sdkMessage: assistant`           | finalize the streaming component with authoritative content; create tool-execution components for its toolCalls |
+| `sdkMessage: user`                | attach contained tool results to their tool-execution components                                                |
+| `sdkMessage: result`              | loader off; footer update                                                                                       |
+| `sdkMessage: system` (init)       | footer: model, session                                                                                          |
+| any with `parent_tool_use_id`     | route into the owning tool-execution component (nested)                                                         |
+| `interruptSent`, compact boundary | transcript marker / banner                                                                                      |
+| `controlApplied`, `compactSent`   | footer refresh / banner as applicable                                                                           |
+| any other `SDKMessage` variant    | ignored this pass                                                                                               |
 
 The `SDKMessage` union has ~36 variants (status, task notifications, hook
 events, rate limits, …); this pass renders the conversation-bearing ones

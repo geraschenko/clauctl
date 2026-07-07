@@ -332,6 +332,14 @@ async function daemon(this: CommandContext, flags: DaemonFlags): Promise<void> {
     });
   };
 
+  // Request dispatch is deliberately concurrent (a pending wait-idle must not
+  // block the interrupt that would resolve it), so the mutation branch's
+  // read-modify-write of record.persistedOptions — spanning awaits — would
+  // lose updates if two mutations were in flight. Chaining restores the actor
+  // property for mutations only; they never wait on daemon state, so the
+  // chain cannot deadlock.
+  let mutationChain: Promise<unknown> = Promise.resolve();
+
   const handleRequest = async (
     request: SdkRequestRecord,
     connection: SdkConnection,
@@ -406,17 +414,24 @@ async function daemon(this: CommandContext, flags: DaemonFlags): Promise<void> {
     // sdk-passthrough.ts: mutations emit controlApplied and persist per
     // DECISION-5; reads emit nothing.
     if (isControlMutation(request)) {
-      const data = await applyMutation(claudeQuery, request);
-      controlApplied(request);
-      const persisted = await persistedOptionsAfter(
-        request,
-        record.persistedOptions,
-      );
-      if (persisted !== undefined) {
-        record.persistedOptions = persisted;
-        queueRecordWrite();
-      }
-      return data;
+      const run = async (): Promise<unknown> => {
+        const data = await applyMutation(claudeQuery, request);
+        controlApplied(request);
+        const persisted = await persistedOptionsAfter(
+          request,
+          record.persistedOptions,
+        );
+        if (persisted !== undefined) {
+          record.persistedOptions = persisted;
+          queueRecordWrite();
+        }
+        return data;
+      };
+      // Run after the previous mutation regardless of its outcome; a failed
+      // mutation rejects its own requester without poisoning the chain.
+      const result = mutationChain.then(run, run);
+      mutationChain = result.catch(() => undefined);
+      return await result;
     }
     return await runRead(claudeQuery, request);
   };
