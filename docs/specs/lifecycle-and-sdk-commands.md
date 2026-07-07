@@ -302,7 +302,7 @@ This refines the earlier "idle = saw `result` + no queued turn" into the Idle-vs
      `model`, `fallbackModel`, `permissionMode`, `allowedTools`, `disallowedTools`,
      `tools`, `toolAliases`, `agent`, `agents`, `cwd`, `additionalDirectories`,
      `env`, `extraArgs`, `betas`, `enableFileCheckpointing`, `toolConfig`,
-     `forwardSubagentText`, `thinking`, `effort`, `maxThinkingTokens`, `maxTurns`,
+     `thinking`, `effort`, `maxThinkingTokens`, `maxTurns`,
      `maxBudgetUsd`, `taskBudget`, `mcpServers` (serializable entries only — see
      below), `planModeInstructions`, `plugins`, `promptSuggestions`,
      `agentProgressSummaries`, `sandbox`, `settings` (the flag-settings layer),
@@ -315,7 +315,9 @@ This refines the earlier "idle = saw `result` + no queued turn" into the Idle-vs
      in bucket 1).
   3. **clauctl-controlled invariants** (clauctl sets these, not user-tunable):
      `persistSession: true` (DECISION-8), `outputFormat: 'stream-json'`,
-     `includePartialMessages: true`, `pathToClaudeCodeExecutable` left unset so the
+     `includePartialMessages: true`, `forwardSubagentText: true` (the augmented
+     stream carries the full nested subagent transcript for TUI rendering),
+     `pathToClaudeCodeExecutable` left unset so the
      SDK-bundled binary is used, `permissionPromptToolName` (the interactive-prompt
      hook — clauctl expects to own permission prompting once the round-trip lands per
      DECISION-3, so a user does not set this), plus `debug`/`debugFile` diagnostics.

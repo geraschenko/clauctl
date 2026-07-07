@@ -41,7 +41,6 @@ export const OPTION_BUCKETS = {
   betas: "persist",
   enableFileCheckpointing: "persist",
   toolConfig: "persist",
-  forwardSubagentText: "persist",
   thinking: "persist",
   effort: "persist",
   maxThinkingTokens: "persist",
@@ -81,6 +80,7 @@ export const OPTION_BUCKETS = {
   outputFormat: "invariant",
   includePartialMessages: "invariant",
   includeHookEvents: "invariant",
+  forwardSubagentText: "invariant",
   pathToClaudeCodeExecutable: "invariant",
   executable: "invariant",
   executableArgs: "invariant",
@@ -114,12 +114,19 @@ export type PersistedOptions = Pick<Options, PersistedOptionKey>;
  */
 export function invariantOptions(): Pick<
   Options,
-  "persistSession" | "includePartialMessages" | "includeHookEvents"
+  | "persistSession"
+  | "includePartialMessages"
+  | "includeHookEvents"
+  | "forwardSubagentText"
 > {
   return {
     persistSession: true,
     includePartialMessages: true,
     includeHookEvents: true,
+    // The augmented stream is the full observable record (DECISION-6): the
+    // TUI renders subagent activity nested under its Task/Agent tool, which
+    // only exists on the stream when subagent text is forwarded.
+    forwardSubagentText: true,
   };
 }
 
@@ -141,6 +148,7 @@ const REJECTED_FLAGS = new Set([
   "--verbose",
   "--include-partial-messages",
   "--include-hook-events",
+  "--forward-subagent-text",
   "--no-session-persistence",
   "--debug",
   "--debug-file",

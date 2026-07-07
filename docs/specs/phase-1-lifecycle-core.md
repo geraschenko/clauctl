@@ -119,7 +119,7 @@ type PersistedOptions = Pick<Options, PersistedOptionKey>;
 **Bucket 1 — persist** (round-tripped in `agent.json`; the serializable config):
 `model`, `fallbackModel`, `permissionMode`, `allowedTools`, `disallowedTools`,
 `tools`, `toolAliases`, `agent`, `agents`, `cwd`, `additionalDirectories`, `env`,
-`extraArgs`, `betas`, `enableFileCheckpointing`, `toolConfig`, `forwardSubagentText`,
+`extraArgs`, `betas`, `enableFileCheckpointing`, `toolConfig`,
 `thinking`, `effort`, `maxThinkingTokens`, `maxTurns`, `maxBudgetUsd`, `taskBudget`,
 `mcpServers` (serializable entries only — in-process `SdkMcpServer` entries stripped at
 write time), `planModeInstructions`, `plugins`, `promptSuggestions`,
@@ -136,6 +136,9 @@ in-process `SdkMcpServer` entries inside `mcpServers`.
 `persistSession: true` (DECISION-8), `outputFormat: 'stream-json'`,
 `includePartialMessages: true` (echo-boundary detection), **`includeHookEvents: true`**
 (surface hook lifecycle in the stream; clients filter what they don't want),
+`forwardSubagentText: true` (the stream carries the full nested subagent transcript,
+which the TUI renders under the owning Task/Agent tool; clients filter what they
+don't want),
 `pathToClaudeCodeExecutable` unset + `executable`/`executableArgs` unset (SDK-bundled
 binary + default runtime), `loadTimeoutMs` unset (no `sessionStore`), `debug`/`debugFile`
 diagnostics. `permissionPromptToolName` is **reserved unset in v1**: per DECISION-3 the

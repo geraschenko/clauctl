@@ -233,13 +233,13 @@ and get a working skeleton, not because they are out of scope forever.
 tasks, mark completed ones with [x], document decisions and problems
 encountered.
 
-- [ ] `npm install -E @earendil-works/pi-tui`; smoke-test a minimal TUI app
+- [x] `npm install -E @earendil-works/pi-tui`; smoke-test a minimal TUI app
       under our node/type-stripping setup.
-- [ ] `render-types.ts` + `sdk-render.ts` with unit tests (fold first).
-- [ ] Port components with provenance headers; minimal `theme.ts`.
-- [ ] `interactive-mode.ts` + hidden `_tui` command in `app.ts`.
-- [ ] Live test against a haiku agent (success criteria 1–6).
-- [ ] Update this spec with prototype learnings; harden.
+- [x] `render-types.ts` + `sdk-render.ts` with unit tests (fold first).
+- [x] Port components with provenance headers; minimal `theme.ts`.
+- [x] `interactive-mode.ts` + hidden `_tui` command in `app.ts`.
+- [x] Live test against a haiku agent (success criteria 1–6).
+- [x] Update this spec with prototype learnings; harden.
 
 ### 2026-07-06 — spec written
 
@@ -257,3 +257,76 @@ Review TDCs (3404ef5) resolved: renamed `AttachMode`/`runAttach`/
 pi parallel is clearer), and prose "attach" → "connect" where it meant
 connecting to the socket; noted that the dropped `SDKMessage` variants are
 narrow-for-derisking, not out of scope forever.
+
+### 2026-07-06 — prototype built (work-log items 1–4)
+
+pi-tui 0.80.3 installed pinned-exact; loads and renders headlessly under
+node 23 type-stripping, and `tsc --noEmit` (nodenext) resolves its `.d.ts`
+files cleanly. Fold implemented with 11 unit tests; all ported/new
+components + `interactive-mode.ts` + `_tui` compile, lint, and pass
+`npm test` (78 tests).
+
+#### Implementation-Time Decisions
+
+- **Provenance version is the fork's**: headers say `@ 0.80.2-fork.2` —
+  the pi checkout is the user's fork of coding-agent; mirror-diffs should
+  run against it, not upstream.
+- **tool-execution port keeps only pi's generic fallback path.** pi's
+  component dispatches to per-tool `renderCall`/`renderResult` definitions
+  from its extension/tool registry — all pi-core-entangled. The port keeps
+  the fallback (name + args JSON + output on a pending/success/error
+  background) and adds two things of ours: collapsed truncation of args
+  (4 lines) and output (6 lines), and an indented sub-container for
+  subagent nesting (`addSubagentChild`).
+- **assistant-message port drops the stopReason/error tail section**: our
+  `RenderAssistant` has no stop reason; interrupt and turn-error banners
+  are driven by `interruptSent`/`result` events in interactive-mode.
+- **theme.ts hardcodes pi's dark.json palette** behind pi's exact call-site
+  API (`theme.fg/bg/bold/italic`, `getMarkdownTheme`), so ported code is
+  line-for-line diffable; no theme system, no light mode this pass.
+- **`tuiRoute` is co-located in interactive-mode.ts** (repo convention:
+  each module exports its route; app.ts only assembles).
+- **runInteractive exits on `Promise.race([mode.done, client.waitClosed()])`**
+  — double Ctrl+C detaches, and a daemon-side close also ends the TUI
+  instead of hanging it.
+- **Snapshot-seeded pending entries render as placeholders**
+  (`(queued message N)`): `StateSnapshot` carries only `{id, shouldQuery}`
+  per queued entry, not the message text. Candidate protocol addition
+  alongside history replay: include queued message content in the snapshot.
+
+### 2026-07-06 — live test (success criteria 1–6): PASS
+
+Run against a sandboxed haiku agent (isolated `CLAUCTL_DIR`/
+`CLAUDE_CONFIG_DIR`, PHASE2-VERIFICATION recipe), driving `_tui` inside a
+tmux session and asserting on `capture-pane` output plus a parallel
+`clauctl tail` capture. Verified: (1) multi-turn conversation; (2) text
+streams incrementally — a capture mid-turn shows a partial thinking block;
+(3) tool calls render with results attached (error results exercised via
+permission denials), and a subagent's forwarded output renders indented
+under the owning Agent tool; (4) a `clauctl query` from a second terminal
+while busy appears in the pending area (`queued: 1` in the footer) and
+moves into the transcript at its dequeue position; (5) Esc mid-essay:
+`interrupted` banner, `turn failed: error_during_execution` banner, queued
+`later` message drains and answers; (6) first Ctrl+C shows the detach hint,
+second exits; daemon stays up; re-running `_tui` reconnects with a blank
+transcript and snapshot-seeded footer, and conversation continues.
+
+#### Implementation-Time Decisions (live test)
+
+- **`forwardSubagentText` moved from bucket persist → invariant `true`**
+  (options.ts, plus the bucket lists in the phase-1 and umbrella specs).
+  Without it the stream carries only subagent tool_use/tool_result frames —
+  no `parent_tool_use_id` assistant/stream_event messages — so success
+  criterion 3's nested transcript is unreachable. This is the spec's
+  "if the protocol proves insufficient, change it" clause in action, and it
+  mirrors the reasoning that made `includePartialMessages` and
+  `includeHookEvents` invariant: the augmented stream is the full
+  observable record; clients filter what they don't want.
+  `--forward-subagent-text` added to spawn's REJECTED_FLAGS accordingly.
+  **Flagged for user review**: this reclassifies an option the phase-1
+  bucketing had marked user-tunable.
+- **Review-pass fixes**: `Editor.submitValue` already clears the editor on
+  submit (redundant `setText("")` removed); `system`/`compact_boundary`
+  messages render a "context compacted" banner (the dispatch table's
+  "compact boundary" row — previously only the `compactSent` half was
+  handled); subagent indent guards against widths < 3.
