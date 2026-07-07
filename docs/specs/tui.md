@@ -52,7 +52,7 @@ the pty wrapping is entirely the daemon's future concern.)
 - **Keybindings** (mirroring claude): Enter submits a `query`; Esc sends
   `interrupt` while the assistant is non-idle; double Ctrl+C exits the TUI —
   a **detach**, the agent keeps running.
-- **On attach**: blank transcript; the subscribe snapshot seeds footer state
+- **On connect**: blank transcript; the subscribe snapshot seeds footer state
   and the pending area. Live events from now.
 
 ### Maintainability requirements
@@ -70,7 +70,7 @@ fixes. Concretely:
   small pure converter (`sdk-render.ts`) holds **all** claude-specificity;
   everything above it stays diffable against pi. The block types are defined
   here (type-only, tiny) — no dependency on `@earendil-works/pi-ai`.
-- **`AttachMode` mirrors `interactive-mode.ts` in shape** (single event switch
+- **`InteractiveMode` mirrors pi's `interactive-mode.ts` in shape** (single event switch
   dispatching to components) at a fraction of the size — everything
   pi-core-specific (extensions, session trees, model registry, settings, auth)
   has no counterpart here.
@@ -79,10 +79,9 @@ fixes. Concretely:
 
 ### Type design
 
-TDC: let's change "attach-mode"/AttachMode/runAttach to "interactive-mode"/InteractiveMode/runInteractive. "attach" specifically refers to `clauctl attach`, which will come later. This is just regular interactive mode, and it makes the parallel to pi clearer.
 ```
 src/tui/
-  attach-mode.ts        // AttachMode — assembly + event dispatch (mirrors interactive-mode.ts)
+  interactive-mode.ts   // InteractiveMode — assembly + event dispatch (mirrors pi's interactive-mode.ts)
   sdk-render.ts         // ALL claude-specificity: SDK messages/events → render model
   render-types.ts       // pi-ai-shaped render block types
   theme.ts              // minimal theme for the ported components
@@ -113,31 +112,34 @@ export function renderAssistant(message: SDKAssistantMessage): RenderAssistant;
 export function toolResultsOf(message: SDKUserMessage): RenderToolResult[];
 export function userText(message: SDKUserMessage): string;
 
-// attach-mode.ts
-export async function runAttach(client: SdkSocketClient): Promise<void>;
-class AttachMode {
+// interactive-mode.ts
+export async function runInteractive(client: SdkSocketClient): Promise<void>;
+class InteractiveMode {
   constructor(ui: TUI, client: SdkSocketClient, snapshot: StateSnapshot);
   handleEvent(event: SdkEvent): void;
 }
 ```
 
-`runAttach` owns the subscribe ordering: `subscribe(onEvent)` needs the
+The name is "interactive mode", mirroring pi — not "attach", which
+specifically refers to the future `clauctl attach` (the tty.sock client).
+
+`runInteractive` owns the subscribe ordering: `subscribe(onEvent)` needs the
 handler before the snapshot exists, and per the `SdkSocketClient.subscribe`
 contract events may be delivered before the snapshot promise settles — so
-`runAttach` buffers events in a closure, awaits the snapshot, constructs
-`AttachMode` from it, then drains the buffer into `handleEvent` (the same
+`runInteractive` buffers events in a closure, awaits the snapshot, constructs
+`InteractiveMode` from it, then drains the buffer into `handleEvent` (the same
 gating `tail` does).
 
-`AttachMode` tracks assistant activity by folding the event stream with
+`InteractiveMode` tracks assistant activity by folding the event stream with
 `nextAssistantState` from `assistant-state.ts`, seeded from
 `snapshot.assistantState` — **exactly the code the daemon runs**, not a
 UI reimplementation. Activity gates Esc (interrupt only when non-idle) and
 drives the footer/loader.
 
 CLI: `_tui` command in `app.ts`, hidden, `--sdk-socket <path>` required; it
-connects (`SdkSocketClient.connect`) and hands off to `runAttach`.
+connects (`SdkSocketClient.connect`) and hands off to `runInteractive`.
 
-Event → UI dispatch (the `AttachMode.handleEvent` switch):
+Event → UI dispatch (the `InteractiveMode.handleEvent` switch):
 
 | `SdkEvent` | UI action |
 |---|---|
@@ -156,8 +158,10 @@ Event → UI dispatch (the `AttachMode.handleEvent` switch):
 The `SDKMessage` union has ~36 variants (status, task notifications, hook
 events, rate limits, …); this pass renders the conversation-bearing ones
 above and deliberately drops the rest. `SDKUserMessageReplay` is ignored
-(the queued/dequeued events are our echo mechanism, DECISION-6).
-TDC: Note that we will eventually want to implement some kind of rendering for a bunch of those other message variants. This spec is keeping it narrow so that we can derisk and get a working skeleton.
+(the queued/dequeued events are our echo mechanism, DECISION-6). Many of the
+dropped variants will eventually want some rendering (status banners, task
+notifications, rate limits, …) — this spec keeps the set narrow to derisk
+and get a working skeleton, not because they are out of scope forever.
 
 ### Success criteria
 
@@ -171,7 +175,7 @@ TDC: Note that we will eventually want to implement some kind of rendering for a
    transcript at its dequeue position.
 5. Esc interrupts the current turn; queued messages continue draining
    (phase-2 verified daemon behavior) and the TUI stays coherent.
-6. Double Ctrl+C exits; the agent keeps running; re-running `_tui` attaches
+6. Double Ctrl+C exits; the agent keeps running; re-running `_tui` connects
    again (blank transcript, footer/pending correct from the snapshot).
 7. The `sdk-render.ts` fold has unit tests (stream-event sequences → expected
    `RenderAssistant` states), runnable without a terminal.
@@ -182,7 +186,7 @@ TDC: Note that we will eventually want to implement some kind of rendering for a
   must not preclude it (hence `_tui --sdk-socket`), but builds none of it.
 - **Permission prompting** (`canUseTool` surfacing to a TUI client) — needs a
   daemon-protocol design of its own; lower risk than the TUI substrate.
-- **History**: transcript replay on attach (a `get-messages`-like mechanism).
+- **History**: transcript replay on connect (a `get-messages`-like mechanism).
   A usable daily-driver TUI needs this; it is the next protocol addition.
 - **Slash commands** — none in this pass.
 - **Multi-viewer arbitration** — multiple subscribed TUIs already work via
@@ -233,7 +237,7 @@ encountered.
       under our node/type-stripping setup.
 - [ ] `render-types.ts` + `sdk-render.ts` with unit tests (fold first).
 - [ ] Port components with provenance headers; minimal `theme.ts`.
-- [ ] `attach-mode.ts` + hidden `_tui` command in `app.ts`.
+- [ ] `interactive-mode.ts` + hidden `_tui` command in `app.ts`.
 - [ ] Live test against a haiku agent (success criteria 1–6).
 - [ ] Update this spec with prototype learnings; harden.
 
@@ -246,3 +250,10 @@ claude as UX reference, no slash commands this pass (user); components
 consume pi-ai-shaped blocks via one converter for mirror-maintainability
 (agreed); prototype built in-place in `src/tui/` (user). Deferred:
 tty.sock, permissions, history, slash commands.
+
+Review TDCs (3404ef5) resolved: renamed `AttachMode`/`runAttach`/
+`attach-mode.ts` → `InteractiveMode`/`runInteractive`/`interactive-mode.ts`
+("attach" is reserved for the future `clauctl attach` tty.sock client; the
+pi parallel is clearer), and prose "attach" → "connect" where it meant
+connecting to the socket; noted that the dropped `SDKMessage` variants are
+narrow-for-derisking, not out of scope forever.
