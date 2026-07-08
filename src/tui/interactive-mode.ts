@@ -58,8 +58,7 @@ type TuiFlags = InferFlags<typeof tuiFlags>;
 
 /**
  * `clauctl _tui --sdk-socket <path>` — the interactive terminal UI, a pure
- * sdk.sock client. Underscore-hidden: internal plumbing, not part of the
- * stable CLI surface.
+ * sdk.sock client.
  */
 export const tuiRoute = {
   _tui: commandNoTarget<TuiFlags>({

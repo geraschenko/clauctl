@@ -1,17 +1,12 @@
 ---
 name: update-ports
 description: Update the files in src/tui/components/ that are ported from pi coding-agent to track a newer pi release tag.
+disable-model-invocation: true
 ---
-
-# Update the pi coding-agent ports
-
-Use this skill when migrating the ported TUI components to a newer pi tag
-(e.g. after rebasing the pi fork or when pi ships component fixes we want).
 
 ## Fixed facts
 
-- The pi repo lives at `/home/anton/git/earendil-works/pi` (override with
-  `PI_REPO=<path>`).
+- The pi repo lives at `~/git/earendil-works/pi` (override with `PI_REPO=<path>`).
 - The ported files and their upstream counterparts are listed in
   `scripts/update-ports.sh` (`PORTS`); each port's header comment records the
   pi version it tracks (`@ <version>`) and the intentional differences from
