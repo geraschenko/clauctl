@@ -465,7 +465,13 @@ class InteractiveMode {
     this.ui.requestRender();
   }
 
-  // TDC: What is the meaning of the return value of this function? What does `consume` mean? Who uses it?
+  /**
+   * Registered as a TUI input listener, which pi-tui runs before the focused
+   * component sees the key: `{consume: true}` stops dispatch there (keeping
+   * these bindings global instead of becoming editor input), undefined lets
+   * the key fall through. The return type is structural because pi-tui does
+   * not export its InputListenerResult.
+   */
   private handleGlobalKey(data: string): { consume: boolean } | undefined {
     if (
       matchesKey(data, "escape") &&

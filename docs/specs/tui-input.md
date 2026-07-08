@@ -388,6 +388,15 @@ open (global shortcut by design), quoted-`@"` hint detection (one-shot hint
 fires on the first bare `@`), `SDK_SOCKET_VERSION` bump (additive optional
 fields only), `get(...)!` hardening and a variable rename (locally-evident).
 
+### 2026-07-08 — TDC: handleGlobalKey return value
+
+Resolved: the return value is pi-tui's input-listener contract —
+`TUI.handleInput` runs listeners before the focused component and
+`{consume: true}` stops dispatch (that's what keeps escape/shift+tab/ctrl+c
+global instead of becoming editor input); pi-tui doesn't export its
+`InputListenerResult` type, hence the structural signature. Documented in a
+doc comment on `handleGlobalKey`; TDC removed.
+
 ## Implementation-Time Decisions
 
 - **`parseModelCommand` exported from `interactive-mode.ts`** — the type
