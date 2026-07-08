@@ -1,6 +1,7 @@
 // Ported from pi coding-agent src/modes/interactive/components/user-message.ts @ 0.80.2-fork.2
 //
 // Only difference from the pi original: theme comes from ../theme.ts.
+// See scripts/update-ports.sh for the update procedure.
 
 import {
   Box,

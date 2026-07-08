@@ -2,7 +2,7 @@
  * `clauctl tail` — the raw sdk.sock stream watcher: subscribes, prints the
  * snapshot record, then each SdkEventRecord line until the daemon closes the
  * socket or the user interrupts.
- * 
+ *
  * TODO: Raw JSONL is the only mode in this phase; when the formatted tail lands
  * (Phase 3+) this behavior moves behind `tail --raw`.
  *

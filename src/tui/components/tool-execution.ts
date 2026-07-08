@@ -9,6 +9,8 @@
 //   (claude-style summaries; pi's fallback shows everything);
 // - a nested children container so a Task subagent's activity renders
 //   indented under the owning tool (routed by parent_tool_use_id).
+//
+// See scripts/update-ports.sh for the update procedure.
 
 import {
   type Component,
