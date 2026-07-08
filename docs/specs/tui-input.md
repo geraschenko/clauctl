@@ -305,9 +305,11 @@ Open questions for review:
 
 - [ ] `/model <arg>`: send `set-model` directly (claude parity), or usage
       banner? Spec currently covers only bare `/model`.
+      TDC: sure, let's do claude parity
 - [ ] Should the pure shift+tab cycle computation be an exported helper (unit
       testable) or stay inline in `interactive-mode.ts`? Type design as
       approved has it inline.
+      TDC: either way is fine by me. We can keep it inline unless you really want to unit test it.
 
 Tasks:
 
