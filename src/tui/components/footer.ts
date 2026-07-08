@@ -45,10 +45,7 @@ export class FooterComponent implements Component {
     let left = parts.join(" • ");
 
     const rightParts: string[] = [];
-    if (
-      this.permissionMode !== undefined &&
-      this.permissionMode !== "default"
-    ) {
+    if (this.permissionMode !== undefined) {
       rightParts.push(this.permissionMode);
     }
     if (this.model !== undefined) {

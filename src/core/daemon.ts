@@ -15,6 +15,7 @@ import { numberParser } from "@stricli/core";
 import {
   query,
   type Options,
+  type PermissionMode,
   type Query,
   type SDKMessage,
   type SDKUserMessage,
@@ -309,6 +310,22 @@ async function daemon(this: CommandContext, flags: DaemonFlags): Promise<void> {
   // the full event stream is observed via sdk.sock subscribers.
   const events = new EventBus();
 
+  // Stream-observed state feeding the subscribe snapshot. Separate from the
+  // persisted record: nothing here writes back to agent.json.
+  // observedPermissionModes spans this daemon process only.
+  const trackedState: {
+    model?: string;
+    permissionMode?: PermissionMode;
+    observedPermissionModes: PermissionMode[];
+    cwd: string;
+  } = { observedPermissionModes: [], cwd: record.cwd };
+  const observePermissionMode = (mode: PermissionMode): void => {
+    trackedState.permissionMode = mode;
+    if (!trackedState.observedPermissionModes.includes(mode)) {
+      trackedState.observedPermissionModes.push(mode);
+    }
+  };
+
   // The modeled CLI queue (queue-model.ts). Only the two threading sites below
   // may advance it; the returned events are emitted immediately, keeping the
   // model and the emitted stream in lockstep.
@@ -327,10 +344,14 @@ async function daemon(this: CommandContext, flags: DaemonFlags): Promise<void> {
     const { id: _id, ...request } = record as SdkControlMutation & {
       id: string;
     };
-    events.emit({
-      kind: "controlApplied",
-      request: request as SdkControlMutation,
-    });
+    const mutation = request as SdkControlMutation;
+    if (mutation.type === "set-model") {
+      // undefined model → the SDK's default; tracked as unset.
+      trackedState.model = mutation.model;
+    } else if (mutation.type === "set-permission-mode") {
+      observePermissionMode(mutation.mode);
+    }
+    events.emit({ kind: "controlApplied", request: mutation });
   };
 
   // Request dispatch is deliberately concurrent (a pending wait-idle must not
@@ -399,6 +420,16 @@ async function daemon(this: CommandContext, flags: DaemonFlags): Promise<void> {
           ...(record.sessions.at(-1) !== undefined && {
             sessionId: record.sessions.at(-1)!.sessionId,
           }),
+          ...(trackedState.model !== undefined && {
+            model: trackedState.model,
+          }),
+          ...(trackedState.permissionMode !== undefined && {
+            permissionMode: trackedState.permissionMode,
+          }),
+          ...(trackedState.observedPermissionModes.length > 0 && {
+            observedPermissionModes: [...trackedState.observedPermissionModes],
+          }),
+          cwd: trackedState.cwd,
         };
         const response: SdkResponse = {
           id: request.id,
@@ -470,6 +501,16 @@ async function daemon(this: CommandContext, flags: DaemonFlags): Promise<void> {
   const handleMessage = (message: SDKMessage): void => {
     if (message.type === "system" && message.subtype === "init") {
       handleSessionInit(message);
+      trackedState.model = message.model;
+      trackedState.cwd = message.cwd;
+      observePermissionMode(message.permissionMode);
+    } else if (
+      message.type === "system" &&
+      message.subtype === "status" &&
+      message.permissionMode !== undefined
+    ) {
+      // Mode changes not initiated over sdk.sock (e.g. plan-mode transitions).
+      observePermissionMode(message.permissionMode);
     }
     events.emit({ kind: "sdkMessage", message });
     // Dequeues follow their trigger: the model observes the message after its

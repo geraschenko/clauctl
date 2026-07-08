@@ -125,6 +125,10 @@ export interface SdkEventRecord {
 export interface StateSnapshot {
   assistantState: AssistantState;
   sessionId?: string;
+  model?: string;
+  permissionMode?: PermissionMode;
+  observedPermissionModes?: PermissionMode[];
+  cwd?: string;
 }
 
 export type SdkRequestRecord = SdkRequest & { id: string };

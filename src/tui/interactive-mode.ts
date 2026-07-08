@@ -16,7 +16,12 @@ import {
   Text,
   TUI,
 } from "@earendil-works/pi-tui";
-import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
+import type {
+  ModelInfo,
+  PermissionMode,
+  SDKControlInitializeResponse,
+  SDKMessage,
+} from "@anthropic-ai/claude-agent-sdk";
 import {
   commandNoTarget,
   requiredStringFlag,
@@ -33,8 +38,10 @@ import {
   type SdkEvent,
   type StateSnapshot,
 } from "../core/sdk-socket.ts";
+import { findFd, TuiAutocompleteProvider } from "./autocomplete.ts";
 import { AssistantMessageComponent } from "./components/assistant-message.ts";
 import { FooterComponent } from "./components/footer.ts";
+import { ModelSelectorComponent } from "./components/model-selector.ts";
 import { PendingMessagesComponent } from "./components/pending-messages.ts";
 import { ToolExecutionComponent } from "./components/tool-execution.ts";
 import { UserMessageComponent } from "./components/user-message.ts";
@@ -74,6 +81,25 @@ export const tuiRoute = {
 interface StreamingComponent {
   component: AssistantMessageComponent;
   state: StreamingMessage;
+}
+
+/**
+ * Parse the locally intercepted `/model` command: the first
+ * whitespace-delimited token must be exactly `/model` (case-sensitive);
+ * the argument is the trimmed remainder. Returns null for any other text;
+ * `model` undefined means bare `/model` (open the menu).
+ */
+export function parseModelCommand(
+  text: string,
+): { model: string | undefined } | null {
+  const trimmed = text.trim();
+  const spaceIndex = trimmed.search(/\s/);
+  const token = spaceIndex === -1 ? trimmed : trimmed.slice(0, spaceIndex);
+  if (token !== "/model") {
+    return null;
+  }
+  const arg = spaceIndex === -1 ? "" : trimmed.slice(spaceIndex).trim();
+  return { model: arg === "" ? undefined : arg };
 }
 
 /**
@@ -126,6 +152,14 @@ class InteractiveMode {
   private readonly toolComponents = new Map<string, ToolExecutionComponent>();
   private lastCtrlCAt = 0;
 
+  private readonly autocomplete: TuiAutocompleteProvider;
+  private modelSelector?: ModelSelectorComponent;
+  /** True from `/model` submit until the supported-models read settles. */
+  private modelSelectorPending = false;
+  private permissionMode?: PermissionMode;
+  /** Every mode seen (snapshot seed + live), in first-observed order. */
+  private readonly observedPermissionModes: PermissionMode[] = [];
+
   constructor(ui: TUI, client: SdkSocketClient, stateSnapshot: StateSnapshot) {
     this.ui = ui;
     this.client = client;
@@ -157,10 +191,57 @@ class InteractiveMode {
     if (stateSnapshot.sessionId !== undefined) {
       this.footer.setSessionId(stateSnapshot.sessionId);
     }
+    // Unknown model/mode (no init yet, or a pre-extension daemon) display as
+    // "default" — the same convention the shift+tab cycle and set-model with
+    // no model use; the first init corrects both.
+    this.footer.setModel(stateSnapshot.model ?? "default");
+    for (const mode of stateSnapshot.observedPermissionModes ?? []) {
+      this.observePermissionMode(mode);
+    }
+    this.notePermissionMode(stateSnapshot.permissionMode ?? "default");
     for (const entry of this.assistantState.queued) {
       this.pendingMessages.add(entry.id, `(queued message ${entry.id})`);
     }
+
+    this.autocomplete = new TuiAutocompleteProvider(
+      stateSnapshot.cwd ?? null,
+      findFd(),
+      () => {
+        this.hintText.setText(
+          theme.fg("dim", "install fd for @ file completion"),
+        );
+        this.ui.requestRender();
+      },
+    );
+    this.editor.setAutocompleteProvider(this.autocomplete);
+    // The command list arrives when this read resolves; until then the popup
+    // shows only the local commands.
+    void client.request({ type: "initialization-result" }).then(
+      (data) => {
+        const init = data as SDKControlInitializeResponse;
+        this.autocomplete.setCommands(init.commands);
+      },
+      (error: unknown) => {
+        this.addBanner(`command list fetch failed: ${String(error)}`);
+        this.ui.requestRender();
+      },
+    );
+
     this.syncActivity();
+  }
+
+  /** Record a mode sighting for the shift+tab cycle without making it current. */
+  private observePermissionMode(mode: PermissionMode): void {
+    if (!this.observedPermissionModes.includes(mode)) {
+      this.observedPermissionModes.push(mode);
+    }
+  }
+
+  /** The mode is current: track it, record the sighting, update the footer. */
+  private notePermissionMode(mode: PermissionMode): void {
+    this.permissionMode = mode;
+    this.observePermissionMode(mode);
+    this.footer.setPermissionMode(mode);
   }
 
   handleEvent(event: SdkEvent): void {
@@ -184,7 +265,7 @@ class InteractiveMode {
         if (event.request.type === "set-model") {
           this.footer.setModel(event.request.model ?? "default");
         } else if (event.request.type === "set-permission-mode") {
-          this.footer.setPermissionMode(event.request.mode);
+          this.notePermissionMode(event.request.mode);
         }
         break;
       case "sdkMessage":
@@ -248,7 +329,17 @@ class InteractiveMode {
         if (message.subtype === "init") {
           this.footer.setModel(message.model);
           this.footer.setSessionId(message.session_id);
-          this.footer.setPermissionMode(message.permissionMode);
+          this.notePermissionMode(message.permissionMode);
+        } else if (message.subtype === "status") {
+          // Mode changes not initiated over sdk.sock (e.g. plan transitions).
+          if (message.permissionMode !== undefined) {
+            this.notePermissionMode(message.permissionMode);
+          }
+        } else if (message.subtype === "commands_changed") {
+          this.autocomplete.setCommands(message.commands);
+        } else if (message.subtype === "local_command_output") {
+          // The CLI's own rendering; plain Text so embedded ANSI passes through.
+          this.chatContainer.addChild(new Text(message.content, 1, 1));
         } else if (message.subtype === "compact_boundary") {
           this.addBanner("context compacted");
         } else if (message.subtype === "notification") {
@@ -263,7 +354,7 @@ class InteractiveMode {
         ) {
           this.addBanner(message.content, "error");
         }
-        // Other system subtypes (status, session_state_changed, hook and task
+        // Other system subtypes (session_state_changed, hook and task
         // lifecycle, …) are operational chatter with no transcript content.
         break;
       }
@@ -306,6 +397,15 @@ class InteractiveMode {
       return;
     }
     this.editor.addToHistory(text);
+    const modelCommand = parseModelCommand(text);
+    if (modelCommand !== null) {
+      if (modelCommand.model === undefined) {
+        this.openModelSelector();
+      } else {
+        this.sendSetModel(modelCommand.model);
+      }
+      return;
+    }
     // The queued echo comes back as a userMessageQueued event; nothing is
     // rendered here.
     void this.client
@@ -316,9 +416,66 @@ class InteractiveMode {
       });
   }
 
+  private sendSetModel(model: string): void {
+    // No optimistic footer update: it follows from the controlApplied event.
+    void this.client
+      .request({ type: "set-model", model })
+      .catch((error: unknown) => {
+        this.addBanner(`set-model failed: ${String(error)}`, "error");
+        this.ui.requestRender();
+      });
+  }
+
+  private openModelSelector(): void {
+    if (this.modelSelector !== undefined || this.modelSelectorPending) {
+      return;
+    }
+    this.modelSelectorPending = true;
+    void this.client.request({ type: "supported-models" }).then(
+      (data) => {
+        this.modelSelectorPending = false;
+        const selector = new ModelSelectorComponent(
+          data as ModelInfo[],
+          (model) => {
+            this.closeModelSelector();
+            this.sendSetModel(model.value);
+          },
+          () => this.closeModelSelector(),
+        );
+        this.modelSelector = selector;
+        this.statusContainer.addChild(selector);
+        this.ui.setFocus(selector);
+        this.ui.requestRender();
+      },
+      (error: unknown) => {
+        this.modelSelectorPending = false;
+        this.addBanner(`supported-models failed: ${String(error)}`, "error");
+        this.ui.requestRender();
+      },
+    );
+  }
+
+  private closeModelSelector(): void {
+    if (this.modelSelector === undefined) {
+      return;
+    }
+    this.statusContainer.removeChild(this.modelSelector);
+    this.modelSelector = undefined;
+    this.ui.setFocus(this.editor);
+    this.ui.requestRender();
+  }
+
   private handleGlobalKey(data: string): { consume: boolean } | undefined {
-    if (matchesKey(data, "escape") && isBusy(this.assistantState)) {
+    if (
+      matchesKey(data, "escape") &&
+      isBusy(this.assistantState) &&
+      this.modelSelector === undefined // an open menu owns escape (cancel)
+    ) {
       void this.client.request({ type: "interrupt" }).catch(() => {});
+      return { consume: true };
+    }
+    if (matchesKey(data, "shift+tab")) {
+      this.cyclePermissionMode();
       return { consume: true };
     }
     if (matchesKey(data, "ctrl+c")) {
@@ -339,6 +496,29 @@ class InteractiveMode {
     }
     this.hintText.setText("");
     return undefined;
+  }
+
+  private cyclePermissionMode(): void {
+    const cycle: PermissionMode[] = [];
+    for (const mode of [
+      "default" as const,
+      "acceptEdits" as const,
+      "plan" as const,
+      ...this.observedPermissionModes,
+    ]) {
+      if (!cycle.includes(mode)) {
+        cycle.push(mode);
+      }
+    }
+    const current = this.permissionMode ?? "default";
+    const next = cycle[(cycle.indexOf(current) + 1) % cycle.length]!;
+    // No optimistic footer update: it follows from the controlApplied event.
+    void this.client
+      .request({ type: "set-permission-mode", mode: next })
+      .catch((error: unknown) => {
+        this.addBanner(`set-permission-mode failed: ${String(error)}`, "error");
+        this.ui.requestRender();
+      });
   }
 
   private syncActivity(): void {

@@ -340,11 +340,80 @@ review notes referencing `/context` interception reflect the pre-drop spec.
 
 Tasks:
 
-- [ ] StateSnapshot extension + daemon tracked state (+ tests)
-- [ ] `src/tui/autocomplete.ts` (findFd, TuiAutocompleteProvider) (+ merge
+- [x] StateSnapshot extension + daemon tracked state (+ tests)
+- [x] `src/tui/autocomplete.ts` (findFd, TuiAutocompleteProvider) (+ merge
       tests)
-- [ ] `src/tui/components/model-selector.ts`
-- [ ] interactive-mode wiring (startup read, /model interception, new system
+- [x] `src/tui/components/model-selector.ts`
+- [x] interactive-mode wiring (startup read, /model interception, new system
       subcases, shift+tab, focus)
-- [ ] footer unconditional mode display
-- [ ] presubmit green
+- [x] footer unconditional mode display
+- [x] presubmit green
+
+### 2026-07-08 — implementation
+
+All tasks implemented; presubmit green (88 tests). Live check (isolated
+CLAUCTL_DIR, no query sent so no API spend): spawn → `set-permission-mode
+plan` → `set-permission-mode acceptEdits` → tail snapshot shows
+`permissionMode: "acceptEdits"`,
+`observedPermissionModes: ["plan", "acceptEdits"]` (first-observed order),
+and `cwd` seeded from the registry record; `model` correctly absent before
+the first init. Interactive TUI behaviors (popup, `/model` menu, shift+tab)
+still need a hands-on check — remember the `dist/` rebuild if testing via
+the installed `clauctl`.
+
+New files:
+`src/tui/autocomplete.ts`, `src/tui/components/model-selector.ts`, plus tests
+`src/tui/autocomplete.test.ts` and `src/tui/interactive-mode.test.ts`.
+Modified: `sdk-socket.ts` (StateSnapshot), `daemon.ts` (tracked state),
+`interactive-mode.ts` (wiring), `footer.ts` (unconditional mode).
+
+### 2026-07-08 — post-implementation review (pictl reviewer)
+
+A fresh read-only reviewer reviewed the implementation diff against the SPEC
+section, coding standards, and for clarity. Two high-confidence findings,
+both accepted and fixed:
+
+- Footer blank when model/mode unknown (pre-init, or pre-extension daemon)
+  despite "shown unconditionally": the TUI now seeds
+  `model ?? "default"` / `permissionMode ?? "default"` from the snapshot —
+  the same unknown→`default` convention the shift+tab cycle uses; the first
+  init corrects both. (Display convention in the TUI, not daemon state: the
+  daemon cannot know a settings `defaultMode` pre-init.)
+- `/model` double-submit race: two bare `/model` submits before
+  `supported-models` resolved could open two selectors; a
+  `modelSelectorPending` flag now guards the window.
+
+Declined (reviewer concurred, approved): shift+tab guard while the menu is
+open (global shortcut by design), quoted-`@"` hint detection (one-shot hint
+fires on the first bare `@`), `SDK_SOCKET_VERSION` bump (additive optional
+fields only), `get(...)!` hardening and a variable rename (locally-evident).
+
+## Implementation-Time Decisions
+
+- **`parseModelCommand` exported from `interactive-mode.ts`** — the type
+  design said "no new exports" there, but the success criteria require unit
+  tests for the `/model` interception parsing; a non-exported function cannot
+  be tested. Exported as a pure function, tested in
+  `interactive-mode.test.ts`. (Deviation from the approved type design —
+  flagged for user review.)
+- **Merge/shadowing tested through `getSuggestions`** — no exported merge
+  helper; the tests drive `TuiAutocompleteProvider` the way the Editor does
+  (a `/` prefix at the cursor), which also exercises the delegation to
+  `CombinedAutocompleteProvider`.
+- **Daemon tracked state has no direct unit test** — it is private to
+  `runDaemon` with no exported surface, and the repo has no daemon
+  integration harness. The success criteria's testing requirement names only
+  the two pure-logic pieces (merge/shadowing, parsing), both covered.
+  Verification of the snapshot fields is a live-check item.
+- **`initialization-result` fetch failure shows a banner** — the spec pins
+  failure behavior only for `supported-models`/`set-model`/
+  `set-permission-mode`; silently losing the command list seemed worse than a
+  dim "command list fetch failed" banner.
+- **Escape with the model menu open never interrupts** — the global
+  escape-while-busy → interrupt handler skips when the selector is open, so
+  escape always means "cancel the menu" there (menu takes focus; global
+  listeners run first, so without the guard a busy assistant would swallow
+  the cancel).
+- **fd hint fires on `@` whenever fd is missing, regardless of cwd** — per
+  the type-design comment ("when an @-prefix is requested with fdPath
+  null"); the cwd-null-no-hint clause covers the fd-present case.
