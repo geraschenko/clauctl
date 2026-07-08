@@ -465,6 +465,7 @@ class InteractiveMode {
     this.ui.requestRender();
   }
 
+  // TDC: What is the meaning of the return value of this function? What does `consume` mean? Who uses it?
   private handleGlobalKey(data: string): { consume: boolean } | undefined {
     if (
       matchesKey(data, "escape") &&
