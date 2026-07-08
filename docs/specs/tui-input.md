@@ -2,8 +2,8 @@
 
 > Status: **draft**. Builds on `docs/specs/tui.md` (phase 3): the TUI is a pure
 > `sdk.sock` client. This phase adds the input-side affordances: a completion
-> popup for slash commands (including skills) and `@` file insertion, local
-> `/model` and `/context` commands, and permission-mode display + cycling.
+> popup for slash commands (including skills) and `@` file insertion, a local
+> `/model` command, and permission-mode display + cycling.
 
 ## SPEC (stable requirements)
 
@@ -28,19 +28,20 @@ the input experience to parity with `claude` for these features.
   `initialization-result` read, and **replaced** whenever a
   `system/commands_changed` message arrives (the SDK never updates the
   initialize-time list in place).
-- Our local commands `/model` and `/context` appear in the popup too,
-  shadowing same-named entries from the SDK list. SDK command `aliases` are
-  ignored for completion (pi-tui's `SlashCommand` has no alias concept; a
-  typed alias still works — the CLI resolves it, and local interception
-  happens at submit time regardless of the completion list).
-- Submitting any slash command other than the locally intercepted `/model` and
-  `/context` sends it to the agent as ordinary query text — the claude CLI
-  processes slash commands in user input. The daemon's existing `/compact`
+- Our local command `/model` appears in the popup too, shadowing a same-named
+  entry from the SDK list. SDK command `aliases` are ignored for completion
+  (pi-tui's `SlashCommand` has no alias concept; a typed alias still works —
+  the CLI resolves it, and local interception happens at submit time
+  regardless of the completion list).
+- Submitting any slash command other than the locally intercepted `/model`
+  sends it to the agent as ordinary query text — the claude CLI processes
+  slash commands in user input. In particular `/context` needs no local
+  implementation: the CLI executes it and its own rendering comes back (see
+  next bullet); verified out of the box. The daemon's existing `/compact`
   special-case is unchanged.
 - Output of local CLI commands arrives as `system/local_command_output`
   messages; the TUI renders their `content` in the transcript as plain `Text`
   (no markdown; any embedded ANSI passes through).
-  TDC: Whoa, this means we actually don't need to implement /context ... the default output actually already looks great. Nice!
 
 **`@` file insertion**
 
@@ -70,18 +71,6 @@ the input experience to parity with `claude` for these features.
   select/cancel.
 - A failed `supported-models` read or `set-model` request shows an error
   banner and restores editor focus; the footer is never updated optimistically.
-
-**`/context` and `/context all`**
-
-- Submitting `/context` renders the agent's context usage into the transcript,
-  styled after `claude`'s `/context`: the colored square grid (from the
-  response's pre-computed `gridRows`), the per-category token table, totals and
-  percentage. `/context all` additionally lists the detailed sections (memory
-  files, MCP tools, system tools/prompt sections, skills, agents, message
-  breakdown) when present in the response.
-- Data comes from the existing `get-context-usage` read. A failed read shows an
-  error banner. Any other `/context <arg>` shows a usage hint banner and sends
-  nothing.
 
 **Permission mode: display and shift+tab cycling**
 
@@ -183,23 +172,11 @@ export class ModelSelectorComponent extends Container implements Focusable {
 }
 ```
 
-**`src/tui/context-usage.ts`** (new):
-
-```ts
-export function formatContextUsage(
-  usage: SDKControlGetContextUsageResponse,
-  all: boolean,
-): string;
-```
-
-Pure formatter; `interactive-mode.ts` renders the result as a transcript
-`Text`.
-
 **`src/tui/interactive-mode.ts`** — no new exports. Startup
-`initialization-result` read; `submit()` interception for `/model` and
-`/context`; new `system` subcases (`local_command_output`, `status`,
-`commands_changed`); shift+tab in `handleGlobalKey`; model-selector focus
-handling; autocomplete provider wiring (`editor.setAutocompleteProvider`).
+`initialization-result` read; `submit()` interception for `/model`; new
+`system` subcases (`local_command_output`, `status`, `commands_changed`);
+shift+tab in `handleGlobalKey`; model-selector focus handling; autocomplete
+provider wiring (`editor.setAutocompleteProvider`).
 
 **`src/tui/components/footer.ts`** — render change only: permission mode shown
 unconditionally.
@@ -214,17 +191,16 @@ unconditionally.
   the advisory hint appears instead (once).
 - `/model` opens a menu of real models; selecting one updates the footer and
   persists (visible in `agent.json` per DECISION-5).
-- `/context` output closely follows `claude`'s layout (grid + category
-  table; best-effort approximation, not golden-output parity); `/context all`
-  shows the detail sections.
+- `/context` (and `/context all`) submitted as text renders the CLI's own
+  output in the transcript via `local_command_output` — no local
+  implementation.
 - The footer always shows the permission mode; shift+tab cycles through the
   canonical trio plus observed modes, and the change is visible to other
   subscribers (`clauctl tail` shows `controlApplied`).
 - Attaching to a running agent seeds model/mode/cwd from the snapshot alone
   (the startup `initialization-result` read serves only the command list).
-- `npm run presubmit` passes; new pure logic (`formatContextUsage`, provider
-  command-merging/shadowing, `/model`–`/context` interception parsing) has
-  unit tests.
+- `npm run presubmit` passes; new pure logic (provider
+  command-merging/shadowing, `/model` interception parsing) has unit tests.
 
 ### Non-goals
 
@@ -260,22 +236,12 @@ unconditionally.
   triggers regardless of the provider (provider triggers are additive, not
   replacing). `#` simply yields no popup because
   `CombinedAutocompleteProvider` has no `#` handling and returns null.
-- **`getContextUsage` response**: `categories` (name/tokens/color),
-  `totalTokens`, `maxTokens`, `percentage`, `gridRows` (pre-computed colored
-  grid), `memoryFiles`, `mcpTools`, `systemTools?`, `systemPromptSections?`,
-  `agents`, `skills?`, `slashCommands?`, `messageBreakdown?`, `apiUsage`.
-  Colors arrive as names/hex from the SDK; map through our theme only if they
-  clash with the dark palette (start by using them as-is via pi-tui color
-  utilities).
-- **Shadowing local commands**: merge = SDK list minus entries named
-  `model`/`context`, plus our two local `SlashCommand` entries with our
-  descriptions (`/model` — "select the agent's model interactively",
-  `/context [all]` — "show context usage").
+- **Shadowing the local command**: merge = SDK list minus any entry named
+  `model`, plus our local `SlashCommand` entry with our description
+  (`/model` — "select the agent's model interactively").
 - **Interception parsing**: first whitespace-delimited token of the submitted
-  text, exact (case-sensitive) match against `/model` / `/context`; the
-  argument is the trimmed remainder. `/context`'s argument must be exactly
-  `all` after trimming (so `/context   all` works; anything else is the usage
-  banner).
+  text, exact (case-sensitive) match against `/model`; the argument is the
+  trimmed remainder.
 - **Daemon `status` handling**: `handleMessage` currently ignores `status`;
   the tracked-state update must not disturb the assistant-state fold (which
   also sees the message via the EventBus).
@@ -361,14 +327,24 @@ applied:
 Declined: golden-output parity for `/context` (churn for no benefit); an
 exported permission-cycle helper (already resolved — stays inline).
 
+### 2026-07-08 — `/context` dropped from local commands
+
+Empirically verified (by the user): submitting `/context` as query text
+already produces claude's own rendering via `local_command_output` —
+"looks great" out of the box. So the entire local `/context` implementation
+(`src/tui/context-usage.ts`, `formatContextUsage`, the `get-context-usage`
+read from the TUI, arg parsing) was removed from the SPEC before
+implementation started. Only `/model` needs local interception (its claude
+counterpart is interactive, which cannot ride the text path). The prior
+review notes referencing `/context` interception reflect the pre-drop spec.
+
 Tasks:
 
 - [ ] StateSnapshot extension + daemon tracked state (+ tests)
 - [ ] `src/tui/autocomplete.ts` (findFd, TuiAutocompleteProvider) (+ merge
       tests)
 - [ ] `src/tui/components/model-selector.ts`
-- [ ] `src/tui/context-usage.ts` (+ format tests)
-- [ ] interactive-mode wiring (startup read, interception, new system
+- [ ] interactive-mode wiring (startup read, /model interception, new system
       subcases, shift+tab, focus)
 - [ ] footer unconditional mode display
 - [ ] presubmit green
