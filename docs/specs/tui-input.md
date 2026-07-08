@@ -40,6 +40,7 @@ the input experience to parity with `claude` for these features.
 - Output of local CLI commands arrives as `system/local_command_output`
   messages; the TUI renders their `content` in the transcript as plain `Text`
   (no markdown; any embedded ANSI passes through).
+  TDC: Whoa, this means we actually don't need to implement /context ... the default output actually already looks great. Nice!
 
 **`@` file insertion**
 
