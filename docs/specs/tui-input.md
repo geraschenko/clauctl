@@ -56,6 +56,8 @@ the input experience to parity with `claude` for these features.
   fetched fresh on each open. Selecting sends a `set-model` request; Esc
   cancels. The footer model indicator updates via the resulting
   `controlApplied` event (no optimistic local update).
+- Submitting `/model <arg>` sends `set-model` with `<arg>` directly (claude
+  parity), no menu.
 - The menu takes keyboard focus while open and returns it to the editor on
   select/cancel.
 
@@ -223,9 +225,6 @@ unconditionally.
   render; the provider starts with only the local commands and gains the SDK
   list when the read resolves. No gating needed — completion before the read
   resolves just shows the local commands.
-- **`/model <arg>`**: claude sets the model directly when given an argument.
-  Undecided for us — see WORK LOG question; the spec covers only bare
-  `/model`.
 - **Focus management**: pi-tui `TUI.setFocus`; the model selector is appended
   near the editor (statusContainer region), focused, and removed on
   select/cancel with focus returned to the editor. pi's own dialogs follow
@@ -301,15 +300,12 @@ Findings that shaped the SPEC section:
   hex→RGB color handling internally (terminal-colors.ts) for the /context
   grid colors.
 
-Open questions for review:
+Open questions, resolved at review (2026-07-08):
 
-- [ ] `/model <arg>`: send `set-model` directly (claude parity), or usage
-      banner? Spec currently covers only bare `/model`.
-      TDC: sure, let's do claude parity
-- [ ] Should the pure shift+tab cycle computation be an exported helper (unit
-      testable) or stay inline in `interactive-mode.ts`? Type design as
-      approved has it inline.
-      TDC: either way is fine by me. We can keep it inline unless you really want to unit test it.
+- [x] `/model <arg>`: claude parity — sends `set-model` with the argument
+      directly. Added to SPEC.
+- [x] shift+tab cycle computation stays inline in `interactive-mode.ts`; the
+      dedupe is trivial enough not to warrant an exported helper.
 
 Tasks:
 
