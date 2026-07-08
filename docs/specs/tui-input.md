@@ -29,13 +29,17 @@ the input experience to parity with `claude` for these features.
   `system/commands_changed` message arrives (the SDK never updates the
   initialize-time list in place).
 - Our local commands `/model` and `/context` appear in the popup too,
-  shadowing same-named entries from the SDK list.
+  shadowing same-named entries from the SDK list. SDK command `aliases` are
+  ignored for completion (pi-tui's `SlashCommand` has no alias concept; a
+  typed alias still works — the CLI resolves it, and local interception
+  happens at submit time regardless of the completion list).
 - Submitting any slash command other than the locally intercepted `/model` and
   `/context` sends it to the agent as ordinary query text — the claude CLI
   processes slash commands in user input. The daemon's existing `/compact`
   special-case is unchanged.
 - Output of local CLI commands arrives as `system/local_command_output`
-  messages; the TUI renders their `content` in the transcript.
+  messages; the TUI renders their `content` in the transcript as plain `Text`
+  (no markdown; any embedded ANSI passes through).
 
 **`@` file insertion**
 
@@ -53,13 +57,18 @@ the input experience to parity with `claude` for these features.
 
 - Submitting `/model` (bare) opens an interactive menu built on pi-tui's
   `SelectList`, listing `supported-models` (display name + description),
-  fetched fresh on each open. Selecting sends a `set-model` request; Esc
-  cancels. The footer model indicator updates via the resulting
-  `controlApplied` event (no optimistic local update).
-- Submitting `/model <arg>` sends `set-model` with `<arg>` directly (claude
-  parity), no menu.
+  fetched fresh on each open. Selecting sends
+  `{ type: "set-model", model: selected.value }` (the `ModelInfo.value` API
+  identifier, not the display name); Esc cancels. The footer model indicator
+  updates via the resulting `controlApplied` event (no optimistic local
+  update).
+- Submitting `/model <arg>` sends `set-model` with `<arg>` — the trimmed
+  remainder after the command token, verbatim — directly (claude parity), no
+  menu.
 - The menu takes keyboard focus while open and returns it to the editor on
   select/cancel.
+- A failed `supported-models` read or `set-model` request shows an error
+  banner and restores editor focus; the footer is never updated optimistically.
 
 **`/context` and `/context all`**
 
@@ -87,7 +96,9 @@ the input experience to parity with `claude` for these features.
   `clauctl set-permission-mode`), in first-observed order. Cycling from the
   current mode (treated as `default` when unknown) sends a
   `set-permission-mode` request; the footer updates via the `controlApplied`
-  event.
+  event (no optimistic update). A failed request (e.g. `bypassPermissions`
+  without the dangerous-skip capability) shows an error banner and leaves the
+  footer unchanged.
 - The TUI also updates the mode from `system/status` messages carrying
   `permissionMode` (mode changes not initiated over sdk.sock, e.g. plan-mode
   transitions).
@@ -96,17 +107,22 @@ the input experience to parity with `claude` for these features.
 
 - `StateSnapshot` gains `model`, `permissionMode`, `observedPermissionModes`,
   and `cwd` (all optional), so an attaching TUI is seeded without extra reads
-  and stays close to stateless. The daemon tracks them from the stream and its
+  and stays close to stateless. The daemon tracks them in a local state record
+  (separate from the persisted agent record — nothing here feeds back into
+  `agent.json` or session-path derivation), updated from the stream and its
   own mutations:
   - `model`: `system/init` `model`; overwritten by `set-model` mutations
-    (`undefined` model → the daemon records the mode as unset; the TUI
+    (`undefined` model → the daemon records the model as unset; the TUI
     displays "default").
   - `permissionMode`: `system/init` `permissionMode`, `system/status`
     `permissionMode`, and `set-permission-mode` mutations.
   - `observedPermissionModes`: every value `permissionMode` has taken, in
-    first-observed order.
-  - `cwd`: the registry record's cwd, overwritten from each `system/init`
-    (inits recur on respawn; the stream is the source of truth even though the
+    first-observed order — **daemon-process lifetime only**, not persisted
+    across daemon restarts (a restarted daemon re-observes its starting mode
+    from `init`).
+  - `cwd`: seeded from the registry record's cwd at daemon start (so the
+    snapshot always carries it), overwritten from each `system/init` (inits
+    recur on respawn; the stream is the source of truth even though the
     values should always agree).
 
 ### Type design (approved)
@@ -136,7 +152,9 @@ the snapshot.
 export function findFd(): string | null; // PATH lookup: fd, then fdfind
 
 export class TuiAutocompleteProvider implements AutocompleteProvider {
-  constructor(cwd: string, fdPath: string | null, onAtWithoutFd: () => void);
+  // cwd null (snapshot from a pre-extension daemon) disables @ completion
+  // the same way a missing fd does, minus the hint.
+  constructor(cwd: string | null, fdPath: string | null, onAtWithoutFd: () => void);
   setCommands(commands: SlashCommand[]): void; // merges local /model, /context
   // getSuggestions / applyCompletion / shouldTriggerFileCompletion /
   // triggerCharacters delegate to an inner CombinedAutocompleteProvider
@@ -146,8 +164,9 @@ export class TuiAutocompleteProvider implements AutocompleteProvider {
 ```
 
 (`AutocompleteProvider`, `CombinedAutocompleteProvider`, `SlashCommand` are
-pi-tui exports; the SDK's `SlashCommand` — `name`, `description`,
-`argumentHint` — maps field-for-field onto pi-tui's.)
+pi-tui exports; the SDK's `SlashCommand` fields we use — `name`,
+`description`, `argumentHint` — map onto pi-tui's shape. SDK `aliases` are
+ignored as specified above.)
 
 **`src/tui/components/model-selector.ts`** (new), built on pi-tui `SelectList`:
 
@@ -194,15 +213,17 @@ unconditionally.
   the advisory hint appears instead (once).
 - `/model` opens a menu of real models; selecting one updates the footer and
   persists (visible in `agent.json` per DECISION-5).
-- `/context` output matches `claude`'s layout for the same session (grid +
-  category table); `/context all` shows the detail sections.
+- `/context` output closely follows `claude`'s layout (grid + category
+  table; best-effort approximation, not golden-output parity); `/context all`
+  shows the detail sections.
 - The footer always shows the permission mode; shift+tab cycles through the
   canonical trio plus observed modes, and the change is visible to other
   subscribers (`clauctl tail` shows `controlApplied`).
-- Attaching to a running agent seeds model/mode/cwd from the snapshot with no
-  extra socket reads.
+- Attaching to a running agent seeds model/mode/cwd from the snapshot alone
+  (the startup `initialization-result` read serves only the command list).
 - `npm run presubmit` passes; new pure logic (`formatContextUsage`, provider
-  command-merging) has unit tests.
+  command-merging/shadowing, `/model`–`/context` interception parsing) has
+  unit tests.
 
 ### Non-goals
 
@@ -234,9 +255,10 @@ unconditionally.
   --hidden --exclude .git <pattern>`, `--full-path` when the query contains
   `/`; results re-ranked (exact filename 100 / prefix 80 / name-substring 50 /
   path-substring 30 / +10 dir), top 20 shown.
-- **Trigger characters**: pi-tui's Editor default is `["@", "#"]`; the
-  provider's `triggerCharacters` should be `["@"]` for us (`#` is a pi
-  memory-file convention with no clauctl meaning).
+- **Trigger characters**: pi-tui's Editor keeps its default `["@", "#"]`
+  triggers regardless of the provider (provider triggers are additive, not
+  replacing). `#` simply yields no popup because
+  `CombinedAutocompleteProvider` has no `#` handling and returns null.
 - **`getContextUsage` response**: `categories` (name/tokens/color),
   `totalTokens`, `maxTokens`, `percentage`, `gridRows` (pre-computed colored
   grid), `memoryFiles`, `mcpTools`, `systemTools?`, `systemPromptSections?`,
@@ -249,7 +271,10 @@ unconditionally.
   descriptions (`/model` — "select the agent's model interactively",
   `/context [all]` — "show context usage").
 - **Interception parsing**: first whitespace-delimited token of the submitted
-  text, exact match against `/model` / `/context`.
+  text, exact (case-sensitive) match against `/model` / `/context`; the
+  argument is the trimmed remainder. `/context`'s argument must be exactly
+  `all` after trimming (so `/context   all` works; anything else is the usage
+  banner).
 - **Daemon `status` handling**: `handleMessage` currently ignores `status`;
   the tracked-state update must not disturb the assistant-state fold (which
   also sees the message via the EventBus).
@@ -306,6 +331,34 @@ Open questions, resolved at review (2026-07-08):
       directly. Added to SPEC.
 - [x] shift+tab cycle computation stays inline in `interactive-mode.ts`; the
       dedupe is trivial enough not to warrant an exported helper.
+
+### 2026-07-08 — fresh-context review (pictl reviewer)
+
+A read-only reviewer agent reviewed the spec pre-implementation. Accepted and
+applied:
+
+- SDK `SlashCommand.aliases` has no pi-tui counterpart → aliases ignored for
+  completion; interception at submit time makes alias collisions moot (SPEC).
+- "records the mode as unset" typo → "model" (SPEC).
+- Failure behavior specified for `supported-models`/`set-model`/
+  `set-permission-mode`: error banner, focus restored, no optimistic footer
+  update (SPEC).
+- `/model` selection payload pinned to `ModelInfo.value` (SPEC).
+- Snapshot `cwd` guaranteed present from new daemons (seeded from the registry
+  record at daemon start); provider takes `cwd: string | null` for
+  pre-extension daemons, null disabling `@` completion (SPEC + type design).
+- Daemon tracked state clarified as separate from the persisted agent record;
+  `observedPermissionModes` scoped to daemon-process lifetime (SPEC).
+- Trigger-character note corrected: pi-tui keeps `@`/`#` defaults; `#` yields
+  no popup because the provider returns null (IMPLEMENTATION IDEAS).
+- Interception parsing pinned: case-sensitive first token, trimmed remainder,
+  `/context` arg must be exactly `all` (IMPLEMENTATION IDEAS).
+- `local_command_output` rendered as plain `Text`, ANSI passes through (SPEC).
+- Success criteria: `/context` scoped to best-effort layout approximation;
+  "no extra reads" claim scoped to model/mode/cwd; parsing unit tests added.
+
+Declined: golden-output parity for `/context` (churn for no benefit); an
+exported permission-cycle helper (already resolved — stays inline).
 
 Tasks:
 
