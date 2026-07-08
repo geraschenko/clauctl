@@ -90,8 +90,8 @@ function signalReady(
 
 /**
  * The held-open input iterable behind `query({ prompt })`: turns pushed by
- * sdk.sock clients (and, until Phase 2, only by the daemon's own handlers) are
- * yielded to the SDK as they arrive; close() ends the stream.
+ * sdk.sock clients are yielded to the SDK as they arrive; close() ends the
+ * stream.
  */
 class TurnQueue implements AsyncIterable<SDKUserMessage> {
   private readonly pending: SDKUserMessage[] = [];
@@ -189,8 +189,9 @@ interface SdkConnection {
 
 /**
  * Where claude persists the session transcript: config dir + the project key
- * (cwd with every non-alphanumeric character replaced by '-'). Recorded for
- * Phase-3 tail; nothing in Phase 1 reads it back.
+ * (cwd with every non-alphanumeric character replaced by '-'). Recorded in
+ * the registry so the transcript is findable on disk; clauctl itself never
+ * reads it back.
  */
 function sessionFilePath(cwd: string, sessionId: string): string {
   const configDir = process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), ".claude");

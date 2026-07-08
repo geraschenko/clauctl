@@ -6,13 +6,18 @@
  */
 
 export type RenderBlock =
-// TDC: should user and assistant text be different variants?
   | { type: "text"; text: string }
   | { type: "thinking"; thinking: string }
   | { type: "toolCall"; id: string; name: string; arguments: unknown };
 
+/** pi-ai's StopReason; SDK stop reasons are mapped onto it in sdk-render.ts. */
+export type StopReason = "stop" | "length" | "toolUse" | "error" | "aborted";
+
 export interface RenderAssistant {
   content: RenderBlock[];
+  /** Absent while streaming (pi-ai's is required; partials have none here). */
+  stopReason?: StopReason;
+  errorMessage?: string;
 }
 
 export interface RenderToolResult {

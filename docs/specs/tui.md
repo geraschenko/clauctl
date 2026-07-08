@@ -281,7 +281,8 @@ components + `interactive-mode.ts` + `_tui` compile, lint, and pass
 - **assistant-message port drops the stopReason/error tail section**: our
   `RenderAssistant` has no stop reason; interrupt and turn-error banners
   are driven by `interruptSent`/`result` events in interactive-mode.
-  TDC: Why drop it? By default I'd expect to preserve everything, even if we don't display it.
+  _Superseded by the 2026-07-08 review resolution below: stopReason is now
+  preserved and the tail section is restored verbatim._
 - **theme.ts hardcodes pi's dark.json palette** behind pi's exact call-site
   API (`theme.fg/bg/bold/italic`, `getMarkdownTheme`), so ported code is
   line-for-line diffable; no theme system, no light mode this pass.
@@ -331,3 +332,42 @@ transcript and snapshot-seeded footer, and conversation continues.
   messages render a "context compacted" banner (the dispatch table's
   "compact boundary" row — previously only the `compactSent` half was
   handled); subagent indent guards against widths < 3.
+
+### 2026-07-08 — review comments (d24f349) resolved
+
+- **stopReason preserved** (TDC above): `RenderAssistant` gains
+  `stopReason?`/`errorMessage?` using pi-ai's names and `StopReason` union;
+  `sdk-render.ts` maps the API's `stop_reason` onto it (`refusal` →
+  `"error"` with an errorMessage, token/context limits → `"length"`).
+  The port's aborted/error tail section is restored verbatim — one listed
+  difference fewer. The API never reports aborted/errored turns per-message,
+  so today the tail renders only on `refusal`.
+- **pi-ai types not adopted**: pi-ai's `AssistantMessage` requires
+  request-metadata (`api`, `provider`, `usage` with costs, `timestamp`) the
+  converter would have to fabricate; matching field names in our own
+  render-types buys the same mirror-diffability without the dependency.
+- **No user/assistant text-variant split in `RenderBlock`**: user text never
+  enters `RenderBlock` (it reaches `UserMessageComponent` as a string via
+  `userText`), mirroring pi-ai's separate `UserMessage` type.
+- **Porting maintenance**: `scripts/update-ports.sh` (copies both pi tags'
+  files to a temp dir, formats them with our prettier so formatting noise
+  cancels, applies the old→new diff to our ports, bumps the header pins)
+  plus the `update-ports` skill (`.claude/skills/update-ports/`) documenting
+  the procedure and conflict policy. Ported files stay repo-formatted; no
+  treefmt exclusion. Verified against a real v0.80.2-fork.2 → v0.80.3 diff
+  (applies with one expected conflict in our modified header/import region).
+- **`controlApplied` now updates the footer**: `set-model` and
+  `set-permission-mode` reflect immediately; the footer also shows the
+  permission mode from `system`/`init` when it isn't `default`.
+- **More system subtypes render**: `notification`, `informational`
+  (level ≠ info), and the model-refusal fallback/no-fallback messages
+  render as banners (refusals in error color). Remaining variants are
+  operational chatter with no transcript content.
+- **`waitClosed` doc corrected**: the daemon closes sdk.sock only while
+  shutting the agent down, so only the detach path leaves the agent
+  running.
+- **Comment audit** (rejected-plan/future-plan comments) across `src/`:
+  removed the "not 'attach'" naming note, the stale phase-forward comments
+  in tail.ts/inspect.ts/daemon.ts, and "reserved in v1" phrasing in
+  options.ts; `_tui`'s route doc now describes the current role (internal
+  sdk.sock client) instead of the future pty/tty.sock wrapping.

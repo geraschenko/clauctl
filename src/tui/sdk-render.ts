@@ -10,7 +10,10 @@
  * a StreamingMessage is created at each `message_start`.
  */
 
-import type { BetaRawMessageStreamEvent } from "@anthropic-ai/sdk/resources/beta/messages/messages.mjs";
+import type {
+  BetaRawMessageStreamEvent,
+  BetaStopReason,
+} from "@anthropic-ai/sdk/resources/beta/messages/messages.mjs";
 import type {
   SDKAssistantMessage,
   SDKUserMessage,
@@ -19,6 +22,7 @@ import type {
   RenderAssistant,
   RenderBlock,
   RenderToolResult,
+  StopReason,
 } from "./render-types.ts";
 
 export interface StreamingMessage {
@@ -111,6 +115,36 @@ export function foldStreamEvent(
   }
 }
 
+/**
+ * Map the API stop reason onto pi-ai's StopReason so the ported components'
+ * stopReason handling applies unchanged. `refusal` is the only value that maps
+ * to a rendered variant ("error"); the API never reports aborted/errored turns
+ * per-message (those arrive as `result` / `interruptSent` events).
+ */
+function toStopReason(
+  stopReason: BetaStopReason | null,
+): { stopReason: StopReason; errorMessage?: string } | undefined {
+  switch (stopReason) {
+    case null:
+      return undefined;
+    case "end_turn":
+    case "stop_sequence":
+    case "pause_turn":
+    case "compaction":
+      return { stopReason: "stop" };
+    case "max_tokens":
+    case "model_context_window_exceeded":
+      return { stopReason: "length" };
+    case "tool_use":
+      return { stopReason: "toolUse" };
+    case "refusal":
+      return {
+        stopReason: "error",
+        errorMessage: "the model refused to continue (stop_reason: refusal)",
+      };
+  }
+}
+
 /** The authoritative render of a complete assistant API message. */
 export function renderAssistant(message: SDKAssistantMessage): RenderAssistant {
   const content: RenderBlock[] = [];
@@ -134,7 +168,7 @@ export function renderAssistant(message: SDKAssistantMessage): RenderAssistant {
         break;
     }
   }
-  return { content };
+  return { content, ...toStopReason(message.message.stop_reason) };
 }
 
 function toolResultText(content: unknown): string {

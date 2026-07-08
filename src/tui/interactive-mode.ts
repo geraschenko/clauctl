@@ -5,10 +5,6 @@
  * session trees, model registry, settings, auth) has no counterpart here.
  * All claude-specificity of *content* lives in sdk-render.ts; this file owns
  * layout, keybindings, and the SdkEvent → component dispatch.
- *
- * TDC: Don't put crap like this in comments. I don't want comments documenting rejected plans or future plans. Comments should document how the code is actually _currently_ organized, and only talk about alternatives when a developer reading the _current_ code would naturally ask why it's not shaped a different way. No developer would read "interactive mode" and ask "why isn't this called 'attach'". Do a thorough audit of the whole repo looking for comments like this; I want to get rid of them.
- * The name is "interactive mode", not "attach": `clauctl attach` is reserved
- * for the future tty.sock client (see docs/specs/tui.md, "Architecture").
  */
 
 import {
@@ -50,7 +46,7 @@ import {
   userText,
   type StreamingMessage,
 } from "./sdk-render.ts";
-import { getEditorTheme, theme } from "./theme.ts";
+import { getEditorTheme, theme, type ThemeColor } from "./theme.ts";
 
 const CTRL_C_EXIT_WINDOW_MS = 2_000;
 
@@ -61,8 +57,9 @@ const tuiFlags = {
 type TuiFlags = InferFlags<typeof tuiFlags>;
 
 /**
- * `clauctl _tui --sdk-socket <path>` — internal
- * Used by the daemon inside a pty and proxy the terminal bytes over tty.sock.
+ * `clauctl _tui --sdk-socket <path>` — the interactive terminal UI, a pure
+ * sdk.sock client. Underscore-hidden: internal plumbing, not part of the
+ * stable CLI surface.
  */
 export const tuiRoute = {
   _tui: commandNoTarget<TuiFlags>({
@@ -84,16 +81,15 @@ interface StreamingComponent {
  * Connect the TUI to a subscribed client. Owns the subscribe ordering: events
  * may be delivered before the snapshot promise settles (SdkSocketClient
  * contract), so they buffer in a closure until InteractiveMode exists — the
- * same gating `tail` does. Resolves on detach (double Ctrl+C) or when the
- * daemon closes the socket; the agent keeps running either way.
- * TDC: huh? The daemon should only close the socket if the agent is dead, right?
+ * same gating `tail` does. Resolves on detach (double Ctrl+C; the agent keeps
+ * running) or when the daemon closes the socket, which it only does while
+ * shutting the agent down.
  */
 export async function runInteractive(client: SdkSocketClient): Promise<void> {
   const buffered: SdkEvent[] = [];
   let handleEvent = (event: SdkEvent): void => {
     buffered.push(event);
   };
-  // TDC: "snapshot" and "mode" are terrible names. Why would you choose names that don't describe what they are?
   const stateSnapshot = await client.subscribe((event) => handleEvent(event));
   const ui = new TUI(new ProcessTerminal());
   const interactiveMode = new InteractiveMode(ui, client, stateSnapshot);
@@ -186,7 +182,11 @@ class InteractiveMode {
         this.addBanner("interrupted");
         break;
       case "controlApplied":
-        // TODO: update state appropriately (e.g. if model or permissions mode changed)
+        if (event.request.type === "set-model") {
+          this.footer.setModel(event.request.model ?? "default");
+        } else if (event.request.type === "set-permission-mode") {
+          this.footer.setPermissionMode(event.request.mode);
+        }
         break;
       case "sdkMessage":
         this.handleSdkMessage(event.message);
@@ -249,9 +249,23 @@ class InteractiveMode {
         if (message.subtype === "init") {
           this.footer.setModel(message.model);
           this.footer.setSessionId(message.session_id);
+          this.footer.setPermissionMode(message.permissionMode);
         } else if (message.subtype === "compact_boundary") {
           this.addBanner("context compacted");
+        } else if (message.subtype === "notification") {
+          this.addBanner(message.text);
+        } else if (message.subtype === "informational") {
+          if (message.level !== "info") {
+            this.addBanner(message.content);
+          }
+        } else if (
+          message.subtype === "model_refusal_fallback" ||
+          message.subtype === "model_refusal_no_fallback"
+        ) {
+          this.addBanner(message.content, "error");
         }
+        // Other system subtypes (status, session_state_changed, hook and task
+        // lifecycle, …) are operational chatter with no transcript content.
         break;
       }
       case "result": {
@@ -261,8 +275,9 @@ class InteractiveMode {
         break;
       }
       default:
-        // TODO: determine what other SDKMessage variants (status, hooks, task
-        // notifications, rate limits, …) should affect the UI.
+        // The remaining top-level variants (rate-limit and tool-progress
+        // bookkeeping, user-message replays, …) carry no transcript content;
+        // user-facing text arrives as one of the messages handled above.
         break;
     }
   }
@@ -283,8 +298,8 @@ class InteractiveMode {
     }
   }
 
-  private addBanner(text: string): void {
-    this.chatContainer.addChild(new Text(theme.fg("dim", text), 1, 1));
+  private addBanner(text: string, color: ThemeColor = "dim"): void {
+    this.chatContainer.addChild(new Text(theme.fg(color, text), 1, 1));
   }
 
   private submit(text: string): void {

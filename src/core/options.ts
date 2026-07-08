@@ -107,8 +107,8 @@ export type PersistedOptions = Pick<Options, PersistedOptionKey>;
 
 /**
  * The bucket-3 values the daemon applies on every (re)spawn (DECISION-8,
- * stream-shape invariants). `permissionPromptToolName` is reserved unset in v1
- * (the SDK throws if both it and canUseTool are set); the executable trio and
+ * stream-shape invariants). `permissionPromptToolName` stays unset (the SDK
+ * throws if both it and canUseTool are set); the executable trio and
  * loadTimeoutMs stay unset (SDK-bundled binary, default runtime); debug is
  * left to the SDK's own default (it self-selects a debug file).
  */

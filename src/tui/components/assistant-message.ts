@@ -1,16 +1,11 @@
 // Ported from pi coding-agent src/modes/interactive/components/assistant-message.ts @ 0.80.2-fork.2
 //
-// Differences from the pi original, kept minimal for mirror-diffing:
+// Differences from the pi original, kept minimal for mirror-diffing
+// (see scripts/update-ports.sh for the update procedure):
 // - consumes RenderAssistant (render-types.ts) instead of pi-ai's
-//   AssistantMessage — same block shapes, no usage/stopReason fields;
-// - the stopReason aborted/error tail section is dropped (interrupt and
-//   error rendering is driven by `result`/`interruptSent` events in
-//   interactive-mode.ts, not by per-message stop reasons);
+//   AssistantMessage — same block/field shapes, minus the request-metadata
+//   fields (usage, provider, …) that only exist in-process in pi;
 // - theme comes from ../theme.ts (fixed palette, same API).
-
-// TDC: Let's make a skill similar in spirit to /home/anton/git/earendil-works/pi/.pi/skills/pi-tee-rebase/SKILL.md with instructions for how to update these ported files. I'd like if we have a generation script which copies them over and applies our little patch, or something like that. Perhaps we should exclude these files from treefmt so that we don't get spurious whitespace diffs that cause headaches when updating. Maybe this is overkill given the small number ported files, but I think we're going to end up with more as we add in things like slash command management and file autocompletion.
-
-// TDC: We should consider using pi-ai's AssistantMessage (and other types) directly so that the diff here is even smaller. When pi runs with an Anthropic backend, it's not using the claude SDK, so pi-ai probably doesn't have exactly what we need, but we should have a look at /home/anton/git/earendil-works/pi/packages/ai/src/api/anthropic-messages.ts.
 
 import {
   Container,
@@ -67,6 +62,13 @@ export class AssistantMessageComponent extends Container {
 
   setHideThinkingBlock(hide: boolean): void {
     this.hideThinkingBlock = hide;
+    if (this.lastMessage) {
+      this.updateContent(this.lastMessage);
+    }
+  }
+
+  setHiddenThinkingLabel(label: string): void {
+    this.hiddenThinkingLabel = label;
     if (this.lastMessage) {
       this.updateContent(this.lastMessage);
     }
@@ -147,6 +149,31 @@ export class AssistantMessageComponent extends Container {
       }
     }
 
-    this.hasToolCalls = message.content.some((c) => c.type === "toolCall");
+    // Check if aborted - show after partial content
+    // But only if there are no tool calls (tool execution components will show the error)
+    const hasToolCalls = message.content.some((c) => c.type === "toolCall");
+    this.hasToolCalls = hasToolCalls;
+    if (!hasToolCalls) {
+      if (message.stopReason === "aborted") {
+        const abortMessage =
+          message.errorMessage && message.errorMessage !== "Request was aborted"
+            ? message.errorMessage
+            : "Operation aborted";
+        if (hasVisibleContent) {
+          this.contentContainer.addChild(new Spacer(1));
+        } else {
+          this.contentContainer.addChild(new Spacer(1));
+        }
+        this.contentContainer.addChild(
+          new Text(theme.fg("error", abortMessage), 1, 0),
+        );
+      } else if (message.stopReason === "error") {
+        const errorMsg = message.errorMessage || "Unknown error";
+        this.contentContainer.addChild(new Spacer(1));
+        this.contentContainer.addChild(
+          new Text(theme.fg("error", `Error: ${errorMsg}`), 1, 0),
+        );
+      }
+    }
   }
 }

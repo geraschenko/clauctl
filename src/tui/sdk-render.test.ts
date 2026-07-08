@@ -152,10 +152,13 @@ test("mismatched delta type for an existing block is ignored", () => {
   });
 });
 
-function assistantMessage(content: unknown[]): SDKAssistantMessage {
+function assistantMessage(
+  content: unknown[],
+  stopReason: string | null = null,
+): SDKAssistantMessage {
   return {
     type: "assistant",
-    message: { role: "assistant", content },
+    message: { role: "assistant", content, stop_reason: stopReason },
     parent_tool_use_id: null,
   } as unknown as SDKAssistantMessage;
 }
@@ -176,6 +179,26 @@ test("renderAssistant maps text/thinking/tool_use and drops the rest", () => {
       { type: "toolCall", id: "tu_1", name: "Read", arguments: { path: "x" } },
     ],
   });
+});
+
+test("renderAssistant maps API stop reasons onto pi-ai's StopReason", () => {
+  const text = [{ type: "text", text: "hi", citations: null }];
+  assert.equal(renderAssistant(assistantMessage(text)).stopReason, undefined);
+  assert.equal(
+    renderAssistant(assistantMessage(text, "end_turn")).stopReason,
+    "stop",
+  );
+  assert.equal(
+    renderAssistant(assistantMessage(text, "max_tokens")).stopReason,
+    "length",
+  );
+  assert.equal(
+    renderAssistant(assistantMessage(text, "tool_use")).stopReason,
+    "toolUse",
+  );
+  const refused = renderAssistant(assistantMessage(text, "refusal"));
+  assert.equal(refused.stopReason, "error");
+  assert.equal(typeof refused.errorMessage, "string");
 });
 
 function sdkUserMessage(content: string | unknown[]): SDKUserMessage {

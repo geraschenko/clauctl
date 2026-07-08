@@ -4,7 +4,6 @@
  * so ported code keeps its pi shape verbatim, but with a hardcoded dark
  * palette (pi's dark.json values) instead of pi's 1300-line theme system.
  */
-// TDC: Another option is to literally copy pi's theme system into a /generated/ subdirectory with a script that adds "DO NOT MODIFY" headers to all the files. However, it looks like the theme code depends on other stuff in pi-coding-agent's core. I think this is the better solution.
 
 import type { EditorTheme, MarkdownTheme } from "@earendil-works/pi-tui";
 

@@ -1,8 +1,8 @@
 /*
  * `clauctl list | status` — read-only inspection of the registry. Neither
- * revives dormant agents: a dead daemon is not garbage. Phase 1 is
- * registry-derived only (running/dormant/archived/tombstoned/corrupt); live
- * assistant-state probes arrive with the Phase-2 sdk.sock protocol.
+ * revives dormant agents: a dead daemon is not garbage. Everything shown is
+ * registry-derived (running/dormant/archived/tombstoned/corrupt); no live
+ * sdk.sock probing.
  */
 
 import { resolve } from "node:path";

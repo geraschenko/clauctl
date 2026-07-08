@@ -9,12 +9,14 @@ import {
   truncateToWidth,
   visibleWidth,
 } from "@earendil-works/pi-tui";
+import type { PermissionMode } from "@anthropic-ai/claude-agent-sdk";
 import type { AssistantState } from "../../core/assistant-state.ts";
 import { theme } from "../theme.ts";
 
 export class FooterComponent implements Component {
   private assistantState: AssistantState = { activity: "idle", queued: [] };
   private model?: string;
+  private permissionMode?: PermissionMode;
   private sessionId?: string;
 
   setAssistantState(state: AssistantState): void {
@@ -23,6 +25,10 @@ export class FooterComponent implements Component {
 
   setModel(model: string): void {
     this.model = model;
+  }
+
+  setPermissionMode(mode: PermissionMode): void {
+    this.permissionMode = mode;
   }
 
   setSessionId(sessionId: string): void {
@@ -39,6 +45,12 @@ export class FooterComponent implements Component {
     let left = parts.join(" • ");
 
     const rightParts: string[] = [];
+    if (
+      this.permissionMode !== undefined &&
+      this.permissionMode !== "default"
+    ) {
+      rightParts.push(this.permissionMode);
+    }
     if (this.model !== undefined) {
       rightParts.push(this.model);
     }
