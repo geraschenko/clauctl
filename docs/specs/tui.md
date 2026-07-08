@@ -281,6 +281,7 @@ components + `interactive-mode.ts` + `_tui` compile, lint, and pass
 - **assistant-message port drops the stopReason/error tail section**: our
   `RenderAssistant` has no stop reason; interrupt and turn-error banners
   are driven by `interruptSent`/`result` events in interactive-mode.
+  TDC: Why drop it? By default I'd expect to preserve everything, even if we don't display it.
 - **theme.ts hardcodes pi's dark.json palette** behind pi's exact call-site
   API (`theme.fg/bg/bold/italic`, `getMarkdownTheme`), so ported code is
   line-for-line diffable; no theme system, no light mode this pass.

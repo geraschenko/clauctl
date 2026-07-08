@@ -8,6 +8,10 @@
 //   interactive-mode.ts, not by per-message stop reasons);
 // - theme comes from ../theme.ts (fixed palette, same API).
 
+// TDC: Let's make a skill similar in spirit to /home/anton/git/earendil-works/pi/.pi/skills/pi-tee-rebase/SKILL.md with instructions for how to update these ported files. I'd like if we have a generation script which copies them over and applies our little patch, or something like that. Perhaps we should exclude these files from treefmt so that we don't get spurious whitespace diffs that cause headaches when updating. Maybe this is overkill given the small number ported files, but I think we're going to end up with more as we add in things like slash command management and file autocompletion.
+
+// TDC: We should consider using pi-ai's AssistantMessage (and other types) directly so that the diff here is even smaller. When pi runs with an Anthropic backend, it's not using the claude SDK, so pi-ai probably doesn't have exactly what we need, but we should have a look at /home/anton/git/earendil-works/pi/packages/ai/src/api/anthropic-messages.ts.
+
 import {
   Container,
   Markdown,
