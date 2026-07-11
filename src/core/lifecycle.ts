@@ -253,6 +253,7 @@ const archiveCommand = commandMultiTarget<TimeoutFlags>({
   common: true,
   docs: { brief: "stop politely, then hide from list" },
   parameters: { flags: timeoutFlags },
+  audited: true,
   func: archive,
 });
 

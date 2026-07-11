@@ -21,6 +21,8 @@ export interface CommandContext extends StricliCommandContext {
   env: NodeJS.ProcessEnv;
   /** Empty for targetMode none; length 1 for single; length >= 1 for multiple. */
   targets: AgentRecord[];
+  /** CLI argv as passed to runCliApp (subcommand and args, verbatim). */
+  argv: readonly string[];
 }
 
 const targetFlag = {

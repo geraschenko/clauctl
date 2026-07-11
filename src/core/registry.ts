@@ -1,6 +1,7 @@
 /**
  * The agent registry is a directory of agent dirs: $CLAUCTL_DIR/<agentId>/ with
- * agent.json (written only by the daemon), sdk.sock, daemon.log, and optionally
+ * agent.json (written only by the daemon), sdk.sock, daemon.log, the
+ * audit.jsonl/sources.jsonl audit logs (generated/audit.ts), and optionally
  * a tombstone file marking the dir for gc.
  */
 
@@ -197,6 +198,16 @@ export function reviveLockPath(agentDir: string): string {
 
 export function daemonLogPath(agentDir: string): string {
   return join(agentDir, "daemon.log");
+}
+
+/** Audited-command events, appended as JSONL (generated/audit.ts). */
+export function auditLogPath(agentDir: string): string {
+  return join(agentDir, "audit.jsonl");
+}
+
+/** Metadata for observed pid-based caller sources, appended as JSONL. */
+export function sourcesLogPath(agentDir: string): string {
+  return join(agentDir, "sources.jsonl");
 }
 
 export type AgentRecordReadResult =

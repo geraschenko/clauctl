@@ -11,6 +11,7 @@ import { resolve } from "node:path";
 import type { Readable } from "node:stream";
 import {
   commandNoTarget,
+  recordCommandAudit,
   restArgs,
   stringFlag,
   type InferFlags,
@@ -144,6 +145,10 @@ export async function spawn(
     }
     throw error;
   }
+
+  // spawn is audited but has no target: the agent dir only exists now, so
+  // it records its own audit event instead of using the `audited` marker.
+  await recordCommandAudit(this.env, this.argv, [agentDir]);
 
   await writeSpawnOptions(agentDir, {
     cwd,

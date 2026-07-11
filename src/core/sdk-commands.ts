@@ -69,9 +69,14 @@ async function sendRequest(
 }
 
 /** A target-taking subcommand whose request needs no arguments. */
-function bareRequestCommand(brief: string, request: SdkRequest) {
+function bareRequestCommand(
+  brief: string,
+  request: SdkRequest,
+  audited?: true,
+) {
   return commandOneTarget({
     docs: { brief },
+    ...(audited && { audited }),
     func: async function (this: CommandContext): Promise<void> {
       await sendRequest(this, request);
     },
@@ -400,10 +405,12 @@ export const sdkRoutes = {
         parameters: [stringArg("Turn text", "text")],
       },
     },
+    audited: true,
     func: queryCommand,
   }),
   interrupt: commandOneTarget({
     docs: { brief: "interrupt the current turn" },
+    audited: true,
     func: async function (this: CommandContext): Promise<void> {
       await sendRequest(this, { type: "interrupt" });
     },
@@ -411,6 +418,7 @@ export const sdkRoutes = {
   "set-model": commandOneTarget<SetModelFlags>({
     docs: { brief: "change the agent's model" },
     parameters: { flags: setModelFlags },
+    audited: true,
     func: setModel,
   }),
   "set-permission-mode": commandOneTarget<Record<never, never>, [string]>({
@@ -427,6 +435,7 @@ export const sdkRoutes = {
         ],
       },
     },
+    audited: true,
     func: setPermissionMode,
   }),
   "set-mcp-permission-mode-override": commandOneTarget<
@@ -447,6 +456,7 @@ export const sdkRoutes = {
         ],
       },
     },
+    audited: true,
     func: setMcpPermissionModeOverride,
   }),
   "set-max-thinking-tokens": commandOneTarget<
@@ -461,6 +471,7 @@ export const sdkRoutes = {
         parameters: [stringArg("Token count or 'clear'", "n|clear")],
       },
     },
+    audited: true,
     func: setMaxThinkingTokens,
   }),
   "apply-flag-settings": commandOneTarget<Record<never, never>, [string]>({
@@ -473,6 +484,7 @@ export const sdkRoutes = {
         ],
       },
     },
+    audited: true,
     func: applyFlagSettings,
   }),
   "set-mcp-servers": commandOneTarget<Record<never, never>, [string]>({
@@ -485,6 +497,7 @@ export const sdkRoutes = {
         ],
       },
     },
+    audited: true,
     func: setMcpServers,
   }),
   "toggle-mcp-server": commandOneTarget<Record<never, never>, [string, string]>(
@@ -503,6 +516,7 @@ export const sdkRoutes = {
           ],
         },
       },
+      audited: true,
       func: toggleMcpServer,
     },
   ),
@@ -514,6 +528,7 @@ export const sdkRoutes = {
         parameters: [stringArg("MCP server name", "server")],
       },
     },
+    audited: true,
     func: reconnectMcpServer,
   }),
   "stop-task": commandOneTarget<Record<never, never>, [string]>({
@@ -524,11 +539,13 @@ export const sdkRoutes = {
         parameters: [stringArg("Task id (from task_notification)", "task-id")],
       },
     },
+    audited: true,
     func: stopTask,
   }),
   "background-tasks": commandOneTarget<BackgroundTasksFlags>({
     docs: { brief: "background in-flight foreground tasks" },
     parameters: { flags: backgroundTasksFlags },
+    audited: true,
     func: backgroundTasks,
   }),
   "rewind-files": commandOneTarget<RewindFilesFlags, [string]>({
@@ -540,6 +557,7 @@ export const sdkRoutes = {
         parameters: [stringArg("User message UUID", "user-message-id")],
       },
     },
+    audited: true,
     func: rewindFiles,
   }),
   "seed-read-state": commandOneTarget<Record<never, never>, [string, string]>({
@@ -553,14 +571,19 @@ export const sdkRoutes = {
         ],
       },
     },
+    audited: true,
     func: seedReadState,
   }),
-  "reload-plugins": bareRequestCommand("reload plugins from disk", {
-    type: "reload-plugins",
-  }),
-  "reload-skills": bareRequestCommand("reload skills from disk", {
-    type: "reload-skills",
-  }),
+  "reload-plugins": bareRequestCommand(
+    "reload plugins from disk",
+    { type: "reload-plugins" },
+    true,
+  ),
+  "reload-skills": bareRequestCommand(
+    "reload skills from disk",
+    { type: "reload-skills" },
+    true,
+  ),
   "get-messages": bareRequestCommand(
     "print the transcript since the last compaction",
     { type: "get-messages" },

@@ -15,6 +15,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const SHARED_FILES = [
+  "audit.ts",
   "cli.ts",
   "completion.ts",
   "targets.ts",
@@ -36,7 +37,10 @@ function transform(source, fileName) {
   let out = source
     .replaceAll("pictl", "clauctl")
     .replaceAll("PICTL", "CLAUCTL")
-    .replaceAll("Pictl", "Clauctl");
+    .replaceAll("Pictl", "Clauctl")
+    // The agent-id env var pictl sets for its agents is named after pi, not
+    // pictl, so the renames above miss it.
+    .replaceAll("PI_AGENT_ID", "CLAUCTL_AGENT_ID");
   // generated/ sits one level below src/core/, so relative imports that point
   // outside the shared set gain a "../"; imports within the set stay "./".
   out = out.replace(/from "\.\/([^"]+)"/g, (match, imported) =>
