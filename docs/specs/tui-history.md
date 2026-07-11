@@ -47,11 +47,9 @@ queued messages themselves.
   output. A message that completes during the attach window renders once.
 - Attaching `_tui` to an agent with queued messages shows their text in the
   pending area (not `(queued message N)`).
-- Old daemon + new TUI: no `queuedMessages` in the snapshot → placeholder
-  text, and a rejected `get-messages` → an error banner; the TUI otherwise
-  works. `SDK_SOCKET_VERSION` stays 1 (both protocol additions are additive
-  optional shapes).
-  TDC: Do not make any backwards compatibility affordances. The error banner should be generic, the same sort of error banner the TUI would show if `get-messages` failed for any other reason.
+- A failed `get-messages` surfaces as the TUI's ordinary error banner — no
+  version-skew special-casing anywhere. `SDK_SOCKET_VERSION` stays 1 (both
+  protocol additions are additive optional shapes).
 - `npm run check`, `npm run lint`, and `npm test` pass.
 
 ## Type design (approved)
@@ -106,11 +104,10 @@ field the corresponding `SDKMessage` variants require (`type`, `message`,
   private historyBuffer: SdkEvent[] | undefined = [];
   private readonly historyUuids = new Set<string>();
   ```
-- Constructor: replace the `(queued message N)` placeholder loop — build a
-  `Map<number, string>` of `id → userText(message)` from
-  `snapshot.queuedMessages`, iterate `assistantState.queued` (ids stay
-  authoritative), placeholder only as fallback for a pre-extension daemon.
-  Then kick off `void this.loadHistory()`.
+- Constructor: replace the `(queued message N)` placeholder loop — seed the
+  pending area directly from the snapshot:
+  `pendingMessages.add(entry.id, userText(entry.message))` for each entry of
+  `snapshot.queuedMessages ?? []`. Then kick off `void this.loadHistory()`.
 - `private async loadHistory(): Promise<void>`: request `get-messages`; on
   success replay each `historyToSdkMessages` result, recording each uuid in
   `historyUuids`; on failure add a banner. Either way drain `historyBuffer`
@@ -143,9 +140,6 @@ field the corresponding `SDKMessage` variants require (`type`, `message`,
   update the `ToolExecutionComponent`s created by the preceding assistant
   message, exactly as live. A dangling tool call (turn interrupted before its
   result) stays unresolved, matching what a live viewer saw.
-- **Pre-extension daemon**: `get-messages` is rejected → error banner, blank
-  transcript otherwise (today's behavior); no `queuedMessages` → placeholder
-  pending text.
 - **Compact-summary message**: renders as an ordinary (long) user message —
   it is one, and it is the segment's context.
 - **Non-prompt user text**: sessions ever driven by interactive claude
@@ -222,3 +216,13 @@ field the corresponding `SDKMessage` variants require (`type`, `message`,
 - [ ] Render: `historyToSdkMessages` + tests (sdk-render.ts)
 - [ ] TUI: history load, event buffering, uuid dedupe, queued-text seeding (interactive-mode.ts)
 - [ ] Presubmit green; live check against a real agent
+
+## 2026-07-11 — TDC: no backward-compatibility affordances
+
+Resolved (agreed; matches the standing no-backward-compat rule): removed the
+old-daemon success criterion in favor of "a failed `get-messages` surfaces as
+the TUI's ordinary error banner", dropped the pre-extension-daemon edge case,
+and simplified queued-message seeding to iterate `snapshot.queuedMessages`
+directly (no id-map over `assistantState.queued`, no placeholder fallback).
+The `SDK_SOCKET_VERSION` stays-1 note is kept as a protocol fact, not a
+compatibility promise.
