@@ -111,6 +111,7 @@ export function acceptUserMessage(
  * an idle accept dequeues the message it just queued, which exists only in
  * the transition's own queued event.
  */
+// TDC: this description is confusing, because it makes it sound like a transcript echo is going to be emitted, which is false. What it should say is something like "must hold as delivered-but-unconfirmed until some subsequent SDK event arrives." We treat this as "confirmation" because messages make it into the log in strict order, so presence of a later message is confirmation of all previous messages (assuming our queue model of the message order is correct).
 export function deliveredMessages(
   before: QueueModelState,
   transition: QueueTransition,

@@ -140,6 +140,7 @@ export interface SdkEventRecord {
  * arrives on the live stream. Background on why the daemon must track this
  * itself: docs/thoughts/user-message-tracking.md.
  */
+// TDC: again "transcript echo not yet emitted" is wrong. Same below
 export interface StateSnapshot {
   assistantState: AssistantState;
   sessionId?: string;

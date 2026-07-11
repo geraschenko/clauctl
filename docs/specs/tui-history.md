@@ -80,7 +80,7 @@ The three fields jointly maintain the **prompt-visibility invariant**: for
 any snapshot, every accepted turn/append prompt appears in exactly one of
 `queuedMessages`, `deliveredMessages`, or the transcript at/before
 `lastTranscriptUuid` — so an attacher renders each prompt exactly once with
-no dedupe. Neither of the latter two subsumes the other (TDC resolved: yes,
+no dedupe. Neither of the latter two subsumes the other (resolved: yes,
 `lastTranscriptUuid` is still required with `deliveredMessages`): the
 boundary prevents _duplication_ — `get-messages` reads the file after the
 snapshot, so without the cut every entry emitted post-snapshot would render

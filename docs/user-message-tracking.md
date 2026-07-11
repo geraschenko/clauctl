@@ -20,15 +20,18 @@ The Agent SDK does not echo user prompts in a timely, observable way:
   uuid-carrying `user` stream message is emitted only when the transcript
   entry is echoed — after the dequeue, and for an idle-accepted append
   possibly not until the next turn begins (unbounded).
+  TDC: it's _never_ emitted in the SDK stream. I don't understand what you're talking about here. No user messages are ever echoed in the SDK event stream. They are only available through the jsonl files or the getSessionMessages method.
 - **Steered prompts are never echoed at all.** A `next`/default prompt
   demoted at a tool→result handoff is rendered as a `<system-reminder>` into
   the tool result _at request-build time_; the rendered text appears in
   neither the live `tool_result` nor the JSONL (only a `queued_command`
   sidecar attachment records it).
+  TDC: The jsonl definitely records steered prompts, including their exact placement. Check captures in docs/derisk/echoed-message-placement to answer questions about this. It's true that the live event stream doesn't show steered messages, but it doesn't echo _any_ user messages; steered messages aren't special in that regard.
 
 So at any instant a prompt can be in one of three states the transcript file
 alone cannot distinguish for a fresh observer: accepted-but-queued,
 delivered-but-unechoed, or echoed.
+TDC: this is not clear, because the commentary above is about the SDK, but this sentence about the three possible states is about the clauctl daemon. What's the relationship between them? Make it explicit. I guess the list at the top of the next section makes it explicit, so maybe we just need to move this down to the next section.
 
 ## The invariant
 
@@ -75,6 +78,7 @@ exclusively as live events.
   fix, if ever wanted, is rendering `queued_command` attachments during
   history replay. Live-attached observers do see steered prompts (their
   `userMessageDequeued` renders from the pending area).
+  TDC: Is this correct? I want confirmation that getSessionMessages does not include steered prompts. I would expect that it includes them in the place where they were dequeued, or that it includes the queue/dequeue operations. Let's test this empirically.
 - **Merged-bucket display inconsistency (cosmetic).** An attacher in the
   delivered window sees a merged bucket as N separate user messages (from
   `deliveredMessages`); once echoed, history shows the single `\n`-joined
