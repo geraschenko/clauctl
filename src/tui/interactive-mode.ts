@@ -21,6 +21,7 @@ import type {
   PermissionMode,
   SDKControlInitializeResponse,
   SDKMessage,
+  SDKUserMessage,
   SessionMessage,
 } from "@anthropic-ai/claude-agent-sdk";
 import {
@@ -156,11 +157,11 @@ class InteractiveMode {
   private lastCtrlCAt = 0;
 
   /**
-   * Events held back until history replay finishes (undefined afterwards), so
-   * live output cannot interleave with — or precede — the replayed transcript.
+   * Live events held back until history replay finishes (undefined
+   * afterwards), so live output cannot interleave with — or precede — the
+   * replayed transcript.
    */
-  // TDC: "historyBuffer" is a confusing name for this, since it makes it sound like these are messages from the history replay, but it's exactly the opposite. "buffer" is a good term, but we somehow want to indicate that these are _live_ messages that arrived while history was being processed.
-  private historyBuffer: SdkEvent[] | undefined = [];
+  private liveEventsDuringReplay: SdkEvent[] | undefined = [];
 
   private readonly autocomplete: TuiAutocompleteProvider;
   private modelSelector?: ModelSelectorComponent;
@@ -212,7 +213,10 @@ class InteractiveMode {
     for (const entry of stateSnapshot.queuedMessages ?? []) {
       this.pendingMessages.add(entry.id, userText(entry.message));
     }
-    void this.loadHistory(stateSnapshot.lastTranscriptUuid);
+    void this.loadHistory(
+      stateSnapshot.lastTranscriptUuid,
+      stateSnapshot.deliveredMessages ?? [],
+    );
 
     this.autocomplete = new TuiAutocompleteProvider(
       stateSnapshot.cwd ?? null,
@@ -256,14 +260,18 @@ class InteractiveMode {
   }
 
   /**
-   * Fetch and render the transcript up to the attach boundary, then release
-   * the buffered live events. The subscribe snapshot and the transcript read
-   * are not atomic: entries past the boundary may appear in both the read
-   * and the buffered events, so replay stops at the boundary and the live
-   * stream renders the rest — each message renders exactly once by
-   * construction, no dedupe needed.
+   * Fetch and render the transcript up to the attach boundary, then the
+   * snapshot's delivered-but-unconfirmed prompts, then release the buffered
+   * live events. The subscribe snapshot and the transcript read are not
+   * atomic: entries past the boundary may appear in both the read and the
+   * buffered events, so replay stops at the boundary and the live stream
+   * renders the rest — each message renders exactly once by construction
+   * (StateSnapshot's prompt-visibility invariant), no dedupe needed.
    */
-  private async loadHistory(boundaryUuid: string | undefined): Promise<void> {
+  private async loadHistory(
+    boundaryUuid: string | undefined,
+    deliveredMessages: SDKUserMessage[],
+  ): Promise<void> {
     try {
       const data = await this.client.request({ type: "get-messages" });
       const history = data as SessionMessage[];
@@ -285,8 +293,18 @@ class InteractiveMode {
     } catch (error) {
       this.addBanner(`history fetch failed: ${String(error)}`);
     }
-    const buffered = this.historyBuffer ?? [];
-    this.historyBuffer = undefined;
+    // Delivered-but-unconfirmed prompts (StateSnapshot's prompt-visibility
+    // invariant): dequeued before the snapshot with the transcript echo still
+    // pending, so they are in neither the boundary-cut history nor the
+    // buffered events. Chronologically they follow the replayed transcript.
+    for (const message of deliveredMessages) {
+      const text = userText(message);
+      if (text !== "") {
+        this.chatContainer.addChild(new UserMessageComponent(text));
+      }
+    }
+    const buffered = this.liveEventsDuringReplay ?? [];
+    this.liveEventsDuringReplay = undefined;
     for (const event of buffered) {
       this.handleEvent(event);
     }
@@ -294,8 +312,8 @@ class InteractiveMode {
   }
 
   handleEvent(event: SdkEvent): void {
-    if (this.historyBuffer !== undefined) {
-      this.historyBuffer.push(event);
+    if (this.liveEventsDuringReplay !== undefined) {
+      this.liveEventsDuringReplay.push(event);
       return;
     }
     this.assistantState = nextAssistantState(this.assistantState, event);

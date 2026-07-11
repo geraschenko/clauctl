@@ -125,7 +125,21 @@ export interface SdkEventRecord {
   event: SdkEvent;
 }
 
-/** What a subscriber starts from; no history replay. */
+/**
+ * What a subscriber starts from; no history replay.
+ *
+ * Prompt-visibility invariant: for any snapshot, every accepted turn/append
+ * prompt appears in exactly one place — `queuedMessages` (accepted, not yet
+ * consumed by the CLI), `deliveredMessages` (consumed, transcript echo not
+ * yet emitted), or the transcript at/before `lastTranscriptUuid` (echo
+ * emitted; a history read covers it). Each transition happens in one
+ * synchronous daemon step, so no snapshot can catch a prompt in two places
+ * or in none. An attaching observer therefore renders each prompt exactly
+ * once: history replay up to the boundary, then `deliveredMessages`, then
+ * `queuedMessages` in the pending area — everything past the boundary
+ * arrives on the live stream. Background on why the daemon must track this
+ * itself: docs/thoughts/user-message-tracking.md.
+ */
 export interface StateSnapshot {
   assistantState: AssistantState;
   sessionId?: string;
@@ -139,6 +153,15 @@ export interface StateSnapshot {
    * the only way an attaching observer learns their content.
    */
   queuedMessages?: { id: number; message: SDKUserMessage }[];
+  /**
+   * Delivered-but-unconfirmed prompts (present when non-empty): dequeued as
+   * turn/append, transcript echo not yet emitted. Not in `queuedMessages`
+   * (already dequeued), past the boundary (echo pending), and their dequeue
+   * events pre-date the subscription — without this field they would be
+   * invisible to an attacher until the next transcript emission (unbounded
+   * for an idle-accepted `shouldQuery: false` append). In dequeue order.
+   */
+  deliveredMessages?: SDKUserMessage[];
   /**
    * The attach boundary: uuid of the last user/assistant sdkMessage emitted
    * this daemon lifetime (absent if none). Transcript entries at/before it

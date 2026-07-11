@@ -100,6 +100,43 @@ export function acceptUserMessage(
   };
 }
 
+/**
+ * The messages a transition hands to the CLI as turn/append deliveries, in
+ * dequeue order — what the daemon must hold as delivered-but-unconfirmed
+ * until their transcript echo is emitted (StateSnapshot's prompt-visibility
+ * invariant, sdk-socket.ts). Steer dequeues are excluded: a steered message
+ * is rendered into a tool result's <system-reminder> at request-build time
+ * and never gets a transcript entry of its own (echo-placement FINDINGS), so
+ * there is no echo to wait for. Ids resolve against the pre-transition queue;
+ * an idle accept dequeues the message it just queued, which exists only in
+ * the transition's own queued event.
+ */
+export function deliveredMessages(
+  before: QueueModelState,
+  transition: QueueTransition,
+): SDKUserMessage[] {
+  const byId = new Map<number, SDKUserMessage>(
+    before.queued.map((entry) => [entry.id, entry.message]),
+  );
+  for (const event of transition.events) {
+    if (event.kind === "userMessageQueued") {
+      byId.set(event.id, event.message);
+    }
+  }
+  const delivered: SDKUserMessage[] = [];
+  for (const event of transition.events) {
+    if (event.kind === "userMessageDequeued" && event.delivery !== "steer") {
+      for (const id of event.ids) {
+        const message = byId.get(id);
+        if (message !== undefined) {
+          delivered.push(message);
+        }
+      }
+    }
+  }
+  return delivered;
+}
+
 function hasToolResult(message: SDKUserMessage): boolean {
   const content = message.message.content;
   return (

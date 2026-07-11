@@ -63,14 +63,44 @@ queued messages themselves.
 | { type: "get-messages" }
 // Response data: SessionMessage[] — verbatim getSessionMessages output.
 
-// StateSnapshot gains (present when non-empty, matching existing style):
+// StateSnapshot gains (each present when non-empty/defined, matching
+// existing style):
 queuedMessages?: { id: number; message: SDKUserMessage }[];
-// TDC: With deliveredPending, is lastTranscriptUuid still required? I think yes, but please think about this question carefully.
+// ...delivered-but-unconfirmed prompts: dequeued as turn/append, transcript
+// echo not yet emitted, in dequeue order:
+deliveredMessages?: SDKUserMessage[];
 // ...and the attach boundary (present once any user/assistant sdkMessage has
 // been emitted this daemon lifetime): the uuid of the last one. Transcript
 // entries at/before it were emitted before this snapshot, so the subscriber
 // never saw them; everything after arrives on the live stream.
 lastTranscriptUuid?: string;
+```
+
+The three fields jointly maintain the **prompt-visibility invariant**: for
+any snapshot, every accepted turn/append prompt appears in exactly one of
+`queuedMessages`, `deliveredMessages`, or the transcript at/before
+`lastTranscriptUuid` — so an attacher renders each prompt exactly once with
+no dedupe. Neither of the latter two subsumes the other (TDC resolved: yes,
+`lastTranscriptUuid` is still required with `deliveredMessages`): the
+boundary prevents _duplication_ — `get-messages` reads the file after the
+snapshot, so without the cut every entry emitted post-snapshot would render
+twice (replay + buffered event), including the echo of any
+`deliveredMessages` entry landing in that window — while `deliveredMessages`
+prevents _loss_ of the one thing the boundary cut removes that nothing else
+re-supplies. Rationale and accepted limitations:
+`docs/thoughts/user-message-tracking.md`.
+
+### `src/core/queue-model.ts`
+
+```ts
+/** The messages a transition hands to the CLI as turn/append deliveries, in
+ *  dequeue order; steer dequeues excluded (no echo ever comes). Ids resolve
+ *  against the pre-transition queue, or the transition's own queued event
+ *  for the idle-accept immediate dequeue. */
+export function deliveredMessages(
+  before: QueueModelState,
+  transition: QueueTransition,
+): SDKUserMessage[];
 ```
 
 ### `src/core/daemon.ts`
@@ -88,6 +118,20 @@ lastTranscriptUuid?: string;
   `SDKUserMessage.uuid?` is optional only for host-pushed input). The
   snapshot includes it when defined. `handleMessage` is synchronous, so the
   boundary is exact: a subscriber attaches only between messages.
+- `deliveredPending: SDKUserMessage[]`: `applyQueueTransition` appends
+  `deliveredMessages(queueModel, transition)` before advancing the model;
+  the boundary-advance site in `handleMessage` clears the whole list.
+  Clearing all on every user/assistant emission is sound with no echo
+  detection: a delivered prompt's transcript entry is written at
+  consumption and the stream echoes the file in append order, so any later
+  emission sits past every pending prompt in the file — once the boundary
+  passes it, a history read covers them. One dequeued bucket produces
+  exactly one echo (same-priority executing messages merge FIFO, `\n`-joined,
+  into a single user entry — echo-placement FINDINGS Q4), so there is no
+  partially-echoed bucket to split the clear. Add and clear each share one
+  synchronous step with their queue/boundary counterpart, which is what
+  makes the invariant transitions atomic. The snapshot includes a copy when
+  non-empty.
 
 ### `src/core/sdk-commands.ts`
 
@@ -118,25 +162,35 @@ require (`type`, `message`, `uuid`, `session_id`, `parent_tool_use_id`).
 
 `historyUpToBoundary`: `boundaryUuid` undefined → the whole segment (nothing
 was emitted this daemon lifetime); boundary not found in the segment → empty
-(a compaction raced the attach; the buffered live events carry the new
-segment); otherwise the prefix through the boundary entry.
+— a compaction raced the attach, and replaying nothing avoids duplicating
+the post-snapshot rendering the buffered events already carry. In that race
+the compact-summary user message renders nowhere (live `sdkMessage: user`
+text is never rendered, and it is not an accepted prompt, so it is in
+neither `deliveredMessages` nor any dequeue event); accepted as a rare
+display limitation (see `docs/thoughts/user-message-tracking.md`).
+Otherwise the prefix through the boundary entry.
 
 ### `src/tui/interactive-mode.ts` (`InteractiveController`)
 
-- New field:
+- New field (live events held back while history renders — named for what it
+  buffers, not what it waits for):
   ```ts
-  private historyBuffer: SdkEvent[] | undefined = [];
+  private liveEventsDuringReplay: SdkEvent[] | undefined = [];
   ```
 - Constructor: replace the `(queued message N)` placeholder loop — seed the
   pending area directly from the snapshot:
   `pendingMessages.add(entry.id, userText(entry.message))` for each entry of
   `snapshot.queuedMessages ?? []`. Then kick off
-  `void this.loadHistory(snapshot.lastTranscriptUuid)`.
-- `private async loadHistory(boundaryUuid: string | undefined)`: request
+  `void this.loadHistory(snapshot.lastTranscriptUuid, snapshot.deliveredMessages ?? [])`.
+- `private async loadHistory(boundaryUuid, deliveredMessages)`: request
   `get-messages`; on success replay each message of
   `historyToSdkMessages(historyUpToBoundary(history, boundaryUuid))`; on
-  failure add a banner. Either way drain `historyBuffer` and set it to
-  `undefined`. Replay of one adapted message:
+  failure add a banner. Then (fetch outcome regardless) render each
+  `deliveredMessages` entry through the same `userText` +
+  `UserMessageComponent` path — chronologically they follow the replayed
+  transcript and precede every buffered event. Finally drain
+  `liveEventsDuringReplay` and set it to `undefined`. Replay of one adapted
+  message:
   - `user` with non-empty `userText` → `new UserMessageComponent(text)` into
     the chat container first. Live user prompts enter the transcript via
     `userMessageDequeued` (never via `sdkMessage`), so history must render
@@ -145,16 +199,18 @@ segment); otherwise the prefix through the boundary entry.
   - then `handleSdkMessage(adapted)` for every message — assistant messages
     render whole (streaming map is empty), tool_result blocks resolve the
     tool components, text-only user messages fall through harmlessly.
-- `handleEvent`: while `historyBuffer !== undefined`, push the event and
-  return; the drain replays through `handleEvent` with the gate open, so
-  every buffered event takes the normal fold+render path. No dedupe is
-  needed: replay stops at the boundary, and everything after the boundary
+- `handleEvent`: while `liveEventsDuringReplay !== undefined`, push the
+  event and return; the drain replays through `handleEvent` with the gate
+  open, so every buffered event takes the normal fold+render path. No dedupe
+  is needed: replay stops at the boundary, and everything after the boundary
   was emitted post-snapshot, so it arrives (only) as buffered/live events —
   each message renders exactly once by construction. This covers user
   prompts too: a prompt past the boundary is skipped by replay and rendered
   by its buffered `userMessageDequeued`; a prompt at/before the boundary was
   dequeued pre-snapshot (its dequeue precedes its transcript replay on the
-  stream), so no dequeue event for it can reach this subscriber.
+  stream), so no dequeue event for it can reach this subscriber; and a
+  prompt dequeued pre-snapshot whose echo is past the boundary is exactly
+  the `deliveredMessages` case.
 
 ## Edge cases
 
@@ -166,13 +222,26 @@ segment); otherwise the prefix through the boundary entry.
   the overlap window render-once. An assistant message mid-stream at attach
   renders whole from its live `assistant` message (its `message_start` was
   pre-snapshot, so the streaming map has no component and stray deltas are
-  ignored).
-  TDC: Just to confirm my understanding, this means that the assistant message is effectively missing until it is _completed_, not that it's missing entirely, right?
-- **Known residual race**: attaching to a just-revived daemon (boundary
-  undefined) while a first query races the transcript read can render that
-  prompt twice (once from replay-all, once from its buffered dequeue).
-  Requires revival + instant query + instant attach within the read window;
-  accepted as negligible.
+  ignored) — i.e. it is missing only until it _completes_, never permanently;
+  what is lost is the pre-completion streaming view. (TDC resolved:
+  confirmed.)
+- **Known residual race (boundary-undefined delivery)**: whenever the
+  boundary is undefined (replay-all) while a prompt is
+  delivered-but-unechoed and the transcript read already includes its entry,
+  replay-all plus `deliveredMessages` (or the buffered dequeue) renders it
+  twice. In practice this requires a just-revived daemon with prior history
+  - instant query + instant attach within the read window; accepted as
+    negligible.
+- **Accepted display limitations** (each documented with its cause in
+  `docs/thoughts/user-message-tracking.md` so no re-derivation is needed):
+  steered prompts are invisible to fresh attachers (their content exists
+  only as a `queued_command` sidecar the replay drops — `deliveredMessages`
+  cannot fix this, no echo ever comes); a merged bucket shows as N separate
+  user messages from `deliveredMessages` but one `\n`-joined entry once
+  echoed (cosmetic); an interrupt clears `deliveredPending`, so a prompt the
+  CLI discarded unwritten is gone from every view; a delivered-but-unechoed
+  append that survives into a compaction stops being displayed (its entry is
+  in the pre-compaction segment `get-messages` no longer returns).
 - **Tool results in history**: a history user message's `tool_result` blocks
   update the `ToolExecutionComponent`s created by the preceding assistant
   message, exactly as live. A dangling tool call (turn interrupted before its
@@ -250,7 +319,7 @@ segment); otherwise the prefix through the boundary entry.
 - [x] Daemon: `get-messages` handler + snapshot population (daemon.ts)
 - [x] CLI: `get-messages` subcommand (sdk-commands.ts)
 - [x] Render: `historyToSdkMessages` + tests (sdk-render.ts)
-- [x] TUI: history load, event buffering, uuid dedupe, queued-text seeding (interactive-mode.ts)
+- [x] TUI: history load, event buffering, boundary cut (superseded the original uuid-dedupe idea), queued-text seeding (interactive-mode.ts)
 - [x] Presubmit green; live check against a real agent
 
 ## 2026-07-11 — Implementation
@@ -288,8 +357,11 @@ is wrong. Per queue-model.ts, a dequeue's trigger is the previous turn's
 `result` (turn/append), post-tool_result assistant activity (steer), or the
 accept itself when idle — the prompt's uuid-carrying replay is emitted
 _after_ its dequeue, so it can never inform the dequeue's render decision.
-Steer dequeues cannot duplicate (their prompts appear in history only inside
-tool_result blocks, where `userText` is empty).
+Steer dequeues cannot duplicate — their prompts never appear in history at
+all (correction: the rendered `<system-reminder>` exists only in the API
+request; the JSONL records just a `queued_command` sidecar attachment, per
+the echo-placement FINDINGS — an earlier version of this entry wrongly said
+the content appears inside tool_result blocks).
 
 Resolution (approved): snapshot attach boundary. `StateSnapshot` gains
 `lastTranscriptUuid` (last user/assistant sdkMessage uuid emitted this daemon
@@ -329,8 +401,13 @@ nod):
 - Daemon keeps `deliveredPending: SDKUserMessage[]`: on a `turn`/`append`
   dequeue, append the dequeued messages (looked up by id in the
   pre-transition `queueModel.queued`; the idle-accept immediate dequeue uses
-  the just-accepted message). Steer dequeues stay out (content reaches an
-  attacher inside the tool_result text; no echo exists).
+  the just-accepted message). Steer dequeues stay out: no echo ever comes,
+  so entries would linger or vanish uselessly. (Correction during
+  implementation: this entry originally said steered content reaches an
+  attacher inside the tool_result text — false per the echo-placement
+  FINDINGS; the rendered reminder is in neither the stream nor the JSONL.
+  Steered prompts are therefore invisible to fresh attachers — an accepted,
+  documented limitation, not something `deliveredMessages` can fix.)
 - Clearing rule: clear `deliveredPending` on EVERY user/assistant sdkMessage
   emission — i.e. exactly when `lastTranscriptUuid` advances. Sound because
   any user/assistant message emitted after a delivery sits after the
@@ -353,15 +430,51 @@ nod):
 
 Remaining work checklist:
 
-- [ ] Final approval of the clearing-rule refinement, then fold this design
+- [x] Final approval of the clearing-rule refinement, then fold this design
       into the SPEC type-design section
-- [ ] Implement daemon `deliveredPending` + snapshot `deliveredMessages`
-- [ ] TUI renders `deliveredMessages` between history replay and drain
-- [ ] Test for the attach-window gap (form TBD)
-- [ ] New doc explaining why the daemon must track queued + delivered
+- [x] Implement daemon `deliveredPending` + snapshot `deliveredMessages`
+- [x] TUI renders `deliveredMessages` between history replay and drain
+- [x] Test for the attach-window gap (form TBD)
+- [x] New doc explaining why the daemon must track queued + delivered
       prompts (SDK echo gap), e.g. `docs/thoughts/user-message-tracking.md`
-- [ ] Presubmit + credit-free live check; then back to reviewer 9c67337b
+- [x] Presubmit + credit-free live check; then back to reviewer 9c67337b
       (continue the existing conversation, do not spawn fresh)
+
+## 2026-07-11 — Finding 2 implemented (deliveredMessages)
+
+Clearing rule approved (clear `deliveredPending` on every user/assistant
+emission — exactly when the boundary advances). Re-evaluation before
+implementing sharpened the soundness argument with two facts from the
+echo-placement FINDINGS: (1) same-priority executing messages merge FIFO
+into a _single_ `\n`-joined user entry (Q4), so one dequeued bucket has
+exactly one echo and clear-all cannot orphan part of a bucket; (2) the
+rendered steer `<system-reminder>` exists in neither the stream nor the
+JSONL, which both confirms excluding steer from `deliveredPending` and
+surfaces the fresh-attacher steer blind spot as a separate accepted
+limitation (see corrections above).
+
+Implementation: the exactly-once **prompt-visibility invariant** is stated
+on `StateSnapshot` (sdk-socket.ts) and expanded in the new
+`docs/thoughts/user-message-tracking.md` (which also records every accepted
+limitation with its cause, per the no-re-derivation requirement). The
+delivery computation is a pure seam, `deliveredMessages(before, transition)`
+in queue-model.ts, so the attach-window gap logic is unit-tested there
+(idle-accept delivers, busy accept doesn't, result dequeue delivers the
+bucket FIFO, steer delivers nothing) — the chosen "pure seam" test form.
+Daemon: `deliveredPending` appended in `applyQueueTransition`, cleared at
+the boundary-advance site in `handleMessage`, copied into the snapshot when
+non-empty. TUI: `loadHistory(boundaryUuid, deliveredMessages)` renders the
+delivered prompts after replay (even if the fetch failed) and before the
+drain; `historyBuffer` renamed to `liveEventsDuringReplay` (TDC).
+
+Presubmit green (check/lint/treefmt/96 tests; sync-from-pictl still blocked
+only by pre-existing pictl drift). Credit-free live check exercised the
+handoff end-to-end: a subscribe immediately after the query response (echo
+still pending on first-turn process spawn) showed the prompt in
+`deliveredMessages` with no boundary; after idle, `deliveredMessages` was
+absent, the boundary equaled the last transcript uuid, and `get-messages`
+held the prompt at/before it — each state showing the prompt in exactly one
+place.
 
 ## 2026-07-11 — TDC: no backward-compatibility affordances
 
