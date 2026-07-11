@@ -103,15 +103,18 @@ export function acceptUserMessage(
 /**
  * The messages a transition hands to the CLI as turn/append deliveries, in
  * dequeue order — what the daemon must hold as delivered-but-unconfirmed
- * until their transcript echo is emitted (StateSnapshot's prompt-visibility
- * invariant, sdk-socket.ts). Steer dequeues are excluded: a steered message
- * is rendered into a tool result's <system-reminder> at request-build time
- * and never gets a transcript entry of its own (echo-placement FINDINGS), so
- * there is no echo to wait for. Ids resolve against the pre-transition queue;
- * an idle accept dequeues the message it just queued, which exists only in
- * the transition's own queued event.
+ * until some subsequent stream message arrives (StateSnapshot's
+ * prompt-visibility invariant, sdk-socket.ts). The stream never emits
+ * prompts themselves; confirmation is indirect: the CLI writes a consumed
+ * prompt's transcript entry at consumption and entries land in file order,
+ * so a later message's presence confirms every prompt delivered before it
+ * (assuming this model is right about the delivery order). Steer dequeues
+ * are excluded: a steered message's only transcript record is a
+ * queued_command attachment, which getSessionMessages never returns, so no
+ * history read could take over from the hold. Ids resolve against the
+ * pre-transition queue; an idle accept dequeues the message it just queued,
+ * which exists only in the transition's own queued event.
  */
-// TDC: this description is confusing, because it makes it sound like a transcript echo is going to be emitted, which is false. What it should say is something like "must hold as delivered-but-unconfirmed until some subsequent SDK event arrives." We treat this as "confirmation" because messages make it into the log in strict order, so presence of a later message is confirmation of all previous messages (assuming our queue model of the message order is correct).
 export function deliveredMessages(
   before: QueueModelState,
   transition: QueueTransition,

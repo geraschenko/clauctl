@@ -223,7 +223,8 @@ test("result with an empty queue emits nothing", () => {
 
 // deliveredMessages: which prompts a transition hands to the CLI (the
 // attach-window gap — a prompt dequeued before a subscribe whose transcript
-// echo lands after the snapshot boundary is visible only through this).
+// entry the boundary-cut history read does not cover is visible only
+// through this).
 
 test("deliveredMessages: idle accept delivers the just-accepted message", () => {
   const message = userMessage();

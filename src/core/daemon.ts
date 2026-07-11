@@ -334,7 +334,7 @@ async function daemon(this: CommandContext, flags: DaemonFlags): Promise<void> {
   // may advance it; the returned events are emitted immediately, keeping the
   // model and the emitted stream in lockstep.
   let queueModel: QueueModelState = INITIAL_QUEUE_MODEL_STATE;
-  // Prompts handed to the CLI whose transcript echo has not yet been emitted.
+  // Prompts handed to the CLI, not yet confirmed by a later stream emission.
   // With queuedMessages and lastTranscriptUuid this maintains StateSnapshot's
   // prompt-visibility invariant (sdk-socket.ts): a turn/append dequeue moves a
   // prompt from the modeled queue into this list, and the next user/assistant
@@ -538,11 +538,13 @@ async function daemon(this: CommandContext, flags: DaemonFlags): Promise<void> {
       // optional uuid on SDKUserMessage is for host-pushed input).
       trackedState.lastTranscriptUuid = message.uuid;
       // A delivered prompt's transcript entry is written at consumption, and
-      // the stream echoes the file in append order, so every pending delivered
-      // prompt precedes this message in the file: once the boundary passes it,
-      // a history read covers them. Clearing here — the same synchronous step
-      // as the boundary advance — is what makes the snapshot's exactly-once
-      // prompt-visibility invariant hold (sdk-socket.ts).
+      // entries land in file-append order, so every pending delivered prompt
+      // precedes this message in the file (the prompt itself is never
+      // re-emitted — this later message is the confirmation): once the
+      // boundary is here, a history read covers them all. Clearing in the
+      // same synchronous step as the boundary advance is what makes the
+      // snapshot's exactly-once prompt-visibility invariant hold
+      // (sdk-socket.ts).
       deliveredPending.length = 0;
     }
     if (message.type === "system" && message.subtype === "init") {

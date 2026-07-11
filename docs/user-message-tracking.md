@@ -8,42 +8,45 @@
 
 ## The SDK gap
 
-The Agent SDK does not echo user prompts in a timely, observable way:
+The Agent SDK gives a live observer no direct view of user prompts:
 
 - **Queue operations are invisible on the live stream.** The CLI's
   `enqueue`/`dequeue`/`remove` log exists only in the session JSONL as
   sidecar entries; a live observer sees nothing when a prompt is accepted,
   reordered, demoted, or consumed. The daemon models the queue instead
   (queue-model.ts) and synthesizes `userMessageQueued`/`userMessageDequeued`.
-- **A consumed prompt's transcript echo arrives late.** When the CLI consumes
-  a prompt (starts its turn, or appends a `shouldQuery: false` message), the
-  uuid-carrying `user` stream message is emitted only when the transcript
-  entry is echoed — after the dequeue, and for an idle-accepted append
-  possibly not until the next turn begins (unbounded).
-  TDC: it's _never_ emitted in the SDK stream. I don't understand what you're talking about here. No user messages are ever echoed in the SDK event stream. They are only available through the jsonl files or the getSessionMessages method.
-- **Steered prompts are never echoed at all.** A `next`/default prompt
-  demoted at a tool→result handoff is rendered as a `<system-reminder>` into
-  the tool result _at request-build time_; the rendered text appears in
-  neither the live `tool_result` nor the JSONL (only a `queued_command`
-  sidecar attachment records it).
-  TDC: The jsonl definitely records steered prompts, including their exact placement. Check captures in docs/derisk/echoed-message-placement to answer questions about this. It's true that the live event stream doesn't show steered messages, but it doesn't echo _any_ user messages; steered messages aren't special in that regard.
-
-So at any instant a prompt can be in one of three states the transcript file
-alone cannot distinguish for a fresh observer: accepted-but-queued,
-delivered-but-unechoed, or echoed.
-TDC: this is not clear, because the commentary above is about the SDK, but this sentence about the three possible states is about the clauctl daemon. What's the relationship between them? Make it explicit. I guess the list at the top of the next section makes it explicit, so maybe we just need to move this down to the next section.
+- **User prompts are never emitted on the live stream at all.** The stream's
+  only `user` messages are tool_results (verified across the FINDINGS
+  captures — no capture, including executed injected prompts and interrupts,
+  ever emitted a text `user` message). A consumed prompt's transcript entry
+  is written silently; the only live confirmation is indirect: transcript
+  entries land in file-append order, so any uuid-carrying message emitted
+  later proves the prompt's entry is already in the file before it. For an
+  idle-accepted `shouldQuery: false` append, that next emission may not come
+  until the next turn begins (unbounded).
+- **Steered prompts never reach `get-messages` output.** The JSONL does
+  record a demoted `next`/default prompt — a chain-linked `queued_command`
+  attachment carrying the exact prompt text at its exact demotion point —
+  but `getSessionMessages` never returns attachment entries (verified
+  empirically against the `a_next` capture: only the real user/assistant
+  chain entries come back). The rendered `<system-reminder>` wrapper exists
+  only in the API request.
 
 ## The invariant
 
-`StateSnapshot` therefore carries all three, and the daemon maintains the
+Because the SDK announces none of this, at any instant an accepted prompt is
+in one of three states only the daemon's own bookkeeping can distinguish:
+accepted-but-queued, delivered-but-unconfirmed, or confirmed-in-transcript.
+`StateSnapshot` carries all three, and the daemon maintains the
 **prompt-visibility invariant**: for any snapshot, every accepted turn/append
 prompt appears in exactly one place —
 
 1. `queuedMessages` — accepted, still in the modeled queue;
-2. `deliveredMessages` — dequeued as turn/append, transcript echo not yet
-   emitted (`deliveredPending` in daemon.ts);
-3. the transcript at/before `lastTranscriptUuid` — echo emitted; a
-   `get-messages` read covers it.
+2. `deliveredMessages` — dequeued as turn/append, no subsequent stream
+   emission yet to confirm it (`deliveredPending` in daemon.ts);
+3. the transcript at/before `lastTranscriptUuid` — a later emission
+   confirmed its entry is within the boundary; a `get-messages` read covers
+   it.
 
 Transitions are atomic because each happens in one synchronous daemon step:
 acceptance and dequeue both run inside `applyQueueTransition` (moving a
@@ -53,14 +56,14 @@ halves of a transition, so no snapshot can catch a prompt in two states or
 none.
 
 Why clearing _all_ of `deliveredPending` on _every_ user/assistant emission
-is sound, with no echo detection: a delivered prompt's transcript entry is
-written when the CLI consumes it, and the stream echoes the file in append
-order — so any user/assistant message emitted later sits after every pending
-delivered prompt in the file. Once the boundary passes that message, a
-history read covers them all. One dequeued bucket also produces exactly one
-echo: same-priority executing messages merge FIFO (joined by `\n`) into a
-single user entry (FINDINGS Q4), so there is no partially-echoed bucket to
-split the clear.
+is sound: the CLI writes a delivered prompt's transcript entry when it
+consumes it (a merged bucket as one `\n`-joined entry — FINDINGS Q4), and
+entries land in file-append order — so any message emitted later has its
+entry after every pending delivered prompt's. The prompt itself is never
+re-emitted; the later message _is_ the confirmation. Once the boundary is at
+that message, a history read (file order) covers them all. This rests on the
+queue model being right about consumption order: a later message confirms
+every prompt the model says was delivered before it.
 
 An attaching observer (the TUI) then renders each prompt exactly once, in
 order: history replay cut at the boundary, then `deliveredMessages`, then
@@ -69,26 +72,30 @@ exclusively as live events.
 
 ## Known limitations (accepted, documented so we don't re-derive them)
 
-- **Steered prompts are invisible to fresh attachers.** Their content exists
-  only as a `queued_command` sidecar attachment (dropped by
-  `historyToSdkMessages`) — there is no user/assistant entry to replay.
-  Including them in `deliveredMessages` would not fix this: with no echo ever
-  coming, they would either linger forever (stale duplicates for every later
+- **Steered prompts are invisible to fresh attachers.** Their only
+  transcript record is the `queued_command` attachment, and
+  `getSessionMessages` never returns attachment entries (verified against
+  the `a_next` capture: the attachment sits on the parentUuid chain in the
+  raw JSONL, but the returned array holds only the real user/assistant
+  entries) — so no history replay can show them. Including them in
+  `deliveredMessages` would not fix this: they never get a user entry, so
+  they would either linger forever (stale duplicates for every later
   attacher) or be cleared by the next emission and vanish anyway. The real
-  fix, if ever wanted, is rendering `queued_command` attachments during
-  history replay. Live-attached observers do see steered prompts (their
-  `userMessageDequeued` renders from the pending area).
-  TDC: Is this correct? I want confirmation that getSessionMessages does not include steered prompts. I would expect that it includes them in the place where they were dequeued, or that it includes the queue/dequeue operations. Let's test this empirically.
+  fix, if ever wanted, is reading the raw JSONL (not `getSessionMessages`)
+  and rendering `queued_command` attachments during replay. Live-attached
+  observers do see steered prompts (their `userMessageDequeued` renders from
+  the pending area).
 - **Merged-bucket display inconsistency (cosmetic).** An attacher in the
   delivered window sees a merged bucket as N separate user messages (from
-  `deliveredMessages`); once echoed, history shows the single `\n`-joined
+  `deliveredMessages`); once in history, it shows as the single `\n`-joined
   entry the CLI actually wrote. Same content, different segmentation.
-- **Interrupt can drop a delivered prompt.** An interrupt's synthetic user
-  message clears `deliveredPending`; if the CLI also discarded the prompt
-  without writing it, it is gone from every view. No display path could have
-  shown it — the daemon cannot distinguish "written, echo pending" from
+- **Interrupt can drop a delivered prompt.** The emissions around an
+  interrupt (the abort tool_result, the interrupting turn's messages) clear
+  `deliveredPending`; if the CLI discarded the prompt without writing its
+  entry, it is gone from every view. No display path could have shown it —
+  the daemon cannot distinguish "written, confirmation pending" from
   "discarded by the interrupt".
-- **Compaction can hide a delivered append.** A delivered-but-unechoed
+- **Compaction can hide a delivered append.** A delivered-but-unconfirmed
   `shouldQuery: false` append that survives into a compaction is cleared by
   the new segment's first message, but its entry lives in the pre-compaction
   segment `get-messages` no longer returns. Its content reached the model
@@ -105,7 +112,7 @@ exclusively as live events.
   summary text. (Reviewer round 3.)
 - **Boundary-undefined delivery race.** If `lastTranscriptUuid` is undefined
   (no user/assistant emission yet this daemon lifetime → replay-all) while a
-  prompt is delivered-but-unechoed, and the transcript read already includes
+  prompt is delivered-but-unconfirmed, and the transcript read already includes
   that prompt's entry, replay-all plus `deliveredMessages` (or the buffered
   dequeue event) can render it twice. In practice this needs a just-revived
   daemon with prior history + an instant query + an instant attach within

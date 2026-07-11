@@ -66,8 +66,8 @@ queued messages themselves.
 // StateSnapshot gains (each present when non-empty/defined, matching
 // existing style):
 queuedMessages?: { id: number; message: SDKUserMessage }[];
-// ...delivered-but-unconfirmed prompts: dequeued as turn/append, transcript
-// echo not yet emitted, in dequeue order:
+// ...delivered-but-unconfirmed prompts: dequeued as turn/append, not yet
+// confirmed by a later stream emission, in dequeue order:
 deliveredMessages?: SDKUserMessage[];
 // ...and the attach boundary (present once any user/assistant sdkMessage has
 // been emitted this daemon lifetime): the uuid of the last one. Transcript
@@ -83,18 +83,19 @@ any snapshot, every accepted turn/append prompt appears in exactly one of
 no dedupe. Neither of the latter two subsumes the other (resolved: yes,
 `lastTranscriptUuid` is still required with `deliveredMessages`): the
 boundary prevents _duplication_ — `get-messages` reads the file after the
-snapshot, so without the cut every entry emitted post-snapshot would render
-twice (replay + buffered event), including the echo of any
-`deliveredMessages` entry landing in that window — while `deliveredMessages`
-prevents _loss_ of the one thing the boundary cut removes that nothing else
-re-supplies. Rationale and accepted limitations:
-`docs/thoughts/user-message-tracking.md`.
+snapshot, so without the cut everything written post-snapshot would render
+twice (replay + buffered event for emitted messages; replay +
+`deliveredMessages` for a delivered prompt whose entry lands in the read
+window) — while `deliveredMessages` prevents _loss_ of the one thing the
+boundary cut removes that nothing else re-supplies. Rationale and accepted
+limitations: `docs/user-message-tracking.md`.
 
 ### `src/core/queue-model.ts`
 
 ```ts
 /** The messages a transition hands to the CLI as turn/append deliveries, in
- *  dequeue order; steer dequeues excluded (no echo ever comes). Ids resolve
+ *  dequeue order; steer dequeues excluded (their only transcript record is a
+ *  queued_command attachment getSessionMessages never returns). Ids resolve
  *  against the pre-transition queue, or the transition's own queued event
  *  for the idle-accept immediate dequeue. */
 export function deliveredMessages(
@@ -121,17 +122,16 @@ export function deliveredMessages(
 - `deliveredPending: SDKUserMessage[]`: `applyQueueTransition` appends
   `deliveredMessages(queueModel, transition)` before advancing the model;
   the boundary-advance site in `handleMessage` clears the whole list.
-  Clearing all on every user/assistant emission is sound with no echo
-  detection: a delivered prompt's transcript entry is written at
-  consumption and the stream echoes the file in append order, so any later
-  emission sits past every pending prompt in the file — once the boundary
-  passes it, a history read covers them. One dequeued bucket produces
-  exactly one echo (same-priority executing messages merge FIFO, `\n`-joined,
-  into a single user entry — echo-placement FINDINGS Q4), so there is no
-  partially-echoed bucket to split the clear. Add and clear each share one
-  synchronous step with their queue/boundary counterpart, which is what
-  makes the invariant transitions atomic. The snapshot includes a copy when
-  non-empty.
+  Clearing all on every user/assistant emission is sound even though the
+  stream never emits prompts themselves: a delivered prompt's transcript
+  entry is written at consumption (a merged bucket as one `\n`-joined entry
+  — echo-placement FINDINGS Q4) and entries land in file-append order, so
+  any message emitted later has its entry past every pending prompt's — the
+  later message _is_ the confirmation, and once the boundary reaches it a
+  history read covers them all (assuming the queue model is right about the
+  delivery order). Add and clear each share one synchronous step with their
+  queue/boundary counterpart, which is what makes the invariant transitions
+  atomic. The snapshot includes a copy when non-empty.
 
 ### `src/core/sdk-commands.ts`
 
@@ -167,7 +167,7 @@ the post-snapshot rendering the buffered events already carry. In that race
 the compact-summary user message renders nowhere (live `sdkMessage: user`
 text is never rendered, and it is not an accepted prompt, so it is in
 neither `deliveredMessages` nor any dequeue event); accepted as a rare
-display limitation (see `docs/thoughts/user-message-tracking.md`).
+display limitation (see `docs/user-message-tracking.md`).
 Otherwise the prefix through the boundary entry.
 
 ### `src/tui/interactive-mode.ts` (`InteractiveController`)
@@ -207,10 +207,10 @@ Otherwise the prefix through the boundary entry.
   each message renders exactly once by construction. This covers user
   prompts too: a prompt past the boundary is skipped by replay and rendered
   by its buffered `userMessageDequeued`; a prompt at/before the boundary was
-  dequeued pre-snapshot (its dequeue precedes its transcript replay on the
-  stream), so no dequeue event for it can reach this subscriber; and a
-  prompt dequeued pre-snapshot whose echo is past the boundary is exactly
-  the `deliveredMessages` case.
+  dequeued pre-snapshot (its entry was written at its dequeue, before the
+  boundary message's emission), so no dequeue event for it can reach this
+  subscriber; and a prompt dequeued pre-snapshot whose entry is past the
+  boundary (or not yet in the read) is exactly the `deliveredMessages` case.
 
 ## Edge cases
 
@@ -227,21 +227,22 @@ Otherwise the prefix through the boundary entry.
   confirmed.)
 - **Known residual race (boundary-undefined delivery)**: whenever the
   boundary is undefined (replay-all) while a prompt is
-  delivered-but-unechoed and the transcript read already includes its entry,
+  delivered-but-unconfirmed and the transcript read already includes its entry,
   replay-all plus `deliveredMessages` (or the buffered dequeue) renders it
   twice. In practice this requires a just-revived daemon with prior history
   - instant query + instant attach within the read window; accepted as
     negligible.
 - **Accepted display limitations** (each documented with its cause in
-  `docs/thoughts/user-message-tracking.md` so no re-derivation is needed):
-  steered prompts are invisible to fresh attachers (their content exists
-  only as a `queued_command` sidecar the replay drops — `deliveredMessages`
-  cannot fix this, no echo ever comes); a merged bucket shows as N separate
-  user messages from `deliveredMessages` but one `\n`-joined entry once
-  echoed (cosmetic); an interrupt clears `deliveredPending`, so a prompt the
-  CLI discarded unwritten is gone from every view; a delivered-but-unechoed
-  append that survives into a compaction stops being displayed (its entry is
-  in the pre-compaction segment `get-messages` no longer returns).
+  `docs/user-message-tracking.md` so no re-derivation is needed):
+  steered prompts are invisible to fresh attachers (their only transcript
+  record is a `queued_command` attachment `getSessionMessages` never returns
+  — `deliveredMessages` cannot fix this, no user entry ever comes); a merged
+  bucket shows as N separate user messages from `deliveredMessages` but one
+  `\n`-joined entry once in history (cosmetic); the emissions around an
+  interrupt clear `deliveredPending`, so a prompt the CLI discarded
+  unwritten is gone from every view; a delivered-but-unconfirmed append
+  that survives into a compaction stops being displayed (its entry is in
+  the pre-compaction segment `get-messages` no longer returns).
 - **Tool results in history**: a history user message's `tool_result` blocks
   update the `ToolExecutionComponent`s created by the preceding assistant
   message, exactly as live. A dangling tool call (turn interrupted before its
@@ -436,7 +437,7 @@ Remaining work checklist:
 - [x] TUI renders `deliveredMessages` between history replay and drain
 - [x] Test for the attach-window gap (form TBD)
 - [x] New doc explaining why the daemon must track queued + delivered
-      prompts (SDK echo gap), e.g. `docs/thoughts/user-message-tracking.md`
+      prompts, e.g. `docs/user-message-tracking.md`
 - [x] Presubmit + credit-free live check; then back to reviewer 9c67337b
       (continue the existing conversation, do not spawn fresh)
 
@@ -455,7 +456,7 @@ limitation (see corrections above).
 
 Implementation: the exactly-once **prompt-visibility invariant** is stated
 on `StateSnapshot` (sdk-socket.ts) and expanded in the new
-`docs/thoughts/user-message-tracking.md` (which also records every accepted
+`docs/user-message-tracking.md` (which also records every accepted
 limitation with its cause, per the no-re-derivation requirement). The
 delivery computation is a pure seam, `deliveredMessages(before, transition)`
 in queue-model.ts, so the attach-window gap logic is unit-tested there
@@ -485,3 +486,24 @@ and simplified queued-message seeding to iterate `snapshot.queuedMessages`
 directly (no id-map over `assistantState.queued`, no placeholder fallback).
 The `SDK_SOCKET_VERSION` stays-1 note is kept as a protocol fact, not a
 compatibility promise.
+
+## 2026-07-11 — TDC review: "transcript echo" framing was wrong
+
+TDC comments on the finding-2 implementation exposed a wrong mental model in
+the prose (the mechanism was already correct): the live SDK stream never
+emits user prompts at all — re-verified across the FINDINGS captures, where
+the only `user` events are tool_results, including in interrupt scenarios
+(so there is also no "interrupt synthetic user message"; the clear comes
+from the surrounding emissions). All "transcript echo" language is replaced
+with the confirmation framing: entries land in file-append order, so any
+later emitted message confirms every prompt delivered before it. Two more
+corrections: the JSONL _does_ record steered prompts (a chain-linked
+`queued_command` attachment carrying the exact text at the demotion point) —
+the earlier "not in the JSONL" wording conflated the rendered wrapper with
+the prompt content; and the reason they stay invisible to `get-messages` is
+that `getSessionMessages` never returns attachment entries (verified
+empirically by pointing it at the `a_next` capture in an isolated config
+dir: only the 9 real user/assistant chain entries came back), so the
+eventual fix would read the raw JSONL. Rationale doc moved to
+`docs/user-message-tracking.md`; comments in sdk-socket.ts, queue-model.ts,
+daemon.ts, and the queue-model tests reworded to match.
