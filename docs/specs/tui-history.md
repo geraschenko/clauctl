@@ -65,6 +65,7 @@ queued messages themselves.
 
 // StateSnapshot gains (present when non-empty, matching existing style):
 queuedMessages?: { id: number; message: SDKUserMessage }[];
+// TDC: With deliveredPending, is lastTranscriptUuid still required? I think yes, but please think about this question carefully.
 // ...and the attach boundary (present once any user/assistant sdkMessage has
 // been emitted this daemon lifetime): the uuid of the last one. Transcript
 // entries at/before it were emitted before this snapshot, so the subscriber
@@ -166,6 +167,7 @@ segment); otherwise the prefix through the boundary entry.
   renders whole from its live `assistant` message (its `message_start` was
   pre-snapshot, so the streaming map has no component and stray deltas are
   ignored).
+  TDC: Just to confirm my understanding, this means that the assistant message is effectively missing until it is _completed_, not that it's missing entirely, right?
 - **Known residual race**: attaching to a just-revived daemon (boundary
   undefined) while a first query races the transcript read can render that
   prompt twice (once from replay-all, once from its buffered dequeue).

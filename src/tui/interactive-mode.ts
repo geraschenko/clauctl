@@ -159,6 +159,7 @@ class InteractiveMode {
    * Events held back until history replay finishes (undefined afterwards), so
    * live output cannot interleave with — or precede — the replayed transcript.
    */
+  // TDC: "historyBuffer" is a confusing name for this, since it makes it sound like these are messages from the history replay, but it's exactly the opposite. "buffer" is a good term, but we somehow want to indicate that these are _live_ messages that arrived while history was being processed.
   private historyBuffer: SdkEvent[] | undefined = [];
 
   private readonly autocomplete: TuiAutocompleteProvider;
