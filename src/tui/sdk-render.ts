@@ -16,7 +16,9 @@ import type {
 } from "@anthropic-ai/sdk/resources/beta/messages/messages.mjs";
 import type {
   SDKAssistantMessage,
+  SDKMessage,
   SDKUserMessage,
+  SessionMessage,
 } from "@anthropic-ai/claude-agent-sdk";
 import type {
   RenderAssistant,
@@ -207,6 +209,42 @@ export function toolResultsOf(message: SDKUserMessage): RenderToolResult[] {
     }
   }
   return results;
+}
+
+/**
+ * History entries adapted to the live-message shape so replay reuses the
+ * exact rendering path; system entries are dropped. A SessionMessage carries
+ * every field the corresponding SDKMessage variant requires (`type`,
+ * `message`, `uuid`, `session_id`, `parent_tool_use_id`), so the cast is a
+ * narrowing of `message: unknown`, not a fabrication.
+ */
+export function historyToSdkMessages(messages: SessionMessage[]): SDKMessage[] {
+  return messages.filter(
+    (entry): entry is SessionMessage & SDKMessage =>
+      entry.type === "user" || entry.type === "assistant",
+  );
+}
+
+/**
+ * The replayable prefix of a history segment: entries at/before the attach
+ * boundary (the last uuid emitted on the stream before the subscriber's
+ * snapshot). Everything after the boundary reaches the subscriber as live
+ * events, so replaying it would render twice. An undefined boundary means
+ * nothing was emitted this daemon lifetime → the whole segment replays; a
+ * boundary missing from the segment means a compaction raced the attach →
+ * nothing replays (the buffered live events carry the new segment).
+ */
+export function historyUpToBoundary(
+  messages: SessionMessage[],
+  boundaryUuid: string | undefined,
+): SessionMessage[] {
+  if (boundaryUuid === undefined) {
+    return messages;
+  }
+  const boundaryIndex = messages.findIndex(
+    (entry) => entry.uuid === boundaryUuid,
+  );
+  return messages.slice(0, boundaryIndex + 1);
 }
 
 /** The displayable text of a user turn (image/document blocks are dropped). */

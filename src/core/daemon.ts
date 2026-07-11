@@ -13,6 +13,7 @@ import { createServer, type Server, type Socket } from "node:net";
 import { join } from "node:path";
 import { numberParser } from "@stricli/core";
 import {
+  getSessionMessages,
   query,
   type Options,
   type PermissionMode,
@@ -318,6 +319,8 @@ async function daemon(this: CommandContext, flags: DaemonFlags): Promise<void> {
     permissionMode?: PermissionMode;
     observedPermissionModes: PermissionMode[];
     cwd: string;
+    /** Uuid of the last user/assistant message emitted (StateSnapshot's attach boundary). */
+    lastTranscriptUuid?: string;
   } = { observedPermissionModes: [], cwd: record.cwd };
   const observePermissionMode = (mode: PermissionMode): void => {
     trackedState.permissionMode = mode;
@@ -408,6 +411,13 @@ async function daemon(this: CommandContext, flags: DaemonFlags): Promise<void> {
       case "wait-idle":
         await events.whenIdle();
         return undefined;
+      case "get-messages": {
+        const sessionId = record.sessions.at(-1)?.sessionId;
+        if (sessionId === undefined) {
+          return [];
+        }
+        return await getSessionMessages(sessionId, { dir: record.cwd });
+      }
       case "subscribe": {
         // Snapshot capture, response write, and sink attach happen in one
         // synchronous section, so the snapshot is exact: no event is lost or
@@ -430,6 +440,15 @@ async function daemon(this: CommandContext, flags: DaemonFlags): Promise<void> {
             observedPermissionModes: [...trackedState.observedPermissionModes],
           }),
           cwd: trackedState.cwd,
+          ...(queueModel.queued.length > 0 && {
+            queuedMessages: queueModel.queued.map(({ id, message }) => ({
+              id,
+              message,
+            })),
+          }),
+          ...(trackedState.lastTranscriptUuid !== undefined && {
+            lastTranscriptUuid: trackedState.lastTranscriptUuid,
+          }),
         };
         const response: SdkResponse = {
           id: request.id,
@@ -499,6 +518,15 @@ async function daemon(this: CommandContext, flags: DaemonFlags): Promise<void> {
 
   // --- stream reader ---------------------------------------------------------
   const handleMessage = (message: SDKMessage): void => {
+    if (
+      (message.type === "user" || message.type === "assistant") &&
+      message.uuid !== undefined
+    ) {
+      // The uuid guard is for the type only: stream user/assistant messages
+      // always carry the transcript uuid (verified in the CLI binary; the
+      // optional uuid on SDKUserMessage is for host-pushed input).
+      trackedState.lastTranscriptUuid = message.uuid;
+    }
     if (message.type === "system" && message.subtype === "init") {
       handleSessionInit(message);
       trackedState.model = message.model;

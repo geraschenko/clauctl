@@ -21,6 +21,7 @@ import type {
   PermissionMode,
   SDKControlInitializeResponse,
   SDKMessage,
+  SessionMessage,
 } from "@anthropic-ai/claude-agent-sdk";
 import {
   commandNoTarget,
@@ -48,6 +49,8 @@ import { UserMessageComponent } from "./components/user-message.ts";
 import {
   beginMessage,
   foldStreamEvent,
+  historyToSdkMessages,
+  historyUpToBoundary,
   renderAssistant,
   toolResultsOf,
   userText,
@@ -152,6 +155,12 @@ class InteractiveMode {
   private readonly toolComponents = new Map<string, ToolExecutionComponent>();
   private lastCtrlCAt = 0;
 
+  /**
+   * Events held back until history replay finishes (undefined afterwards), so
+   * live output cannot interleave with — or precede — the replayed transcript.
+   */
+  private historyBuffer: SdkEvent[] | undefined = [];
+
   private readonly autocomplete: TuiAutocompleteProvider;
   private modelSelector?: ModelSelectorComponent;
   /** True from `/model` submit until the supported-models read settles. */
@@ -186,7 +195,7 @@ class InteractiveMode {
     ui.addInputListener((data) => this.handleGlobalKey(data));
 
     // The snapshot seeds footer state and the pending area; the transcript
-    // starts blank (no history replay in this phase).
+    // fills asynchronously via loadHistory.
     this.footer.setAssistantState(this.assistantState);
     if (stateSnapshot.sessionId !== undefined) {
       this.footer.setSessionId(stateSnapshot.sessionId);
@@ -199,9 +208,10 @@ class InteractiveMode {
       this.observePermissionMode(mode);
     }
     this.notePermissionMode(stateSnapshot.permissionMode ?? "default");
-    for (const entry of this.assistantState.queued) {
-      this.pendingMessages.add(entry.id, `(queued message ${entry.id})`);
+    for (const entry of stateSnapshot.queuedMessages ?? []) {
+      this.pendingMessages.add(entry.id, userText(entry.message));
     }
+    void this.loadHistory(stateSnapshot.lastTranscriptUuid);
 
     this.autocomplete = new TuiAutocompleteProvider(
       stateSnapshot.cwd ?? null,
@@ -244,7 +254,49 @@ class InteractiveMode {
     this.footer.setPermissionMode(mode);
   }
 
+  /**
+   * Fetch and render the transcript up to the attach boundary, then release
+   * the buffered live events. The subscribe snapshot and the transcript read
+   * are not atomic: entries past the boundary may appear in both the read
+   * and the buffered events, so replay stops at the boundary and the live
+   * stream renders the rest — each message renders exactly once by
+   * construction, no dedupe needed.
+   */
+  private async loadHistory(boundaryUuid: string | undefined): Promise<void> {
+    try {
+      const data = await this.client.request({ type: "get-messages" });
+      const history = data as SessionMessage[];
+      for (const message of historyToSdkMessages(
+        historyUpToBoundary(history, boundaryUuid),
+      )) {
+        // Live user prompts render at userMessageDequeued, never via
+        // sdkMessage (whose user case only resolves tool results), so history
+        // renders them here through the same userText + UserMessageComponent
+        // pair the dequeue path uses.
+        if (message.type === "user") {
+          const text = userText(message);
+          if (text !== "") {
+            this.chatContainer.addChild(new UserMessageComponent(text));
+          }
+        }
+        this.handleSdkMessage(message);
+      }
+    } catch (error) {
+      this.addBanner(`history fetch failed: ${String(error)}`);
+    }
+    const buffered = this.historyBuffer ?? [];
+    this.historyBuffer = undefined;
+    for (const event of buffered) {
+      this.handleEvent(event);
+    }
+    this.ui.requestRender();
+  }
+
   handleEvent(event: SdkEvent): void {
+    if (this.historyBuffer !== undefined) {
+      this.historyBuffer.push(event);
+      return;
+    }
     this.assistantState = nextAssistantState(this.assistantState, event);
     switch (event.kind) {
       case "userMessageQueued":

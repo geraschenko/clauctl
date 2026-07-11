@@ -561,6 +561,10 @@ export const sdkRoutes = {
   "reload-skills": bareRequestCommand("reload skills from disk", {
     type: "reload-skills",
   }),
+  "get-messages": bareRequestCommand(
+    "print the transcript since the last compaction",
+    { type: "get-messages" },
+  ),
   "initialization-result": bareRequestCommand(
     "print the full initialization result",
     { type: "initialization-result" },

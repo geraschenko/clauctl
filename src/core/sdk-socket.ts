@@ -113,6 +113,10 @@ export type SdkRequest =
   // an SdkEventRecord line until the connection closes. No history replay — a
   // subscriber starts at "now".
   | { type: "subscribe" }
+  // Response data is SessionMessage[] — the transcript segment since the last
+  // compaction, verbatim from getSessionMessages. Reads the transcript file,
+  // not the Query, so it is not an SdkControlRead.
+  | { type: "get-messages" }
   | SdkControlMutation
   | SdkControlRead;
 
@@ -129,6 +133,21 @@ export interface StateSnapshot {
   permissionMode?: PermissionMode;
   observedPermissionModes?: PermissionMode[];
   cwd?: string;
+  /**
+   * Queued-but-undelivered messages (present when non-empty). These live only
+   * in the daemon's queue model — not in the transcript — so the snapshot is
+   * the only way an attaching observer learns their content.
+   */
+  queuedMessages?: { id: number; message: SDKUserMessage }[];
+  /**
+   * The attach boundary: uuid of the last user/assistant sdkMessage emitted
+   * this daemon lifetime (absent if none). Transcript entries at/before it
+   * were emitted before this snapshot — the subscriber never saw them;
+   * everything after arrives on the live stream. History replay renders up
+   * to the boundary and no further, making the overlap window render-once
+   * without any dedupe.
+   */
+  lastTranscriptUuid?: string;
 }
 
 export type SdkRequestRecord = SdkRequest & { id: string };

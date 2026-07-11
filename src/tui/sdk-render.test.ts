@@ -4,10 +4,13 @@ import type { BetaRawMessageStreamEvent } from "@anthropic-ai/sdk/resources/beta
 import type {
   SDKAssistantMessage,
   SDKUserMessage,
+  SessionMessage,
 } from "@anthropic-ai/claude-agent-sdk";
 import {
   beginMessage,
   foldStreamEvent,
+  historyToSdkMessages,
+  historyUpToBoundary,
   renderAssistant,
   toolResultsOf,
   userText,
@@ -241,6 +244,59 @@ test("toolResultsOf is empty for plain user turns", () => {
     toolResultsOf(sdkUserMessage([{ type: "text", text: "hi" }])),
     [],
   );
+});
+
+function sessionMessage(
+  type: SessionMessage["type"],
+  uuid: string,
+): SessionMessage {
+  return {
+    type,
+    uuid,
+    session_id: "s1",
+    message: { role: type, content: "x" },
+    parent_tool_use_id: null,
+  };
+}
+
+test("historyToSdkMessages keeps user/assistant order and drops system entries", () => {
+  const adapted = historyToSdkMessages([
+    sessionMessage("user", "u1"),
+    sessionMessage("system", "sys1"),
+    sessionMessage("assistant", "a1"),
+    sessionMessage("user", "u2"),
+  ]);
+  assert.deepEqual(
+    adapted.map((m) => [m.type, (m as { uuid: string }).uuid]),
+    [
+      ["user", "u1"],
+      ["assistant", "a1"],
+      ["user", "u2"],
+    ],
+  );
+});
+
+test("historyUpToBoundary cuts after the boundary entry", () => {
+  const history = [
+    sessionMessage("user", "u1"),
+    sessionMessage("assistant", "a1"),
+    sessionMessage("user", "u2"),
+    sessionMessage("assistant", "a2"),
+  ];
+  assert.deepEqual(
+    historyUpToBoundary(history, "u2").map((entry) => entry.uuid),
+    ["u1", "a1", "u2"],
+  );
+});
+
+test("historyUpToBoundary without a boundary returns the whole segment", () => {
+  const history = [sessionMessage("user", "u1")];
+  assert.deepEqual(historyUpToBoundary(history, undefined), history);
+});
+
+test("historyUpToBoundary with an absent boundary returns nothing", () => {
+  const history = [sessionMessage("user", "u1")];
+  assert.deepEqual(historyUpToBoundary(history, "not-there"), []);
 });
 
 test("userText handles string and block content", () => {
