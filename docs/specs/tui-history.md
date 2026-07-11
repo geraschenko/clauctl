@@ -51,6 +51,7 @@ queued messages themselves.
   text, and a rejected `get-messages` → an error banner; the TUI otherwise
   works. `SDK_SOCKET_VERSION` stays 1 (both protocol additions are additive
   optional shapes).
+  TDC: Do not make any backwards compatibility affordances. The error banner should be generic, the same sort of error banner the TUI would show if `get-messages` failed for any other reason.
 - `npm run check`, `npm run lint`, and `npm test` pass.
 
 ## Type design (approved)
