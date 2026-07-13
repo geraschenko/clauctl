@@ -1,104 +1,169 @@
 # Derisking: context management via synthetic `compact_boundary` injection
 
-Goal: map the **full spectrum of context-management options** available through the
-SDK if we're willing to inject a synthetic `compact_boundary` entry into the session
-jsonl and restart the `Query` object. Background and prior static analysis:
-[`docs/thoughts/rewind-and-tree.md`](../../thoughts/rewind-and-tree.md) (format
-verified by reading the CLI 2.1.195 binary; **not yet validated with a live resume**).
+Goal: map the **spectrum of context-management options** available through the SDK if
+we're willing to inject a synthetic `compact_boundary` entry into the session jsonl
+and restart the `Query` object. Background:
+[`docs/thoughts/rewind-and-tree.md`](../../thoughts/rewind-and-tree.md) — a static
+analysis of the format **inferred from the CLI 2.1.195 binary, not yet validated
+live**.
 
-## Questions
+## Scope: what this trick can and cannot control
 
-### Q1. Does injection work at all?
+The boundary mechanism only restructures the _transcript messages_ fed back on
+resume. Explicitly out of its reach (and out of scope here except where they
+interact): system prompt, tool definitions, MCP state, permissions, model options,
+filesystem state. The deliverable capability map must state this boundary so we
+don't oversell "full spectrum."
 
-Append a `compact_boundary` + summary message to the jsonl (query closed), then
-`query({resume: sessionId})`. Does the loader relink as documented and does the new
-query run on the compacted context? This gates everything else.
+Dimensions the trick plausibly controls, to be confirmed:
 
-- What is the minimal set of fields the boundary and summary entries need? (Exact
-  shape of the CLI's own summary message: `isCompactSummary`, `summarize_metadata`,
-  `parentUuid` — which are load-bearing vs. cosmetic/UI-only?)
-- Failure mode observability: the relink is documented as **silently skipped** on a
-  bad `uuids` list. How do we detect from the outside that injection didn't take?
+- which messages are included/excluded from context (arbitrary subsets?)
+- message order (original order only, or arbitrary?)
+- summary content and placement (we author the summary ourselves)
+- branch selection (combined with `resumeSessionAt`)
 
-### Q2. How do the summarization variants behave; what do unusual `preserved_messages` sets do?
+## Methodology core
 
-- Reproduce `up_to` and `from` orderings and confirm the resulting chains.
-- Non-contiguous preserved sets: preserved lists that break `tool_use`/`tool_result`
-  pairing, drop a user message but keep the assistant reply, interleave out of
-  original order. Does the CLI repair the sequence, does the API reject it (400
-  invalid `messages`), or does it silently work?
-- Preserved uuids pointing at sidechain/subagent entries, `file-history-snapshot`
-  entries, or entries already behind an earlier boundary.
-- Multiple boundaries in one file (stacked synthetic compactions).
+### Universal oracle: the outbound API request
 
-### Q3. Can we read the full tree through the SDK?
+The jsonl is the storage layer; ground truth is what the model receives. **Every**
+injection experiment sends a controlled probe prompt after resume (resume alone may
+not issue an inference request) and captures the API request it causes (recording shim
+via `ANTHROPIC_BASE_URL` pointed at a local proxy; validate the capture path against
+a plain baseline request before anything else — fall back to mitmproxy only if the
+shim can't work). Fixture messages carry unique nonce tags so assertions are exact:
+ordered presence of preserved/summary content, absence of summarized/abandoned
+content, intact tool_use/tool_result pairing. Model recall is never primary
+evidence.
 
-`importSessionToStore` → `store.load` reportedly returns every raw line (verified
-once, 2026-07-08). Confirm the entries carry everything needed for tree navigation:
-`parentUuid`, `logicalParentUuid`, `isCompactSummary`, sidechain markers, boundary
-`preserved_messages`. Compare against reading the jsonl directly and decide which
-route clauctl uses.
+### Fail closed on silent relink skip
 
-### Q4. Branch-to-branch navigation semantics
+The loader silently skips relinking on a bad `preserved_messages.uuids` list, and
+the relink may be in-memory only. So no experiment may conclude "worked" from the
+jsonl alone. Per-experiment asserts: (a) the outbound request matches the expected
+message set; (b) after one live turn, the newly persisted message's `parentUuid`
+points where the relinked chain predicts. A deliberate bad-uuid control must show
+the detector firing.
 
-`resume` + `resumeSessionAt` on a different branch: what does the CLI actually do?
-Expectation from static analysis: no summarization at all — plain rewind keeps the
-prefix and abandons the tail. If that holds, "which messages get summarized" is
-entirely **our** choice in the synthetic route (unlike pi, where the engine
-summarizes back to the common ancestor). Verify:
+### Controls
 
-- `resumeSessionAt` a uuid on an abandoned branch; a uuid inside a summarized
-  (boundary-unreachable) segment; a uuid that doesn't exist.
-- What interactive claude's Esc-Esc writes for the pure-rewind (no summarize) option,
-  for parity reference.
+- unchanged resume (no injection) — baseline request shape
+- native `/compact` — known-good boundary to compare against
+- deliberately invalid `uuids` — proves skip detection works
+- exact byte replay of a native boundary with fresh session — proves our
+  append-and-resume path is sound independent of our synthesis
 
-### Q5. What is the summarization prompt, and can we control it?
+### Hygiene
 
-Capture the `/compact` and Esc-Esc summarize requests with mitmproxy. Note: in the
-synthetic route **we** generate the summary with our own API call, so the CLI's
-prompt matters for parity, not capability. But capture it anyway — it tells us what
-the CLI considers a good summary shape, and whether `/compact <instructions>` is a
-usable fallback.
+- Isolated `CLAUDE_CONFIG_DIR` per case; keep an untouched copy of every
+  pre-injection jsonl; no concurrent claude processes against the same file.
+- Record per run: SDK package version, resolved CLI binary version, model. Abort on
+  mismatch with the pinned versions in FINDINGS.
+- Small models (haiku), tiny fixtures — a canonical fixture transcript
+  (`U1/A1(tool)/U2/A2/...`, named uuids) defined once in the harness, so each
+  experiment is "this exact transformation of that fixture" with an expected active
+  chain and expected outbound `messages`.
 
-### Q6. What context does the model actually receive after resume?
+## Phases and questions
 
-The jsonl relinking is only the storage layer. Ground truth is the outgoing API
-request (mitmproxy or `ANTHROPIC_BASE_URL` shim): are summarized messages truly
-absent, is the summary presented as claimed, do token counts / context-low warnings
-reflect the compacted window?
+### Phase 0 — native baseline capture
 
-### Q7. Interaction with the CLI's own context machinery
+Generate the fixture, run a genuine `/compact`, capture: pre/post jsonl, any other
+config-dir changes (diff the dir — native compaction may touch state outside the
+jsonl), the outbound request, versions. If tmux-driving interactive claude works,
+capture Esc-Esc plain-rewind / "summarize from here" / "summarize up to here" the
+same way; otherwise ask Anton to generate those traces. These captures answer:
 
-- Does auto-compact still trigger correctly after a synthetic boundary (threshold
-  accounting reset)?
-- Microcompaction interplay, if enabled.
-- Does a subsequent real `/compact` cope with a file containing our boundary?
+- **Q5. What is the summarization prompt?** (from the captured `/compact` and
+  Esc-Esc requests; in the synthetic route we author summaries ourselves, so this is
+  parity/reference, plus whether `/compact <instructions>` is a usable fallback)
+- What the summary user message actually looks like on disk
+  (`isCompactSummary`, `summarize_metadata`, parent links).
 
-### Q8. File-state features across the boundary
+### Phase 1 — does injection work at all? (Q1)
 
-With `enableFileCheckpointing: true`: do `file-history-snapshot` entries in the
-summarized segment survive, and does `rewindFiles` to a message behind the boundary
-still work?
+Sequence, each step fail-closed per the oracle rules:
 
-### Q9. Write-safety and lifecycle
+1. Exact replay: clone the complete pre-compaction transcript + config dir, append
+   the captured native boundary+summary entries byte-for-byte (preserved uuids then
+   reference real entries in the clone); resume; assert.
+2. Synthetic equivalent: same shape, our uuids, our summary text; resume; assert.
+3. Durability: after a successful resume, run a turn, close, **resume a second
+   time**, assert again — first-resume success may not survive the writes it causes.
+4. Bad-uuid control (skip detector).
+5. Field ablation only as needed to answer: which boundary/summary fields are
+   load-bearing vs. cosmetic?
 
-Is "query closed" sufficient, or must the CLI process be fully exited before we
-append (does the CLI hold the file open / rewrite it on shutdown, clobbering our
-lines)? What does the daemon teardown → append → respawn sequence need to guarantee?
+### Phase 2 — map the valid option space (Q2a, Q4)
 
-### Q10. Fragility management
+- Valid contiguous `up_to` and `from` reproductions (per the static analysis's
+  producer orderings); assert resulting chains and requests.
+- Valid non-contiguous preserved subsets that keep tool pairs intact.
+- Branch navigation: `resume` + `resumeSessionAt` onto another branch — expectation:
+  plain rewind, **no** summarization (unlike pi, summarize-set choice is ours).
+  Probe: uuid on an abandoned branch; uuid inside a boundary-unreachable segment;
+  nonexistent uuid.
+- Combined: navigate to a branch _and_ inject a summary of the abandoned tail
+  (the pi-style "summarize from here" emulation end-to-end).
 
-The format is `@internal` and verified against CLI 2.1.195 only. Build the
-experiments as a rerunnable harness (isolated `CLAUDE_CONFIG_DIR`, scripted asserts)
-so we can revalidate on every CLI/SDK upgrade and detect silent relink skips before
-they ship.
+### Phase 3 — adversarial/malformed cases (Q2b)
 
-## Methodology
+Only after Phase 2 establishes the valid envelope:
 
-Same setup as the sibling experiments (`../resume-persistence/`): `.mjs` scripts
-against the bundled SDK, isolated `CLAUDE_CONFIG_DIR`, real authenticated sessions.
-mitmproxy for Q5/Q6. Findings land in `FINDINGS.md`, chronology in `WORK-LOG.md`.
+- preserved sets breaking tool_use/tool_result pairing; dropped user message with
+  kept assistant reply; reordered subsets. For each, distinguish **loader
+  acceptance** vs **API acceptance** (capture the outbound request even when the API
+  400s) vs **semantically usable context**.
+- duplicate uuids (if preserved entries are re-appended rather than referenced)
+- stacked boundaries (two synthetic compactions; loader order sensitivity)
+- trailing non-message entries after the boundary (snapshots, progress records)
+- preserved uuids pointing at sidechain/subagent or snapshot entries (exploratory —
+  subagents may live in separate files with separate loading rules)
 
-Suggested order: Q1 → Q6 (prove the injected context is real) → Q2/Q4 (map the
-option space) → Q3 (tree read) → Q7/Q8/Q9 (integration edges) → Q5 (parity) → Q10
-(harden).
+### Phase 4 — integration edges (Q7, Q8, Q9)
+
+- **Q7 CLI machinery:** does a real `/compact` cope with a file containing our
+  boundary? Auto-compact threshold accounting after injection — oracle: the
+  context-usage numbers the SDK reports, not waiting for organic auto-compaction.
+- **Q8 file state:** with `enableFileCheckpointing`, does `rewindFiles` to a message
+  behind the boundary still work?
+- **Q9 lifecycle:** what must be true before appending — input closed vs. generator
+  drained vs. child process exited? Does the CLI hold/rewrite the file on shutdown
+  (clobbering appends)? Findings feed the daemon teardown→append→respawn protocol;
+  crash-consistency engineering (fsync, atomic replace, rollback) is shipping-design
+  work, out of scope here beyond noting what the experiments reveal.
+
+### Supporting workstream (off critical path) — Q3 full-tree read
+
+`importSessionToStore` vs. reading the jsonl directly. Decision criteria for which
+clauctl uses: completeness (are unknown fields passed through un-normalized?),
+version sensitivity, failure observability. Also: do store entries preserve
+`preserved_messages` on boundary lines verbatim?
+
+## Test matrix (Phase 1–3 summary)
+
+| case                        | loader expectation | outbound request expectation       | next-write parent |
+| --------------------------- | ------------------ | ---------------------------------- | ----------------- |
+| unchanged resume (control)  | n/a                | full original chain                | last leaf         |
+| native `/compact` (control) | relink             | summary + suffix                   | per native        |
+| exact replay of native      | relink             | = native case                      | per relink        |
+| synthetic valid `up_to`     | relink             | summary + kept suffix              | leaf of suffix    |
+| synthetic valid `from`      | relink             | kept prefix + tail-summary         | tail-summary      |
+| valid non-contiguous subset | relink             | exactly the subset                 | subset leaf       |
+| bad uuid in list            | **skip**           | fixture-specific unrelinked chain¹ | per raw links     |
+| broken tool pairing         | ?                  | capture regardless of 400          | ?                 |
+| duplicate uuids             | ?                  | ?                                  | ?                 |
+| stacked boundaries          | ?                  | ?                                  | ?                 |
+| second resume after turn    | stable             | stable                             | consistent        |
+
+¹ Not assumed to be "full original chain": with relink skipped, the appended
+boundary/summary entries may themselves become the active leaf. Derive the expected
+unrelinked chain from the fixture's raw parent links; the control passes when the
+harness distinguishes that outcome from a successful relink.
+
+## Execution order
+
+capture-path validation → Phase 0 → Phase 1 → Phase 2 → Phase 3 → Phase 4; Q3
+whenever convenient. Findings land in `FINDINGS.md` (conclusions + capability/scope
+table), chronology in `WORK-LOG.md`. The harness stays rerunnable so CLI/SDK
+upgrades can revalidate the whole matrix (the format is `@internal`; expect drift).
