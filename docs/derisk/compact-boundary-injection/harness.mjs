@@ -1,0 +1,129 @@
+// Shared plumbing for the compact-boundary-injection experiments.
+//
+// SECURITY: never writes to the real ~/.claude. Every session runs with
+// env = baseEnv(...), which points CLAUDE_CONFIG_DIR at a scratch dir seeded
+// with a read-only COPY of ~/.claude/.credentials.json (the resume-persistence
+// scratch creds have a dead refresh token). The copied access token stays valid
+// for hours and scratch CLIs don't refresh before expiry, so the real session's
+// refresh-token family is not rotated. Onboarding state (.claude.json) comes
+// from the old scratch template. Uses the SDK-bundled `claude` binary.
+
+import { query } from "/home/anton/.treehouse/clauctl-90dce5/1/clauctl/node_modules/@anthropic-ai/claude-agent-sdk/sdk.mjs";
+import { spawn } from "node:child_process";
+import fs from "node:fs";
+import path from "node:path";
+
+export const EXP_DIR = "/home/anton/.treehouse/clauctl-90dce5/1/clauctl/docs/derisk/compact-boundary-injection";
+export const HAIKU = "claude-haiku-4-5-20251001";
+const CRED_SOURCE = `${process.env.HOME}/.claude/.credentials.json`;
+const CLAUDE_JSON_TEMPLATE = "/tmp/clauctl-resume-derisk/.claude.json";
+
+// Pinned versions; assertVersions() aborts the run on mismatch (README Hygiene).
+export const PINNED = { sdk: "0.3.195" };
+
+export function assertVersions() {
+  const pkg = JSON.parse(fs.readFileSync(
+    "/home/anton/.treehouse/clauctl-90dce5/1/clauctl/node_modules/@anthropic-ai/claude-agent-sdk/package.json", "utf8"));
+  if (pkg.version !== PINNED.sdk) throw new Error(`SDK version ${pkg.version} != pinned ${PINNED.sdk}`);
+  return { sdk: pkg.version };
+}
+
+// Fresh scratch CLAUDE_CONFIG_DIR seeded with auth. One per experiment case.
+export function makeConfigDir(caseName) {
+  const dir = `/tmp/clauctl-cbi-derisk/${caseName}`;
+  fs.rmSync(dir, { recursive: true, force: true });
+  fs.mkdirSync(dir, { recursive: true });
+  const creds = JSON.parse(fs.readFileSync(CRED_SOURCE, "utf8"));
+  const expiresAt = creds.claudeAiOauth?.expiresAt ?? 0;
+  if (expiresAt - Date.now() < 15 * 60 * 1000) {
+    throw new Error(`~/.claude access token expires at ${new Date(expiresAt).toISOString()} — ` +
+      `refusing to run (a scratch-CLI refresh could rotate the real session's tokens)`);
+  }
+  fs.writeFileSync(`${dir}/.credentials.json`, JSON.stringify(creds));
+  // .claude.json carries onboarding state; without it the CLI may block on first-run prompts.
+  const cj = JSON.parse(fs.readFileSync(CLAUDE_JSON_TEMPLATE, "utf8"));
+  fs.writeFileSync(`${dir}/.claude.json`, JSON.stringify({ ...cj, projects: {} }));
+  return dir;
+}
+
+export const baseEnv = (configDir, extra = {}) => ({
+  ...process.env,
+  CLAUDE_CONFIG_DIR: configDir,
+  ...extra,
+});
+
+// Session jsonl path for a given cwd + session id, mirroring the CLI's projectKey scheme.
+export const projectKey = (cwd) => cwd.replace(/[^a-zA-Z0-9]/g, "-");
+export const sessionFile = (configDir, cwd, sessionId) =>
+  path.join(configDir, "projects", projectKey(cwd), `${sessionId}.jsonl`);
+
+// Start shim.mjs recording to captureFile; resolves {port, kill} once listening.
+export function startShim(captureFile) {
+  fs.mkdirSync(path.dirname(captureFile), { recursive: true });
+  fs.rmSync(captureFile, { force: true });
+  return new Promise((resolve, reject) => {
+    const child = spawn("node", [`${EXP_DIR}/shim.mjs`, captureFile], { stdio: ["ignore", "pipe", "inherit"] });
+    child.stdout.on("data", (d) => {
+      const m = String(d).match(/LISTENING (\d+)/);
+      if (m) resolve({ port: Number(m[1]), kill: () => child.kill() });
+    });
+    child.on("error", reject);
+    child.on("exit", (code) => reject(new Error(`shim exited early (${code})`)));
+  });
+}
+
+// Manually-driven streaming session (same shape as ../resume-persistence/harness.mjs).
+// send(text) resolves with the turn's collected messages once its `result` arrives.
+export function makeSession(options) {
+  let resolveNext = null;
+  const pending = [];
+  let closed = false;
+  const input = {
+    [Symbol.asyncIterator]() {
+      return {
+        next() {
+          if (pending.length) return Promise.resolve({ value: pending.shift(), done: false });
+          if (closed) return Promise.resolve({ value: undefined, done: true });
+          return new Promise((res) => { resolveNext = res; });
+        },
+      };
+    },
+  };
+  const pushMsg = (text) => {
+    const m = { type: "user", message: { role: "user", content: text }, parent_tool_use_id: null };
+    if (resolveNext) { const r = resolveNext; resolveNext = null; r({ value: m, done: false }); }
+    else pending.push(m);
+  };
+
+  const q = query({ prompt: input, options });
+  const inits = [];
+  let resolveResult = null;
+  let turnMsgs = [];
+  let loopErr = null;
+  const loop = (async () => {
+    for await (const msg of q) {
+      if (msg.type === "system" && msg.subtype === "init") inits.push(msg);
+      turnMsgs.push(msg);
+      if (msg.type === "result") {
+        const r = resolveResult; resolveResult = null;
+        const collected = turnMsgs; turnMsgs = [];
+        if (r) r(collected);
+      }
+    }
+  })().catch((e) => { loopErr = e; });
+
+  const send = (text) => new Promise((res, rej) => {
+    resolveResult = res;
+    pushMsg(text);
+    loop.then(() => { if (loopErr) rej(loopErr); });
+  });
+  const close = () => { closed = true; if (resolveNext) { const r = resolveNext; resolveNext = null; r({ value: undefined, done: true }); } q.close(); };
+  return { q, send, inits, close, lastInit: () => inits[inits.length - 1] };
+}
+
+export const readJsonl = (file) =>
+  fs.readFileSync(file, "utf8").split("\n").filter(Boolean).map((l) => JSON.parse(l));
+
+// Inference requests from a shim capture file (filters count_tokens, telemetry, etc.).
+export const readCapturedInference = (captureFile) =>
+  readJsonl(captureFile).filter((r) => r.path?.startsWith("/v1/messages") && !r.path.includes("count_tokens") && r.body?.messages);
