@@ -283,20 +283,28 @@ test("historyUpToBoundary cuts after the boundary entry", () => {
     sessionMessage("user", "u2"),
     sessionMessage("assistant", "a2"),
   ];
+  const result = historyUpToBoundary(history, "u2");
   assert.deepEqual(
-    historyUpToBoundary(history, "u2").map((entry) => entry.uuid),
+    result.messages.map((entry) => entry.uuid),
     ["u1", "a1", "u2"],
   );
+  assert.equal(result.boundaryMissing, false);
 });
 
 test("historyUpToBoundary without a boundary returns the whole segment", () => {
   const history = [sessionMessage("user", "u1")];
-  assert.deepEqual(historyUpToBoundary(history, undefined), history);
+  assert.deepEqual(historyUpToBoundary(history, undefined), {
+    messages: history,
+    boundaryMissing: false,
+  });
 });
 
-test("historyUpToBoundary with an absent boundary returns nothing", () => {
+test("historyUpToBoundary with an absent boundary returns everything, flagged", () => {
   const history = [sessionMessage("user", "u1")];
-  assert.deepEqual(historyUpToBoundary(history, "not-there"), []);
+  assert.deepEqual(historyUpToBoundary(history, "not-there"), {
+    messages: history,
+    boundaryMissing: true,
+  });
 });
 
 test("userText handles string and block content", () => {

@@ -266,7 +266,10 @@ class InteractiveMode {
    * atomic: entries past the boundary may appear in both the read and the
    * buffered events, so replay stops at the boundary and the live stream
    * renders the rest — each message renders exactly once by construction
-   * (StateSnapshot's prompt-visibility invariant), no dedupe needed.
+   * (StateSnapshot's prompt-visibility invariant), no dedupe needed. When the
+   * boundary is missing from the read (it raced a writer — see
+   * historyUpToBoundary), exactly-once is unachievable: the whole segment
+   * replays behind a warning banner rather than rendering nothing.
    */
   private async loadHistory(
     boundaryUuid: string | undefined,
@@ -275,9 +278,16 @@ class InteractiveMode {
     try {
       const data = await this.client.request({ type: "get-messages" });
       const history = data as SessionMessage[];
-      for (const message of historyToSdkMessages(
-        historyUpToBoundary(history, boundaryUuid),
-      )) {
+      const { messages: replayable, boundaryMissing } = historyUpToBoundary(
+        history,
+        boundaryUuid,
+      );
+      if (boundaryMissing) {
+        this.addBanner(
+          "history attach point not found; recent messages may be missing or duplicated",
+        );
+      }
+      for (const message of historyToSdkMessages(replayable)) {
         // Live user prompts render at userMessageDequeued, never via
         // sdkMessage (whose user case only resolves tool results), so history
         // renders them here through the same userText + UserMessageComponent

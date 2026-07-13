@@ -230,21 +230,31 @@ export function historyToSdkMessages(messages: SessionMessage[]): SDKMessage[] {
  * boundary (the last uuid emitted on the stream before the subscriber's
  * snapshot). Everything after the boundary reaches the subscriber as live
  * events, so replaying it would render twice. An undefined boundary means
- * nothing was emitted this daemon lifetime → the whole segment replays; a
- * boundary missing from the segment means a compaction raced the attach →
- * nothing replays (the buffered live events carry the new segment).
+ * nothing was emitted this daemon lifetime → the whole segment replays.
+ *
+ * A boundary missing from the segment means the read raced a writer — the
+ * session file lags the stream (the boundary entry is not flushed yet), or a
+ * compaction replaced the segment. The prefix cut is impossible, so the whole
+ * segment replays with `boundaryMissing` set; the caller warns that the
+ * transcript may be missing entries (lag) or duplicate live ones (compaction).
  */
 export function historyUpToBoundary(
   messages: SessionMessage[],
   boundaryUuid: string | undefined,
-): SessionMessage[] {
+): { messages: SessionMessage[]; boundaryMissing: boolean } {
   if (boundaryUuid === undefined) {
-    return messages;
+    return { messages, boundaryMissing: false };
   }
   const boundaryIndex = messages.findIndex(
     (entry) => entry.uuid === boundaryUuid,
   );
-  return messages.slice(0, boundaryIndex + 1);
+  if (boundaryIndex === -1) {
+    return { messages, boundaryMissing: true };
+  }
+  return {
+    messages: messages.slice(0, boundaryIndex + 1),
+    boundaryMissing: false,
+  };
 }
 
 /** The displayable text of a user turn (image/document blocks are dropped). */
