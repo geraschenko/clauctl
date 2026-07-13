@@ -1,0 +1,79 @@
+{
+  "versions": {
+    "sdk": "0.3.195"
+  },
+  "q7": {
+    "probeUsage": {
+      "input": 10,
+      "cacheCreate": 2325,
+      "cacheRead": 21907
+    },
+    "compactSubtype": "success",
+    "compactReqScope": {
+      "nMessages": 3,
+      "hasSynthSummary": true,
+      "hasRed": true,
+      "hasU1": false,
+      "hasU2": false
+    },
+    "newBoundaryMetadata": {
+      "trigger": "manual",
+      "preTokens": 24313,
+      "durationMs": 49324,
+      "preservedSegment": {
+        "headUuid": "4ab99d83-1162-4274-85fa-06e86a6f39c3",
+        "anchorUuid": "35a696d0-92a4-4a25-bd7d-200711034cfb",
+        "tailUuid": "fc56dff9-d041-4c2b-acee-6f794fddb672"
+      },
+      "preservedMessages": {
+        "anchorUuid": "35a696d0-92a4-4a25-bd7d-200711034cfb",
+        "uuids": [
+          "4ab99d83-1162-4274-85fa-06e86a6f39c3",
+          "fc56dff9-d041-4c2b-acee-6f794fddb672"
+        ],
+        "allUuids": [
+          "4ab99d83-1162-4274-85fa-06e86a6f39c3",
+          "fc56dff9-d041-4c2b-acee-6f794fddb672"
+        ]
+      },
+      "postTokens": 1149
+    },
+    "postProbe": {
+      "nMessages": 3,
+      "hasOldSynthSummary": true,
+      "hasFirstProbe": true
+    }
+  },
+  "q8": {
+    "contentAfterT2": "V2",
+    "liveDryRun": {
+      "canRewind": true,
+      "filesChanged": [
+        "/tmp/clauctl-cbi-derisk/p4-q8-cwd/notes.txt"
+      ],
+      "insertions": 0,
+      "deletions": 1
+    },
+    "behindBoundaryDryRun": {
+      "canRewind": false,
+      "error": "No file checkpoint found for this message."
+    },
+    "behindBoundaryReal": {
+      "error": "Error: No file checkpoint found for this message."
+    },
+    "contentAfterRewind": "V2",
+    "onChainReal": {
+      "canRewind": true
+    },
+    "contentAfterOnChain": "V1"
+  },
+  "q9": {
+    "resultToLeafOnDiskMs": 177,
+    "fileGrewAfterLeaf": false,
+    "bytesAfterLeaf": 0,
+    "sentinelSurvivedClose": true,
+    "entriesAfterSentinel": [
+      "last-prompt"
+    ]
+  }
+}

@@ -8,13 +8,14 @@
 // refresh-token family is not rotated. Onboarding state (.claude.json) comes
 // from the old scratch template. Uses the SDK-bundled `claude` binary.
 
-// TDC: Let's extract "/home/anton/.treehouse/clauctl-90dce5/1/clauctl" into a REPO_DIR constant. This is a worktree, and we want these experiments to be reproducible from other worktrees or from the original repo.
-import { query } from "/home/anton/.treehouse/clauctl-90dce5/1/clauctl/node_modules/@anthropic-ai/claude-agent-sdk/sdk.mjs";
+import { query } from "../../../node_modules/@anthropic-ai/claude-agent-sdk/sdk.mjs";
 import { spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
-export const EXP_DIR = "/home/anton/.treehouse/clauctl-90dce5/1/clauctl/docs/derisk/compact-boundary-injection";
+export const EXP_DIR = path.dirname(fileURLToPath(import.meta.url));
+export const REPO_DIR = path.resolve(EXP_DIR, "../../..");
 export const HAIKU = "claude-haiku-4-5-20251001";
 const CRED_SOURCE = `${process.env.HOME}/.claude/.credentials.json`;
 const CLAUDE_JSON_TEMPLATE = "/tmp/clauctl-resume-derisk/.claude.json";
@@ -24,7 +25,7 @@ export const PINNED = { sdk: "0.3.195" };
 
 export function assertVersions() {
   const pkg = JSON.parse(fs.readFileSync(
-    "/home/anton/.treehouse/clauctl-90dce5/1/clauctl/node_modules/@anthropic-ai/claude-agent-sdk/package.json", "utf8"));
+    path.join(REPO_DIR, "node_modules/@anthropic-ai/claude-agent-sdk/package.json"), "utf8"));
   if (pkg.version !== PINNED.sdk) throw new Error(`SDK version ${pkg.version} != pinned ${PINNED.sdk}`);
   return { sdk: pkg.version };
 }
