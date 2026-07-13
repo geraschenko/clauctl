@@ -8,6 +8,7 @@
 // refresh-token family is not rotated. Onboarding state (.claude.json) comes
 // from the old scratch template. Uses the SDK-bundled `claude` binary.
 
+// TDC: Let's extract "/home/anton/.treehouse/clauctl-90dce5/1/clauctl" into a REPO_DIR constant. This is a worktree, and we want these experiments to be reproducible from other worktrees or from the original repo.
 import { query } from "/home/anton/.treehouse/clauctl-90dce5/1/clauctl/node_modules/@anthropic-ai/claude-agent-sdk/sdk.mjs";
 import { spawn } from "node:child_process";
 import fs from "node:fs";
