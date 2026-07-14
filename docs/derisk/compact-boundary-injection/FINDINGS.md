@@ -4,7 +4,7 @@ Run against SDK 0.3.195 on 2026-07-13, model haiku-4.5 (bundled CLI version
 2.1.195 inferred from the `version` field the CLI stamps on session entries;
 `assertVersions()` pins only the SDK package — per-run CLI/model assertion is
 future harness work). The jsonl format is `@internal`; the harness
-(`p0*`–`p8*` scripts) is rerunnable, and `check-reports.mjs` hard-asserts the
+(`p0*`–`p9*` scripts) is rerunnable, and `check-reports.mjs` hard-asserts the
 key invariants over the regenerated reports (p7/p8 additionally self-assert) —
 rerun the scripts plus `check-reports.mjs` as the upgrade-regression gate. Evidence for context-relink claims: outbound API request capture
 (recording shim) + the `parentUuid` of the first post-resume write — never the
@@ -28,7 +28,9 @@ subsequent native `/compact` (each verified once).
 | Message order | Context followed the list order in the tested valid sequences, incl. reverse-chronological | P3 m3 |
 | Summary content & placement | **Ours** — free-form text; `up_to` shape puts it first, `from` shape puts it after the kept prefix | P1e, P2 a/b |
 | Branch selection | **YES** — via a one-line leaf-marker append or a boundary listing the desired chain (both internal-format techniques; leaf-selection behavior could change across CLI versions) | P2 i/j |
-| Rewind within active chain | `resumeSessionAt` (assistant uuid on the active chain only) | P2 d |
+| Summary-free navigation | **YES** — a boundary with `anchorUuid` = its own uuid and NO summary entry relinks fine, even as the last entry in the file | P9 a |
+| Boundary-prefix navigation | **YES** — a second boundary may list a prefix of an earlier boundary's chain, including that boundary's summary entry and entries it summarized away | P9 b |
+| Rewind within active chain | `resumeSessionAt` (assistant uuid on the active chain only); on a boundary-relinked chain it targets playlist members and PRESERVES the boundary's effect, writing nothing to the file | P2 d, P9 c |
 | Reach into a summarized region | **NO** via the three mechanisms tested (`resumeSessionAt`, leaf-marker, `rewindFiles`); escape hatch = new boundary re-listing the old chain | P2 g/k, P4 q8 |
 | System prompt, tools, MCP, permissions, filesystem | **Out of reach** — the boundary only restructures transcript messages | by design |
 
@@ -45,8 +47,10 @@ Append two lines to the session jsonl, then resume with `resume: sessionId`:
    ordered list of message uuids to keep; `anchorUuid` = the summary's uuid to
    put the summary first ("up_to" shape) or the boundary's own uuid to put the
    kept messages first ("from" shape).
-2. A `type: "user"` summary message with `parentUuid` = the boundary's uuid and
-   any content we like.
+2. Optionally, a `type: "user"` summary message with `parentUuid` = the
+   boundary's uuid and any content we like. With no summary entry, set
+   `anchorUuid` = the boundary's own uuid: the relink still applies and the
+   context is exactly the `uuids` chain (P9 a — pure navigation).
 
 Ablation results: removing `compactMetadata` or emptying `uuids` kills the
 relink; removing `isCompactSummary` + `isVisibleInTranscriptOnly` (jointly),
@@ -55,10 +59,18 @@ replacing the boilerplate summary text does not. Relink happens at load time
 only; on-disk entries keep their original parents, so the full tree is never
 destroyed.
 
-For pure branch switching without a summary, skip the boundary entirely: append
-one `turn_duration`-shaped system entry whose `parentUuid` is the target
-branch's leaf — the loader's natural-leaf walk then activates that branch
-(native files also parent user messages onto `turn_duration` entries).
+For pure branch switching without a summary, either use a no-summary boundary
+(above) or skip the boundary entirely: append one `turn_duration`-shaped system
+entry whose `parentUuid` is the target branch's leaf — the loader's
+natural-leaf walk then activates that branch (native files also parent user
+messages onto `turn_duration` entries).
+
+Native `logicalParentUuid` on boundaries (from the p0b/p0c captures): always
+the last message of the context that precedes the summarization point — full
+`/compact`: the pre-compaction leaf; `up_to`: the last entry of the summarized
+segment; `from`: the last preserved entry (= parent of the first summarized
+message). Synthetic boundaries get to set it freely; it does not affect the
+relink (it exists for tree anchoring).
 
 ## Failure modes (fail-closed-detectable in the tested cases)
 

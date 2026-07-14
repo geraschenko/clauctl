@@ -1,6 +1,6 @@
 // Hard pass/fail assertions over the recorded experiment reports.
 //
-// Usage: rerun the p1–p8 scripts (regenerating captures/*-report.json), then
+// Usage: rerun the p1–p9 scripts (regenerating captures/*-report.json), then
 //   node check-reports.mjs
 // A clean exit means the pinned behaviors still hold on the current SDK/CLI —
 // this is the upgrade-regression gate the FINDINGS header calls for.
@@ -149,9 +149,23 @@ const starts = (u, p) => typeof u === "string" && u.startsWith(p);
   check("p8 stacked-boundary effective context readable", r.p7.stackedBoundariesInFile === 12);
 }
 
+// --- p9: summary-free navigation + rewind within a relinked chain ---
+{
+  const r = load("p9-report");
+  const clean = (c, parent) => c.resultSubtype === "success" && c.violations.length === 0
+    && starts(c.firstNewUserParent, parent);
+  check("p9.a no-summary boundary relinks, parent = red",
+    clean(r.a, RED) && r.a.markerPresence.u2Tag && r.a.markerPresence.red && !r.a.markerPresence.magicWord);
+  check("p9.b prefix-of-boundary playlist honored, parent = four",
+    clean(r.b, FOUR) && r.b.markerPresence.summary1 && !r.b.markerPresence.red && !r.b.markerPresence.probe1);
+  check("p9.c resumeSessionAt keeps boundary effect, parent = four",
+    clean(r.c, FOUR) && r.c.markerPresence.summary1 && !r.c.markerPresence.magicWord
+    && !r.c.markerPresence.red && r.c.newEntriesBeyondProbeTurn.length === 0);
+}
+
 if (failures.length) {
   console.error(`FAIL — ${failures.length}/${count} assertions failed:`);
   for (const f of failures) console.error("  ✗ " + f);
   process.exit(1);
 }
-console.log(`PASS — ${count} assertions over p1–p8 reports`);
+console.log(`PASS — ${count} assertions over p1–p9 reports`);

@@ -15,8 +15,11 @@ sees. This spec adds three RPC commands to the daemon socket and matching
 
 - `get-entries` — every jsonl entry of the current session, verbatim.
 - `get-tree` — the session as a forest with boundaries resolved.
-- `set-context` — append a boundary (+ optional summary) and restart the
-  `Query` so it takes effect.
+- `set-context` — reshape the effective context and restart the `Query` so it
+  takes effect. Two modes: **boundary mode** (append a boundary + optional
+  summary; arbitrary uuid playlists) and **rewind mode** (`--rewind-to
+  <uuid>`: restart with the SDK's `resumeSessionAt` option — no file mutation;
+  active-chain truncation only).
 
 `get-messages` (already shipped) remains the "effective context" read.
 
@@ -75,8 +78,16 @@ sees. This spec adds three RPC commands to the daemon socket and matching
    can `wait-idle` first).
 6. Existing daemon behavior (event stream, queueing, get-messages) works after
    a `set-context` restart.
-
-TDC: a successful set-context must also emit an event so that watchers of sdk.sock (e.g. an attached tui) know that the context has been updated. In pictl, this is a tree-navigated event. Here the context manipulation is potentially more complicated, so I guess the simplest thing to do is broadcast the `set-context` request message, similar to how we broadcast controlApplied in clauctl/src/core/daemon.ts.
+7. A successful `set-context` broadcasts an event on sdk.sock so watchers
+   (e.g. an attached TUI) know the context changed: the `set-context` request
+   message itself is broadcast, mirroring how `controlApplied` is broadcast in
+   `src/core/daemon.ts`.
+8. `clauctl set-context --rewind-to <uuid>` on an idle daemon restarts the
+   `Query` with `resumeSessionAt: uuid` and modifies nothing on disk;
+   afterwards `get-messages` returns the active chain truncated at that uuid,
+   with any boundary already on the chain still in effect (P9 c: rewinding to
+   a preserved playlist member keeps the summary and the summarized region
+   stays sealed).
 
 ## Concrete examples
 
@@ -93,36 +104,65 @@ clauctl set-context <recent tail uuids...> --summary "Earlier we set up the buil
 # Keep prefix, summarize the discarded suffix (from-shape)
 clauctl set-context <prefix uuids...> --summary "Then we explored Y (abandoned)." --anchor boundary
 
+# Rewind within the active chain: no summary, no file mutation
+clauctl set-context --rewind-to <assistant uuid>
+
 clauctl get-entries   # raw jsonl entries
 clauctl get-tree      # resolved forest
 ```
 
-TDC: There's a really important case we forgot to cover, which is navigation back without a summary. Maybe this should be exposed as `clauctl set-context --rewind-to <uuid>`? In those cases, we don't need to synthesize a boundary entry at all. We can just restart the Query with upToMessageId set to the last assistant message in the options. Some additional nuances for when we add `/tree` navigation to the tui:
-* When the user selects a message from the conversational tree, what we get is a TreeNode target, not an entry uuid. If the target is `viaBoundary`, then we have to create a new boundary with uuid list set to a prefix of the boundary that created the TreeNode. If the target is not `viaBoundary`, then we can use this simpler rewind trick that doesn't invovle modifying the session file.
-* upToMessageId is required to be an assistant message uuid. If the user selects a user message uuid, the expected behavior is that we set upToMessageId to the immediately previous assistant message, and prefill the input box with the target user message text. Conceptually, the user is saying "I want to rewind to the point where I said this, but edit my message".
-We need to add this to our derisking experiments. I'm pretty sure it will work.
+Rewind mode uses the SDK query option `resumeSessionAt` (the similarly-named
+`upToMessageId` belongs to `forkSession()`, which mints a NEW session id with
+fresh uuids — wrong tool for a daemon that keeps one session). Its scope is
+exactly the active chain: the target must be an assistant uuid reachable from
+the current leaf (relinked, if a boundary is in effect — P9 c); abandoned
+branches and summarized regions are out of reach (P2 e/g) and need boundary
+mode instead.
+
+How a future TUI `/tree` maps a selected `TreeNode` onto these modes (recorded
+here so the design survives; TUI itself is a non-goal):
+- Target reached `viaBoundary` → boundary mode with `uuids` = a prefix of the
+  chain the creating boundary spelled out (including its summary entry as a
+  playlist member — verified, P9 b).
+- Target on the active chain, not `viaBoundary` → rewind mode (no file
+  mutation).
+- Target on an abandoned raw branch → boundary mode listing that branch's
+  chain (P2 j).
+- Target is a user message → rewind/navigate to the immediately previous
+  assistant message and prefill the input box with the user message text
+  ("rewind to where I said this, but edit my message").
 
 ## Type design
 
+Uuid-valued fields use `UUID` from `node:crypto`, mirroring the SDK's own
+transcript types (readers cast after validating; the SDK's `Options.resume`
+itself is `string`, so session ids stringify without friction).
+
 ```ts
 // src/core/sdk-socket.ts — new SdkRequest union members
+import { UUID } from "node:crypto";
+
 | { type: "get-entries" }   // response data: SessionEntry[]
 | { type: "get-tree" }      // response data: SessionTree
+// Boundary mode:
 | {
     type: "set-context";
     /** Ordered; becomes compactMetadata.preservedMessages.uuids (and allUuids). */
-    uuids: string[];
+    uuids: UUID[];
     /** Omitted → no summary entry is written and anchor is forced to "boundary". */
     summaryText?: string;
     /** "summary" (default): summary first, then uuids (up_to shape).
      *  "boundary": uuids first, then summary (from shape). */
     anchor?: "summary" | "boundary";
   }
+// Rewind mode: restart with resumeSessionAt, no file mutation. Target must be
+// an assistant uuid on the (relinked) active chain.
+| { type: "set-context"; rewindTo: UUID }
 
-/** Response data for set-context. */
+/** Response data for set-context. Both uuids absent in rewind mode. */
 export interface SetContextResult {
-  boundaryUuid: string;
-  summaryUuid?: string;
+  boundaryUuid?: UUID;
+  summaryUuid?: UUID;
 }
 ```
 
@@ -132,11 +172,13 @@ export interface SetContextResult {
 // avoids the alpha dependency and we need the path for appending anyway —
 // documented in code comments.)
 
+import { UUID } from "node:crypto";
+
 /** One parsed jsonl line, verbatim. Known fields typed, everything else kept. */
 export interface SessionEntry {
-  uuid?: string;
-  parentUuid?: string | null;
-  logicalParentUuid?: string | null;
+  uuid?: UUID;
+  parentUuid?: UUID | null;
+  logicalParentUuid?: UUID | null;
   type?: string;
   subtype?: string;
   [key: string]: unknown;
@@ -148,46 +190,46 @@ export function projectKey(cwd: string): string;
 /** <configDir>/projects/<projectKey>/<sessionId>.jsonl. configDir is explicit:
  *  the caller resolves it the same way the CLI child does (CLAUDE_CONFIG_DIR
  *  from the child's env if set, else ~/.claude). */
-export function sessionFilePath(configDir: string, cwd: string, sessionId: string): string;
+export function sessionFilePath(configDir: string, cwd: string, sessionId: UUID): string;
 
 export function readSessionEntries(filePath: string): SessionEntry[];
 
 /** Builds boundary (+ summary) entries and appends them. Pure construction
  *  split from the write so tests can inspect entries without a filesystem. */
 export function buildBoundaryEntries(params: {
-  sessionId: string;  // TDC: UUID?
+  sessionId: UUID;
   cwd: string;
-  uuids: string[];  // TDC: UUID[]?
+  uuids: UUID[];
   summaryText?: string;
   anchor: "summary" | "boundary";
   /** Recorded as the boundary's logicalParentUuid (tree anchoring). */
-  logicalParentUuid: string | null;
+  logicalParentUuid: UUID | null;
 }): { entries: SessionEntry[]; result: SetContextResult };
 
 export function appendSessionEntries(filePath: string, entries: SessionEntry[]): void;
 
 /** Resolves when an entry with this uuid is in the file (fs.watch + predicate;
  *  covers the ~100–180 ms flush lag after the SDK result message). */
-export function waitForEntryOnDisk(filePath: string, uuid: string, timeoutMs?: number): Promise<void>;
+export function waitForEntryOnDisk(filePath: string, uuid: UUID, timeoutMs?: number): Promise<void>;
 ```
 
 ```ts
 // src/core/build-tree.ts (new)
+import { UUID } from "node:crypto";
 import { SessionEntry } from "./session-file.js";
 
 export interface TreeNode {
-  // TDC: Why are we using string instead of UUID for uuid types? The sdk uses UUID.
-  entryUuid: string;  // TDC: UUID?
+  entryUuid: UUID;
   children: TreeNode[];
   /** Set when the edge to this node's parent comes from a boundary relink
    *  rather than the entry's raw parentUuid. */
-  viaBoundary?: string;  // TDC: UUID?
+  viaBoundary?: UUID;
 }
 
 export interface SessionTree {
   roots: TreeNode[];
   /** Payloads by uuid; duplicated tree nodes share one payload. */
-  entries: Record<string, SessionEntry>;
+  entries: Record<UUID, SessionEntry>;
 }
 
 /** Forest semantics: raw parentUuid edges give the base forest; each boundary
@@ -196,8 +238,17 @@ export interface SessionTree {
  *  DUPLICATE nodes (same entryUuid, new TreeNode). Relink cycles are unrolled
  *  linearly: a uuid revisited within one boundary chain gets another duplicate
  *  node. Exact node/edge details for boundary substructure to be finalized (see
- *  IMPLEMENTATION IDEAS). */
-// TDC: What is the "logicalParentUuid"? When we're doing something like regular compaction, I guess it should be the last message before the compaction. When we're doing suffix summarization, I guess we don't need a boundary at all because we can use the upToMessageId trick above. When we do make an unusual boundary, I guess the logical parent should be the parent of the anchorUuid (when different from the boundary) or the parent of the first preserved uuid (when anchorUuid matches the boundary? If we use this rule, we have to make sure that our summary message get the correct parentUuid so that the constructed trees are correct. We should also confirm that we get sensible trees for native compaction and for the "from" and "up_to" cases (for "from", the logical parent is the parent of the first message in the summarized segment, and for "up_to", the logical parent is the last message of the summarized segment).
+ *  IMPLEMENTATION IDEAS).
+ *
+ *  logicalParentUuid is not interpreted by the loader — it exists for tree
+ *  anchoring, and we set it ourselves when building a boundary (= the active
+ *  leaf at set-context time). Native boundaries follow the same idea: always
+ *  the last message before the summarization point (full /compact: the
+ *  pre-compaction leaf; up_to: the last entry of the summarized segment;
+ *  from: the last preserved entry = parent of the first summarized message —
+ *  confirmed in the p0b/p0c captures). Native summary entries parent onto the
+ *  boundary in BOTH shapes, so parentUuid-based tree construction stays
+ *  correct without special-casing. */
 export function buildTree(entries: SessionEntry[]): SessionTree;
 ```
 
@@ -209,28 +260,37 @@ export function buildTree(entries: SessionEntry[]): SessionTree;
 //   async function restartQuery(resumeSessionId: string): Promise<void>
 // set-context handler sequence (asserts idle, else error):
 //   leaf-on-disk wait → end turnQueue / close query → await child exit →
-//   buildBoundaryEntries + appendSessionEntries → restartQuery(sessionId) →
-//   verify via getSessionMessages → SetContextResult
+//   [boundary mode only: buildBoundaryEntries + appendSessionEntries] →
+//   restartQuery(sessionId, rewindTo?) → verify via getSessionMessages →
+//   broadcast the set-context request (criterion 7) → SetContextResult
+// Rewind mode passes resumeSessionAt: rewindTo to the restarted query and
+// skips the file mutation entirely.
 ```
 
 ```ts
 // src/core/sdk-commands.ts — CLI wiring
 // get-entries, get-tree: bareRequestCommand.
 // set-context: parameterized command; positional uuids, --summary <text>,
-// --anchor <summary|boundary> (follows existing parameterized patterns).
+// --anchor <summary|boundary>, or --rewind-to <uuid> (mutually exclusive with
+// the boundary-mode arguments; follows existing parameterized patterns).
 ```
 
 ## Edge cases
 
-- `set-context` while busy → error (criterion 5). No implicit waiting.
+- `set-context` while busy → error (criterion 5). Queued messages count as
+  busy. No implicit waiting.
 - Unknown uuid in `uuids` → error before any file mutation (criterion 4).
   (A missing/duplicate uuid that reached the loader would silently produce a
   summary-only context — validated up front instead.)
 - Empty `uuids` with `summaryText` → allowed: context becomes the summary
   alone. Empty `uuids` without `summaryText` → error (nothing to load).
 - `anchor: "summary"` without `summaryText` → error (nothing to anchor on).
-- Duplicate uuids in the list → error (loader silently skips the relink).
-TDC: Really? I thought duplicate uuids in the list is acceptable. Did we verify experimentally that the loader silently skips?
+- Duplicate uuids in the list → error. Verified experimentally (P3 m4): a
+  duplicated uuid makes the loader silently skip the whole relink, leaving a
+  summary-only context.
+- `rewindTo` that is not an assistant uuid on the current (relinked) active
+  chain → error before teardown. (The CLI itself fails fast on unreachable
+  uuids — P2 e/g — but pre-validating avoids a needless query restart.)
 - No session yet (daemon never started a session) → error for all three
   commands.
 - get-entries/get-tree tolerate a torn final line (mid-append read): skip it.
@@ -251,12 +311,14 @@ TDC: Really? I thought duplicate uuids in the list is acceptable. Did we verify 
 
 # IMPLEMENTATION IDEAS
 
-- **Assumption to verify before implementation** (deliberately deferred): a
+- ~~Assumption to verify before implementation~~ **Verified (P9,
+  `docs/derisk/compact-boundary-injection/p9-navigation.mjs`)**: (a) a
   boundary with NO summary entry and `anchorUuid` = the boundary's own uuid
-  loads correctly (pure-navigation case). Every derisk experiment had a
-  summary entry. One p2-style experiment; if it fails, fall back to writing a
-  stub summary entry and make `summaryText` effectively defaulted.
-  TDC: We should be able to do this without injecting a boundary at all; see above.
+  relinks correctly even as the last entry in the file; (b) a boundary whose
+  playlist is a prefix of an earlier boundary's chain — including that
+  boundary's summary entry and entries it summarized away — is honored
+  exactly; (c) `resumeSessionAt` onto a playlist member of a relinked chain
+  preserves the boundary's effect and writes nothing to the file.
 - Boundary entry construction mirrors the known-working recipe
   (FINDINGS.md): `type:"system"`, `subtype:"compact_boundary"`,
   `parentUuid:null`, `logicalParentUuid` = current active leaf,
@@ -264,7 +326,6 @@ TDC: Really? I thought duplicate uuids in the list is acceptable. Did we verify 
   allUuids}`; summary entry `type:"user"`, `parentUuid` = boundary uuid,
   `isCompactSummary:true`. Fields like preTokens/postTokens are not
   individually ablated — keep writing plausible values.
-  TDC: wait a second, we get to just *set* logicalParentUuid in the message we create. Of course. Ok, that answers my question above.
 - get-tree boundary substructure needs a working session together: how the
   anchor shapes map to nodes (e.g. up_to: boundary → summary → uuid chain;
   from: boundary → uuid chain → summary), whether the synthetic
@@ -295,7 +356,16 @@ TDC: Really? I thought duplicate uuids in the list is acceptable. Did we verify 
   (verified in P7: ~12 ms, no surviving child process).
 - `readSessionEntries` uses the same torn-line-tolerant parse as the derisk
   harness (`readJsonlSafe`).
-  TDC: to enforce some kind of consistency between SDK and jsonl, should we waitForEntryOnDisk with the last entry uuid, then read the jsonl file, and only return everything up to and including that last entry uuid?
+- SDK↔jsonl read consistency (get-entries/get-tree): before reading, wait for
+  `trackedState.lastTranscriptUuid` to be on disk (`waitForEntryOnDisk`), so
+  the returned entries always include everything the daemon has already
+  reported on the event stream. PROPOSAL, not yet agreed: do NOT additionally
+  truncate the file at that uuid — legitimate non-transcript entries
+  (`file-history-snapshot`, `queue-operation`) land after the transcript leaf
+  with `parentUuid: null` and would be silently dropped; and mid-turn trailing
+  writes can only appear if the caller reads while busy, which is their
+  choice. If a stable snapshot semantic is wanted instead, truncation would
+  need a rule for those null-parent entries.
 - Cheap fixture for tests: a jsonl checked into test fixtures (branch +
   boundary), driving buildTree and the read commands without a live CLI.
 
@@ -312,5 +382,14 @@ TDC: Really? I thought duplicate uuids in the list is acceptable. Did we verify 
   summary text only; `summaryText` omitted → no summary entry + anchor forced
   to boundary (UNTESTED — experiment before implementation); this spec
   introduces the Query-restart machinery.
-- [ ] Experiment: no-summary boundary (anchor = boundary uuid, no summary entry)
+- [x] Experiment: no-summary boundary (anchor = boundary uuid, no summary entry)
+- 2026-07-14: Review comments (commit 4eb65a9) folded in after the P9
+  experiments (all three cases passed first run; see derisk WORK-LOG):
+  rewind mode added to set-context (`--rewind-to` via `resumeSessionAt`;
+  `upToMessageId` is a forkSession param and unsuitable); success criteria 7
+  (broadcast set-context request) and 8 (rewind) added; uuid-typed fields now
+  use `UUID` from node:crypto; duplicate-uuid edge case backed by P3 m4
+  evidence; native logicalParentUuid semantics documented in buildTree;
+  queued-messages-count-as-busy recorded; SDK↔jsonl read-consistency proposal
+  (wait for lastTranscriptUuid, no truncation) added — awaiting user decision.
 - [ ] Implementation

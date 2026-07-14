@@ -410,3 +410,37 @@ invariants only; run-minted uuids asserted structurally). PASS. This +
 rerunning the scripts is now the upgrade-regression gate. FINDINGS.md updated:
 header (assertion gate), lifecycle proven (replaces the one-run Q9 hedge),
 cross-model caveat resolved (P6), gSM assertion-layer note.
+
+## P9: summary-free navigation + rewind within a relinked chain (2026-07-14)
+
+Derisk targets from the spec review comments (`git show 4eb65a9`). Script:
+`p9-navigation.mjs`; report: `captures/p9-report.json`. All three cases met
+every expectation on the first run (gate: `check-reports.mjs`, now 41 asserts).
+
+- **a-no-summary**: P1 fixture + a boundary with `anchorUuid` = its own uuid,
+  playlist U2..red, NO summary entry — the boundary is the last line of the
+  file. Relink applied: probe request = exactly the playlist turns (5 msgs),
+  U1/magic word absent, new write parented on red. Pure navigation works
+  without synthesizing any summary. The prior worry (nothing parents onto the
+  boundary, so it might never join the active chain) was unfounded.
+- **b-prefix**: p2-a fixture (boundary1 + summary1 + probe turn) + boundary2
+  whose playlist = [summary1, U2 user, U2 thinking, "4"] — a prefix of the
+  chain boundary1 created, reaching entries boundary1 summarized away and
+  including boundary1's summary entry as a playlist member. Honored exactly:
+  request = summary1 + U2 turn (3 msgs), U3/red/old-probe absent, new write
+  parented on "4". This is the TUI viaBoundary-TreeNode navigation case.
+- **c-rewind-preserved**: p2-a fixture resumed with `resumeSessionAt` = "4"
+  (a playlist member of boundary1). The rewound context PRESERVES the
+  boundary's effect: summary1 present, U1 absent, everything after "4"
+  truncated; new write parented on "4"; nothing written to the file by the
+  rewind itself. So `--rewind-to` needs no jsonl mutation on the active chain,
+  relinked or not.
+
+Also settled from existing evidence while addressing the review comments:
+- The SDK query option is `resumeSessionAt` (docs: assistant uuid, "resume
+  messages up to and including"); `upToMessageId` is a `forkSession()` param
+  that mints a NEW session id with fresh uuids — wrong tool for the daemon.
+- Duplicate playlist uuids: already verified (P3 m4) — the loader silently
+  skips the whole relink; the spec's fail-closed error stands.
+- Native `logicalParentUuid` semantics confirmed in p0b/p0c captures (see
+  FINDINGS): always the last message before the summarization point.
