@@ -160,6 +160,7 @@ export type TailRecord = { snapshot: StateSnapshot } | { event: SdkEvent };
 
 **`src/format/input.ts`**
 
+TDC: does it make sense to move pictl's readInputFile and parseJsonlInput into a separate file so that we can exactly copy with sync-from-pictl?
 ```ts
 export async function readInputFile(context: CommandContext, file: string | undefined): Promise<string>;
 export function parseJsonlInput(input: string): readonly unknown[]; // UsageError with line number

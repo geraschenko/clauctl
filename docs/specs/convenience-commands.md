@@ -6,6 +6,8 @@
 > **`format` is superseded by `docs/specs/format.md`**; only `completion`
 > remains covered here.
 
+TDC: `completion` has already been implemented. It was done very early.
+
 ## SPEC (stable requirements)
 
 Ergonomics commands that make clauctl pleasant to use, analogous to pictl's:
