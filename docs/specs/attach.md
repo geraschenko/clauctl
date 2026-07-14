@@ -55,8 +55,6 @@ reimplementing the TUI.
   copies) via `scripts/sync-from-pictl.mjs`, presubmit-enforced like the
   existing shared files.
 
-TDC: maybe `--shared` is clearer than `--managed`?
-
 ## Concrete examples
 
 ```
@@ -84,10 +82,14 @@ $ clauctl query -t 3837 "still there?"   # works
 ### Synced files (added to `SHARED_FILES` in scripts/sync-from-pictl.mjs)
 
 `ansi.ts`, `tty-protocol.ts`, `tty-protocol.test.ts`, `tty-server.ts`,
-`tty-server.test.ts`, `pty.ts`, `attach.ts` — copied from pictl into
-`src/core/generated/` with the existing mechanical renames; no new
-transforms. Their contents are pictl's, not designed here. Verified
-compatibilities:
+`tty-server.test.ts`, `pty.ts`, `pty-screen.ts`, `pty-screen.test.ts`,
+`attach.ts` — copied from pictl into `src/core/generated/` with the
+existing mechanical renames; no new transforms. Their contents are pictl's,
+not designed here. `pty-screen.ts` (the PtyScreen class: a process in a pty
+mirrored into a headless xterm, with barrier-correct serializeScreen,
+hintRoomSequence, and an emulator that survives process exit) is being
+factored out of pictl's daemon per pictl's docs/specs/pty-screen.md — this
+spec assumes that refactor has landed. Verified compatibilities:
 
 - `attach.ts` imports `./cli.ts`, `./targets.ts`, `./ansi.ts`,
   `./tty-protocol.ts` (all in the shared set, imports stay `./`) and
@@ -138,18 +140,10 @@ import it.
 
 ### src/core/daemon.ts
 
-Constants and helpers ported by hand from pictl's daemon.ts (clauctl's
-daemon is hand-written, so these cannot sync):
-
-```ts
-const PTY_COLS = 80;
-const PTY_ROWS = 24;
-
-function isCursorHidden(terminal: xterm.Terminal): boolean;
-export function hintRoomSequence(terminal: xterm.Terminal): string;
-```
-
-The tui host, co-located in daemon.ts:
+All pty/emulator mechanics live in the synced PtyScreen; the tui host owns
+only what is clauctl-specific — the `_tui --managed` spawn configuration,
+the restart policy, and delegation to the current PtyScreen. Co-located in
+daemon.ts:
 
 ```ts
 export const RAPID_EXIT_MS = 5_000;
@@ -167,10 +161,11 @@ export function nextRespawnState(
 ): { consecutiveRapidExits: number; respawn: boolean };
 
 /**
- * Runs `clauctl _tui --managed` in a pty mirrored into a headless xterm;
- * respawns on exit per nextRespawnState. Calls spawnPty (generated/pty.ts).
+ * Runs `clauctl _tui --managed` in a PtyScreen (generated/pty-screen.ts);
+ * respawns on exit per nextRespawnState. Each (re)spawn is a fresh
+ * PtyScreen; the last one is kept after exit so its screen — including
+ * crash output — remains snapshotable while the tui is failed.
  */
-// TDC: This looks awfully similar to ttyServer in pictl/src/core/daemon.ts. Why are we making a new class instead of using a TtyServer? I'm not even exactly sure what my question is, but it feels like we should be factoring out some common logic here. Looking at TtyServer now, it seems kind of crazy that `hooks` is such a flexible type given that it's expected to have very precise entries ... this looks like a typing failure.
 class TuiHost {
   constructor(opts: {
     agentId: string;
@@ -185,10 +180,9 @@ class TuiHost {
     onFailedChanged: (failedAt: string | undefined) => void;
     log: (message: string) => void;
   });
-  write(data: string): void;                // → pty input
-  resize(cols: number, rows: number): void; // → pty and terminal
-  /** Parse barrier + SerializeAddon + hintRoomSequence + cursor visibility
-   *  (pictl's serializeScreen logic verbatim). */
+  // write/resize/serializeScreen delegate to the current PtyScreen.
+  write(data: string): void;
+  resize(cols: number, rows: number): void;
   serializeScreen(): Promise<string>;
   /** Wakes a failed host: resets the crash counter and respawns. No-op
    *  while the tui is running. */
@@ -198,14 +192,14 @@ class TuiHost {
 }
 ```
 
-Spawn command:
-`spawnPty(process.execPath, [mainEntryPath(), "_tui", "--sdk-socket", <path>,
-"--managed"], { name: "xterm-256color", cols: PTY_COLS, rows: PTY_ROWS, cwd,
-env })` with `env = childEnv(undefined, agentId)` (process.env +
-`CLAUCTL_AGENT_ID`; no persisted SDK env — that is claude-subprocess
-configuration, not tui configuration). On every (re)spawn the host writes
-`CURSOR_HOME + ERASE_SCREEN` to both the emulator and `onOutput`, as if the
-pty had emitted it, keeping emulator and attachers in lockstep.
+Spawn command: `new PtyScreen(process.execPath, [mainEntryPath(), "_tui",
+"--sdk-socket", <path>, "--managed"], { cwd, env })` with
+`env = childEnv(undefined, agentId)` (process.env + `CLAUCTL_AGENT_ID`; no
+persisted SDK env — that is claude-subprocess configuration, not tui
+configuration). On every respawn the host broadcasts
+`CURSOR_HOME + ERASE_SCREEN` through `onOutput` before wiring the new
+PtyScreen's onData: the fresh emulator starts blank, so the clear keeps
+attachers in lockstep with it.
 
 Daemon wiring (mirrors pictl's):
 
@@ -260,9 +254,9 @@ status.
 ### Tests
 
 - Synced: tty-protocol.test.ts, tty-server.test.ts run as-is.
-- Hand-written: `nextRespawnState` unit tests; `hintRoomSequence` test
-  ported from pictl's daemon tests; a managed-mode ctrl+c test in
-  interactive-mode.test.ts if the existing harness makes it cheap.
+- Synced: pty-screen.test.ts covers hintRoomSequence and PtyScreen.
+- Hand-written: `nextRespawnState` unit tests; a managed-mode ctrl+c test
+  in interactive-mode.test.ts if the existing harness makes it cheap.
 
 ## Edge cases
 
@@ -305,12 +299,9 @@ status.
 - Sync order matters for review: land the sync-script change + generated
   files + deps first (mechanical), then registry/daemon/tui changes
   (semantic), then list/status.
-- pictl's `hintRoomSequence` carries a design-note comment about the
-  reserved hint row being attach-client policy; keep the comment when
-  porting.
-- `TuiHost.serializeScreen` must serialize inside the `terminal.write("")`
-  callback (parse barrier), not in a `.then()` — xterm may parse further
-  queued chunks before a microtask runs (pictl's comment explains this).
+- Implementation is blocked on pictl's pty-screen refactor
+  (pictl docs/specs/pty-screen.md) landing first — until then the sync
+  step has no pty-screen.ts to copy.
 - The respawn decision is a pure fold (`nextRespawnState`) so the policy is
   unit-testable without clocks or sleeps; TuiHost supplies real timestamps.
 - Research note (2026-07-14): surveyed tmux control mode, wezterm mux,
@@ -329,16 +320,17 @@ tasks, mark completed ones with [x], document decisions and problems
 encountered.
 
 - [ ] Add deps (node-pty, @xterm/headless, @xterm/addon-serialize)
+- [ ] Confirm pictl's pty-screen refactor has landed
 - [ ] Extend SHARED_FILES + run sync (ansi, tty-protocol(+test),
-      tty-server(+test), pty, attach)
+      tty-server(+test), pty, pty-screen(+test), attach)
 - [ ] registry.ts: ttySocketPath, AgentRecord.attachments, tuiFailedAt
 - [ ] main-entry-path.ts (move from spawn.ts)
-- [ ] daemon.ts: helpers, nextRespawnState, TuiHost, TtyServer wiring,
+- [ ] daemon.ts: nextRespawnState, TuiHost, TtyServer wiring,
       attach auditing, startup/shutdown integration
 - [ ] interactive-mode.ts: --managed flag, ctrl+c hint behavior
 - [ ] app.ts: wire attachRoute
 - [ ] inspect.ts: list/status tui-failed display
-- [ ] Tests: nextRespawnState, hintRoomSequence port, managed ctrl+c
+- [ ] Tests: nextRespawnState, managed ctrl+c
 - [ ] README: node-pty Linux build-toolchain note (pictl README parity —
       no Linux prebuilds at ^1.0.0, install needs build-essential/python3)
 - [ ] audit-wiring.test.ts: records it constructs gain `attachments: []`
