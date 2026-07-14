@@ -55,6 +55,8 @@ reimplementing the TUI.
   copies) via `scripts/sync-from-pictl.mjs`, presubmit-enforced like the
   existing shared files.
 
+TDC: maybe `--shared` is clearer than `--managed`?
+
 ## Concrete examples
 
 ```
@@ -168,6 +170,7 @@ export function nextRespawnState(
  * Runs `clauctl _tui --managed` in a pty mirrored into a headless xterm;
  * respawns on exit per nextRespawnState. Calls spawnPty (generated/pty.ts).
  */
+// TDC: This looks awfully similar to ttyServer in pictl/src/core/daemon.ts. Why are we making a new class instead of using a TtyServer? I'm not even exactly sure what my question is, but it feels like we should be factoring out some common logic here. Looking at TtyServer now, it seems kind of crazy that `hooks` is such a flexible type given that it's expected to have very precise entries ... this looks like a typing failure.
 class TuiHost {
   constructor(opts: {
     agentId: string;
