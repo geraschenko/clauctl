@@ -76,6 +76,8 @@ sees. This spec adds three RPC commands to the daemon socket and matching
 6. Existing daemon behavior (event stream, queueing, get-messages) works after
    a `set-context` restart.
 
+TDC: a successful set-context must also emit an event so that watchers of sdk.sock (e.g. an attached tui) know that the context has been updated. In pictl, this is a tree-navigated event. Here the context manipulation is potentially more complicated, so I guess the simplest thing to do is broadcast the `set-context` request message, similar to how we broadcast controlApplied in clauctl/src/core/daemon.ts.
+
 ## Concrete examples
 
 ```bash
@@ -94,6 +96,11 @@ clauctl set-context <prefix uuids...> --summary "Then we explored Y (abandoned).
 clauctl get-entries   # raw jsonl entries
 clauctl get-tree      # resolved forest
 ```
+
+TDC: There's a really important case we forgot to cover, which is navigation back without a summary. Maybe this should be exposed as `clauctl set-context --rewind-to <uuid>`? In those cases, we don't need to synthesize a boundary entry at all. We can just restart the Query with upToMessageId set to the last assistant message in the options. Some additional nuances for when we add `/tree` navigation to the tui:
+* When the user selects a message from the conversational tree, what we get is a TreeNode target, not an entry uuid. If the target is `viaBoundary`, then we have to create a new boundary with uuid list set to a prefix of the boundary that created the TreeNode. If the target is not `viaBoundary`, then we can use this simpler rewind trick that doesn't invovle modifying the session file.
+* upToMessageId is required to be an assistant message uuid. If the user selects a user message uuid, the expected behavior is that we set upToMessageId to the immediately previous assistant message, and prefill the input box with the target user message text. Conceptually, the user is saying "I want to rewind to the point where I said this, but edit my message".
+We need to add this to our derisking experiments. I'm pretty sure it will work.
 
 ## Type design
 
@@ -148,9 +155,9 @@ export function readSessionEntries(filePath: string): SessionEntry[];
 /** Builds boundary (+ summary) entries and appends them. Pure construction
  *  split from the write so tests can inspect entries without a filesystem. */
 export function buildBoundaryEntries(params: {
-  sessionId: string;
+  sessionId: string;  // TDC: UUID?
   cwd: string;
-  uuids: string[];
+  uuids: string[];  // TDC: UUID[]?
   summaryText?: string;
   anchor: "summary" | "boundary";
   /** Recorded as the boundary's logicalParentUuid (tree anchoring). */
@@ -169,11 +176,12 @@ export function waitForEntryOnDisk(filePath: string, uuid: string, timeoutMs?: n
 import { SessionEntry } from "./session-file.js";
 
 export interface TreeNode {
-  entryUuid: string;
+  // TDC: Why are we using string instead of UUID for uuid types? The sdk uses UUID.
+  entryUuid: string;  // TDC: UUID?
   children: TreeNode[];
   /** Set when the edge to this node's parent comes from a boundary relink
    *  rather than the entry's raw parentUuid. */
-  viaBoundary?: string;
+  viaBoundary?: string;  // TDC: UUID?
 }
 
 export interface SessionTree {
@@ -187,8 +195,9 @@ export interface SessionTree {
  *  relinked chain (summary + uuids per anchor shape) hangs under it as
  *  DUPLICATE nodes (same entryUuid, new TreeNode). Relink cycles are unrolled
  *  linearly: a uuid revisited within one boundary chain gets another duplicate
- *  node and the walk stops there. Exact node/edge details for boundary
- *  substructure to be finalized (see IMPLEMENTATION IDEAS). */
+ *  node. Exact node/edge details for boundary substructure to be finalized (see
+ *  IMPLEMENTATION IDEAS). */
+// TDC: What is the "logicalParentUuid"? When we're doing something like regular compaction, I guess it should be the last message before the compaction. When we're doing suffix summarization, I guess we don't need a boundary at all because we can use the upToMessageId trick above. When we do make an unusual boundary, I guess the logical parent should be the parent of the anchorUuid (when different from the boundary) or the parent of the first preserved uuid (when anchorUuid matches the boundary? If we use this rule, we have to make sure that our summary message get the correct parentUuid so that the constructed trees are correct. We should also confirm that we get sensible trees for native compaction and for the "from" and "up_to" cases (for "from", the logical parent is the parent of the first message in the summarized segment, and for "up_to", the logical parent is the last message of the summarized segment).
 export function buildTree(entries: SessionEntry[]): SessionTree;
 ```
 
@@ -221,6 +230,7 @@ export function buildTree(entries: SessionEntry[]): SessionTree;
   alone. Empty `uuids` without `summaryText` → error (nothing to load).
 - `anchor: "summary"` without `summaryText` → error (nothing to anchor on).
 - Duplicate uuids in the list → error (loader silently skips the relink).
+TDC: Really? I thought duplicate uuids in the list is acceptable. Did we verify experimentally that the loader silently skips?
 - No session yet (daemon never started a session) → error for all three
   commands.
 - get-entries/get-tree tolerate a torn final line (mid-append read): skip it.
@@ -246,6 +256,7 @@ export function buildTree(entries: SessionEntry[]): SessionTree;
   loads correctly (pure-navigation case). Every derisk experiment had a
   summary entry. One p2-style experiment; if it fails, fall back to writing a
   stub summary entry and make `summaryText` effectively defaulted.
+  TDC: We should be able to do this without injecting a boundary at all; see above.
 - Boundary entry construction mirrors the known-working recipe
   (FINDINGS.md): `type:"system"`, `subtype:"compact_boundary"`,
   `parentUuid:null`, `logicalParentUuid` = current active leaf,
@@ -253,6 +264,7 @@ export function buildTree(entries: SessionEntry[]): SessionTree;
   allUuids}`; summary entry `type:"user"`, `parentUuid` = boundary uuid,
   `isCompactSummary:true`. Fields like preTokens/postTokens are not
   individually ablated — keep writing plausible values.
+  TDC: wait a second, we get to just *set* logicalParentUuid in the message we create. Of course. Ok, that answers my question above.
 - get-tree boundary substructure needs a working session together: how the
   anchor shapes map to nodes (e.g. up_to: boundary → summary → uuid chain;
   from: boundary → uuid chain → summary), whether the synthetic
@@ -283,6 +295,7 @@ export function buildTree(entries: SessionEntry[]): SessionTree;
   (verified in P7: ~12 ms, no surviving child process).
 - `readSessionEntries` uses the same torn-line-tolerant parse as the derisk
   harness (`readJsonlSafe`).
+  TDC: to enforce some kind of consistency between SDK and jsonl, should we waitForEntryOnDisk with the last entry uuid, then read the jsonl file, and only return everything up to and including that last entry uuid?
 - Cheap fixture for tests: a jsonl checked into test fixtures (branch +
   boundary), driving buildTree and the read commands without a live CLI.
 
