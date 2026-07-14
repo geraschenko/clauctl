@@ -14,6 +14,10 @@
 //      boundary's effect (summary1 present, U1 absent) or fall back to the
 //      raw parentUuid chain (U1 resurrected)?
 //
+// Depends on the p2 run's persisted config dir (/tmp/clauctl-cbi-derisk/
+// p2-a-upto) for cases b and c — /tmp is volatile, so rerun p2 first if it's
+// gone. Case a needs only the checked-in captures/p1-fixture-pre.jsonl.
+//
 // Oracle as always: the captured outbound probe request + the parentUuid of
 // the first new write. Expectations are collected per case and all violations
 // reported at the end (these outcomes are genuinely uncertain; we want the
