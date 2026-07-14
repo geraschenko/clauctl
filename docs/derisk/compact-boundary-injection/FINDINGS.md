@@ -4,10 +4,9 @@ Run against SDK 0.3.195 on 2026-07-13, model haiku-4.5 (bundled CLI version
 2.1.195 inferred from the `version` field the CLI stamps on session entries;
 `assertVersions()` pins only the SDK package — per-run CLI/model assertion is
 future harness work). The jsonl format is `@internal`; the harness
-(`p0*`–`p5*` scripts) is rerunnable, but note it currently *records* results
-rather than hard-asserting them — turning each non-exploratory case into a
-pass/fail assertion is required before using it as an upgrade-regression
-harness. Evidence for context-relink claims: outbound API request capture
+(`p0*`–`p8*` scripts) is rerunnable, and `check-reports.mjs` hard-asserts the
+key invariants over the regenerated reports (p7/p8 additionally self-assert) —
+rerun the scripts plus `check-reports.mjs` as the upgrade-regression gate. Evidence for context-relink claims: outbound API request capture
 (recording shim) + the `parentUuid` of the first post-resume write — never the
 jsonl or model recall alone. Chronology and per-experiment detail: [WORK-LOG.md](WORK-LOG.md).
 Reviewer audit (2026-07-13): core technique justified; wording below
@@ -81,15 +80,18 @@ branch's leaf — the loader's natural-leaf walk then activates that branch
 
 ## Integration observations for the daemon protocol
 
-- **Flush lag is real**: the turn's assistant entry hit disk ~180 ms *after*
-  the SDK `result` message (one measured run; the same lag produced truncated
-  fixtures in Phase 1). Poll for the expected leaf entry rather than trusting
-  `result` or a fixed delay. In that run the file then stayed unchanged for a
-  2 s observation window, and a line appended before `q.close()` survived close
-  with only a trailing `last-prompt` entry after it. **This is one run's
-  observation, not a proven lifecycle boundary** — close semantics (await vs
-  kill, child-exit confirmation) and append-then-immediate-resume were not
-  systematically tested. (P4 q9)
+- **Flush lag is real**: the turn's assistant entry hits disk ~100–180 ms
+  *after* the SDK `result` message (P4 q9 measured 177 ms once; P7 measured
+  27–101 ms across 12 cycles). Never trust `result` or a fixed delay; detect
+  the leaf entry on disk (fs.watch + predicate on the stream's assistant uuid).
+- **The mutation lifecycle is proven for the daemon's one path** (P7,
+  12 consecutive cycles, hard-asserted): turn `result` → leaf entry on disk →
+  end the input stream → await generator completion (the SDK's cleanup awaits
+  the child's exit; teardown measured ~12 ms; `ps` confirmed no claude child)
+  → append boundary+summary → resume. Every cycle's captured request contained
+  exactly the new summary + preserved leaf + probe, with no stale context, and
+  the new write parented on the preserved leaf. Boundaries stacked 12 deep with
+  the last always winning.
 - **CLI machinery coped with an injected file**: reported usage matched the
   small compacted context (suggesting auto-compact accounting is compatible —
   automatic triggering itself was NOT exercised), and a real `/compact` on an
@@ -122,6 +124,16 @@ normalization were observed, so it loses nothing vs parsing the jsonl directly.
 Subagent import (`includeSubagents`) is an API capability we did not exercise.
 Choose between the routes on API-stability grounds.
 
+For reading the EFFECTIVE context (relink applied), `getSessionMessages`
+cross-validated against the request oracle on two injected fixtures (P8): the
+uuid chain and every non-reminder text block the API saw matched, in order,
+including a 12-boundary stack. **One characterized divergence**: it returns at
+API-message granularity, so a same-message sibling entry (e.g. a thinking entry
+whose text sibling is on the playlist) appears in its output but not on the
+wire. The two agree whenever playlists keep whole API messages together —
+which is the sane authoring rule anyway. Ground truth:
+`captures/p7-groundtruth-requests.jsonl`.
+
 ## Deviations from the approved plan
 
 - The **unchanged-resume control** on the canonical fixture was never run as
@@ -130,8 +142,8 @@ Choose between the routes on API-stability grounds.
 - **"Exact replay" (P1 a)** installed the complete native post-compact jsonl
   into a fresh config dir — a "native transcript replay" — rather than cloning
   the pre-compaction config dir and appending the captured entries byte-for-byte.
-- Harness assertions: reports are recorded and were interpreted manually;
-  scripted pass/fail is still to be added (see header).
+- Harness assertions for p1–p6 were added after the fact (`check-reports.mjs`
+  asserts over regenerated reports); p7/p8 assert inline.
 
 ## Caveats
 
@@ -139,8 +151,12 @@ Choose between the routes on API-stability grounds.
   version and an `@internal` format,
   and most behaviors were verified by a single run of each case; rerun the
   harness on SDK/CLI upgrades.
-- Preserved thinking blocks carry signatures; we did not test cross-model
-  restore of thinking blocks (all experiments used haiku end-to-end).
+- Cross-model resume works (P6): the haiku-built fixture resumed under sonnet
+  in all three variants (plain, injected with thinking, injected without) —
+  **the CLI strips historical thinking blocks itself when the model differs**
+  (0 thinking blocks even in the plain-resume control, vs 2 forwarded on the
+  same fixture under haiku), so no clauctl-side exclude-thinking rule is
+  needed. Tested one direction (haiku→sonnet), one run each.
 - Small fixtures only; organic auto-compaction at real token scale untested.
 - "No state outside the jsonl" (Phase 0b) relied on a config-dir diff taken
   before the flush-lag issue was understood, and compared file sizes only —

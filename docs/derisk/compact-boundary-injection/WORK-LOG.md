@@ -359,3 +359,54 @@ version + captured request model per run; 8 organic auto-compaction trigger;
 11 field minimization ablation; 12 large fixtures + subagent sidechains.
 
 Reviewer archived.
+
+## P6: cross-model preserved thinking blocks (2026-07-13)
+
+`p6-model-switch.mjs` — P1 fixture (haiku-created, signed thinking in every
+assistant turn), resumed under `claude-sonnet-4-6`. Three cases:
+control (plain resume), up_to injection preserving U2..U3 WITH the thinking
+entries, and the same playlist WITHOUT them.
+
+All three: HTTP 200, result success, correct recall (control recovered the
+magic word + Red; injected cases correctly knew only what the summary allowed),
+first new write parented on red (254029a1). Key mechanism finding: **the CLI
+strips historical thinking blocks itself when the resume model differs** —
+sonnet requests carried 0 thinking blocks even in the plain-resume control
+(thinking param `{"type":"adaptive"}`, tool_use/tool_result pairs forwarded
+intact), while the same fixture resumed under haiku (p2-a capture) forwarded
+2 signed thinking blocks. So no clauctl-side exclude-thinking rule is needed
+for model switches; the CLI already applies one. Caveats: one direction
+(haiku→sonnet), one run each, CLI 2.1.195 behavior.
+
+Report: captures/p6-report.json.
+
+## P7 lifecycle prototype + P8 getSessionMessages + assertions (2026-07-14)
+
+Harness: makeSession gained `endInput()` (graceful: end prompt stream, CLI
+exits on stdin EOF) and `done` (the message-loop promise; SDK cleanup awaits
+the child's exit before the generator completes).
+
+`p7-lifecycle.mjs` — 12 consecutive cycles of the daemon path: send turn →
+fs.watch until the stream's assistant uuid is on disk → endInput → await done
+→ assert no claude child (ps --ppid; first attempt used pgrep -f, which
+matched its own sh -c cmdline) → append boundary preserving only the leaf,
+summary declaring codeword ALPHA-i → resume. Hard assertions per cycle: probe
+request = exactly [summary_i, leaf, probe], no stale summaries/probes, parent =
+preserved leaf, model answered ALPHA-i. 12/12 PASS. leafOnDiskMs 27–101
+(median ~98), teardownMs 9–14. Boundaries stacked 12 deep, last always won.
+
+`p8-getsessionmessages.mjs` — cross-validated getSessionMessages against shim
+captures on the p2-a fixture (uuid chain summary+U2..U3 exact; every
+non-reminder request text block found in order — note the CLI adds a trailing
+\n to the summary block when coalescing) and the p7 final state. Divergence
+found and characterized: gSM returns same-API-message sibling entries even
+when the playlist excludes them (cycle 11's thinking sibling), but a fresh
+haiku ground-truth capture (captures/p7-groundtruth-requests.jsonl) shows the
+wire honors the playlist exactly. gSM == wire at whole-API-message granularity.
+includeSystemMessages surfaces the boundary entry.
+
+`check-reports.mjs` — 38 hard assertions over p1–p8 report JSONs (run-stable
+invariants only; run-minted uuids asserted structurally). PASS. This +
+rerunning the scripts is now the upgrade-regression gate. FINDINGS.md updated:
+header (assertion gate), lifecycle proven (replaces the one-run Q9 hedge),
+cross-model caveat resolved (P6), gSM assertion-layer note.

@@ -119,8 +119,12 @@ export function makeSession(options) {
     pushMsg(text);
     loop.then(() => { if (loopErr) rej(loopErr); });
   });
-  const close = () => { closed = true; if (resolveNext) { const r = resolveNext; resolveNext = null; r({ value: undefined, done: true }); } q.close(); };
-  return { q, send, inits, close, lastInit: () => inits[inits.length - 1] };
+  // Graceful teardown: endInput() ends the prompt stream (CLI sees stdin EOF and
+  // exits); `done` resolves when the message generator completes — the SDK's
+  // cleanup awaits the child's exit before that. close() is the forceful variant.
+  const endInput = () => { closed = true; if (resolveNext) { const r = resolveNext; resolveNext = null; r({ value: undefined, done: true }); } };
+  const close = () => { endInput(); q.close(); };
+  return { q, send, inits, close, endInput, done: loop, lastInit: () => inits[inits.length - 1] };
 }
 
 export const readJsonl = (file) =>
