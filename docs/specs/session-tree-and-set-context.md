@@ -20,6 +20,7 @@ sees. This spec adds three RPC commands to the daemon socket and matching
   summary; arbitrary uuid playlists) and **rewind mode** (`--rewind-to
   <uuid>`: restart with the SDK's `resumeSessionAt` option — no file mutation;
   active-chain truncation only).
+  TDC: note that because resumeSessionAt only works when the messages uuid is on the current branch, we're sometimes going to have to insert a boundary to make --rewind-to behave correctly. The behavior I want is as if the SDK worked correctly when you specify a uuid that's in the session file: find that message and walk along its parentUuid ancestry.
 
 `get-messages` (already shipped) remains the "effective context" read.
 
