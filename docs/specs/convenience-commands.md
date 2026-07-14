@@ -2,6 +2,9 @@
 
 > Status: **scaffold** — sparse; few decisions made yet. Read `docs/overview.md`
 > first. Mirror pictl's equivalents where they exist.
+>
+> **`format` is superseded by `docs/specs/format.md`**; only `completion`
+> remains covered here.
 
 ## SPEC (stable requirements)
 
