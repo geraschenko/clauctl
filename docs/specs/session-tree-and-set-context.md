@@ -18,8 +18,9 @@ sees. This spec adds three RPC commands to the daemon socket and matching
 - `set-context` — reshape the effective context and restart the `Query` so it
   takes effect. Two modes: **boundary mode** (append a boundary + optional
   summary; arbitrary uuid playlists) and **rewind mode** (`--rewind-to
-  <uuid>`: any assistant uuid in the session file; context becomes that
-  message and its ancestry). Rewind mode is a semantic, not a mechanism: it
+  <uuid>`: the final entry of any assistant API message in the session file;
+  context becomes what it was when that message first appeared). Rewind mode
+  is a semantic, not a mechanism: it
   uses the SDK's `resumeSessionAt` when that suffices and falls back to
   appending a no-summary boundary when it doesn't (see Concrete examples).
 
@@ -60,12 +61,16 @@ sees. This spec adds three RPC commands to the daemon socket and matching
 1. `clauctl get-entries` (and the socket command) returns every line of the
    session jsonl as parsed JSON, order preserved, fields untouched (unknown
    fields included).
-2. `clauctl get-tree` returns a forest in which, on a fixture with one branch
-   point and one boundary: both branches appear; the boundary node is a child
-   of the last pre-compaction message (`logicalParentUuid`); the summary and
-   relinked `uuids` chain appear under the boundary's graft structure; a
-   message on both a raw branch and a boundary chain appears as two nodes with
-   the same `entryUuid`.
+2. `clauctl get-tree` returns a forest built from raw `parentUuid` edges,
+   with each boundary node additionally attached as a child of its
+   `logicalParentUuid` entry. On a fixture with one branch point and one
+   boundary: both branches appear; the boundary hangs under the last
+   pre-compaction message; the summary appears under the boundary (its raw
+   parent). Entries without a `uuid` (`file-history-snapshot`,
+   `queue-operation`) get no tree node — they remain visible via
+   `get-entries`. Boundary relink substructure (duplicate nodes,
+   `viaBoundary`) is NOT built in this spec — `buildTree` ships the raw
+   forest only; a follow-up spec pins down the substructure.
 3. `clauctl set-context <uuids...>` on an idle daemon: appends the boundary
    (+ summary when `--summary` given), restarts the `Query` resuming the same
    session id, and afterwards `get-messages` returns exactly the new effective
@@ -73,26 +78,51 @@ sees. This spec adds three RPC commands to the daemon socket and matching
    whole-API-message granularity: `getSessionMessages` includes same-message
    sibling entries; see FINDINGS.md P8). The next turn's user entry
    parents onto the last uuid of the list (up_to/no-summary) or the synthetic
-   assistant (from-shape).
+   assistant (from-shape). This exactness is promised only for playlists that
+   keep whole API messages together and form a valid sequence (the documented
+   authoring rule); strange playlists (orphan tool blocks, attachment uuids)
+   are silently normalized by the CLI (FINDINGS.md failure modes) and the
+   post-restart verification reports the divergence as an error.
 4. `set-context` with a uuid not in the file fails with a clear error and does
    not restart the query.
 5. `set-context` while the assistant is busy fails with a clear error (caller
    can `wait-idle` first).
 6. Existing daemon behavior (event stream, queueing, get-messages) works after
    a `set-context` restart.
-7. A successful `set-context` broadcasts an event on sdk.sock so watchers
-   (e.g. an attached TUI) know the context changed: the `set-context` request
-   message itself is broadcast, mirroring how `controlApplied` is broadcast in
-   `src/core/daemon.ts`.
-8. `clauctl set-context --rewind-to <uuid>` on an idle daemon accepts any
-   assistant uuid in the session file; afterwards `get-messages` returns that
-   message and its ancestry: the raw `parentUuid` walk from the target, with a
-   boundary's relink still applied when the boundary is ON the walked chain
-   (so rewinding to a post-compaction message keeps its summary; rewinding to
-   a boundary playlist member follows the member's raw ancestry — the
-   summarized region comes back). When the desired chain is a truncation of
-   the current active chain, nothing is written to disk (`resumeSessionAt`);
-   otherwise a no-summary boundary is appended.
+7. A successful `set-context` (both modes, including no-write rewinds)
+   broadcasts a `contextChanged` event on sdk.sock carrying the request, so
+   watchers (e.g. an attached TUI) know to re-read — mirroring how
+   `controlApplied` is broadcast in `src/core/daemon.ts`. It is a separate
+   `SdkEvent` variant: `SdkControlMutation` stays reserved for controls the
+   real SDK supports, while `set-context` is a method we wish the SDK had.
+   The event is also broadcast when the file was mutated but the subsequent
+   Query restart failed — watchers track file truth; the RPC caller gets the
+   restart error.
+8. `clauctl set-context --rewind-to <uuid>` on an idle daemon accepts the
+   uuid of any assistant entry that is the FINAL transcript entry of its API
+   message (no later sibling with the same `message.id` — a thinking entry's
+   uuid is rejected; validated before teardown); afterwards `get-messages`
+   returns the context as it was when that message first appeared: walk
+   `parentUuid` from the target, applying the effective-parent map of the
+   last boundary that PRECEDES the target in file order — boundaries after
+   the target don't exist yet from the target's point of view. (Equivalently:
+   what the loader would produce for the file truncated just after the
+   target.) So rewinding to a post-compaction message keeps its summary;
+   rewinding to a boundary playlist member follows raw ancestry — the
+   summarized region comes back. When the desired chain is a truncation of
+   the current active chain, nothing is written to disk (`resumeSessionAt`)
+   and the daemon records the superseded tail (the uuids of the active-chain
+   entries after the target); `get-messages` filters those out of its output.
+   No clearing event is needed: once the next turn writes a new leaf, the
+   active chain no longer contains the superseded entries and the filter is
+   inert. Filter lifecycle: installed/replaced only when a no-write restart
+   SUCCEEDS; cleared when a later set-context durably appends a boundary
+   (even if that restart then fails — the file now carries the truth);
+   requests that fail without mutating the file or establishing a new Query
+   leave it unchanged. Otherwise a no-summary
+   boundary is appended. Known limitation: a no-write rewind is not durable
+   until the next turn — if the daemon exits before then, a later resume sees
+   the un-rewound chain.
 
 ## Concrete examples
 
@@ -117,24 +147,50 @@ clauctl get-tree      # resolved forest
 ```
 
 Rewind semantics: "rewind the context to what it was when this message FIRST
-appeared" — find the target and walk its `parentUuid` ancestry (loader
-semantics: a boundary on the walked chain still relinks). This is the only
+appeared" — run loader semantics on the file as it stood when the target was
+written, i.e. truncated just after the target. This is the only
 well-specified reading: the alternative "truncate the effective chain, keeping
 boundary effects" breaks down once a uuid sits on multiple boundary playlists
-(which boundary's view wins?), whereas every entry has exactly one raw
-ancestry. Callers who want a specific boundary's view of a message address it
-through that boundary (TreeNode `viaBoundary` → prefix boundary, below). The SDK option that exists,
-`resumeSessionAt`, implements something narrower — truncation of the current
-EFFECTIVE chain — and the two disagree on boundary playlist members:
-`resumeSessionAt` there keeps the boundary's summary and seals the summarized
-region (P9 c), while the raw ancestry walk never crosses the boundary and
-resurrects that region. (`upToMessageId` is a `forkSession()` param minting a
+(which boundary's view wins?), whereas file position is unique. Callers who
+want a specific boundary's view of a message address it through that boundary
+(boundary mode with a playlist prefix, P9 b).
+
+Computing the desired chain needs no tree: find the last `compact_boundary`
+entry that precedes the target in file order. If none, the chain is the raw
+`parentUuid` walk from the target. Otherwise build that boundary's effective
+parent map and walk from the target taking mapped parents first, raw
+`parentUuid` otherwise. The map, covering both anchor shapes:
+
+- `uuids[i] → uuids[i-1]`; `uuids[0] → anchorUuid`.
+- From-shape only (`anchorUuid` = the boundary's own uuid, summary present,
+  playlist non-empty): the summary's effective parent is `uuids[last]` — the
+  raw chain there runs summary → boundary and would skip the playlist
+  entirely, but the loader's from-shape context is `[uuids…, summary]`
+  (p2.b: prefix first, summary after). Post-boundary writes chain through
+  the synthetic "No response requested." assistant → summary, so this rule
+  is what carries a from-shape walk across the playlist. With an empty
+  playlist the summary keeps its raw parent (the boundary) — the intended
+  summary-only context.
+- The boundary entry itself is transparent: a system entry, not part of the
+  message context; reaching it (or an entry with no parent) ends the walk.
+
+A raw walk alone is NOT correct in either shape: up_to post-boundary entries
+parent onto the preserved tail, never onto the boundary (every experiment's
+`firstNewUserParent` = the tail), so a literal raw walk from a
+post-compaction message would resurrect the summarized region. Only the last
+preceding boundary applies (stacked boundaries: last wins entirely, P3 m5).
+
+The SDK option that exists, `resumeSessionAt`, implements something narrower —
+truncation of the current EFFECTIVE chain — and disagrees with these semantics
+on boundary playlist members: it keeps the boundary's summary and seals the
+summarized region there (P9 c), while our semantics never cross a boundary
+that the target predates. (`upToMessageId` is a `forkSession()` param minting a
 NEW session id with fresh uuids — wrong tool for a daemon that keeps one
 session.) So the handler computes the desired chain itself and dispatches:
 
-- Desired chain == current active chain truncated at the target (target at or
-  after the last boundary's summary, or no boundary in effect) →
-  `resumeSessionAt`, no file mutation (P2 d).
+- Desired chain == current active chain truncated at the target →
+  `resumeSessionAt`, no file mutation (P2 d), plus the pending-rewind
+  tracking of criterion 8.
 - Otherwise (abandoned branch — unreachable by `resumeSessionAt`, P2 e;
   boundary playlist member — reachable but with the WRONG semantics, P9 c) →
   append a no-summary boundary listing the computed chain (P9 a, P2 j). A
@@ -146,10 +202,10 @@ here so the design survives; TUI itself is a non-goal):
 - Target reached `viaBoundary` → boundary mode with `uuids` = a prefix of the
   chain the creating boundary spelled out (including its summary entry as a
   playlist member — verified, P9 b).
-- Target not `viaBoundary` → rewind mode: raw-ancestry semantics, which is
-  exactly what the raw tree node depicts. (The duplicate-node design earns its
-  keep here: a playlist member's raw node means "resurrect my raw history",
-  its viaBoundary node means "keep the compaction".)
+- Target not `viaBoundary` → rewind mode: first-appeared semantics. (The
+  duplicate-node design earns its keep here: a playlist member's raw node
+  means "resurrect my raw history", its viaBoundary node means "keep the
+  compaction".)
 - Target on an abandoned raw branch → boundary mode listing that branch's
   chain (P2 j).
 - Target is a user message → rewind/navigate to the immediately previous
@@ -168,22 +224,38 @@ import { UUID } from "node:crypto";
 
 | { type: "get-entries" }   // response data: SessionEntry[]
 | { type: "get-tree" }      // response data: SessionTree
-// Boundary mode:
-| {
-    type: "set-context";
-    /** Ordered; becomes compactMetadata.preservedMessages.uuids (and allUuids). */
-    uuids: UUID[];
-    /** Omitted → no summary entry is written and anchor is forced to "boundary". */
-    summaryText?: string;
-    /** "summary" (default): summary first, then uuids (up_to shape).
-     *  "boundary": uuids first, then summary (from shape). */
-    anchor?: "summary" | "boundary";
-  }
-// Rewind mode: any assistant uuid in the file; context = its raw-ancestry
-// walk (loader semantics). Dispatch (see Concrete examples): resumeSessionAt
-// when the desired chain truncates the active chain, else a no-summary
-// boundary is appended.
-| { type: "set-context"; rewindTo: UUID }
+| SetContextRequest         // response data: SetContextResult
+
+/** Exactly one of `uuids` / `rewindTo` selects the mode. */
+export type SetContextRequest =
+  // Boundary mode:
+  | {
+      type: "set-context";
+      /** Ordered; becomes compactMetadata.preservedMessages.uuids (and allUuids). */
+      uuids: UUID[];
+      /** Omitted → no summary entry is written and anchor is forced to "boundary". */
+      summaryText?: string;
+      /** "summary" (default): summary first, then uuids (up_to shape).
+       *  "boundary": uuids first, then summary (from shape). */
+      anchor?: "summary" | "boundary";
+    }
+  // Rewind mode: the final transcript entry of an assistant API message;
+  // context = what it was when that message first appeared (see Concrete
+  // examples for the algorithm and the resumeSessionAt/no-summary-boundary
+  // dispatch).
+  | { type: "set-context"; rewindTo: UUID };
+
+/** The socket casts untrusted JSON, so the one destructive command is parsed
+ *  explicitly before any teardown. Throws with a descriptive message on:
+ *  both or neither of uuids/rewindTo, non-array or non-uuid-string uuids,
+ *  unknown anchor, non-string or empty summaryText. */
+export function parseSetContextRequest(raw: Record<string, unknown>): SetContextRequest;
+
+// New SdkEvent union member, broadcast after every successful set-context
+// (both modes, including no-write rewinds). Deliberately NOT an
+// SdkControlMutation: that type is reserved for controls the real SDK
+// supports.
+| { kind: "contextChanged"; request: SetContextRequest }
 
 /** Response data for set-context. boundaryUuid absent when a rewind needed no
  *  boundary; summaryUuid absent whenever no summary entry was written. */
@@ -255,17 +327,20 @@ export interface TreeNode {
 
 export interface SessionTree {
   roots: TreeNode[];
-  /** Payloads by uuid; duplicated tree nodes share one payload. */
+  /** Payloads by uuid; duplicated tree nodes share one payload. Entries
+   *  lacking a uuid (file-history-snapshot, queue-operation) are omitted —
+   *  they get no tree node and are visible via get-entries only. */
   entries: Record<UUID, SessionEntry>;
 }
 
-/** Forest semantics: raw parentUuid edges give the base forest; each boundary
- *  node is attached as a child of its logicalParentUuid entry; the boundary's
- *  relinked chain (summary + uuids per anchor shape) hangs under it as
- *  DUPLICATE nodes (same entryUuid, new TreeNode). Relink cycles are unrolled
- *  linearly: a uuid revisited within one boundary chain gets another duplicate
- *  node. Exact node/edge details for boundary substructure to be finalized (see
- *  IMPLEMENTATION IDEAS).
+/** THIS SPEC ships the raw forest only: raw parentUuid edges give the base
+ *  forest, and each boundary node is attached as a child of its
+ *  logicalParentUuid entry (root if absent). The boundary's relinked chain —
+ *  summary + uuids per anchor shape hanging under it as DUPLICATE nodes
+ *  (same entryUuid, new TreeNode), with relink revisits unrolled linearly —
+ *  is specified and built in a FOLLOW-UP spec; until then viaBoundary is
+ *  never set. The TreeNode/SessionTree shapes above are fixed now so the
+ *  follow-up is additive.
  *
  *  logicalParentUuid is not interpreted by the loader — it exists for tree
  *  anchoring, and we set it ourselves when building a boundary (= the active
@@ -284,18 +359,47 @@ export function buildTree(entries: SessionEntry[]): SessionTree;
 // `claudeQuery` becomes reassignable; construction is extracted so set-context
 // can rebuild it:
 //   let claudeQuery: Query = startQuery(resumeSessionId?)
-//   async function restartQuery(resumeSessionId: string): Promise<void>
-// set-context handler sequence (asserts idle, else error):
+//   async function restartQuery(resumeSessionId: string, resumeSessionAt?: UUID): Promise<void>
+// A Query gate (readers-writer) serializes set-context against everything
+// Query-bound (the daemon otherwise dispatches connection requests
+// concurrently — an idle check alone is a moment-in-time read). Query-bound
+// operations — query, interrupt, SdkControlMutation, SdkControlRead — take
+// the gate shared; set-context takes it exclusive, so it waits for in-flight
+// Query operations to finish and no new one can touch the old Query during
+// teardown/replacement. While set-context holds the gate, newly arriving
+// Query-bound requests and other set-contexts error ("context change in
+// progress"); file reads (get-entries/get-tree/get-messages) wait for the
+// gate so they never observe a half-done mutation. Eligibility, checked
+// under the gate: assistantState idle AND queueModel.queued empty AND
+// deliveredPending empty — else error.
+// set-context handler sequence (under the exclusive gate):
+//   parseSetContextRequest + uuid-existence validation → eligibility →
 //   leaf-on-disk wait → end turnQueue / close query → await child exit →
-//   [boundary mode only: buildBoundaryEntries + appendSessionEntries] →
-//   restartQuery(sessionId, rewindTo?) → verify via getSessionMessages →
-//   broadcast the set-context request (criterion 7) → SetContextResult
-// Rewind mode first computes the desired chain (raw parentUuid walk from
-// rewindTo, loader semantics) and compares it to the active chain truncated
-// at rewindTo: equal → restartQuery with resumeSessionAt: rewindTo, no file
-// mutation; different → build + append a no-summary boundary listing the
-// computed chain, then a plain restart. The chain computation shares logic
-// with build-tree.ts.
+//   [boundary mode: buildBoundaryEntries + appendSessionEntries, one write] →
+//   restartQuery(sessionId, rewindTo?) → verify (below) → broadcast
+//   contextChanged (criterion 7) → SetContextResult
+// Rewind mode computes the desired chain (last boundary preceding the target
+// in file order + effective-parent-map walk; see Concrete examples) and
+// compares it to the active chain truncated at rewindTo: equal →
+// restartQuery with resumeSessionAt: rewindTo, no file mutation, and record
+// the superseded tail uuids — get-messages filters them from its output
+// (naturally inert after the next turn; filter lifecycle per criterion 8).
+// Different → build + append a no-summary boundary listing the computed
+// chain, then a plain restart.
+// Restart failure (child fails to come up): the daemon enters a
+// query-unavailable state — Query-bound requests error clearly ("query
+// restart failed; retry set-context"), file reads keep working, and a
+// subsequent set-context (or daemon restart) reconstructs the Query; an
+// appended boundary is already durable and any later resume picks it up.
+// contextChanged is broadcast iff the FILE was mutated, even when the
+// restart then fails (watchers track file truth); the RPC itself still
+// returns the restart error. The intentional completion of the old Query's
+// stream-consumption loop must not be treated as daemon shutdown.
+// Verification: boundary mode asserts via getSessionMessages that the file's
+// effective chain matches (summary first when given, tail == uuids). This
+// checks the loader's view of the FILE, not the live Query — a streaming
+// Query initializes on its first turn, so a bad resume can still surface at
+// the next turn. No-write rewinds skip file verification (nothing changed).
 ```
 
 ```ts
@@ -308,8 +412,18 @@ export function buildTree(entries: SessionEntry[]): SessionTree;
 
 ## Edge cases
 
-- `set-context` while busy → error (criterion 5). Queued messages count as
-  busy. No implicit waiting.
+- `set-context` while busy → error (criterion 5). Busy = assistant not idle,
+  OR queued messages, OR delivered-but-pending prompts, OR another
+  set-context in progress (the mutex). No implicit waiting.
+- Malformed request (both or neither of `uuids`/`rewindTo`, non-uuid strings,
+  unknown `anchor`, non-string or empty-string `summaryText`) → error from
+  `parseSetContextRequest`, before eligibility checks or teardown.
+- Boundary + summary are written in ONE `write()` call, boundary line first
+  (native file order, p0b/p0c captures). A crash can still tear the tail of a
+  single write; the residual case — complete boundary, torn summary — leaves
+  an anchorUuid pointing at a missing entry. Untested, but the analogous
+  missing-playlist-uuid case fails closed (relink silently skipped, P1 d).
+  Accepted risk; no repair protocol in v1.
 - Unknown uuid in `uuids` → error before any file mutation (criterion 4).
   (A missing/duplicate uuid that reached the loader would silently produce a
   summary-only context — validated up front instead.)
@@ -319,10 +433,13 @@ export function buildTree(entries: SessionEntry[]): SessionTree;
 - Duplicate uuids in the list → error. Verified experimentally (P3 m4): a
   duplicated uuid makes the loader silently skip the whole relink, leaving a
   summary-only context.
-- `rewindTo` that is not an assistant uuid in the file → error before
-  teardown. (The uuid must exist to compute its ancestry; requiring an
-  assistant entry keeps the chain answer-terminated — the TUI maps
-  user-message targets to the previous assistant itself.)
+- `rewindTo` that is not in the file, not an assistant entry, or not the
+  final transcript entry of its API message (a later sibling shares its
+  `message.id` — e.g. a thinking entry) → error before teardown. Requiring a
+  final assistant entry keeps the chain answer-terminated with whole API
+  messages — `resumeSessionAt` and `getSessionMessages` behavior for
+  mid-message siblings is untested. The TUI maps user-message targets to the
+  previous assistant itself.
 - No session yet (daemon never started a session) → error for all three
   commands.
 - get-entries/get-tree tolerate a torn final line (mid-append read): skip it.
@@ -335,6 +452,8 @@ export function buildTree(entries: SessionEntry[]): SessionTree;
   tool results.
 - Auto-compaction behavior or thresholds.
 - TUI rendering of the tree.
+- get-tree boundary substructure (duplicate nodes, `viaBoundary` population)
+  — follow-up spec; this spec ships the raw forest.
 - Subagent/sidechain trees (`isSidechain` entries are returned by get-entries
   but get-tree treats them like any other entry in v1).
 - Preserving partial API messages: callers should list whole API messages
@@ -358,13 +477,13 @@ export function buildTree(entries: SessionEntry[]): SessionTree;
   allUuids}`; summary entry `type:"user"`, `parentUuid` = boundary uuid,
   `isCompactSummary:true`. Fields like preTokens/postTokens are not
   individually ablated — keep writing plausible values.
-- get-tree boundary substructure needs a working session together: how the
-  anchor shapes map to nodes (e.g. up_to: boundary → summary → uuid chain;
-  from: boundary → uuid chain → summary), whether the synthetic
-  "No response requested." assistant (a real on-disk entry after the first
-  post-boundary turn) needs special handling, and how stacked boundaries nest
-  (last one wins for loading; earlier ones still render). The `buildTree`
-  signature above is fixed; node arrangement details may evolve.
+- get-tree boundary substructure (now a follow-up spec) needs a working
+  session together: how the anchor shapes map to nodes (e.g. up_to: boundary
+  → summary → uuid chain; from: boundary → uuid chain → summary), whether the
+  synthetic "No response requested." assistant (a real on-disk entry after
+  the first post-boundary turn) needs special handling, and how stacked
+  boundaries nest (last one wins for loading; earlier ones still render).
+  The `buildTree` signature is fixed now so that spec is additive.
 - Restart machinery: the stream-consumption loop, queue model, and
   trackedState in daemon.ts are built around a single `claudeQuery`. The
   restart must rewire the consumption loop onto the new Query and keep the
@@ -372,20 +491,27 @@ export function buildTree(entries: SessionEntry[]): SessionTree;
   after ending — restartQuery creates a fresh TurnQueue too. Audit which
   pieces are per-Query vs per-daemon before extracting `startQuery`.
 - Restart failure (CLI child fails to come up after append): the boundary is
-  already on disk and is picked up by any later resume, so recovery = retry
-  the restart; report the error to the caller either way. No rollback of the
+  already on disk and is picked up by any later resume. The daemon enters the
+  query-unavailable state defined in the daemon.ts sketch; no rollback of the
   appended entries.
 - Post-restart verification: `getSessionMessages` was cross-validated against
   the wire (P8) — equal at whole-API-message granularity. Use it to assert the
   first message is the summary (when given) and the tail matches `uuids`;
   divergence returns an error but the file mutation is not rolled back
   (subsequent `set-context` can fix it; boundaries stack, last wins).
-- Idle definition: reuse the daemon's existing assistantState/whenIdle
-  machinery; `set-context` also needs "leaf on disk", which
-  `waitForEntryOnDisk` covers using `trackedState.lastTranscriptUuid`.
+- Idle definition: the eligibility predicate (daemon sketch) covers
+  assistantState, queueModel.queued, and deliveredPending; `set-context` also
+  needs "leaf on disk", which `waitForEntryOnDisk` covers using
+  `trackedState.lastTranscriptUuid`. If no turn has run this daemon lifetime
+  (revived session), `lastTranscriptUuid` is unset and the file is quiescent
+  — skip the wait.
 - Graceful teardown: end the prompt stream (TurnQueue must expose/allow
   ending), await generator completion — the SDK's cleanup awaits child exit
   (verified in P7: ~12 ms, no surviving child process).
+- The no-write-rewind durability caveat (criterion 8: daemon death before the
+  next turn loses the rewind — the file carries no record of it) must be
+  documented as a code comment where the superseded-tail filter is
+  implemented in daemon.ts, so it's discoverable next to the mechanism.
 - `readSessionEntries` uses the same torn-line-tolerant parse as the derisk
   harness (`readJsonlSafe`).
 - SDK↔jsonl read consistency (get-entries/get-tree): before reading, wait for
@@ -434,4 +560,49 @@ export function buildTree(entries: SessionEntry[]): SessionTree;
   Confirmed by user: raw-ancestry is the intended reading ("rewind to what the
   context was when this message first appeared"); the boundary-kept variant
   isn't well-specified when a uuid is on multiple playlists.
-- [ ] Implementation
+- 2026-07-14: Fresh-context reviewer round 1 (agent 3a42a99f). Confirmed
+  blocking findings, all resolved with user decisions: (1) no-write rewind vs
+  get-messages contradiction → daemon tracks pendingRewindTo and truncates
+  get-messages output until the next transcript write (durability caveat
+  documented); (2) "boundary ON the walked chain" was incoherent — post-
+  boundary entries parent onto the preserved tail, never the boundary —
+  replaced with the precise algorithm: last boundary preceding the target in
+  file order, relink-map-first walk (equivalent to loader-on-truncated-file;
+  needs no tree); (3+4) context-mutation mutex + eligibility predicate
+  (idle ∧ no queued ∧ no deliveredPending); reads wait, writes error;
+  (5) new `contextChanged` SdkEvent variant, kept out of SdkControlMutation
+  (reserved for real SDK controls); (6) buildTree ships raw forest only,
+  substructure moved to a follow-up spec; (7) uuid-less entries get no tree
+  node; (8) boundary+summary in one write(), boundary first (native order per
+  p0b/p0c captures), residual torn-tail risk accepted; (9) criterion 3
+  scoped to well-formed playlists; (10) parseSetContextRequest runtime
+  validation. Pushed back on: crash-repair protocol (residual window is one
+  syscall) and exact-context for strange playlists (non-goal + verification
+  error suffice).
+- 2026-07-14: Reviewer round 2 — five remaining blockers, all accepted and
+  fixed: (1) from-shape counterexample — the relink map alone skips the
+  playlist because from-shape post-boundary writes chain synthetic assistant
+  → summary → boundary; fixed by extending the map (summary's effective
+  parent = uuids[last] in from-shape; boundary transparent), matching p2.b's
+  observed [uuids…, summary] order; (2) pendingRewindTo "cleared on next
+  transcript write" was not observably implementable — replaced with
+  recording the superseded tail uuids and filtering them from get-messages
+  (functional, no clearing event, naturally inert after the next turn);
+  (3) mutex widened to a Query readers-writer gate covering query, interrupt,
+  and all control mutations/reads; (4) rewindTo restricted to the final
+  transcript entry of an assistant API message (mid-message siblings like
+  thinking entries rejected — untested territory); (5) query-unavailable
+  state defined for restart failure; contextChanged broadcast iff the file
+  was mutated, even when the restart then fails.
+- 2026-07-14: Reviewer round 3 — conditional approval on three small edits,
+  all applied: empty-playlist from-shape keeps the summary's raw parent;
+  superseded-tail filter lifecycle made explicit (install only on successful
+  no-write restart; clear on a later durable boundary append; failed
+  non-mutating requests leave it unchanged); problem statement updated to the
+  final-assistant-entry restriction. Reviewer confirmed the effective-parent
+  map equivalent to loader-on-truncated-file across both shapes, no-summary,
+  stacked boundaries, and playlists containing an earlier boundary's summary.
+- [x] Reviewer final sign-off: approved 2026-07-14 after one wording fix
+  (daemon sketch filter-lifecycle reference aligned with criterion 8).
+  Reviewer agent 3a42a99f, archived (revivable by prompting).
+- [ ] Implementation (awaiting user approval)
