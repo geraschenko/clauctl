@@ -8,13 +8,7 @@ import {
   nextAgentState,
   type AgentState,
 } from "../agent-state.ts";
-import {
-  acceptUserMessage,
-  INITIAL_QUEUE_MODEL_STATE,
-  observeSdkMessage as queueModelObserveSdkMessage,
-  type QueueModelState,
-  type QueueTransition,
-} from "./queue-model.ts";
+import * as QueueModel from "./queue-model.ts";
 import { type SdkEvent } from "../sdk-socket.ts";
 
 export interface EventHubOptions {
@@ -60,8 +54,8 @@ export interface EventHubOptions {
  */
 export class EventHub {
   private state: AgentState;
-  // TDC: Should we rename QueueModelState to QueueState and queueModel to "queue"? Don't change it yet; just evaluate the rename.
-  private queueModel: QueueModelState = INITIAL_QUEUE_MODEL_STATE;
+  private queueModel: QueueModel.QueueModelState =
+    QueueModel.INITIAL_QUEUE_MODEL_STATE;
   private readonly deliver: (message: SDKUserMessage) => void;
   private readonly idleWaiters: Array<() => void> = [];
   private readonly sinks = new Set<(serializedEventRecord: string) => void>();
@@ -113,8 +107,11 @@ export class EventHub {
   deliverUserMessage(message: SDKUserMessage): void {
     this.deliver(message);
     this.applyTransition(
-      // TDC: Should we make acceptUserMessage and observeSdkMessage _methods_ of QueueModelState? Why or why not?
-      acceptUserMessage(this.queueModel, message, isBusy(this.state)),
+      QueueModel.acceptUserMessage(
+        this.queueModel,
+        message,
+        isBusy(this.state),
+      ),
     );
   }
 
@@ -124,7 +121,9 @@ export class EventHub {
     // Dequeues follow their trigger: the model observes the message after its
     // own sdkMessage event is on the stream, so any userMessageDequeued it
     // implies lands immediately after.
-    this.applyTransition(queueModelObserveSdkMessage(this.queueModel, message));
+    this.applyTransition(
+      QueueModel.observeSdkMessage(this.queueModel, message),
+    );
   }
 
   /** Resolves once activity is idle (immediately if it already is). */
@@ -135,7 +134,7 @@ export class EventHub {
     return new Promise((resolve) => this.idleWaiters.push(resolve));
   }
 
-  private applyTransition(transition: QueueTransition): void {
+  private applyTransition(transition: QueueModel.QueueTransition): void {
     this.queueModel = transition.state;
     for (const event of transition.events) {
       this.applyEvent(event);
