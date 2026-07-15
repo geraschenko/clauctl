@@ -26,22 +26,24 @@ Two related defects, found during the post-attach architecture review of
 
 One `AgentState` type and one pure fold `nextAgentState(state, event)`,
 defined in `src/core/agent-state.ts`, maintained identically by the daemon
-and every subscriber. `AssistantState`, `StateSnapshot`, and `QueuedEntry`
-are deleted — not aliased, not wrapped. The daemon directory is restructured
-so each file has one stated responsibility and `daemon.ts` reads as a
-composition root: startup, wiring, teardown.
+and every stateful in-repo subscriber (`tail.ts` subscribes but deliberately
+does not fold state; external clients can reconstruct state from the seed and
+stream but are not forced to). `AssistantState`, `StateSnapshot`, and
+`QueuedEntry` are deleted — not aliased, not wrapped. The daemon directory is
+restructured so each file has one stated responsibility and `daemon.ts` reads
+as a composition root: startup, wiring, teardown.
 
 ## Success criteria
 
 - `AgentState` is the only observable-state type; `rg 'AssistantState|StateSnapshot|QueuedEntry' src/` returns nothing.
 - The daemon and the tui maintain their state exclusively via `nextAgentState`; the tui's hand-tracking (`notePermissionMode`, scattered `footer.set*` event cases) is deleted.
 - `trackedState`, `deliveredPending`, `observePermissionMode`, and `queue-model.ts`'s `deliveredMessages()` no longer exist — the fold subsumes them.
-- The prompt-visibility invariant is enforced in one place (the fold) and tested at the fold's interface.
-- `daemon/daemon.ts` contains only: CLI entry, startup classification, record ownership + serialized writes, module wiring, teardown, signals.
+- The prompt-visibility bookkeeping is enforced in one place (the fold) and tested at the fold's interface (see "Fold tests" for the honest scope of what those tests can prove).
+- `daemon/daemon.ts` contains only: CLI entry, startup classification, record ownership + serialized writes, the stream read loop (see "Stream reader" below), module wiring, teardown, signals.
 - The four TDC comments in `daemon/daemon.ts` are resolved and removed.
 - Each new module carries a header comment stating its responsibility and the design rationale (why the seam is where it is).
 - Living docs (`docs/overview.md`, `docs/user-message-tracking.md`, `docs/implementation-plan.md`) are audited and updated to the new names/architecture. Historical phase/feature specs are left untouched.
-- Presubmit green after every implementation step (each step lands independently).
+- Presubmit green after every implementation step (each step lands independently; see the restructured step list in IMPLEMENTATION IDEAS).
 
 ## Type design
 
@@ -49,31 +51,41 @@ composition root: startup, wiring, teardown.
 
 Protocol layer, shared by daemon and clients (same role `assistant-state.ts`
 has today, including the type-only import cycle with `sdk-socket.ts`).
+`nextAgentState` is a free function, not a method: `AgentState` is a wire
+type (the subscribe response), and a method-bearing class would not survive
+JSON serialization — daemon-side and client-side values must be the same
+kind of thing. All fields are readonly — shallowly: the fold never mutates
+its input and returns a new value when state changes; nested SDK payloads
+(`SDKUserMessage`) are treated as immutable by convention, since the EventHub
+hands out its internal object and callers must not be able to change state
+without an event.
 
 ```ts
 export type AgentActivity = "idle" | "pending" | "working" | "compacting";
 
 /**
- * The complete observable state of an agent: a pure fold over the emitted
- * SdkEvent stream from a seed. The daemon and every subscriber maintain it
- * with the same fold, so any observer's state always matches the daemon's.
- * Arrays are always present (empty, not absent); optional scalars mean
- * "not yet observed".
+ * The observable state of an agent as seen over sdk.sock: a pure fold over
+ * the emitted SdkEvent stream from a seed. The daemon and every stateful
+ * subscriber maintain it with the same fold, so any observer's state always
+ * matches the daemon's. Excluded by design: rendering state, queue-model
+ * inference state (daemon-internal), the persisted AgentRecord, and tty
+ * attachment state. Arrays are always present (empty, not absent); optional
+ * scalars mean "not yet observed".
  */
 export interface AgentState {
-  activity: AgentActivity;
-  sessionId?: string;
-  model?: string;
-  permissionMode?: PermissionMode;
+  readonly activity: AgentActivity;
+  readonly sessionId?: string;
+  readonly model?: string;
+  readonly permissionMode?: PermissionMode;
   /** Every mode observed this daemon lifetime, in first-observed order. */
-  observedPermissionModes: PermissionMode[];
-  cwd?: string;
+  readonly observedPermissionModes: readonly PermissionMode[];
+  readonly cwd?: string;
   /** Accepted, not yet consumed by the CLI. */
-  queuedMessages: { id: number; message: SDKUserMessage }[];
+  readonly queuedMessages: readonly { id: number; message: SDKUserMessage }[];
   /** Consumed as turn/append, not yet confirmed by a later stream emission. */
-  deliveredMessages: SDKUserMessage[];
+  readonly deliveredMessages: readonly SDKUserMessage[];
   /** The attach boundary: uuid of the last user/assistant message emitted. */
-  lastTranscriptUuid?: string;
+  readonly lastTranscriptUuid?: string;
 }
 
 export const INITIAL_AGENT_STATE: AgentState;
@@ -83,20 +95,27 @@ export function nextAgentState(state: AgentState, event: SdkEvent): AgentState;
 export function isBusy(state: AgentState): boolean;
 ```
 
-Notes:
+#### Fold transition table (complete; migrated behavior, no new rules)
 
-- The old `assistantState.queued` (`QueuedEntry`: id + shouldQuery) was a
-  projection of `queuedMessages`; the merged fold keeps one queued list and
-  derives `shouldQuery` from the message where the activity logic needs it.
-- `deliveredMessages` is computed by the fold itself: a turn/append
-  `userMessageDequeued` moves the referenced messages from `queuedMessages`
-  to `deliveredMessages` (steer dequeues are dropped); the next uuid-carrying
-  user/assistant `sdkMessage` advances `lastTranscriptUuid` and clears
-  `deliveredMessages` in the same fold step. This subsumes the daemon's
-  `deliveredPending` and `queue-model.ts`'s `deliveredMessages()`.
-- On the wire, the `subscribe` response `data` is the daemon's current
-  `AgentState`, serialized as-is (empty arrays present). No backward
-  compatibility with the old optional-when-nonempty `StateSnapshot` shape.
+For `sdkMessage` events, the uuid/boundary step applies first, then the
+subtype step.
+
+| Event | Effect |
+| --- | --- |
+| `userMessageQueued {id, message}` | Append `{id, message}` to `queuedMessages`. Activity: `pending` if `message.shouldQuery !== false` and activity is `idle`; else unchanged. |
+| `userMessageDequeued {delivery: turn\|append, ids}` | Remove matching entries from `queuedMessages`, append their messages to `deliveredMessages` in `ids` order. Unknown ids are ignored. Activity unchanged (the dequeue follows a `result` that already decided it). |
+| `userMessageDequeued {delivery: steer, ids}` | Remove matching entries from `queuedMessages` only — steered messages never get transcript turns, so they must not enter `deliveredMessages`. |
+| `compactSent` | Activity → `compacting`. |
+| `interruptSent` | No change (the transition happens at the terminating `result`). |
+| `controlApplied {set-model}` | `model` ← `request.model` (undefined means the SDK default; tracked as unset). |
+| `controlApplied {set-permission-mode}` | `permissionMode` ← mode; append to `observedPermissionModes` if not present. |
+| `controlApplied {other mutations}` | No change. |
+| `sdkMessage`, `user`/`assistant` with `uuid` | `lastTranscriptUuid` ← uuid; `deliveredMessages` ← `[]` (same fold step — this is the prompt-visibility bookkeeping). Then the subtype steps below also apply. |
+| `sdkMessage system/init` | `sessionId` ← `session_id`; `model` ← `model`; `cwd` ← `cwd`; permission mode observed (as in set-permission-mode). |
+| `sdkMessage system/status` with `permissionMode` | Permission mode observed. |
+| `sdkMessage assistant`, activity ≠ `compacting` | Activity → `working`. |
+| `sdkMessage result` | Activity → `pending` if any queued message has `shouldQuery !== false`, else `idle`. (The about-to-run bucket is still in `queuedMessages` — its dequeue event follows the result — so the fold never passes through a transient idle.) |
+| `sdkMessage` (anything else) | No change. |
 
 ### `src/core/daemon/event-hub.ts` — EventHub (renamed from EventBus) absorbs the queue model
 
@@ -110,26 +129,53 @@ state and originates queue events. The heavy logic lives in pure modules
 Broadcast sinks and idle waiters stay as internal fields (a Set and an array),
 not extracted classes — one caller each, no variation across the seam.
 
+Interface discipline: the hub's public surface makes invariant violations
+unrepresentable. `emit` is typed to the simple-event subset, so raw
+`sdkMessage` or queued/dequeued events cannot bypass the queue model; the
+constructor takes a narrow seed, so the state and the fresh queue model
+cannot start in disagreement; the `deliver` callback lives inside
+`deliverUserMessage`, so a delivered-but-unmodeled (or modeled-but-
+undelivered) message cannot exist.
+
 ```ts
+export interface EventHubOptions {
+  /** Pre-init values meaningful before the first system/init — the same
+   *  seed-then-fold contract subscribers follow. On revival, sessionId is
+   *  the last recorded session. */
+  seed: { cwd: string; sessionId?: string };
+  /** Hands an accepted message to the SDK (wired to turnQueue.push).
+   *  Called by deliverUserMessage before the queued events are emitted,
+   *  preserving today's push-before-emit order. */
+  deliver: (message: SDKUserMessage) => void;
+}
+
 export class EventHub {
-  /** Seeded, not always INITIAL_AGENT_STATE — see seeding note below. */
-  constructor(initialState: AgentState);
+  constructor(options: EventHubOptions);
 
   get agentState(): AgentState;
 
-  /** Attach a subscriber sink; returns the unsubscribe function. */
+  /** Attach a subscriber sink; returns the unsubscribe function. Sinks must
+   *  not throw (interface requirement, as today: the only production sink is
+   *  sdk-server's guarded connection.write) — a throwing sink would starve
+   *  later sinks and idle waiters after the state has already folded. */
   subscribe(sink: (serializedEventRecord: string) => void): () => void;
 
-  /** Simple events: interruptSent, compactSent, controlApplied. */
-  emit(event: SdkEvent): void;
+  /** Events with no queue-model involvement. Anything else must go through
+   *  deliverUserMessage/observeSdkMessage. */
+  emit(
+    event: Extract<
+      SdkEvent,
+      { kind: "interruptSent" | "compactSent" | "controlApplied" }
+    >,
+  ): void;
 
   /**
-   * Advance the queue model (busy computed from own state) and emit the
-   * queued/dequeued events; returns the message for the TurnQueue push, so
-   * the call site is `turnQueue.push(events.acceptUserMessage(message))` —
-   * the model/queue lockstep invariant lives on one line.
+   * Deliver a user message to the SDK (via the deliver callback) and advance
+   * the queue model (queue-model's acceptUserMessage; busy computed from own
+   * state), emitting the queued/dequeued events — one atomic step, so the
+   * model/queue lockstep is owned here, not by calling convention.
    */
-  acceptUserMessage(message: SDKUserMessage): SDKUserMessage;
+  deliverUserMessage(message: SDKUserMessage): void;
 
   /** Emit the sdkMessage event plus any dequeues the queue model implies. */
   observeSdkMessage(message: SDKMessage): void;
@@ -139,20 +185,30 @@ export class EventHub {
 }
 ```
 
-Seeding: the daemon constructs it with
-`{ ...INITIAL_AGENT_STATE, cwd: record.cwd, sessionId: <last recorded session, on revival> }`
-so `cwd` and `sessionId` are meaningful before the first init — exactly the
-seed-then-fold contract subscribers already follow.
+Per-occurrence ordering (applies to all three mutation methods): fold state
+first, then write sinks, then wake idle waiters — so any synchronous observer
+(a sink, a woken waiter) sees post-event state. Within
+`deliverUserMessage`: `deliver()` first, then the fold/broadcast of its
+events.
 
 The `/compact`-requires-idle check stays in the request dispatcher (request
-semantics), reading `events.agentState`.
+semantics), reading `events.agentState`; the compact message is pushed to the
+TurnQueue directly by the dispatcher (compaction deliberately bypasses the
+queue model) and announced via `emit({kind: "compactSent", ...})`.
 
 ### `src/core/daemon/request-handlers.ts` (new)
+
+Extraction rationale: this is deliberately a relocation of the dispatch
+switch, not a deep module — the leverage is that `daemon.ts` becomes readable
+as a composition root, and request semantics become testable through fake
+deps without a real daemon.
 
 ```ts
 export interface RequestHandlerDeps {
   claudeQuery: Query;
   events: EventHub;
+  /** Compact-path pushes only; ordinary messages go through
+   *  events.deliverUserMessage. */
   turnQueue: TurnQueue;
   /** getSessionMessages dir. */
   cwd: string;
@@ -170,7 +226,8 @@ export function createRequestHandler(
 - `get-messages` and `subscribe` read `sessionId` from `events.agentState`
   (valid before first init because of seeding); the record never crosses
   this seam.
-- `subscribe` keeps its write-own-response `RESPONSE_SENT` behavior.
+- `subscribe` keeps its write-own-response `RESPONSE_SENT` behavior; its
+  response `data` is `events.agentState`, serialized as-is.
 
 ### `src/core/daemon/tty-service.ts` (new)
 
@@ -199,15 +256,32 @@ export interface TtyService {
 export function startTtyService(opts: TtyServiceOptions): Promise<TtyService>;
 ```
 
+Partial-startup cleanup: the tui is spawned before the socket listen; if
+`listen` rejects, `startTtyService` kills the spawned tui before rethrowing —
+a rejected `startTtyService` leaves no live child behind, since the caller
+has no handle to clean up with.
+
 ### `src/core/daemon/queue-model.ts` (moved from `src/core/`)
 
 Moves under `daemon/` with its test; `deliveredMessages()` is deleted
 (subsumed by the fold). It remains the daemon-only *decider* of which
 queued/dequeued events to synthesize; its internal state (`toolResultSeen`
 inference) stays separate from `AgentState.queuedMessages` (the folded
-*result*) — merging them would leak daemon inference into the protocol.
+*result*) — merging them would leak daemon inference into the protocol. Its
+pure `acceptUserMessage` keeps its name: the hub's `deliverUserMessage`
+forwards to it, and the two names describe the two distinct acts.
 
-### `src/tui/components/footer.ts`
+### `src/core/sdk-socket.ts`
+
+- `StateSnapshot` deleted; the subscribe response documents itself as the
+  daemon's current `AgentState`.
+- `SdkSocketClient.subscribe(onEvent)` returns `Promise<AgentState>`.
+- `SDK_SOCKET_VERSION` stays 1: pre-release, zero users, no compatibility
+  obligation — bumping would be ceremony.
+- The prompt-visibility invariant documentation moves to `agent-state.ts`
+  (it is now a property of the fold).
+
+### `src/tui/components/footer.ts` and `interactive-mode.ts`
 
 The four piecemeal setters (`setAssistantState`, `setModel`,
 `setPermissionMode`, `setSessionId`) are replaced by one:
@@ -217,7 +291,16 @@ setState(state: AgentState): void;
 ```
 
 The footer derives its display fields (model/mode default-display convention
-included) internally. `interactive-mode.ts` calls it once per fold step.
+included) internally. In `interactive-mode.ts`:
+
+- One `AgentState` field, seeded from the subscribe response, advanced only
+  by `nextAgentState` — on **live** events only. Historical replay renders
+  transcript messages but must not fold them (they predate the seed).
+- `footer.setState(this.agentState)` once per fold step.
+- `notePermissionMode`, the hand-maintained `permissionMode` /
+  `observedPermissionModes` fields, and the per-event `footer.set*` cases are
+  deleted; `cyclePermissionMode` reads `this.agentState.permissionMode` /
+  `.observedPermissionModes` instead.
 
 ### Deletions
 
@@ -235,6 +318,23 @@ included) internally. `interactive-mode.ts` calls it once per fold step.
   `footer.set*` cases, the hand-maintained `permissionMode` /
   `observedPermissionModes` fields.
 
+## Stream reader (explicit assignment)
+
+With state tracking gone into the fold, what remains of the reader is record
+bookkeeping plus a trivial loop, and it stays in `daemon.ts` deliberately —
+it is the record owner's code (E), not a module of its own:
+
+```
+for await message:
+  on system/init → record bookkeeping (claudeCodeVersion, session rollover
+                    via sessionFilePath, queueRecordWrite) — BEFORE the fold,
+                    as today
+  events.observeSdkMessage(message)
+```
+
+Reader completion/failure handling (`readerDone`, `cleanupAndExit`) is
+lifecycle and also stays.
+
 ## Edge cases
 
 - **Revival before first init**: `sessionId`/`cwd` come from the seed;
@@ -245,7 +345,12 @@ included) internally. `interactive-mode.ts` calls it once per fold step.
   semantics.
 - **Idle accept**: `userMessageQueued` + immediate `userMessageDequeued` in
   one transition; the fold sees both events in order, so the message passes
-  through `queuedMessages` into `deliveredMessages` within one accept call.
+  through `queuedMessages` into `deliveredMessages` within one
+  `deliverUserMessage` call.
+- **Session rollover boundary staleness** (pre-existing, unchanged): after a
+  rollover init, `lastTranscriptUuid` still points into the previous
+  session's transcript until the next uuid-carrying message. Documented, not
+  fixed here.
 - **Teardown ordering**: `stopTui()` fires at `cleanupAndExit` entry;
   `shutdown(reason)` only after `writeQueue`/`readerDone` settle — same
   ordering as today.
@@ -253,7 +358,7 @@ included) internally. `interactive-mode.ts` calls it once per fold step.
 ## Non-goals
 
 - No backward compatibility for the sdk.sock wire format or any renamed
-  symbol.
+  symbol; no protocol version bump (pre-release, zero users).
 - No changes to `SdkEvent`, the queue model's inference rules, the
   assistant-activity transition rules, or any runtime behavior other than
   the wire shape of the subscribe response.
@@ -283,58 +388,91 @@ client-side values different kinds of thing. Broadcaster and idle waiters are
 not worth extracting (a Set wrapper and a resolver array; one caller each —
 hypothetical seams).
 
+Reviewer pushback considered and declined: splitting queue intake into a
+separate message-delivery module. Held position: emit/fold atomicity and
+model/queue lockstep are exactly why one object owns them; the heavy logic
+is already outside the class.
+
 ## Implementation order (each step presubmit-green)
 
-1. `agent-state.ts` + full fold + tests (including a prompt-visibility test:
-   fold over an event sequence never shows a prompt twice or zero times).
-   Old `assistant-state.test.ts` assertions migrate; old files die.
-2. Daemon adopts it: EventHub holds `AgentState` (seeded), absorbs the queue
-   model; `trackedState`/`deliveredPending` deleted; subscribe returns
-   `events.agentState`.
-3. Tui adopts it: hand-tracking deleted; footer `setState`; protocol type
-   renames complete.
-4. `queue-model.ts` moves under `daemon/`; `deliveredMessages()` removed.
-5. Structural splits: `request-handlers.ts`, `tty-service.ts`, daemon.ts
-   reduced to composition root; TDC comments removed as each resolves.
-6. Documentation audit of the living docs.
+Restructured after review: the original steps 1–3 could not each be green
+(step 1 deleted `assistant-state.ts` while daemon/tui still imported it).
 
-(Steps 2 and 5 may merge if the dispatcher extraction is what makes step 2
-reviewable; decide at implementation time, keeping each landed unit
-coherent.)
+1. **Add** `agent-state.ts` + full fold + tests. Nothing imports it yet;
+   old files untouched. Green trivially.
+2. **Atomic cutover** (one landed change, inherently so — the type surface
+   is shared): `sdk-socket.ts` (subscribe → `AgentState`), daemon (EventHub
+   rename + queue-model absorption + seeding + `trackedState`/
+   `deliveredPending` deletion), tui + footer adoption, all old-symbol
+   deletions, old test migration.
+3. `queue-model.ts` moves under `daemon/`; `deliveredMessages()` removed.
+4. Structural splits: `request-handlers.ts`, `tty-service.ts`, daemon.ts
+   reduced to composition root; TDC comments removed as each resolves.
+5. Documentation audit of the living docs.
+
+## Test plan
+
+**Fold tests (`agent-state.test.ts`)** — migrate old `assistant-state.test.ts`
+activity assertions, plus the transition table, plus prompt-visibility
+*bookkeeping* properties (the fold cannot prove transcript presence — that
+rests on the documented CLI transcript-ordering assumption, stated in the
+fold's comments):
+
+- a turn/append dequeue moves the referenced messages from `queuedMessages`
+  to `deliveredMessages` in the same fold step;
+- a steer dequeue removes without delivering;
+- a uuid-carrying user/assistant message advances `lastTranscriptUuid` and
+  clears `deliveredMessages` in the same fold step;
+- unrelated events change neither.
+
+**EventHub interface tests** — subscribe sees post-event state (fold-before-
+broadcast ordering); `deliverUserMessage` calls `deliver` before its events
+reach sinks; `whenIdle` resolves on the idle transition and immediately when
+already idle; seeded `cwd`/`sessionId` visible before any event.
+
+**Request-handler interface tests** (with fake deps) — `/compact` rejected
+when not idle; mutation serialization (two in-flight mutations don't
+interleave persistence); subscribe response equals `events.agentState`.
+
+**Replace, don't layer**: old tests tied to deleted shapes are migrated or
+deleted, not kept alongside.
+
+## Review checkpoints
+
+- After step 2: fold behavior equivalence (old assistant-state activity
+  assertions pass against `nextAgentState`); manual smoke — attach a tui,
+  verify footer model/mode/session display through init, set-model,
+  plan-mode transition.
+- After step 4: `rg TDC:` returns nothing; smoke spawn → attach → SIGTERM;
+  tty-service startup-failure path leaves no orphaned tui.
 
 ## Design rationale to preserve in header comments
 
 - `agent-state.ts`: state = fold(events) from a seed; why the daemon and
   clients must share this exact code (two hand-rolled copies had already
-  diverged in structure); where the prompt-visibility invariant now lives.
+  diverged in structure); where the prompt-visibility invariant now lives
+  and what part of it rests on the CLI transcript-ordering assumption.
 - `event-hub.ts`: the one-sentence responsibility (SPEC section) in the class
   docstring; why broadcast + fold + queue model are one object (the emit/fold
-  atomicity and model/queue lockstep invariants need a single owner).
+  atomicity and model/queue lockstep invariants need a single owner); why
+  `emit` is type-narrowed.
 - `request-handlers.ts`: request semantics vs transport (sdk-server.ts)
   vs state (event-hub.ts); why the mutation chain exists.
 - `tty-service.ts`: why TuiHost/TtyServer wiring is one unit; two-phase
-  teardown rationale.
+  teardown rationale; partial-startup cleanup.
 - `daemon.ts`: composition root — what it wires and deliberately does not
-  contain.
-
-## Review checkpoints
-
-- After step 1: fold behavior equivalence (old assistant-state tests must
-  pass against the new fold's `activity`).
-- After step 3: manual smoke — attach a tui, verify footer
-  model/mode/session display through init, set-model, plan-mode transition.
-- After step 5: `rg TDC:` returns nothing; smoke spawn → attach → SIGTERM.
+  contain; why the stream reader's remainder lives here.
 
 # WORK LOG
 
 **Instructions**: Update this section during each work session. Add new tasks, mark completed ones with [x], document decisions and problems encountered.
 
 - [x] Resolve EventHub naming / internal decomposition (see IMPLEMENTATION IDEAS)
-- [ ] Step 1: `agent-state.ts` + fold + tests; delete `assistant-state.ts`
-- [ ] Step 2: daemon adopts AgentState; rename EventBus → EventHub, absorb queue model
-- [ ] Step 3: tui adopts AgentState; footer `setState`
-- [ ] Step 4: move `queue-model.ts` under `daemon/`
-- [ ] Step 5: `request-handlers.ts`, `tty-service.ts`, composition-root daemon.ts; remove TDCs
-- [ ] Step 6: documentation audit (overview.md, user-message-tracking.md, implementation-plan.md)
+- [x] Reviewer critique round 1 (pictl reviewer eae28faf): 10 high-confidence findings; adopted — step restructure (1–3 couldn't be green), full transition table, readonly state, narrowed `emit`/constructor seed, `deliver` callback (renamed `deliverUserMessage`), tty partial-startup cleanup, honest prompt-test scope, explicit stream-reader assignment, `subscribe(): Promise<AgentState>`, interface-level test plan. Declined — protocol version bump (pre-release, stays 1), splitting queue intake out of EventHub (atomicity needs one owner).
+- [ ] Step 1: add `agent-state.ts` + fold + tests
+- [ ] Step 2: atomic cutover (sdk-socket, daemon EventHub, tui, footer, deletions)
+- [ ] Step 3: move `queue-model.ts` under `daemon/`
+- [ ] Step 4: `request-handlers.ts`, `tty-service.ts`, composition-root daemon.ts; remove TDCs
+- [ ] Step 5: documentation audit (overview.md, user-message-tracking.md, implementation-plan.md)
 
 *Work log entries go here*
