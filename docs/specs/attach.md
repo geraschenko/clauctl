@@ -194,7 +194,7 @@ class TuiHost {
 
 Spawn command: `new PtyScreen(process.execPath, [mainEntryPath(), "_tui",
 "--sdk-socket", <path>, "--managed"], { cwd, env })` with
-`env = childEnv(undefined, agentId)` (process.env + `CLAUCTL_AGENT_ID`; no
+`env = childEnv(undefined, agentId)` (process.env + `CLAUCTL_ID`; no
 persisted SDK env — that is claude-subprocess configuration, not tui
 configuration). On every respawn the host broadcasts
 `CURSOR_HOME + ERASE_SCREEN` through `onOutput` before wiring the new
@@ -358,7 +358,7 @@ encountered.
 
 - **TuiHost ctor drops the spec's `agentId` opt** — it was unused: the spawn
   command line doesn't take an agent id, and the env already carries
-  CLAUCTL_AGENT_ID (the caller builds it with `childEnv(undefined, agentId)`).
+  CLAUCTL_ID (the caller builds it with `childEnv(undefined, agentId)`).
 - **TuiHost tracks `tuiExited` and drops `write`/`resize` after exit** — the
   pty fd is gone, and node-pty raises on writes to a dead pty; the frozen
   crash screen has nothing to receive them anyway. `serializeScreen` stays

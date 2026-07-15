@@ -123,7 +123,7 @@ function childEnv(
       env[key] = value;
     }
   }
-  env.CLAUCTL_AGENT_ID = agentId;
+  env.CLAUCTL_ID = agentId;
   return env;
 }
 

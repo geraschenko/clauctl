@@ -112,7 +112,7 @@ export function resolveCallerSource(
 
 /**
  * The same resolution for another live process (the daemon's view of a
- * tty.sock client): CLAUCTL_AGENT_ID from /proc/<pid>/environ (the exec-time
+ * tty.sock client): CLAUCTL_ID from /proc/<pid>/environ (the exec-time
  * environment — exactly the inherited env we want), walk from that pid's
  * ppid (from /proc/<pid>/stat). Falls back to "process:<pid>" — the hello pid
  * itself, since that is the caller — on any /proc failure, including a walk
@@ -125,8 +125,8 @@ export function resolveCallerSourceForPid(pid: number): {
   try {
     const piAgentId = readProc(pid, "environ")
       .split("\0")
-      .find((entry) => entry.startsWith("CLAUCTL_AGENT_ID="))
-      ?.slice("CLAUCTL_AGENT_ID=".length);
+      .find((entry) => entry.startsWith("CLAUCTL_ID="))
+      ?.slice("CLAUCTL_ID=".length);
     if (piAgentId !== undefined && piAgentId !== "") {
       return { source: `clauctl:${piAgentId}` };
     }
