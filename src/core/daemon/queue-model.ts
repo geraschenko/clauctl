@@ -1,11 +1,11 @@
 /**
- * The daemon's model of the CLI's user-message queue (spec: Phase 2, "Queue
- * model"). The CLI's queue operations are invisible on the live stream, but
- * its placement behavior is deterministic (echo-placement FINDINGS, Round 3),
- * so this module tracks every accepted message and decides which
- * `userMessageQueued`/`userMessageDequeued` events to emit and when. Pure
- * state machine: the EventHub threads occurrences through it and emits the
- * returned events immediately after each triggering occurrence.
+ * The daemon's model of the CLI's user-message queue. The CLI's queue
+ * operations are invisible on the live stream, but its placement behavior is
+ * deterministic (echo-placement FINDINGS, Round 3), so this module tracks every
+ * accepted message and decides which `userMessageQueued`/`userMessageDequeued`
+ * events to emit and when. Pure state machine: the EventHub threads occurrences
+ * through it and emits the returned events immediately after each triggering
+ * occurrence.
  *
  * Daemon-only, unlike agent-state.ts: this is the *decider* that synthesizes
  * queue events from inference (`toolResultSeen`), while the fold's

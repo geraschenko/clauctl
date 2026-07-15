@@ -60,6 +60,7 @@ export interface EventHubOptions {
  */
 export class EventHub {
   private state: AgentState;
+  // TDC: Should we rename QueueModelState to QueueState and queueModel to "queue"? Don't change it yet; just evaluate the rename.
   private queueModel: QueueModelState = INITIAL_QUEUE_MODEL_STATE;
   private readonly deliver: (message: SDKUserMessage) => void;
   private readonly idleWaiters: Array<() => void> = [];
@@ -112,6 +113,7 @@ export class EventHub {
   deliverUserMessage(message: SDKUserMessage): void {
     this.deliver(message);
     this.applyTransition(
+      // TDC: Should we make acceptUserMessage and observeSdkMessage _methods_ of QueueModelState? Why or why not?
       acceptUserMessage(this.queueModel, message, isBusy(this.state)),
     );
   }

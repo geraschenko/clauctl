@@ -4,11 +4,10 @@
  * `nextAgentState` over every event it emits, and a subscriber maintains its
  * own copy by seeding from the subscribe response and running the same fold
  * over the pushed stream — literally this code, so an observer's state always
- * matches the daemon's. (Two hand-rolled trackers — the daemon's and the
- * tui's — had already diverged in structure before this module unified them.)
+ * matches the daemon's.
  *
  * Activity model: there is no `idle` SDKStatus; activity is derived by the
- * fold. `pending` means *predicted* activity, not yet confirmed by SDK
+ * fold. `pending` means activity is *predicted*, not yet confirmed by SDK
  * evidence: a dequeued turn that has not shown output, or queued messages
  * awaiting their boundary. At a `result`, the bucket the CLI consumes next is
  * still in `queuedMessages` (its `userMessageDequeued` follows the `result`
@@ -113,7 +112,7 @@ export function nextAgentState(state: AgentState, event: SdkEvent): AgentState {
         ...state.queuedMessages,
         { id: event.id, message: event.message },
       ];
-      return isQuerying(event.message) && state.activity === "idle"
+      return isQuerying(event.message) && state.activity === "idle"  // TDC: should this use isBusy instead?
         ? { ...state, activity: "pending", queuedMessages }
         : { ...state, queuedMessages };
     }

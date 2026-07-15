@@ -350,8 +350,8 @@ export function isPidAlive(pid: number): boolean {
 /**
  * The agent's status as far as on-disk markers and the daemon pid can tell —
  * no socket involved. A live daemon is reported as `running`; distinguishing
- * live agent state needs the Phase-2 sdk.sock probe. gc only needs the
- * socket-free verdict, so it uses this directly.
+ * live agent state needs the sdk.sock probe. gc only needs the socket-free
+ * verdict, so it uses this directly.
  */
 export type RegistryStatus =
   | { kind: "tombstoned" }
