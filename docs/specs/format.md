@@ -158,14 +158,12 @@ export type SessionRecord = Record<string, unknown> & { type: string };
 export type TailRecord = { snapshot: StateSnapshot } | { event: SdkEvent };
 ```
 
-**`src/format/generated/read-input.ts`** — pictl's format-agnostic input
-plumbing (`readInputFile`, `parseJsonInput`, `parseJsonlInput`), synced like
-`text.ts`. Prerequisite pictl refactor: move these (plus the private
-`readStdin`) out of pictl's `format/input.ts` into a new
-`src/format/read-input.ts` there. Unlike `text.ts` these import
-`CommandContext`/`UsageError` from the already-synced core set, so the sync
-script's format set rewrites `../core/<shared>` →
-`../../core/generated/<shared>`.
+**`src/core/generated/read-input.ts`** — pictl's format-agnostic input
+plumbing (`readStdin`, `readInputFile`, `parseJsonInput`, `parseJsonlInput`).
+The pictl extraction landed it in pictl's `src/core/` (see pictl's
+`docs/specs/read-input-extraction.md`), so on the clauctl side it simply
+joins the existing core `SHARED_FILES` sync set — sibling imports of
+`targets.ts`/`util.ts`, no cross-directory rewriting.
 
 ```ts
 export async function readInputFile(context: CommandContext, file: string | undefined): Promise<string>;
@@ -225,14 +223,13 @@ export const formatRoute: RouteMap<CommandContext>; // routes: messages, events
   response array as JSONL (leaves `bareRequestCommand`).
 - `src/tui/sdk-render.ts` — header comment updated (shared by TUI and format);
   no code changes.
-- `scripts/sync-from-pictl.mjs` — generalize the single `SHARED_FILES` set to
-  source/output directory pairs; the format set syncs `text.ts` and
-  `read-input.ts` into `src/format/generated/` and rewrites cross-directory
-  imports of the core shared set to `../../core/generated/`.
-- pictl (prerequisite, in the pictl repo): move `readStdin`/`readInputFile`/
-  `parseJsonInput`/`parseJsonlInput` from `src/format/input.ts` to a new
-  `src/format/read-input.ts` — handed off as pictl's
-  `docs/specs/read-input-extraction.md`, being done by another agent.
+- `scripts/sync-from-pictl.mjs` — add `read-input.ts` to the core
+  `SHARED_FILES` set; generalize to source/output directory pairs so a format
+  set can sync `src/format/text.ts` → `src/format/generated/text.ts`
+  (import-free, so no new import rewriting).
+- pictl prerequisite: **done** — `readStdin`/`readInputFile`/`parseJsonInput`/
+  `parseJsonlInput` live in pictl's `src/core/read-input.ts` (pictl's
+  `docs/specs/read-input-extraction.md`).
 
 ### Success criteria
 
@@ -305,3 +302,7 @@ mark completed ones with [x], document decisions and problems encountered.
   exactly from pictl via a new pictl `src/format/read-input.ts` (pictl-side
   move is a prerequisite), leaving `src/format/input.ts` with only the
   clauctl-specific decoders.
+- 2026-07-14: pictl extraction landed, in `src/core/read-input.ts` rather
+  than `src/format/` — clauctl-side simplification: it joins the existing
+  core sync set (`src/core/generated/read-input.ts`); the format sync set is
+  just the import-free `text.ts`. Spec updated.
