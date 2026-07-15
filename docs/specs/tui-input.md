@@ -388,7 +388,7 @@ open (global shortcut by design), quoted-`@"` hint detection (one-shot hint
 fires on the first bare `@`), `SDK_SOCKET_VERSION` bump (additive optional
 fields only), `get(...)!` hardening and a variable rename (locally-evident).
 
-### 2026-07-08 — TDC: handleGlobalKey return value
+### 2026-07-08 — review comment: handleGlobalKey return value
 
 Resolved: the return value is pi-tui's input-listener contract —
 `TUI.handleInput` runs listeners before the focused component and

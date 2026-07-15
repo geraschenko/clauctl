@@ -623,7 +623,7 @@ encountered.
   never name individual Query methods. `MUTATION_TYPES` is a
   `Record<SdkControlMutation["type"], true>` so a new mutation variant is a
   compile error at the guard. Also split the subscribe handler's
-  sink-attach into an explicit `unsubscribe` variable (Anton's TDC: the
+  sink-attach into an explicit `unsubscribe` variable (Anton's review comment: the
   one-liner read as "subscribe on close"; subscription is immediate, onClose
   only registers the cleanup). Presubmit green; 67/67 tests.
 

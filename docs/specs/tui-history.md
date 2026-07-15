@@ -477,7 +477,7 @@ absent, the boundary equaled the last transcript uuid, and `get-messages`
 held the prompt at/before it — each state showing the prompt in exactly one
 place.
 
-## 2026-07-11 — TDC: no backward-compatibility affordances
+## 2026-07-11 — review comment: no backward-compatibility affordances
 
 Resolved (agreed; matches the standing no-backward-compat rule): removed the
 old-daemon success criterion in favor of "a failed `get-messages` surfaces as
