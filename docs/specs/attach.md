@@ -299,9 +299,12 @@ status.
 - Sync order matters for review: land the sync-script change + generated
   files + deps first (mechanical), then registry/daemon/tui changes
   (semantic), then list/status.
-- Implementation is blocked on pictl's pty-screen refactor
-  (pictl docs/specs/pty-screen.md) landing first — until then the sync
-  step has no pty-screen.ts to copy.
+- pictl's pty-screen refactor (pictl docs/specs/pty-screen.md) has landed;
+  the implemented API matches this spec's assumptions.
+- PtyScreen's `onData`/`onExit` are single-listener *setters*; the
+  underlying pty handlers are registered in its constructor. TuiHost must
+  set its listeners synchronously after construction (no await in between)
+  — the same no-gap guarantee pictl's daemon relies on.
 - The respawn decision is a pure fold (`nextRespawnState`) so the policy is
   unit-testable without clocks or sleeps; TuiHost supplies real timestamps.
 - Research note (2026-07-14): surveyed tmux control mode, wezterm mux,
@@ -320,7 +323,7 @@ tasks, mark completed ones with [x], document decisions and problems
 encountered.
 
 - [ ] Add deps (node-pty, @xterm/headless, @xterm/addon-serialize)
-- [ ] Confirm pictl's pty-screen refactor has landed
+- [x] Confirm pictl's pty-screen refactor has landed
 - [ ] Extend SHARED_FILES + run sync (ansi, tty-protocol(+test),
       tty-server(+test), pty, pty-screen(+test), attach)
 - [ ] registry.ts: ttySocketPath, AgentRecord.attachments, tuiFailedAt
