@@ -17,6 +17,7 @@ import {
   type InferFlags,
 } from "./generated/cli.ts";
 import { type CommandContext } from "./generated/targets.ts";
+import { mainEntryPath } from "./main-entry-path.ts";
 import { parseClaudeFlags } from "./options.ts";
 import {
   agentDirPath,
@@ -27,21 +28,6 @@ import {
   writeSpawnOptions,
 } from "./registry.ts";
 import { UsageError } from "./generated/util.ts";
-
-/**
- * The script Node was invoked with, re-execed for the detached daemon. Using
- * process.argv[1] (rather than a path derived from import.meta.url) keeps the
- * re-exec correct whether clauctl runs from the built `dist/` (`main.js`) or
- * from `.ts` source under type-stripping (`main.ts`), where a hardcoded
- * `./main.js` would point at a nonexistent file.
- */
-function mainEntryPath(): string {
-  const entry = process.argv[1];
-  if (entry === undefined) {
-    throw new Error("cannot determine clauctl entry script (process.argv[1])");
-  }
-  return entry;
-}
 
 async function readAll(stream: Readable): Promise<string> {
   let data = "";

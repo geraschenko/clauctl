@@ -1,5 +1,6 @@
 import { buildApplication, buildRouteMap, text_en } from "@stricli/core";
 import { type CommandContext } from "./generated/targets.ts";
+import { attachRoute } from "./generated/attach.ts";
 import { completionRoute } from "./generated/completion.ts";
 import { internalRoutes } from "./daemon.ts";
 import { listRoute, statusRoute } from "./inspect.ts";
@@ -18,6 +19,7 @@ const routes = {
   ...lifecycleRoutes,
   ...gcRoute,
   ...sdkRoutes,
+  ...attachRoute,
   ...tailRoute,
   ...tuiRoute,
   ...completionRoute,

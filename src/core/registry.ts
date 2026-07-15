@@ -9,6 +9,7 @@ import { open, readdir, readFile, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import envPaths from "env-paths";
 import type { PersistedOptions } from "./options.ts";
+import type { AttachmentInfo } from "./generated/tty-server.ts";
 import { fileExists } from "./generated/util.ts";
 
 export interface SessionHistoryEntry {
@@ -35,6 +36,12 @@ export interface AgentRecord {
   claudePid?: number;
   /** claude_code_version from system/init; respawn-across-upgrade diagnostics (RISK-6). */
   claudeCodeVersion?: string;
+
+  /** Live tty.sock attachers; daemon-owned, reset on startup and shutdown. */
+  attachments: AttachmentInfo[];
+  /** Set when the tui host stops respawning after repeated rapid crashes;
+   *  absent while the tui is healthy. ISO 8601. */
+  tuiFailedAt?: string;
 
   /**
    * The agent's own directory. Derived from the path, not persisted: populated
@@ -82,6 +89,11 @@ export function agentJsonPath(agentDir: string): string {
 
 export function sdkSocketPath(agentDir: string): string {
   return join(agentDir, "sdk.sock");
+}
+
+/** The daemon's terminal-attach socket (generated/tty-server.ts). */
+export function ttySocketPath(agentDir: string): string {
+  return join(agentDir, "tty.sock");
 }
 
 /**
@@ -239,6 +251,9 @@ export async function readAgentRecord(
       return { kind: "corrupt", error: "agent.json missing required fields" };
     }
     record.agentDir = agentDir;
+    // Records written before the attachments field existed still satisfy
+    // the type.
+    record.attachments ??= [];
     return { kind: "ok", record };
   } catch (error) {
     return {

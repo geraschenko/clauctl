@@ -39,6 +39,7 @@ async function withRegistry<T>(fn: (dir: string) => Promise<T>): Promise<T> {
       persistedOptions: {},
       sessions: [],
       daemonPid: 99999999,
+      attachments: [],
       agentDir,
     });
     return await fn(dir);

@@ -35,12 +35,21 @@ import {
   type QueueModelState,
   type QueueTransition,
 } from "./queue-model.ts";
+import { CURSOR_HOME, ERASE_SCREEN } from "./generated/ansi.ts";
+import {
+  auditEnabled,
+  recordAuditEvent,
+  resolveCallerSourceForPid,
+} from "./generated/audit.ts";
 import {
   commandNoTarget,
   parsedFlag,
   requiredStringFlag,
   type InferFlags,
 } from "./generated/cli.ts";
+import { PtyScreen } from "./generated/pty-screen.ts";
+import { TtyServer, type AttachmentInfo } from "./generated/tty-server.ts";
+import { mainEntryPath } from "./main-entry-path.ts";
 import { invariantOptions } from "./options.ts";
 import {
   agentDirPath,
@@ -49,6 +58,7 @@ import {
   readSpawnOptions,
   sdkSocketPath,
   spawnOptionsPath,
+  ttySocketPath,
   writeAgentRecord,
   type AgentRecord,
 } from "./registry.ts";
@@ -220,6 +230,162 @@ function childEnv(
   return env;
 }
 
+export const RAPID_EXIT_MS = 5_000;
+export const MAX_CONSECUTIVE_RAPID_EXITS = 3;
+
+/**
+ * Fold one tui exit into the respawn decision. A "rapid" exit is one within
+ * RAPID_EXIT_MS of its spawn; MAX_CONSECUTIVE_RAPID_EXITS of them in a row
+ * means the tui is broken — stop respawning instead of crash-looping.
+ */
+export function nextRespawnState(
+  consecutiveRapidExits: number,
+  spawnedAtMs: number,
+  exitedAtMs: number,
+): { consecutiveRapidExits: number; respawn: boolean } {
+  const next =
+    exitedAtMs - spawnedAtMs < RAPID_EXIT_MS ? consecutiveRapidExits + 1 : 0;
+  return {
+    consecutiveRapidExits: next,
+    respawn: next < MAX_CONSECUTIVE_RAPID_EXITS,
+  };
+}
+
+interface TuiHostOptions {
+  sdkSocket: string;
+  cwd: string;
+  env: Record<string, string>;
+  /** Wired to ttyServer.broadcastOutput. */
+  onOutput: (data: string) => void;
+  /** Called with a timestamp when respawning stops, and with undefined
+   *  whenever a respawn is attempted (the failure is cleared at the attempt,
+   *  not on survival — if the tui crash-loops again the field briefly flaps,
+   *  which self-corrects within the rapid-exit window). */
+  onFailedChanged: (failedAt: string | undefined) => void;
+  log: (message: string) => void;
+}
+
+/**
+ * Runs `clauctl _tui --managed` in a PtyScreen (generated/pty-screen.ts);
+ * respawns on exit per nextRespawnState. Each (re)spawn is a fresh PtyScreen;
+ * the last one is kept after exit so its screen — including crash output —
+ * remains snapshotable while the tui is failed.
+ */
+class TuiHost {
+  private readonly opts: TuiHostOptions;
+  private screen!: PtyScreen;
+  private spawnedAtMs = 0;
+  private consecutiveRapidExits = 0;
+  private tuiExited = false;
+  private failed = false;
+  private shuttingDown = false;
+  /** Last size applied via resize(), re-applied to every fresh PtyScreen:
+   *  TtyServer only calls the resize hook when the min across attachers
+   *  *changes*, so without this a respawned tui would stay at the pty
+   *  default while the attachers keep their old geometry. */
+  private lastSize: { cols: number; rows: number } | undefined;
+
+  constructor(opts: TuiHostOptions) {
+    this.opts = opts;
+    this.spawnTui();
+  }
+
+  private spawnTui(): void {
+    this.spawnedAtMs = Date.now();
+    this.tuiExited = false;
+    this.screen = new PtyScreen(
+      process.execPath,
+      [
+        mainEntryPath(),
+        "_tui",
+        "--sdk-socket",
+        this.opts.sdkSocket,
+        "--managed",
+      ],
+      { cwd: this.opts.cwd, env: this.opts.env },
+    );
+    // Listener registration must stay synchronous with construction (no await
+    // in between): PtyScreen holds a single listener slot per event, and pty
+    // data arriving in an await gap would bypass the broadcast.
+    this.screen.onData(this.opts.onOutput);
+    this.screen.onExit((exitCode) => this.handleExit(exitCode));
+    if (this.lastSize !== undefined) {
+      this.screen.resize(this.lastSize.cols, this.lastSize.rows);
+    }
+  }
+
+  private respawn(): void {
+    this.failed = false;
+    this.opts.onFailedChanged(undefined);
+    // The fresh emulator starts blank; clearing the attachers' screens first
+    // keeps them in lockstep with it.
+    this.opts.onOutput(`${CURSOR_HOME}${ERASE_SCREEN}`);
+    this.spawnTui();
+  }
+
+  private handleExit(exitCode: number): void {
+    this.tuiExited = true;
+    if (this.shuttingDown) {
+      return;
+    }
+    this.opts.log(`tui exited with code ${exitCode}`);
+    const next = nextRespawnState(
+      this.consecutiveRapidExits,
+      this.spawnedAtMs,
+      Date.now(),
+    );
+    this.consecutiveRapidExits = next.consecutiveRapidExits;
+    if (next.respawn) {
+      this.respawn();
+    } else {
+      this.failed = true;
+      this.opts.log(
+        `tui exited rapidly ${next.consecutiveRapidExits} times in a row; ` +
+          `not respawning until the next attach`,
+      );
+      this.opts.onFailedChanged(new Date().toISOString());
+    }
+  }
+
+  // write/resize are dropped after tui exit: the pty fd is gone, and the
+  // frozen crash screen has nothing to receive them. serializeScreen stays
+  // valid — PtyScreen's emulator survives process exit.
+  write(data: string): void {
+    if (!this.tuiExited) {
+      this.screen.write(data);
+    }
+  }
+
+  resize(cols: number, rows: number): void {
+    this.lastSize = { cols, rows };
+    if (!this.tuiExited) {
+      this.screen.resize(cols, rows);
+    }
+  }
+
+  serializeScreen(): Promise<string> {
+    return this.screen.serializeScreen();
+  }
+
+  /** Wakes a failed host: resets the crash counter and respawns. No-op while
+   *  the tui is running. */
+  notifyAttach(): void {
+    if (!this.failed || this.shuttingDown) {
+      return;
+    }
+    this.consecutiveRapidExits = 0;
+    this.respawn();
+  }
+
+  /** Stop respawning and SIGTERM the current pty (daemon shutdown). */
+  shutdown(): void {
+    this.shuttingDown = true;
+    if (!this.tuiExited) {
+      this.screen.kill("SIGTERM");
+    }
+  }
+}
+
 async function daemon(this: CommandContext, flags: DaemonFlags): Promise<void> {
   const { agentId } = flags;
   const agentDir = agentDirPath(agentId);
@@ -250,6 +416,9 @@ async function daemon(this: CommandContext, flags: DaemonFlags): Promise<void> {
   if (existing.kind === "ok") {
     record = existing.record;
     record.daemonPid = proc.pid;
+    // A crashed predecessor leaves stale attachment/tui-failure state behind.
+    record.attachments = [];
+    delete record.tuiFailedAt;
     resumeSessionId = record.sessions.at(-1)?.sessionId;
   } else {
     const spawnRead = await readSpawnOptions(agentDir);
@@ -272,6 +441,7 @@ async function daemon(this: CommandContext, flags: DaemonFlags): Promise<void> {
       persistedOptions: spawnOptions.persistedOptions,
       sessions: [],
       daemonPid: proc.pid,
+      attachments: [],
       agentDir,
     };
     resumeSessionId = spawnOptions.resume;
@@ -287,9 +457,12 @@ async function daemon(this: CommandContext, flags: DaemonFlags): Promise<void> {
     );
   };
 
-  // A SIGKILLed predecessor leaves a stale socket file behind, and bind
+  // A SIGKILLed predecessor leaves stale socket files behind, and bind
   // refuses an existing path. Launchers guarantee no live daemon for this dir.
-  await rm(sdkSocketPath(agentDir), { force: true });
+  await Promise.all([
+    rm(sdkSocketPath(agentDir), { force: true }),
+    rm(ttySocketPath(agentDir), { force: true }),
+  ]);
 
   const options: Options = {
     ...record.persistedOptions,
@@ -504,12 +677,19 @@ async function daemon(this: CommandContext, flags: DaemonFlags): Promise<void> {
   );
 
   // --- teardown --------------------------------------------------------------
+  // Constructed after sdk.sock is listening (the tui connects to it), so the
+  // teardown closes over slots that are still unset on early failure paths.
+  /* eslint-disable prefer-const -- assigned once post-listen, but read by cleanupAndExit above the assignment */
+  let tuiHost: TuiHost | undefined;
+  let ttyServer: TtyServer | undefined;
+  /* eslint-enable prefer-const */
   let exiting = false;
   const cleanupAndExit = (code: number): void => {
     if (exiting) {
       return;
     }
     exiting = true;
+    tuiHost?.shutdown();
     claudeQuery.close();
     turnQueue.close();
     // Wait for the stream to end before exiting: the SDK's close() SIGTERMs
@@ -518,7 +698,19 @@ async function daemon(this: CommandContext, flags: DaemonFlags): Promise<void> {
     // when the child is gone.
     void Promise.allSettled([writeQueue, readerDone]).then(async () => {
       sdkServer.close();
-      await rm(sdkSocketPath(agentDir), { force: true });
+      // Exit frames to attachers, bounded flush; suppresses detach hooks, so
+      // the attachment clear below is final.
+      await ttyServer?.shutdown(`agent shut down (code ${code})`);
+      // Clean shutdown clears the attachment list; a crash leaves stale
+      // entries, which readers must ignore for non-running agents. Queued
+      // (not written directly) so it serializes behind in-flight writes.
+      record.attachments = [];
+      queueRecordWrite();
+      await writeQueue.catch(() => undefined);
+      await Promise.all([
+        rm(sdkSocketPath(agentDir), { force: true }),
+        rm(ttySocketPath(agentDir), { force: true }),
+      ]);
       proc.exit(code);
     });
   };
@@ -615,6 +807,74 @@ async function daemon(this: CommandContext, flags: DaemonFlags): Promise<void> {
       return;
     }
   }
+  // --- tty.sock: the shared tui and its attach server -------------------------
+  // Attach auditing never kills the daemon: failures are logged (stdout goes
+  // to daemon.log) and otherwise ignored.
+  const auditAttachEvent = (
+    event: "attach" | "detach",
+    info: AttachmentInfo,
+  ): void => {
+    if (!auditEnabled(this.env)) {
+      return;
+    }
+    const { source, manager } = resolveCallerSourceForPid(info.pid);
+    const auditRecord = {
+      ts: new Date().toISOString(),
+      source,
+      event,
+      pid: info.pid,
+    };
+    void recordAuditEvent(agentDir, auditRecord, manager).catch((error) =>
+      proc.stdout.write(`[daemon] ${event} audit failed: ${String(error)}\n`),
+    );
+  };
+
+  // Hooks fire only once listen() succeeds, after both assignments below;
+  // the non-null assertions record that ordering.
+  ttyServer = new TtyServer({
+    serializeScreen: () => tuiHost!.serializeScreen(),
+    writeInput: (data) => tuiHost!.write(data),
+    // The size itself is computed by TtyServer (min across attached clients).
+    resize: (cols, rows) => tuiHost!.resize(cols, rows),
+    onAttach: (info) => {
+      // A new attacher wakes a failed tui host (retries the spawn).
+      tuiHost!.notifyAttach();
+      auditAttachEvent("attach", info);
+    },
+    onDetach: (info) => auditAttachEvent("detach", info),
+    onAttachmentsChanged: (attachments) => {
+      record.attachments = attachments;
+      queueRecordWrite();
+    },
+  });
+  // The tui connects to sdk.sock, which is listening by now.
+  tuiHost = new TuiHost({
+    sdkSocket: sdkSocketPath(agentDir),
+    cwd: record.cwd,
+    // No persisted SDK env: that is claude-subprocess configuration, not tui
+    // configuration.
+    env: childEnv(undefined, agentId),
+    onOutput: (data) => ttyServer!.broadcastOutput(data),
+    onFailedChanged: (failedAt) => {
+      if (failedAt === undefined) {
+        delete record.tuiFailedAt;
+      } else {
+        record.tuiFailedAt = failedAt;
+      }
+      queueRecordWrite();
+    },
+    log,
+  });
+  try {
+    await ttyServer.listen(ttySocketPath(agentDir));
+  } catch (error) {
+    fail(
+      `cannot bind ${ttySocketPath(agentDir)}: ${String(error)}; log: ${daemonLogPath(agentDir)}`,
+    );
+    cleanupAndExit(1);
+    return;
+  }
+
   signalReady(flags.readyFd, { ok: true });
 
   try {

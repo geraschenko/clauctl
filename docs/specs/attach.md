@@ -322,19 +322,65 @@ status.
 tasks, mark completed ones with [x], document decisions and problems
 encountered.
 
-- [ ] Add deps (node-pty, @xterm/headless, @xterm/addon-serialize)
+- [x] Add deps (node-pty, @xterm/headless, @xterm/addon-serialize)
 - [x] Confirm pictl's pty-screen refactor has landed
-- [ ] Extend SHARED_FILES + run sync (ansi, tty-protocol(+test),
+- [x] Extend SHARED_FILES + run sync (ansi, tty-protocol(+test),
       tty-server(+test), pty, pty-screen(+test), attach)
-- [ ] registry.ts: ttySocketPath, AgentRecord.attachments, tuiFailedAt
-- [ ] main-entry-path.ts (move from spawn.ts)
-- [ ] daemon.ts: nextRespawnState, TuiHost, TtyServer wiring,
+- [x] registry.ts: ttySocketPath, AgentRecord.attachments, tuiFailedAt
+- [x] main-entry-path.ts (move from spawn.ts)
+- [x] daemon.ts: nextRespawnState, TuiHost, TtyServer wiring,
       attach auditing, startup/shutdown integration
-- [ ] interactive-mode.ts: --managed flag, ctrl+c hint behavior
-- [ ] app.ts: wire attachRoute
-- [ ] inspect.ts: list/status tui-failed display
-- [ ] Tests: nextRespawnState, managed ctrl+c
-- [ ] README: node-pty Linux build-toolchain note (pictl README parity —
-      no Linux prebuilds at ^1.0.0, install needs build-essential/python3)
-- [ ] audit-wiring.test.ts: records it constructs gain `attachments: []`
-- [ ] Presubmit green
+- [x] interactive-mode.ts: --managed flag, ctrl+c hint behavior
+- [x] app.ts: wire attachRoute
+- [x] inspect.ts: list/status tui-failed display
+- [x] Tests: nextRespawnState (daemon.test.ts). Managed ctrl+c test skipped:
+      interactive-mode.test.ts only exercises pure functions — an
+      InteractiveMode test needs TUI + SdkSocketClient mocks, which the spec
+      made conditional on being cheap; it is not.
+- [ ] README: node-pty Linux build-toolchain note — **blocked: clauctl has no
+      README.md** (the item assumed pictl parity). Needs a user decision on
+      where install prerequisites live.
+- [x] audit-wiring.test.ts + registry.test.ts: record literals gain
+      `attachments: []`
+- [x] Presubmit green (126 tests, incl. the 25 synced
+      tty-protocol/tty-server/pty-screen tests)
+- [x] End-to-end smoke test (temp CLAUCTL_DIR): spawn → tty.sock served,
+      `attachments: []` in agent.json; scripted hello+resize client receives
+      the TUI snapshot (editor + idle footer); attach/detach audited to
+      audit.jsonl with pid-resolved source; 3 rapid tui kills → tuiFailedAt
+      set, `list` shows `running (tui failed)`, `status` shows the tui line,
+      daemon.log logs "not respawning until the next attach"; a slow exit
+      resets the counter (observed); new attach → respawn + tuiFailedAt
+      cleared; SIGTERM → both sockets removed, attachments cleared, no
+      leaked children.
+
+## Implementation-Time Decisions
+
+- **TuiHost ctor drops the spec's `agentId` opt** — it was unused: the spawn
+  command line doesn't take an agent id, and the env already carries
+  CLAUCTL_AGENT_ID (the caller builds it with `childEnv(undefined, agentId)`).
+- **TuiHost tracks `tuiExited` and drops `write`/`resize` after exit** — the
+  pty fd is gone, and node-pty raises on writes to a dead pty; the frozen
+  crash screen has nothing to receive them anyway. `serializeScreen` stays
+  live (PtyScreen's emulator survives exit). The same flag guards
+  `shutdown()`'s SIGTERM (don't signal an already-dead pty). pictl has no
+  counterpart because pi's exit immediately tears the daemon down.
+- **`TuiHostOptions` is a named interface, not a parameter property** — Node's
+  strip-only type-stripping (`node --test` on .ts) rejects TypeScript
+  parameter properties (`constructor(private readonly opts: {...})`), so the
+  options object is an explicit field assigned in the constructor body.
+- **`tuiHost`/`ttyServer` are deferred `let` slots with an eslint
+  `prefer-const` disable** — cleanupAndExit must exist before sdk.sock is
+  bound (early failure paths call it), but the tui can only be constructed
+  after (it connects to sdk.sock). The rule can't see the read-before-assign
+  closure pattern.
+- **Exit frames are sent after the claude stream drains** — cleanupAndExit
+  calls `ttyServer.shutdown("agent shut down (code N)")` inside the existing
+  post-`readerDone` teardown, so attachers get the exit frame once the agent
+  is actually gone (matching the message), not at SIGTERM receipt.
+- **TuiHost re-applies the last size to every fresh PtyScreen** (review
+  finding): TtyServer caches the applied min size and only calls the resize
+  hook when it _changes_, so a respawned tui — whose pty starts at the 80×24
+  default — would otherwise keep rendering at 80×24 for attachers whose min
+  size is unchanged (the common reattach-after-failure case). TuiHost.resize
+  records the size; spawnTui re-applies it.

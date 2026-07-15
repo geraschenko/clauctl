@@ -15,10 +15,19 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const SHARED_FILES = [
+  "ansi.ts",
+  "attach.ts",
   "audit.ts",
   "cli.ts",
   "completion.ts",
+  "pty.ts",
+  "pty-screen.ts",
+  "pty-screen.test.ts",
   "targets.ts",
+  "tty-protocol.ts",
+  "tty-protocol.test.ts",
+  "tty-server.ts",
+  "tty-server.test.ts",
   "util.ts",
   "version.ts",
 ];

@@ -25,6 +25,7 @@ import type {
   SessionMessage,
 } from "@anthropic-ai/claude-agent-sdk";
 import {
+  booleanFlag,
   commandNoTarget,
   requiredStringFlag,
   type InferFlags,
@@ -63,6 +64,9 @@ const CTRL_C_EXIT_WINDOW_MS = 2_000;
 
 const tuiFlags = {
   sdkSocket: requiredStringFlag("Path to the agent's sdk.sock", "path"),
+  managed: booleanFlag(
+    "Run as the daemon-managed shared renderer (ctrl+c shows the detach hint instead of exiting)",
+  ),
 };
 
 type TuiFlags = InferFlags<typeof tuiFlags>;
@@ -77,7 +81,7 @@ export const tuiRoute = {
     parameters: { flags: tuiFlags },
     func: async function (this: CommandContext, flags: TuiFlags) {
       const client = await SdkSocketClient.connect(flags.sdkSocket);
-      await runInteractive(client);
+      await runInteractive(client, flags.managed);
     },
   }),
 } as const;
@@ -112,16 +116,26 @@ export function parseModelCommand(
  * contract), so they buffer in a closure until InteractiveMode exists — the
  * same gating `tail` does. Resolves on detach (double Ctrl+C; the agent keeps
  * running) or when the daemon closes the socket, which it only does while
- * shutting the agent down.
+ * shutting the agent down. Under `managed` there is no local detach — ctrl+c
+ * only hints at the tty-level detach key — so it resolves on socket close
+ * alone.
  */
-export async function runInteractive(client: SdkSocketClient): Promise<void> {
+export async function runInteractive(
+  client: SdkSocketClient,
+  managed: boolean,
+): Promise<void> {
   const buffered: SdkEvent[] = [];
   let handleEvent = (event: SdkEvent): void => {
     buffered.push(event);
   };
   const stateSnapshot = await client.subscribe((event) => handleEvent(event));
   const ui = new TUI(new ProcessTerminal());
-  const interactiveMode = new InteractiveMode(ui, client, stateSnapshot);
+  const interactiveMode = new InteractiveMode(
+    ui,
+    client,
+    stateSnapshot,
+    managed,
+  );
   handleEvent = (event) => interactiveMode.handleEvent(event);
   for (const event of buffered.splice(0)) {
     interactiveMode.handleEvent(event);
@@ -141,6 +155,9 @@ class InteractiveMode {
 
   private readonly ui: TUI;
   private readonly client: SdkSocketClient;
+  /** Daemon-managed shared renderer: exiting on ctrl+c would kill the screen
+   *  for every attacher, so ctrl+c only hints at the tty-level detach key. */
+  private readonly managed: boolean;
   private assistantState: AssistantState;
 
   private readonly chatContainer = new Container();
@@ -171,9 +188,15 @@ class InteractiveMode {
   /** Every mode seen (snapshot seed + live), in first-observed order. */
   private readonly observedPermissionModes: PermissionMode[] = [];
 
-  constructor(ui: TUI, client: SdkSocketClient, stateSnapshot: StateSnapshot) {
+  constructor(
+    ui: TUI,
+    client: SdkSocketClient,
+    stateSnapshot: StateSnapshot,
+    managed: boolean,
+  ) {
     this.ui = ui;
     this.client = client;
+    this.managed = managed;
     this.assistantState = stateSnapshot.assistantState;
     this.done = new Promise((resolve) => {
       this.finish = resolve;
@@ -567,6 +590,11 @@ class InteractiveMode {
       return { consume: true };
     }
     if (matchesKey(data, "ctrl+c")) {
+      if (this.managed) {
+        this.hintText.setText(theme.fg("dim", "detach: ctrl+]"));
+        this.ui.requestRender();
+        return { consume: true };
+      }
       const now = Date.now();
       if (now - this.lastCtrlCAt <= CTRL_C_EXIT_WINDOW_MS) {
         this.finish();
