@@ -337,10 +337,9 @@ encountered.
       interactive-mode.test.ts only exercises pure functions — an
       InteractiveMode test needs TUI + SdkSocketClient mocks, which the spec
       made conditional on being cheap; it is not.
-- [ ] README: node-pty Linux build-toolchain note — **blocked: clauctl has no
-      README.md** (the item assumed pictl parity). Needs a user decision on
-      where install prerequisites live.
-      TDC: Let's add a README.md. Model it on pictl's, but only include stuff that's actually been built for clauctl. It's better to err on the side of making it too short. I'll expand it later before clauctl is actually released.
+- [x] README: created README.md (per review: modeled on pictl's, only
+      covering built functionality, deliberately short); includes the
+      node-pty Linux build-toolchain note.
 - [x] audit-wiring.test.ts + registry.test.ts: record literals gain
       `attachments: []`
 - [x] Presubmit green (126 tests, incl. the 25 synced
@@ -385,3 +384,14 @@ encountered.
   default — would otherwise keep rendering at 80×24 for attachers whose min
   size is unchanged (the common reattach-after-failure case). TuiHost.resize
   records the size; spawnTui re-applies it.
+- **`nextRespawnState` became `nextConsecutiveRapidExits`** (review): the
+  spec's `respawn` field was derivable from the returned counter, so the
+  fold now returns just the count and the single caller compares it against
+  MAX_CONSECUTIVE_RAPID_EXITS at the decision point.
+- **daemon.ts split into `src/core/daemon/`** (review): the file had grown
+  past 900 lines. Logical units now live in their own modules —
+  `turn-queue.ts` (TurnQueue), `event-bus.ts` (EventBus), `tui-host.ts`
+  (TuiHost + the crash-loop fold, with `tui-host.test.ts`), `sdk-server.ts`
+  (startSdkServer, SdkConnection, RESPONSE_SENT), and `daemon.ts` (the
+  `_daemon` command: startup classification, wiring, teardown). app.ts
+  imports `./daemon/daemon.ts` directly; no barrel file.

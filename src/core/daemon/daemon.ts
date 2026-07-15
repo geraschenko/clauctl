@@ -1,15 +1,14 @@
 /**
  * `clauctl _daemon` — the per-agent supervisor. One per agent. It owns the
  * single programmatic SDK connection (a long-lived streaming-input `query()`),
- * serves the minimal Phase-1 sdk.sock command channel, and is the sole writer
- * of agent.json.
+ * serves the sdk.sock command channel, and is the sole writer of agent.json.
  */
 
 import { once } from "node:events";
 import { closeSync, writeSync } from "node:fs";
 import { rm } from "node:fs/promises";
 import { homedir } from "node:os";
-import { createServer, type Server, type Socket } from "node:net";
+import { type Server } from "node:net";
 import { join } from "node:path";
 import { numberParser } from "@stricli/core";
 import {
@@ -21,12 +20,7 @@ import {
   type SDKMessage,
   type SDKUserMessage,
 } from "@anthropic-ai/claude-agent-sdk";
-import {
-  INITIAL_ASSISTANT_STATE,
-  isBusy,
-  nextAssistantState,
-  type AssistantState,
-} from "./assistant-state.ts";
+import { isBusy } from "../assistant-state.ts";
 import {
   acceptUserMessage,
   deliveredMessages,
@@ -34,23 +28,20 @@ import {
   observeSdkMessage,
   type QueueModelState,
   type QueueTransition,
-} from "./queue-model.ts";
-import { CURSOR_HOME, ERASE_SCREEN } from "./generated/ansi.ts";
+} from "../queue-model.ts";
 import {
   auditEnabled,
   recordAuditEvent,
   resolveCallerSourceForPid,
-} from "./generated/audit.ts";
+} from "../generated/audit.ts";
 import {
   commandNoTarget,
   parsedFlag,
   requiredStringFlag,
   type InferFlags,
-} from "./generated/cli.ts";
-import { PtyScreen } from "./generated/pty-screen.ts";
-import { TtyServer, type AttachmentInfo } from "./generated/tty-server.ts";
-import { mainEntryPath } from "./main-entry-path.ts";
-import { invariantOptions } from "./options.ts";
+} from "../generated/cli.ts";
+import { TtyServer, type AttachmentInfo } from "../generated/tty-server.ts";
+import { invariantOptions } from "../options.ts";
 import {
   agentDirPath,
   daemonLogPath,
@@ -61,23 +52,28 @@ import {
   ttySocketPath,
   writeAgentRecord,
   type AgentRecord,
-} from "./registry.ts";
+} from "../registry.ts";
 import {
   applyMutation,
   isControlMutation,
   persistedOptionsAfter,
   runRead,
-} from "./sdk-passthrough.ts";
+} from "../sdk-passthrough.ts";
 import {
-  SDK_SOCKET_PROTOCOL,
-  SDK_SOCKET_VERSION,
   type SdkControlMutation,
-  type SdkEvent,
   type SdkRequestRecord,
   type SdkResponse,
   type StateSnapshot,
-} from "./sdk-socket.ts";
-import { type CommandContext } from "./generated/targets.ts";
+} from "../sdk-socket.ts";
+import { type CommandContext } from "../generated/targets.ts";
+import { EventBus } from "./event-bus.ts";
+import {
+  RESPONSE_SENT,
+  startSdkServer,
+  type SdkConnection,
+} from "./sdk-server.ts";
+import { TuiHost } from "./tui-host.ts";
+import { TurnQueue } from "./turn-queue.ts";
 
 const daemonFlags = {
   agentId: requiredStringFlag("Agent id", "uuid"),
@@ -99,105 +95,6 @@ function signalReady(
   } catch {
     // Spawner already gone; the daemon runs on regardless.
   }
-}
-
-/**
- * The held-open input iterable behind `query({ prompt })`: turns pushed by
- * sdk.sock clients are yielded to the SDK as they arrive; close() ends the
- * stream.
- */
-class TurnQueue implements AsyncIterable<SDKUserMessage> {
-  private readonly pending: SDKUserMessage[] = [];
-  private wake: (() => void) | undefined;
-  private closed = false;
-
-  push(message: SDKUserMessage): void {
-    this.pending.push(message);
-    this.wake?.();
-  }
-
-  close(): void {
-    this.closed = true;
-    this.wake?.();
-  }
-
-  async *[Symbol.asyncIterator](): AsyncIterator<SDKUserMessage> {
-    while (true) {
-      while (this.pending.length > 0) {
-        yield this.pending.shift()!;
-      }
-      if (this.closed) {
-        return;
-      }
-      await new Promise<void>((resolve) => {
-        this.wake = resolve;
-      });
-      this.wake = undefined;
-    }
-  }
-}
-
-/**
- * The daemon's single mutation path for observable assistant state. `emit`
- * atomically serializes the event to every subscribed sink and folds it into
- * the state tracker, so state is a function of the emitted stream by
- * construction — an observer holding a StateSnapshot can always reconstruct
- * it by running the same fold. Nothing outside this class may update the
- * tracker: request handlers and the stream reader only have `emit`, making an
- * applied-but-never-emitted event unrepresentable.
- *
- * Events emitted while no subscriber is connected are observable only through
- * their effects (state snapshot, agent.json, session JSONL).
- */
-class EventBus {
-  private state: AssistantState = INITIAL_ASSISTANT_STATE;
-  private readonly idleWaiters: Array<() => void> = [];
-  private readonly sinks = new Set<(serializedEventRecord: string) => void>();
-
-  get assistantState(): AssistantState {
-    return this.state;
-  }
-
-  /** Attach a subscriber sink; returns the unsubscribe function. */
-  subscribe(sink: (serializedEventRecord: string) => void): () => void {
-    this.sinks.add(sink);
-    return () => this.sinks.delete(sink);
-  }
-
-  emit(event: SdkEvent): void {
-    // Serialized once as an SdkEventRecord line, written to every sink.
-    const line = `${JSON.stringify({ event })}\n`;
-    for (const sink of this.sinks) {
-      sink(line);
-    }
-    this.state = nextAssistantState(this.state, event);
-    if (this.state.activity === "idle") {
-      for (const waiter of this.idleWaiters.splice(0)) {
-        waiter();
-      }
-    }
-  }
-
-  /** Resolves once the assistant is Idle (immediately if it already is). */
-  whenIdle(): Promise<void> {
-    if (this.state.activity === "idle") {
-      return Promise.resolve();
-    }
-    return new Promise((resolve) => this.idleWaiters.push(resolve));
-  }
-}
-
-/**
- * Returned by a handler that wrote its own response (subscribe): the generic
- * respond path runs in a later microtask, and an event emitted in that window
- * would hit the wire before the response line.
- */
-const RESPONSE_SENT: unique symbol = Symbol("response sent");
-
-/** Per-connection handle so subscribe can attach a sink and unhook it on close. */
-interface SdkConnection {
-  write(line: string): void;
-  onClose(cleanup: () => void): void;
 }
 
 /**
@@ -228,164 +125,6 @@ function childEnv(
   }
   env.CLAUCTL_AGENT_ID = agentId;
   return env;
-}
-
-export const RAPID_EXIT_MS = 5_000;
-export const MAX_CONSECUTIVE_RAPID_EXITS = 3;
-
-/**
- * Fold one tui exit into the respawn decision. A "rapid" exit is one within
- * RAPID_EXIT_MS of its spawn; MAX_CONSECUTIVE_RAPID_EXITS of them in a row
- * means the tui is broken — stop respawning instead of crash-looping.
- */
-export function nextRespawnState(
-  consecutiveRapidExits: number,
-  spawnedAtMs: number,
-  exitedAtMs: number,
-): { consecutiveRapidExits: number; respawn: boolean } {
-  const next =
-    exitedAtMs - spawnedAtMs < RAPID_EXIT_MS ? consecutiveRapidExits + 1 : 0;
-  return {
-    consecutiveRapidExits: next,
-    // TDC: if respawn is a derivable from consecutiveRapidExits, why include it as a field rather than making it a method?
-    respawn: next < MAX_CONSECUTIVE_RAPID_EXITS,
-  };
-}
-
-// TDC: this file is getting pretty big and gnarly. Let's make a daemon subdirectory which contains separate files for the logical units of the daemon.
-interface TuiHostOptions {
-  sdkSocket: string;
-  cwd: string;
-  env: Record<string, string>;
-  /** Wired to ttyServer.broadcastOutput. */
-  onOutput: (data: string) => void;
-  /** Called with a timestamp when respawning stops, and with undefined
-   *  whenever a respawn is attempted (the failure is cleared at the attempt,
-   *  not on survival — if the tui crash-loops again the field briefly flaps,
-   *  which self-corrects within the rapid-exit window). */
-  onFailedChanged: (failedAt: string | undefined) => void;
-  log: (message: string) => void;
-}
-
-/**
- * Runs `clauctl _tui --managed` in a PtyScreen (generated/pty-screen.ts);
- * respawns on exit per nextRespawnState. Each (re)spawn is a fresh PtyScreen;
- * the last one is kept after exit so its screen — including crash output —
- * remains snapshotable while the tui is failed.
- */
-class TuiHost {
-  private readonly opts: TuiHostOptions;
-  private screen!: PtyScreen;
-  private spawnedAtMs = 0;
-  private consecutiveRapidExits = 0;
-  private tuiExited = false;
-  private failed = false;
-  private shuttingDown = false;
-  /** Last size applied via resize(), re-applied to every fresh PtyScreen:
-   *  TtyServer only calls the resize hook when the min across attachers
-   *  *changes*, so without this a respawned tui would stay at the pty
-   *  default while the attachers keep their old geometry. */
-  private lastSize: { cols: number; rows: number } | undefined;
-
-  constructor(opts: TuiHostOptions) {
-    this.opts = opts;
-    this.spawnTui();
-  }
-
-  private spawnTui(): void {
-    this.spawnedAtMs = Date.now();
-    this.tuiExited = false;
-    this.screen = new PtyScreen(
-      process.execPath,
-      [
-        mainEntryPath(),
-        "_tui",
-        "--sdk-socket",
-        this.opts.sdkSocket,
-        "--managed",
-      ],
-      { cwd: this.opts.cwd, env: this.opts.env },
-    );
-    // Listener registration must stay synchronous with construction (no await
-    // in between): PtyScreen holds a single listener slot per event, and pty
-    // data arriving in an await gap would bypass the broadcast.
-    this.screen.onData(this.opts.onOutput);
-    this.screen.onExit((exitCode) => this.handleExit(exitCode));
-    if (this.lastSize !== undefined) {
-      this.screen.resize(this.lastSize.cols, this.lastSize.rows);
-    }
-  }
-
-  private respawn(): void {
-    this.failed = false;
-    this.opts.onFailedChanged(undefined);
-    // The fresh emulator starts blank; clearing the attachers' screens first
-    // keeps them in lockstep with it.
-    this.opts.onOutput(`${CURSOR_HOME}${ERASE_SCREEN}`);
-    this.spawnTui();
-  }
-
-  private handleExit(exitCode: number): void {
-    this.tuiExited = true;
-    if (this.shuttingDown) {
-      return;
-    }
-    this.opts.log(`tui exited with code ${exitCode}`);
-    const next = nextRespawnState(
-      this.consecutiveRapidExits,
-      this.spawnedAtMs,
-      Date.now(),
-    );
-    this.consecutiveRapidExits = next.consecutiveRapidExits;
-    if (next.respawn) {
-      this.respawn();
-    } else {
-      this.failed = true;
-      this.opts.log(
-        `tui exited rapidly ${next.consecutiveRapidExits} times in a row; ` +
-          `not respawning until the next attach`,
-      );
-      this.opts.onFailedChanged(new Date().toISOString());
-    }
-  }
-
-  // write/resize are dropped after tui exit: the pty fd is gone, and the
-  // frozen crash screen has nothing to receive them. serializeScreen stays
-  // valid — PtyScreen's emulator survives process exit.
-  write(data: string): void {
-    if (!this.tuiExited) {
-      this.screen.write(data);
-    }
-  }
-
-  resize(cols: number, rows: number): void {
-    this.lastSize = { cols, rows };
-    if (!this.tuiExited) {
-      this.screen.resize(cols, rows);
-    }
-  }
-
-  serializeScreen(): Promise<string> {
-    return this.screen.serializeScreen();
-  }
-
-  /** Wakes a failed host: resets the crash counter and respawns. No-op while
-   *  the tui is running. */
-  notifyAttach(): void {
-    if (!this.failed || this.shuttingDown) {
-      return;
-    }
-    this.consecutiveRapidExits = 0;
-    this.respawn();
-  }
-
-  /** Stop respawning and SIGTERM the current pty (daemon shutdown). */
-  shutdown(): void {
-    this.shuttingDown = true;
-    if (!this.tuiExited) {
-      this.screen.kill("SIGTERM");
-    }
-  }
 }
 
 async function daemon(this: CommandContext, flags: DaemonFlags): Promise<void> {
@@ -524,6 +263,7 @@ async function daemon(this: CommandContext, flags: DaemonFlags): Promise<void> {
   };
 
   // --- sdk.sock request handlers ---------------------------------------------
+  // TDC: doesn't this logically belong in sdk-server.ts?
   const controlApplied = (record: SdkRequestRecord): void => {
     // The rest-over-a-union needs the cast; the payload is the request as
     // received, minus the transport id.
@@ -548,6 +288,7 @@ async function daemon(this: CommandContext, flags: DaemonFlags): Promise<void> {
   // chain cannot deadlock.
   let mutationChain: Promise<unknown> = Promise.resolve();
 
+  // TDC: doesn't this logically belong in sdk-server.ts?
   const handleRequest = async (
     request: SdkRequestRecord,
     connection: SdkConnection,
@@ -722,6 +463,7 @@ async function daemon(this: CommandContext, flags: DaemonFlags): Promise<void> {
   proc.on("SIGINT", () => cleanupAndExit(0));
 
   // --- stream reader ---------------------------------------------------------
+  // TDC: Does this section logically belong in another file? What is the responsibility of each file? It looks like this has to do with assistant state tracking and rebroadcasting events from the sdk.
   const handleMessage = (message: SDKMessage): void => {
     if (
       (message.type === "user" || message.type === "assistant") &&
@@ -812,6 +554,7 @@ async function daemon(this: CommandContext, flags: DaemonFlags): Promise<void> {
   // --- tty.sock: the shared tui and its attach server -------------------------
   // Attach auditing never kills the daemon: failures are logged (stdout goes
   // to daemon.log) and otherwise ignored.
+  // TDC: Can we put all this tui-management related stuff in a separate file?
   const auditAttachEvent = (
     event: "attach" | "detach",
     info: AttachmentInfo,
@@ -890,82 +633,6 @@ async function daemon(this: CommandContext, flags: DaemonFlags): Promise<void> {
     }
   }
   cleanupAndExit(0);
-}
-
-/**
- * JSONL server on sdk.sock; hello on connect. Requests get responses; a
- * subscribed connection additionally receives pushed SdkEventRecord lines
- * (written by the EventBus sink the subscribe handler attaches). Sinks are
- * fire-and-forget socket writes: a slow subscriber buffers in its socket,
- * never blocks the daemon or other clients.
- */
-function startSdkServer(
-  socketPath: string,
-  handleRequest: (
-    request: SdkRequestRecord,
-    connection: SdkConnection,
-  ) => Promise<unknown>,
-): Server {
-  const server = createServer((socket: Socket) => {
-    socket.on("error", () => socket.destroy());
-    socket.write(
-      `${JSON.stringify({
-        type: "hello",
-        protocol: SDK_SOCKET_PROTOCOL,
-        version: SDK_SOCKET_VERSION,
-      })}\n`,
-    );
-    const connection: SdkConnection = {
-      write: (line) => {
-        if (!socket.destroyed) {
-          socket.write(line);
-        }
-      },
-      onClose: (cleanup) => {
-        socket.on("close", cleanup);
-      },
-    };
-    const respond = (response: SdkResponse): void => {
-      connection.write(`${JSON.stringify(response)}\n`);
-    };
-    let buffer = "";
-    socket.on("data", (chunk) => {
-      buffer += chunk.toString("utf8");
-      let newlineIndex = buffer.indexOf("\n");
-      while (newlineIndex !== -1) {
-        const line = buffer.slice(0, newlineIndex);
-        buffer = buffer.slice(newlineIndex + 1);
-        if (line.trim() !== "") {
-          let request: SdkRequestRecord;
-          try {
-            request = JSON.parse(line) as SdkRequestRecord;
-          } catch {
-            continue;
-          }
-          void handleRequest(request, connection).then(
-            (data) => {
-              if (data !== RESPONSE_SENT) {
-                respond({
-                  id: request.id,
-                  ok: true,
-                  ...(data !== undefined && { data }),
-                });
-              }
-            },
-            (error: unknown) =>
-              respond({
-                id: request.id,
-                ok: false,
-                error: error instanceof Error ? error.message : String(error),
-              }),
-          );
-        }
-        newlineIndex = buffer.indexOf("\n");
-      }
-    });
-  });
-  server.listen(socketPath);
-  return server;
 }
 
 const daemonCommand = commandNoTarget<DaemonFlags>({
