@@ -6,7 +6,9 @@
 > **`format` is superseded by `docs/specs/format.md`**; only `completion`
 > remains covered here.
 
-TDC: `completion` has already been implemented. It was done very early.
+> **`completion` is implemented** (done very early): it ships as
+> `src/core/generated/completion.ts`, synced verbatim from pictl and
+> registered in `app.ts` — nothing hand-maintained here.
 
 ## SPEC (stable requirements)
 

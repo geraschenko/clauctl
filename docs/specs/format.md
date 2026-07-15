@@ -158,12 +158,23 @@ export type SessionRecord = Record<string, unknown> & { type: string };
 export type TailRecord = { snapshot: StateSnapshot } | { event: SdkEvent };
 ```
 
-**`src/format/input.ts`**
+**`src/format/generated/read-input.ts`** — pictl's format-agnostic input
+plumbing (`readInputFile`, `parseJsonInput`, `parseJsonlInput`), synced like
+`text.ts`. Prerequisite pictl refactor: move these (plus the private
+`readStdin`) out of pictl's `format/input.ts` into a new
+`src/format/read-input.ts` there. Unlike `text.ts` these import
+`CommandContext`/`UsageError` from the already-synced core set, so the sync
+script's format set rewrites `../core/<shared>` →
+`../../core/generated/<shared>`.
 
-TDC: does it make sense to move pictl's readInputFile and parseJsonlInput into a separate file so that we can exactly copy with sync-from-pictl?
 ```ts
 export async function readInputFile(context: CommandContext, file: string | undefined): Promise<string>;
 export function parseJsonlInput(input: string): readonly unknown[]; // UsageError with line number
+```
+
+**`src/format/input.ts`** — the clauctl-specific decoders:
+
+```ts
 export function parseSessionRecords(input: string): readonly SessionRecord[]; // {snapshot|event} shape → UsageError suggesting `format events`
 export function parseTailRecords(input: string): readonly TailRecord[]; // message shape → UsageError suggesting `format messages`
 ```
@@ -215,8 +226,13 @@ export const formatRoute: RouteMap<CommandContext>; // routes: messages, events
 - `src/tui/sdk-render.ts` — header comment updated (shared by TUI and format);
   no code changes.
 - `scripts/sync-from-pictl.mjs` — generalize the single `SHARED_FILES` set to
-  source/output directory pairs; add `src/format/text.ts` →
-  `src/format/generated/text.ts`.
+  source/output directory pairs; the format set syncs `text.ts` and
+  `read-input.ts` into `src/format/generated/` and rewrites cross-directory
+  imports of the core shared set to `../../core/generated/`.
+- pictl (prerequisite, in the pictl repo): move `readStdin`/`readInputFile`/
+  `parseJsonInput`/`parseJsonlInput` from `src/format/input.ts` to a new
+  `src/format/read-input.ts` — handed off as pictl's
+  `docs/specs/read-input-extraction.md`, being done by another agent.
 
 ### Success criteria
 
@@ -283,3 +299,9 @@ mark completed ones with [x], document decisions and problems encountered.
   tail stream only appear as `userMessageQueued` events, so queued renders as
   a truncated one-liner and the full text renders at `userMessageDequeued` —
   where it logically enters context. `FormatState` gained `queuedMessages`.
+- 2026-07-14: Review-comment resolutions: `completion` recorded as already
+  implemented (synced `completion.ts`, registered in app.ts) in
+  convenience-commands.md; `readInputFile`/`parseJsonlInput` will be synced
+  exactly from pictl via a new pictl `src/format/read-input.ts` (pictl-side
+  move is a prerequisite), leaving `src/format/input.ts` with only the
+  clauctl-specific decoders.
