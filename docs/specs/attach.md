@@ -17,7 +17,7 @@ speaks. Attach/detach events are audited and live attachments are recorded in
 agent.json.
 
 clauctl adopts the same architecture, with one structural difference: in
-pictl the pty process (pi) *is* the agent, while in clauctl the agent is the
+pictl the pty process (pi) _is_ the agent, while in clauctl the agent is the
 SDK `query()` living in the daemon and the pty process is `clauctl _tui` — a
 disposable renderer speaking sdk.sock like any other client. The daemon
 always runs `_tui` in a pty on top of its own sdk.sock; `tty.sock` exists so
@@ -35,7 +35,7 @@ reimplementing the TUI.
   elementwise minimum across attachers (tty-server behavior, unchanged).
 - Attach and detach are audited to `<agentDir>/audit.jsonl` as
   `{ts, source, event: "attach"|"detach", pid}` with daemon-side caller
-  resolution, exactly as in pictl. The `attach` CLI command is *not* marked
+  resolution, exactly as in pictl. The `attach` CLI command is _not_ marked
   `audited: true` (the daemon-side events cover it; a marker would
   double-record).
 - Live attachments appear in agent.json (`attachments: AttachmentInfo[]`),
@@ -269,7 +269,7 @@ status.
   respawn path.
 - **Attacher present while the tui is failed**: they see the crash output
   (it was pty output, broadcast before the exit) and a frozen screen; a
-  *new* attach triggers the respawn retry.
+  _new_ attach triggers the respawn retry.
 - **Revival with stale attachments/tuiFailedAt in agent.json**: reset at
   daemon startup before the first record write.
 - **agent.json written before this change** (no `attachments` field):
@@ -301,7 +301,7 @@ status.
   (semantic), then list/status.
 - pictl's pty-screen refactor (pictl docs/specs/pty-screen.md) has landed;
   the implemented API matches this spec's assumptions.
-- PtyScreen's `onData`/`onExit` are single-listener *setters*; the
+- PtyScreen's `onData`/`onExit` are single-listener _setters_; the
   underlying pty handlers are registered in its constructor. TuiHost must
   set its listeners synchronously after construction (no await in between)
   — the same no-gap guarantee pictl's daemon relies on.
@@ -314,7 +314,7 @@ status.
   hardening notes live in pictl docs/thoughts/tty-sock-library.md.
 - `list` reads agent.json without reviving, so `tuiFailedAt` reflects the
   last daemon write — for a dead daemon it is stale, but list only decorates
-  the *running* status with it, so staleness is invisible.
+  the _running_ status with it, so staleness is invisible.
 
 # WORK LOG
 
