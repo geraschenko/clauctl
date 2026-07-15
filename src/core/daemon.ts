@@ -247,10 +247,12 @@ export function nextRespawnState(
     exitedAtMs - spawnedAtMs < RAPID_EXIT_MS ? consecutiveRapidExits + 1 : 0;
   return {
     consecutiveRapidExits: next,
+    // TDC: if respawn is a derivable from consecutiveRapidExits, why include it as a field rather than making it a method?
     respawn: next < MAX_CONSECUTIVE_RAPID_EXITS,
   };
 }
 
+// TDC: this file is getting pretty big and gnarly. Let's make a daemon subdirectory which contains separate files for the logical units of the daemon.
 interface TuiHostOptions {
   sdkSocket: string;
   cwd: string;

@@ -340,6 +340,7 @@ encountered.
 - [ ] README: node-pty Linux build-toolchain note — **blocked: clauctl has no
       README.md** (the item assumed pictl parity). Needs a user decision on
       where install prerequisites live.
+      TDC: Let's add a README.md. Model it on pictl's, but only include stuff that's actually been built for clauctl. It's better to err on the side of making it too short. I'll expand it later before clauctl is actually released.
 - [x] audit-wiring.test.ts + registry.test.ts: record literals gain
       `attachments: []`
 - [x] Presubmit green (126 tests, incl. the 25 synced
