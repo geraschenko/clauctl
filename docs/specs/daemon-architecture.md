@@ -100,22 +100,22 @@ export function isBusy(state: AgentState): boolean;
 For `sdkMessage` events, the uuid/boundary step applies first, then the
 subtype step.
 
-| Event | Effect |
-| --- | --- |
-| `userMessageQueued {id, message}` | Append `{id, message}` to `queuedMessages`. Activity: `pending` if `message.shouldQuery !== false` and activity is `idle`; else unchanged. |
-| `userMessageDequeued {delivery: turn\|append, ids}` | Remove matching entries from `queuedMessages`, append their messages to `deliveredMessages` in `ids` order. Unknown ids are ignored. Activity unchanged (the dequeue follows a `result` that already decided it). |
-| `userMessageDequeued {delivery: steer, ids}` | Remove matching entries from `queuedMessages` only — steered messages never get transcript turns, so they must not enter `deliveredMessages`. |
-| `compactSent` | Activity → `compacting`. |
-| `interruptSent` | No change (the transition happens at the terminating `result`). |
-| `controlApplied {set-model}` | `model` ← `request.model` (undefined means the SDK default; tracked as unset). |
-| `controlApplied {set-permission-mode}` | `permissionMode` ← mode; append to `observedPermissionModes` if not present. |
-| `controlApplied {other mutations}` | No change. |
-| `sdkMessage`, `user`/`assistant` with `uuid` | `lastTranscriptUuid` ← uuid; `deliveredMessages` ← `[]` (same fold step — this is the prompt-visibility bookkeeping). Then the subtype steps below also apply. |
-| `sdkMessage system/init` | `sessionId` ← `session_id`; `model` ← `model`; `cwd` ← `cwd`; permission mode observed (as in set-permission-mode). |
-| `sdkMessage system/status` with `permissionMode` | Permission mode observed. |
-| `sdkMessage assistant`, activity ≠ `compacting` | Activity → `working`. |
-| `sdkMessage result` | Activity → `pending` if any queued message has `shouldQuery !== false`, else `idle`. (The about-to-run bucket is still in `queuedMessages` — its dequeue event follows the result — so the fold never passes through a transient idle.) |
-| `sdkMessage` (anything else) | No change. |
+| Event                                               | Effect                                                                                                                                                                                                                                  |
+| --------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `userMessageQueued {id, message}`                   | Append `{id, message}` to `queuedMessages`. Activity: `pending` if `message.shouldQuery !== false` and activity is `idle`; else unchanged.                                                                                              |
+| `userMessageDequeued {delivery: turn\|append, ids}` | Remove matching entries from `queuedMessages`, append their messages to `deliveredMessages` in `ids` order. Unknown ids are ignored. Activity unchanged (the dequeue follows a `result` that already decided it).                       |
+| `userMessageDequeued {delivery: steer, ids}`        | Remove matching entries from `queuedMessages` only — steered messages never get transcript turns, so they must not enter `deliveredMessages`.                                                                                           |
+| `compactSent`                                       | Activity → `compacting`.                                                                                                                                                                                                                |
+| `interruptSent`                                     | No change (the transition happens at the terminating `result`).                                                                                                                                                                         |
+| `controlApplied {set-model}`                        | `model` ← `request.model` (undefined means the SDK default; tracked as unset).                                                                                                                                                          |
+| `controlApplied {set-permission-mode}`              | `permissionMode` ← mode; append to `observedPermissionModes` if not present.                                                                                                                                                            |
+| `controlApplied {other mutations}`                  | No change.                                                                                                                                                                                                                              |
+| `sdkMessage`, `user`/`assistant` with `uuid`        | `lastTranscriptUuid` ← uuid; `deliveredMessages` ← `[]` (same fold step — this is the prompt-visibility bookkeeping). Then the subtype steps below also apply.                                                                          |
+| `sdkMessage system/init`                            | `sessionId` ← `session_id`; `model` ← `model`; `cwd` ← `cwd`; permission mode observed (as in set-permission-mode).                                                                                                                     |
+| `sdkMessage system/status` with `permissionMode`    | Permission mode observed.                                                                                                                                                                                                               |
+| `sdkMessage assistant`, activity ≠ `compacting`     | Activity → `working`.                                                                                                                                                                                                                   |
+| `sdkMessage result`                                 | Activity → `pending` if any queued message has `shouldQuery !== false`, else `idle`. (The about-to-run bucket is still in `queuedMessages` — its dequeue event follows the result — so the fold never passes through a transient idle.) |
+| `sdkMessage` (anything else)                        | No change.                                                                                                                                                                                                                              |
 
 ### `src/core/daemon/event-hub.ts` — EventHub (renamed from EventBus) absorbs the queue model
 
@@ -264,10 +264,10 @@ has no handle to clean up with.
 ### `src/core/daemon/queue-model.ts` (moved from `src/core/`)
 
 Moves under `daemon/` with its test; `deliveredMessages()` is deleted
-(subsumed by the fold). It remains the daemon-only *decider* of which
+(subsumed by the fold). It remains the daemon-only _decider_ of which
 queued/dequeued events to synthesize; its internal state (`toolResultSeen`
 inference) stays separate from `AgentState.queuedMessages` (the folded
-*result*) — merging them would leak daemon inference into the protocol. Its
+_result_) — merging them would leak daemon inference into the protocol. Its
 pure `acceptUserMessage` keeps its name: the hub's `deliverUserMessage`
 forwards to it, and the two names describe the two distinct acts.
 
@@ -414,7 +414,7 @@ Restructured after review: the original steps 1–3 could not each be green
 
 **Fold tests (`agent-state.test.ts`)** — migrate old `assistant-state.test.ts`
 activity assertions, plus the transition table, plus prompt-visibility
-*bookkeeping* properties (the fold cannot prove transcript presence — that
+_bookkeeping_ properties (the fold cannot prove transcript presence — that
 rests on the documented CLI transcript-ordering assumption, stated in the
 fold's comments):
 
@@ -475,4 +475,4 @@ deleted, not kept alongside.
 - [ ] Step 4: `request-handlers.ts`, `tty-service.ts`, composition-root daemon.ts; remove TDCs
 - [ ] Step 5: documentation audit (overview.md, user-message-tracking.md, implementation-plan.md)
 
-*Work log entries go here*
+_Work log entries go here_
