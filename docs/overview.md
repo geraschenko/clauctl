@@ -171,22 +171,20 @@ Each agent exposes two unix sockets in its directory:
 > already just talk to `sdk.sock` directly. Virtual-pty doesn't preclude that — but
 > `attach` gives you _our_ TUI over `tty.sock`, not a draw-it-yourself feed.
 >
-> The "TUI → virtual pty" mechanism is unbuilt in both projects and is the main open
-> risk; it does not block v1 (which is SDK-stream-only).
+> The "TUI → virtual pty" mechanism is built: the daemon runs the managed tui
+> (`TuiHost`) into a headless terminal (`pty-screen`) and serves it over
+> `tty.sock`; `clauctl attach` connects to it (`docs/specs/attach.md`).
 
 ## Roadmap & scope
 
-**v1 (initial implementation):**
+**v1 (implemented):**
 
 - Lifecycle: `spawn`, `list`, `status`, `archive`.
-- Monitoring: `tail`, `wait` (and a raw `attach` onto `sdk.sock`).
+- Monitoring: `tail`, `wait`.
 - SDK passthrough subcommands (job 2) over `sdk.sock`.
 - Convenience: `completion`, `format`.
-
-**Later:**
-
-- The `sdk.sock`-based interactive **TUI** (possibly adapting pi's TUI), and
-  the `tty.sock` presentation boundary for cross-language embedding.
+- The `sdk.sock`-based interactive **TUI** and the `tty.sock` presentation
+  boundary (`attach` to the daemon-managed shared tui).
 
 ## Reference repositories (local checkouts)
 
@@ -214,5 +212,15 @@ implementation:
 - `docs/specs/lifecycle-and-sdk-commands.md` — v1: lifecycle + SDK passthrough.
 - `docs/specs/phase-1-lifecycle-core.md` — the implementation-ready Phase-1 carve-out
   (registry, daemon, assistant-state model, respawn, minimal `sdk.sock` command channel).
-- `docs/specs/tui.md` — the `sdk.sock`-based TUI and `tty.sock` boundary.
+- `docs/specs/phase-2-sdk-sock-protocol.md` — the full `sdk.sock` event protocol
+  (queue model, subscribe, passthrough dispatch).
+- `docs/specs/daemon-architecture.md` — the current state-tracking architecture:
+  the unified `AgentState` fold shared by daemon and clients, and the daemon
+  directory structure (EventHub, request handlers, tty service). Supersedes the
+  state types sketched in the phase specs above.
+- `docs/specs/tui.md` — the `sdk.sock`-based TUI and `tty.sock` boundary;
+  `tui-history.md` and `tui-input.md` extend it (history replay, input/controls).
+- `docs/specs/attach.md` — the daemon-managed shared tui and `tty.sock` attach.
 - `docs/specs/convenience-commands.md` — `format` and `completion`.
+- `docs/user-message-tracking.md` — why the daemon tracks user prompts itself
+  (the prompt-visibility invariant and its accepted limitations).

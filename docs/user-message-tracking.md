@@ -1,7 +1,8 @@
 # Why the daemon tracks user prompts itself
 
 > Design rationale for `queuedMessages`, `deliveredMessages`, and
-> `lastTranscriptUuid` in `StateSnapshot` (sdk-socket.ts), and for the known
+> `lastTranscriptUuid` in `AgentState` (src/core/agent-state.ts, which states
+> the invariant in code; this doc holds the full rationale), and for the known
 > limitations we accepted. Grounded in the echo-placement experiments
 > (`docs/derisk/echoed-message-placement/FINDINGS.md`); read that before
 > re-deriving any of this empirically.
@@ -14,7 +15,8 @@ The Agent SDK gives a live observer no direct view of user prompts:
   `enqueue`/`dequeue`/`remove` log exists only in the session JSONL as
   sidecar entries; a live observer sees nothing when a prompt is accepted,
   reordered, demoted, or consumed. The daemon models the queue instead
-  (queue-model.ts) and synthesizes `userMessageQueued`/`userMessageDequeued`.
+  (daemon/queue-model.ts) and synthesizes
+  `userMessageQueued`/`userMessageDequeued`.
 - **User prompts are never emitted on the live stream at all.** The stream's
   only `user` messages are tool_results (verified across the FINDINGS
   captures — no capture, including executed injected prompts and interrupts,
@@ -37,25 +39,26 @@ The Agent SDK gives a live observer no direct view of user prompts:
 Because the SDK announces none of this, at any instant an accepted prompt is
 in one of three states only the daemon's own bookkeeping can distinguish:
 accepted-but-queued, delivered-but-unconfirmed, or confirmed-in-transcript.
-`StateSnapshot` carries all three, and the daemon maintains the
-**prompt-visibility invariant**: for any snapshot, every accepted turn/append
+`AgentState` carries all three, and the `nextAgentState` fold maintains the
+**prompt-visibility invariant**: for any state, every accepted turn/append
 prompt appears in exactly one place —
 
 1. `queuedMessages` — accepted, still in the modeled queue;
 2. `deliveredMessages` — dequeued as turn/append, no subsequent stream
-   emission yet to confirm it (`deliveredPending` in daemon.ts);
+   emission yet to confirm it;
 3. the transcript at/before `lastTranscriptUuid` — a later emission
    confirmed its entry is within the boundary; a `get-messages` read covers
    it.
 
-Transitions are atomic because each happens in one synchronous daemon step:
-acceptance and dequeue both run inside `applyQueueTransition` (moving a
-prompt from 1 to 2), and the boundary advance and `deliveredPending` clear
-share the top of `handleMessage` (moving 2 to 3). No `await` separates the
-halves of a transition, so no snapshot can catch a prompt in two states or
-none.
+Transitions are atomic because each is one fold step over one event:
+`userMessageQueued` adds to 1, a turn/append `userMessageDequeued` moves
+its messages from 1 to 2, and a uuid-carrying `sdkMessage` advances the
+boundary and clears `deliveredMessages` in the same transition (2 to 3).
+The daemon's EventHub folds each event, writes it to subscribers, and
+serves state reads in one synchronous step, so no observer can catch a
+prompt in two states or none.
 
-Why clearing _all_ of `deliveredPending` on _every_ user/assistant emission
+Why clearing _all_ of `deliveredMessages` on _every_ user/assistant emission
 is sound: the CLI writes a delivered prompt's transcript entry when it
 consumes it (a merged bucket as one `\n`-joined entry — FINDINGS Q4), and
 entries land in file-append order — so any message emitted later has its
@@ -91,7 +94,7 @@ exclusively as live events.
   entry the CLI actually wrote. Same content, different segmentation.
 - **Interrupt can drop a delivered prompt.** The emissions around an
   interrupt (the abort tool_result, the interrupting turn's messages) clear
-  `deliveredPending`; if the CLI discarded the prompt without writing its
+  `deliveredMessages`; if the CLI discarded the prompt without writing its
   entry, it is gone from every view. No display path could have shown it —
   the daemon cannot distinguish "written, confirmation pending" from
   "discarded by the interrupt".
@@ -100,16 +103,16 @@ exclusively as live events.
   the new segment's first message, but its entry lives in the pre-compaction
   segment `get-messages` no longer returns. Its content reached the model
   (via the compact summary's source material); it just stops being displayed.
-- **Attach-during-compaction race hides the compact summary.** When a
-  compaction lands between the snapshot and the `get-messages` read, the
-  boundary uuid is absent from the returned segment and replay renders
-  nothing (correct: the buffered events already carry the new segment's
-  assistant output, so replaying it would duplicate). But the
-  compact-summary _user_ text renders nowhere: live `sdkMessage: user` text
-  is never rendered, and the summary is not an accepted prompt, so it is in
-  neither `deliveredMessages` nor any dequeue event. That attacher sees the
-  "context compacted" banner and the conversation resuming without the
-  summary text. (Reviewer round 3.)
+- **Attach-during-compaction race can duplicate output.** When a compaction
+  lands between the seed state and the `get-messages` read, the boundary
+  uuid is absent from the returned (new) segment, so the prefix cut is
+  impossible and exactly-once is unachievable. Replay shows the whole
+  segment behind a warning banner (`historyUpToBoundary` in sdk-render.ts):
+  replay-all was chosen over render-nothing because a missing boundary can
+  also mean the session file lags the stream, where rendering nothing would
+  silently drop real history. The cost in the compaction case is that the
+  new segment's output can render twice — once from replay, once from the
+  buffered live events.
 - **Boundary-undefined delivery race.** If `lastTranscriptUuid` is undefined
   (no user/assistant emission yet this daemon lifetime → replay-all) while a
   prompt is delivered-but-unconfirmed, and the transcript read already includes

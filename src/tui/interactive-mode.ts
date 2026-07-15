@@ -33,14 +33,10 @@ import {
 import type { CommandContext } from "../core/generated/targets.ts";
 import {
   isBusy,
-  nextAssistantState,
-  type AssistantState,
-} from "../core/assistant-state.ts";
-import {
-  SdkSocketClient,
-  type SdkEvent,
-  type StateSnapshot,
-} from "../core/sdk-socket.ts";
+  nextAgentState,
+  type AgentState,
+} from "../core/agent-state.ts";
+import { SdkSocketClient, type SdkEvent } from "../core/sdk-socket.ts";
 import { findFd, TuiAutocompleteProvider } from "./autocomplete.ts";
 import { AssistantMessageComponent } from "./components/assistant-message.ts";
 import { FooterComponent } from "./components/footer.ts";
@@ -128,14 +124,9 @@ export async function runInteractive(
   let handleEvent = (event: SdkEvent): void => {
     buffered.push(event);
   };
-  const stateSnapshot = await client.subscribe((event) => handleEvent(event));
+  const seedState = await client.subscribe((event) => handleEvent(event));
   const ui = new TUI(new ProcessTerminal());
-  const interactiveMode = new InteractiveMode(
-    ui,
-    client,
-    stateSnapshot,
-    managed,
-  );
+  const interactiveMode = new InteractiveMode(ui, client, seedState, managed);
   handleEvent = (event) => interactiveMode.handleEvent(event);
   for (const event of buffered.splice(0)) {
     interactiveMode.handleEvent(event);
@@ -158,7 +149,13 @@ class InteractiveMode {
   /** Daemon-managed shared renderer: exiting on ctrl+c would kill the screen
    *  for every attacher, so ctrl+c only hints at the tty-level detach key. */
   private readonly managed: boolean;
-  private assistantState: AssistantState;
+  /**
+   * Seeded from the subscribe response and advanced only by `nextAgentState`
+   * on live events — the same fold the daemon runs, so this always matches
+   * the daemon's state. Historical replay renders transcript messages but
+   * must not fold them (they predate the seed).
+   */
+  private agentState: AgentState;
 
   private readonly chatContainer = new Container();
   private readonly pendingMessages = new PendingMessagesComponent();
@@ -184,20 +181,17 @@ class InteractiveMode {
   private modelSelector?: ModelSelectorComponent;
   /** True from `/model` submit until the supported-models read settles. */
   private modelSelectorPending = false;
-  private permissionMode?: PermissionMode;
-  /** Every mode seen (snapshot seed + live), in first-observed order. */
-  private readonly observedPermissionModes: PermissionMode[] = [];
 
   constructor(
     ui: TUI,
     client: SdkSocketClient,
-    stateSnapshot: StateSnapshot,
+    seedState: AgentState,
     managed: boolean,
   ) {
     this.ui = ui;
     this.client = client;
     this.managed = managed;
-    this.assistantState = stateSnapshot.assistantState;
+    this.agentState = seedState;
     this.done = new Promise((resolve) => {
       this.finish = resolve;
     });
@@ -219,30 +213,19 @@ class InteractiveMode {
     ui.setFocus(this.editor);
     ui.addInputListener((data) => this.handleGlobalKey(data));
 
-    // The snapshot seeds footer state and the pending area; the transcript
-    // fills asynchronously via loadHistory.
-    this.footer.setAssistantState(this.assistantState);
-    if (stateSnapshot.sessionId !== undefined) {
-      this.footer.setSessionId(stateSnapshot.sessionId);
-    }
-    // Unknown model/mode (no init yet, or a pre-extension daemon) display as
-    // "default" — the same convention the shift+tab cycle and set-model with
-    // no model use; the first init corrects both.
-    this.footer.setModel(stateSnapshot.model ?? "default");
-    for (const mode of stateSnapshot.observedPermissionModes ?? []) {
-      this.observePermissionMode(mode);
-    }
-    this.notePermissionMode(stateSnapshot.permissionMode ?? "default");
-    for (const entry of stateSnapshot.queuedMessages ?? []) {
+    // The seed state fills the pending area (the footer reads it via
+    // syncActivity below); the transcript fills asynchronously via
+    // loadHistory.
+    for (const entry of seedState.queuedMessages) {
       this.pendingMessages.add(entry.id, userText(entry.message));
     }
     void this.loadHistory(
-      stateSnapshot.lastTranscriptUuid,
-      stateSnapshot.deliveredMessages ?? [],
+      seedState.lastTranscriptUuid,
+      seedState.deliveredMessages,
     );
 
     this.autocomplete = new TuiAutocompleteProvider(
-      stateSnapshot.cwd ?? null,
+      seedState.cwd ?? null,
       findFd(),
       () => {
         this.hintText.setText(
@@ -268,35 +251,21 @@ class InteractiveMode {
     this.syncActivity();
   }
 
-  /** Record a mode sighting for the shift+tab cycle without making it current. */
-  private observePermissionMode(mode: PermissionMode): void {
-    if (!this.observedPermissionModes.includes(mode)) {
-      this.observedPermissionModes.push(mode);
-    }
-  }
-
-  /** The mode is current: track it, record the sighting, update the footer. */
-  private notePermissionMode(mode: PermissionMode): void {
-    this.permissionMode = mode;
-    this.observePermissionMode(mode);
-    this.footer.setPermissionMode(mode);
-  }
-
   /**
    * Fetch and render the transcript up to the attach boundary, then the
-   * snapshot's delivered-but-unconfirmed prompts, then release the buffered
-   * live events. The subscribe snapshot and the transcript read are not
+   * seed state's delivered-but-unconfirmed prompts, then release the buffered
+   * live events. The subscribe response and the transcript read are not
    * atomic: entries past the boundary may appear in both the read and the
    * buffered events, so replay stops at the boundary and the live stream
    * renders the rest — each message renders exactly once by construction
-   * (StateSnapshot's prompt-visibility invariant), no dedupe needed. When the
+   * (the prompt-visibility invariant, agent-state.ts), no dedupe needed. When the
    * boundary is missing from the read (it raced a writer — see
    * historyUpToBoundary), exactly-once is unachievable: the whole segment
    * replays behind a warning banner rather than rendering nothing.
    */
   private async loadHistory(
     boundaryUuid: string | undefined,
-    deliveredMessages: SDKUserMessage[],
+    deliveredMessages: readonly SDKUserMessage[],
   ): Promise<void> {
     try {
       const data = await this.client.request({ type: "get-messages" });
@@ -326,10 +295,11 @@ class InteractiveMode {
     } catch (error) {
       this.addBanner(`history fetch failed: ${String(error)}`);
     }
-    // Delivered-but-unconfirmed prompts (StateSnapshot's prompt-visibility
-    // invariant): dequeued before the snapshot with the transcript echo still
-    // pending, so they are in neither the boundary-cut history nor the
-    // buffered events. Chronologically they follow the replayed transcript.
+    // Delivered-but-unconfirmed prompts (the prompt-visibility invariant,
+    // agent-state.ts): dequeued before the seed state was taken with the
+    // transcript echo still pending, so they are in neither the boundary-cut
+    // history nor the buffered events. Chronologically they follow the
+    // replayed transcript.
     for (const message of deliveredMessages) {
       const text = userText(message);
       if (text !== "") {
@@ -349,7 +319,9 @@ class InteractiveMode {
       this.liveEventsDuringReplay.push(event);
       return;
     }
-    this.assistantState = nextAssistantState(this.assistantState, event);
+    this.agentState = nextAgentState(this.agentState, event);
+    // The switch is rendering-only dispatch; all state effects (footer
+    // fields, mode cycle, activity) come from the fold above.
     switch (event.kind) {
       case "userMessageQueued":
         this.pendingMessages.add(event.id, userText(event.message));
@@ -366,11 +338,6 @@ class InteractiveMode {
         this.addBanner("interrupted");
         break;
       case "controlApplied":
-        if (event.request.type === "set-model") {
-          this.footer.setModel(event.request.model ?? "default");
-        } else if (event.request.type === "set-permission-mode") {
-          this.notePermissionMode(event.request.mode);
-        }
         break;
       case "sdkMessage":
         this.handleSdkMessage(event.message);
@@ -430,16 +397,9 @@ class InteractiveMode {
         break;
       }
       case "system": {
-        if (message.subtype === "init") {
-          this.footer.setModel(message.model);
-          this.footer.setSessionId(message.session_id);
-          this.notePermissionMode(message.permissionMode);
-        } else if (message.subtype === "status") {
-          // Mode changes not initiated over sdk.sock (e.g. plan transitions).
-          if (message.permissionMode !== undefined) {
-            this.notePermissionMode(message.permissionMode);
-          }
-        } else if (message.subtype === "commands_changed") {
+        // init and status carry only state (model/mode/session), which the
+        // fold already covers; they render nothing.
+        if (message.subtype === "commands_changed") {
           this.autocomplete.setCommands(message.commands);
         } else if (message.subtype === "local_command_output") {
           // The CLI's own rendering; plain Text so embedded ANSI passes through.
@@ -579,7 +539,7 @@ class InteractiveMode {
   private handleGlobalKey(data: string): { consume: boolean } | undefined {
     if (
       matchesKey(data, "escape") &&
-      isBusy(this.assistantState) &&
+      isBusy(this.agentState) &&
       this.modelSelector === undefined // an open menu owns escape (cancel)
     ) {
       void this.client.request({ type: "interrupt" }).catch(() => {});
@@ -620,13 +580,13 @@ class InteractiveMode {
       "default" as const,
       "acceptEdits" as const,
       "plan" as const,
-      ...this.observedPermissionModes,
+      ...this.agentState.observedPermissionModes,
     ]) {
       if (!cycle.includes(mode)) {
         cycle.push(mode);
       }
     }
-    const current = this.permissionMode ?? "default";
+    const current = this.agentState.permissionMode ?? "default";
     const next = cycle[(cycle.indexOf(current) + 1) % cycle.length]!;
     // No optimistic footer update: it follows from the controlApplied event.
     void this.client
@@ -638,16 +598,16 @@ class InteractiveMode {
   }
 
   private syncActivity(): void {
-    this.footer.setAssistantState(this.assistantState);
-    if (this.assistantState.activity === "idle") {
+    this.footer.setState(this.agentState);
+    if (this.agentState.activity === "idle") {
       this.loader.stop();
       this.statusContainer.removeChild(this.loader);
     } else if (!this.statusContainer.children.includes(this.loader)) {
-      this.loader.setMessage(this.assistantState.activity);
+      this.loader.setMessage(this.agentState.activity);
       this.loader.start();
       this.statusContainer.addChild(this.loader);
     } else {
-      this.loader.setMessage(this.assistantState.activity);
+      this.loader.setMessage(this.agentState.activity);
     }
   }
 }

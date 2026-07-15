@@ -4,15 +4,20 @@
  * its placement behavior is deterministic (echo-placement FINDINGS, Round 3),
  * so this module tracks every accepted message and decides which
  * `userMessageQueued`/`userMessageDequeued` events to emit and when. Pure
- * state machine: the daemon threads occurrences through it and emits the
+ * state machine: the EventHub threads occurrences through it and emits the
  * returned events immediately after each triggering occurrence.
+ *
+ * Daemon-only, unlike agent-state.ts: this is the *decider* that synthesizes
+ * queue events from inference (`toolResultSeen`), while the fold's
+ * `queuedMessages` is the *reconstruction* every observer derives from those
+ * events. Merging the two would leak daemon inference into the protocol.
  */
 
 import type {
   SDKMessage,
   SDKUserMessage,
 } from "@anthropic-ai/claude-agent-sdk";
-import type { MessageDelivery, SdkEvent } from "./sdk-socket.ts";
+import type { MessageDelivery, SdkEvent } from "../sdk-socket.ts";
 
 /** One accepted-but-not-yet-dequeued message in the modeled CLI queue. */
 export interface QueuedMessage {
@@ -98,47 +103,6 @@ export function acceptUserMessage(
     },
     events: [queuedEvent],
   };
-}
-
-/**
- * The messages a transition hands to the CLI as turn/append deliveries, in
- * dequeue order — what the daemon must hold as delivered-but-unconfirmed
- * until some subsequent stream message arrives (StateSnapshot's
- * prompt-visibility invariant, sdk-socket.ts). The stream never emits
- * prompts themselves; confirmation is indirect: the CLI writes a consumed
- * prompt's transcript entry at consumption and entries land in file order,
- * so a later message's presence confirms every prompt delivered before it
- * (assuming this model is right about the delivery order). Steer dequeues
- * are excluded: a steered message's only transcript record is a
- * queued_command attachment, which getSessionMessages never returns, so no
- * history read could take over from the hold. Ids resolve against the
- * pre-transition queue; an idle accept dequeues the message it just queued,
- * which exists only in the transition's own queued event.
- */
-export function deliveredMessages(
-  before: QueueModelState,
-  transition: QueueTransition,
-): SDKUserMessage[] {
-  const byId = new Map<number, SDKUserMessage>(
-    before.queued.map((entry) => [entry.id, entry.message]),
-  );
-  for (const event of transition.events) {
-    if (event.kind === "userMessageQueued") {
-      byId.set(event.id, event.message);
-    }
-  }
-  const delivered: SDKUserMessage[] = [];
-  for (const event of transition.events) {
-    if (event.kind === "userMessageDequeued" && event.delivery !== "steer") {
-      for (const id of event.ids) {
-        const message = byId.get(id);
-        if (message !== undefined) {
-          delivered.push(message);
-        }
-      }
-    }
-  }
-  return delivered;
 }
 
 function hasToolResult(message: SDKUserMessage): boolean {

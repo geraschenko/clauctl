@@ -6,12 +6,11 @@ import type {
 } from "@anthropic-ai/claude-agent-sdk";
 import {
   acceptUserMessage,
-  deliveredMessages,
   INITIAL_QUEUE_MODEL_STATE,
   observeSdkMessage,
   type QueueModelState,
 } from "./queue-model.ts";
-import type { SdkEvent } from "./sdk-socket.ts";
+import type { SdkEvent } from "../sdk-socket.ts";
 
 function userMessage(overrides: Partial<SDKUserMessage> = {}): SDKUserMessage {
   return {
@@ -219,61 +218,4 @@ test("mixed bucket with one querying message dequeues as turn", () => {
 test("result with an empty queue emits nothing", () => {
   const scenario = observe(start(), result);
   assert.deepEqual(scenario.events, []);
-});
-
-// deliveredMessages: which prompts a transition hands to the CLI (the
-// attach-window gap — a prompt dequeued before a subscribe whose transcript
-// entry the boundary-cut history read does not cover is visible only
-// through this).
-
-test("deliveredMessages: idle accept delivers the just-accepted message", () => {
-  const message = userMessage();
-  const transition = acceptUserMessage(
-    INITIAL_QUEUE_MODEL_STATE,
-    message,
-    false,
-  );
-  assert.deepEqual(deliveredMessages(INITIAL_QUEUE_MODEL_STATE, transition), [
-    message,
-  ]);
-});
-
-test("deliveredMessages: busy accept delivers nothing", () => {
-  const transition = acceptUserMessage(
-    INITIAL_QUEUE_MODEL_STATE,
-    userMessage(),
-    true,
-  );
-  assert.deepEqual(
-    deliveredMessages(INITIAL_QUEUE_MODEL_STATE, transition),
-    [],
-  );
-});
-
-test("deliveredMessages: result dequeue delivers the bucket in FIFO order", () => {
-  const first = userMessage({
-    priority: "later",
-    message: { role: "user", content: "first" },
-  });
-  const second = userMessage({
-    priority: "later",
-    message: { role: "user", content: "second" },
-  });
-  let scenario = accept(start(), first, true);
-  scenario = accept(scenario, second, true);
-  const before = scenario.state;
-  const transition = observeSdkMessage(before, result);
-  assert.deepEqual(deliveredMessages(before, transition), [first, second]);
-});
-
-test("deliveredMessages: steer dequeues deliver nothing", () => {
-  let scenario = accept(start(), userMessage(), true);
-  scenario = observe(scenario, toolResult);
-  const before = scenario.state;
-  const transition = observeSdkMessage(before, assistant);
-  assert.equal(
-    transition.events.some((event) => event.kind === "userMessageDequeued"),
-    true,
-  );
-  assert.deepEqual(deliveredMessages(before, transition), []);
 });

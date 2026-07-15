@@ -22,7 +22,7 @@ export interface SdkConnection {
 /**
  * JSONL server on sdk.sock; hello on connect. Requests get responses; a
  * subscribed connection additionally receives pushed SdkEventRecord lines
- * (written by the EventBus sink the subscribe handler attaches). Sinks are
+ * (written by the EventHub sink the subscribe handler attaches). Sinks are
  * fire-and-forget socket writes: a slow subscriber buffers in its socket,
  * never blocks the daemon or other clients.
  */
