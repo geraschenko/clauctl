@@ -169,10 +169,10 @@ test("dropped variants render nothing", () => {
   ];
   assert.equal(format(dropped), "");
   // stream_event / rate_limit_event only reach the renderer in events mode.
-  const state = newFormatState();
+  const formatState = newFormatState();
   for (const type of ["stream_event", "rate_limit_event"]) {
     const message = { type } as unknown as SDKMessage;
-    assert.equal(formatSdkMessage(message, state, OPTIONS), undefined);
+    assert.equal(formatSdkMessage(message, formatState, OPTIONS), undefined);
   }
 });
 
@@ -194,9 +194,12 @@ test("the SDKMessage long tail gets a generic type/subtype one-liner", () => {
     format([record({ type: "system", subtype: "compact_boundary" })]),
     "[system: compact_boundary]\n",
   );
-  const state = newFormatState();
+  const formatState = newFormatState();
   const noSubtype = { type: "rare_variant" } as unknown as SDKMessage;
-  assert.equal(formatSdkMessage(noSubtype, state, OPTIONS), "[rare_variant]");
+  assert.equal(
+    formatSdkMessage(noSubtype, formatState, OPTIONS),
+    "[rare_variant]",
+  );
 });
 
 test("unknown session-record types are skipped silently", () => {

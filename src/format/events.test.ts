@@ -21,6 +21,7 @@ function prompt(text: string): SDKUserMessage {
   };
 }
 
+// TDC: fix references to "snapshot"
 function snapshot(overrides: Partial<AgentState> = {}): TailRecord {
   return { snapshot: { ...INITIAL_AGENT_STATE, ...overrides } };
 }

@@ -26,26 +26,30 @@ function promptSummary(message: SDKUserMessage): string {
   return truncateText(oneLine(userText(message)), PROMPT_SUMMARY_CHARS);
 }
 
-function snapshotChunk(snapshot: AgentState, state: FormatState): string {
-  const parts: string[] = [snapshot.activity];
-  if (snapshot.model !== undefined) {
-    parts.push(`model ${snapshot.model}`);
+// TDC: make sure the "snapshot" terminology is fixed everywhere.
+function agentStateChunk(
+  agentState: AgentState,
+  formatState: FormatState,
+): string {
+  const parts: string[] = [agentState.activity];
+  if (agentState.model !== undefined) {
+    parts.push(`model ${agentState.model}`);
   }
-  if (snapshot.permissionMode !== undefined) {
-    parts.push(`permissions ${snapshot.permissionMode}`);
+  if (agentState.permissionMode !== undefined) {
+    parts.push(`permissions ${agentState.permissionMode}`);
   }
-  if (snapshot.sessionId !== undefined) {
-    parts.push(`session ${snapshot.sessionId}`);
+  if (agentState.sessionId !== undefined) {
+    parts.push(`session ${agentState.sessionId}`);
   }
   const lines = [`[snapshot: ${parts.join(", ")}]`];
   // The snapshot is the authoritative queue state; anything remembered from
   // before it (a concatenated or restarted stream) is stale.
-  state.queuedMessages.clear();
-  for (const { id, message } of snapshot.queuedMessages) {
-    state.queuedMessages.set(id, message);
+  formatState.queuedMessages.clear();
+  for (const { id, message } of agentState.queuedMessages) {
+    formatState.queuedMessages.set(id, message);
     lines.push(`[queued #${id}: ${promptSummary(message)}]`);
   }
-  for (const message of snapshot.deliveredMessages) {
+  for (const message of agentState.deliveredMessages) {
     lines.push(`[delivered: ${promptSummary(message)}]`);
   }
   return lines.join("\n");
@@ -71,24 +75,25 @@ function formatControl(request: SdkControlMutation): string {
 
 function eventChunks(
   event: SdkEvent,
-  state: FormatState,
+  formatState: FormatState,
   options: MessageFormatOptions,
 ): string[] {
   switch (event.kind) {
     case "userMessageQueued":
-      state.queuedMessages.set(event.id, event.message);
+      formatState.queuedMessages.set(event.id, event.message);
+      // TDC: the truncation should happen *after* the concatenation, or should at least take the lengths of concatenated strings into account. Otherwise because promptSummary truncates to 80 chars, we'll get different lengths based on how wide `event.id` is. I think it would be logical to build the concatenated string inside the brackets, then truncate, then add the brackets around that result.
       return [`[queued #${event.id}: ${promptSummary(event.message)}]`];
     case "userMessageDequeued": {
       const ids = event.ids.map((id) => `#${id}`).join(", ");
       const annotation = `[dequeued (${event.delivery}): ${ids}]`;
       const renders: string[] = [];
       for (const id of event.ids) {
-        const message = state.queuedMessages.get(id);
+        const message = formatState.queuedMessages.get(id);
         if (message === undefined) {
           continue; // unseen id: the annotation alone still records the dequeue
         }
-        state.queuedMessages.delete(id);
-        const rendered = formatSdkMessage(message, state, options);
+        formatState.queuedMessages.delete(id);
+        const rendered = formatSdkMessage(message, formatState, options);
         if (rendered !== undefined && rendered !== "") {
           renders.push(rendered);
         }
@@ -108,7 +113,7 @@ function eventChunks(
     case "controlApplied":
       return [formatControl(event.request)];
     case "sdkMessage": {
-      const chunk = formatSdkMessage(event.message, state, options);
+      const chunk = formatSdkMessage(event.message, formatState, options);
       return chunk === undefined || chunk === "" ? [] : [chunk];
     }
   }
@@ -119,13 +124,13 @@ export function formatTailRecords(
   records: readonly TailRecord[],
   options: MessageFormatOptions,
 ): string {
-  const state = newFormatState();
+  const formatState = newFormatState();
   const chunks: string[] = [];
   for (const record of records) {
     if ("snapshot" in record) {
-      chunks.push(snapshotChunk(record.snapshot, state));
+      chunks.push(agentStateChunk(record.snapshot, formatState));
     } else {
-      chunks.push(...eventChunks(record.event, state, options));
+      chunks.push(...eventChunks(record.event, formatState, options));
     }
   }
   return joinChunks(chunks);

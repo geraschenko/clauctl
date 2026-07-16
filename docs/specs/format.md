@@ -345,7 +345,7 @@ mark completed ones with [x], document decisions and problems encountered.
   decoders raise UsageError, here they may fail mid-render), and streaming
   output (already a non-goal).
 - 2026-07-15: sync-from-pictl.mjs's default pictl location now derives from
-  `git rev-parse --git-common-dir` (pictl sits next to the *main* clauctl
+  `git rev-parse --git-common-dir` (pictl sits next to the _main_ clauctl
   checkout), so the sync and presubmit work from git worktrees without
   `PICTL_DIR`; identical to `../pictl` in the canonical layout.
 

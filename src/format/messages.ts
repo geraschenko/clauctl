@@ -4,6 +4,7 @@
  * (single source of truth with the TUI); this file only decides what the text
  * looks like. No ANSI/color ever — the output is consumed by LLMs.
  */
+// TDC: if this is shared between `format messages` and `format events`, it shouldn't be in messages.ts. messaages.ts should be the `format messages`-specific stuff. Make a new file for the shared stuff.
 
 import type {
   SDKAssistantMessage,
@@ -216,11 +217,11 @@ export function formatSessionRecords(
   records: readonly SessionRecord[],
   options: MessageFormatOptions,
 ): string {
-  const state = newFormatState();
+  const formatState = newFormatState();
   const chunks: string[] = [];
   for (const record of records) {
     if (record.type === "permission-mode") {
-      const change = permissionModeChangeLine(record, state);
+      const change = permissionModeChangeLine(record, formatState);
       if (change !== undefined) {
         chunks.push(change);
       }
@@ -237,12 +238,12 @@ export function formatSessionRecords(
     // carries every field its SDKMessage variant requires.
     const message = record as unknown as SDKMessage;
     if (message.type === "assistant") {
-      const change = modelChangeLine(message, state);
+      const change = modelChangeLine(message, formatState);
       if (change !== undefined) {
         chunks.push(change);
       }
     }
-    const chunk = formatSdkMessage(message, state, options);
+    const chunk = formatSdkMessage(message, formatState, options);
     if (chunk !== undefined && chunk !== "") {
       chunks.push(chunk);
     }
