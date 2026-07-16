@@ -6,28 +6,21 @@
  * one into effects on the other. Deliberately a shallow relocation of the
  * dispatch switch, not a deep module — the leverage is that daemon.ts reads
  * as a composition root, and request semantics are testable through fake
- * deps without a real daemon. The one deep resident is set-context: the
- * boundary/rewind semantics derisked in
- * docs/derisk/compact-boundary-injection/FINDINGS.md and specified in
- * docs/specs/session-tree-and-set-context.md.
+ * deps without a real daemon. The deep request implementations live in
+ * sibling modules: set-context.ts (boundary/rewind semantics) and
+ * get-messages.ts (the override machinery keeping get-messages loader-true).
  */
-// TDC: Whoa, this really expanded this file. How about we put all the set-context machinery in a separate set-context.ts sibling file, and get-messages machinery in a separate get-messages.ts sibling file?
 
 import type { UUID } from "node:crypto";
-import { existsSync } from "node:fs";
 import {
   getSessionMessages,
   type Query,
   type SDKUserMessage,
-  type SessionMessage,
 } from "@anthropic-ai/claude-agent-sdk";
 import { buildTree } from "../build-tree.ts";
 import type { PersistedOptions } from "../options.ts";
 import {
-  appendSessionEntries,
-  buildBoundaryEntries,
-  readSessionEntries,
-  waitForEntryOnDisk,
+  readEntriesAfterStreamFlush,
   type SessionEntry,
 } from "../session-file.ts";
 import {
@@ -41,17 +34,25 @@ import {
   type SdkControlMutation,
   type SdkRequestRecord,
   type SdkResponse,
-  type SetContextRequest,
-  type SetContextResult,
 } from "../sdk-socket.ts";
 import type { EventHub } from "./event-hub.ts";
+import {
+  startupOverride,
+  synthesizeMessages,
+  type GetMessagesOverride,
+} from "./get-messages.ts";
+import { RwGate } from "./rw-gate.ts";
 import { RESPONSE_SENT, type SdkConnection } from "./sdk-server.ts";
+import { createSetContextHandler } from "./set-context.ts";
 import type { TurnQueue } from "./turn-queue.ts";
 
 export interface RequestHandlerDeps {
   /** The current Query — replaced by set-context, so resolved per use. */
   getQuery(): Query;
   events: EventHub;
+  /** The daemon's one startup session-file read (undefined when no session
+   *  file exists yet); also feeds the EventHub seed in daemon.ts. */
+  startupEntries?: SessionEntry[];
   /** Compact-path pushes only; ordinary messages go through
    *  events.deliverUserMessage. Replaced alongside the Query. */
   getTurnQueue(): TurnQueue;
@@ -70,373 +71,58 @@ export interface RequestHandlerDeps {
   restartQuery(resumeSessionId: string, resumeSessionAt?: UUID): Promise<void>;
 }
 
-/**
- * Readers-writer gate serializing set-context (the writer) against everything
- * Query-bound. Request dispatch is deliberately concurrent, so an idle check
- * alone is a moment-in-time read; the gate guarantees no request touches the
- * old Query during teardown/replacement. While the writer holds (or awaits)
- * the gate, Query-bound arrivals error and file reads wait — so the shared
- * drain terminates.
- */
-// TDC: QueryGate is not at all query-specific, right? It's a general-purpose reference-counted mutex. Two questions: (1) is there a library we can use instead of writing our own, and if not, (2) why not move this out into its own file, named something like mutex.ts?
-class QueryGate {
-  private sharedCount = 0;
-  private exclusive = false;
-  private drainWaiter: (() => void) | undefined;
-  private readonly sharedWaiters: Array<() => void> = [];
-
-  private acquireShared(): () => void {
-    this.sharedCount += 1;
-    let released = false;
-    return () => {
-      if (released) {
-        return;
-      }
-      released = true;
-      this.sharedCount -= 1;
-      if (this.sharedCount === 0) {
-        this.drainWaiter?.();
-      }
-    };
-  }
-
-  /** Query-bound operations: error immediately during a context change. */
-  sharedOrThrow(): () => void {
-    if (this.exclusive) {
-      throw new Error("context change in progress");
-    }
-    return this.acquireShared();
-  }
-
-  /** File reads: wait out a context change instead of erroring, so they never
-   *  observe a half-done mutation. */
-  async sharedWait(): Promise<() => void> {
-    while (this.exclusive) {
-      await new Promise<void>((resolve) => this.sharedWaiters.push(resolve));
-    }
-    return this.acquireShared();
-  }
-
-  /** set-context: drains in-flight Query operations; a concurrent context
-   *  change errors instead of queueing. */
-  async exclusiveOrThrow(): Promise<() => void> {
-    if (this.exclusive) {
-      throw new Error("context change in progress");
-    }
-    this.exclusive = true;
-    while (this.sharedCount > 0) {
-      await new Promise<void>((resolve) => {
-        this.drainWaiter = resolve;
-      });
-      this.drainWaiter = undefined;
-    }
-    let released = false;
-    return () => {
-      if (released) {
-        return;
-      }
-      released = true;
-      this.exclusive = false;
-      for (const waiter of this.sharedWaiters.splice(0)) {
-        waiter();
-      }
-    };
-  }
-}
-
-interface PreservedMessages {
-  anchorUuid?: UUID;
-  uuids: UUID[];
-}
-
-// Segment-only boundaries (compactMetadata.preservedSegment without
-// preservedMessages, written by older CLI versions) are not modeled: they
-// read as "no relink", so effectiveChain can differ from the loader on such
-// organic sessions. Current CLIs write preservedMessages, and set-context
-// only appends that form.
-
-function preservedMessagesOf(
-  boundary: SessionEntry,
-): PreservedMessages | undefined {
-  const metadata = boundary.compactMetadata as
-    | { preservedMessages?: { anchorUuid?: UUID; uuids?: unknown } }
-    | undefined;
-  const preserved = metadata?.preservedMessages;
-  if (preserved === undefined || !Array.isArray(preserved.uuids)) {
-    return undefined;
-  }
-  return {
-    ...(preserved.anchorUuid !== undefined && {
-      anchorUuid: preserved.anchorUuid,
-    }),
-    uuids: preserved.uuids as UUID[],
-  };
-}
-
-/** The boundary's companion summary entry: parented on the boundary and
- *  flagged isCompactSummary (native shape in both anchor variants). */
-function summaryOf(
-  entries: SessionEntry[],
-  boundaryIndex: number,
-): SessionEntry | undefined {
-  const boundaryUuid = entries[boundaryIndex]!.uuid;
-  return entries
-    .slice(boundaryIndex + 1)
-    .find(
-      (entry) =>
-        entry.parentUuid === boundaryUuid && entry.isCompactSummary === true,
-    );
-}
-
-/**
- * The boundary's effective-parent map (spec "Concrete examples"): the
- * load-time relink as parent overrides. `uuids[i] → uuids[i-1]`,
- * `uuids[0] → anchorUuid`; in from-shape (anchor = the boundary's own uuid)
- * with a summary and a non-empty playlist, the summary's effective parent is
- * `uuids[last]` — the raw chain there runs summary → boundary and would skip
- * the playlist entirely, but the loader's from-shape context is
- * [uuids…, summary] (p2.b). With an empty playlist the summary keeps its raw
- * parent (the boundary) — the intended summary-only context.
- */
-function effectiveParentMap(
-  entries: SessionEntry[],
-  boundaryIndex: number,
-): Map<UUID, UUID> {
-  const boundary = entries[boundaryIndex]!;
-  const map = new Map<UUID, UUID>();
-  const preserved = preservedMessagesOf(boundary);
-  if (preserved === undefined) {
-    return map;
-  }
-  const { anchorUuid, uuids } = preserved;
-  for (let i = 1; i < uuids.length; i += 1) {
-    map.set(uuids[i]!, uuids[i - 1]!);
-  }
-  if (uuids.length > 0 && anchorUuid !== undefined) {
-    map.set(uuids[0]!, anchorUuid);
-  }
-  if (anchorUuid === boundary.uuid && uuids.length > 0) {
-    const summaryUuid = summaryOf(entries, boundaryIndex)?.uuid;
-    if (summaryUuid !== undefined) {
-      map.set(summaryUuid, uuids[uuids.length - 1]!);
-    }
-  }
-  return map;
-}
-
-/**
- * The effective context chain (root → tip) the loader would produce for this
- * entries list — pass a truncated list for "the context when entry X first
- * appeared". Mirrors loader semantics: only the LAST boundary applies
- * (stacked boundaries: last wins entirely, P3 m5); the walk takes mapped
- * parents first, raw `parentUuid` otherwise; any boundary entry is
- * transparent — reaching one (or an entry with no parent) ends the walk.
- */
-// TDC: "P3 m5" is not going to make sense to a future reader of this file.
-export function effectiveChain(entries: SessionEntry[]): UUID[] {
-  // TDC: is it worth making this idxByUuid so that the values of this map are small, or are `SessionEntry`s already pointers/references rather than being copied by value?
-  const byUuid = new Map<UUID, SessionEntry>();
-  for (const entry of entries) {
-    if (entry.uuid !== undefined) {
-      byUuid.set(entry.uuid, entry);
-    }
-  }
-
-  const boundaryIndex = entries.findLastIndex(
-    (entry) => entry.subtype === "compact_boundary",
-  );
-  let map = new Map<UUID, UUID>();
-  let tip: UUID | undefined;
-  if (boundaryIndex === -1) {
-    tip = entries.findLast((entry) => entry.uuid !== undefined)?.uuid;
-  } else {
-    const boundary = entries[boundaryIndex]!;
-    map = effectiveParentMap(entries, boundaryIndex);
-    const summaryUuid = summaryOf(entries, boundaryIndex)?.uuid;
-    // Entries written after the boundary (its own summary aside) chain on
-    // top of the relinked context; with none, the tip is the relinked
-    // skeleton's own tip: [summary, uuids…] (up_to), [uuids…, summary]
-    // (from), or [uuids…] (no summary).
-    const post = entries
-      .slice(boundaryIndex + 1)
-      .filter(
-        (entry) => entry.uuid !== undefined && entry.uuid !== summaryUuid,
-      );
-    if (post.length > 0) {
-      tip = post.at(-1)!.uuid;
-    } else {
-      const preserved = preservedMessagesOf(boundary);
-      const fromShape = preserved?.anchorUuid === boundary.uuid;
-      tip =
-        (fromShape || preserved === undefined || preserved.uuids.length === 0
-          ? summaryUuid
-          : undefined) ??
-        preserved?.uuids.at(-1) ??
-        summaryUuid;
-    }
-  }
-
-  const chain: UUID[] = [];
-  const seen = new Set<UUID>();
-  let current = tip;
-  while (current !== undefined && !seen.has(current)) {
-    seen.add(current);
-    const entry = byUuid.get(current);
-    if (entry === undefined || entry.subtype === "compact_boundary") {
-      break;
-    }
-    chain.push(current);
-    current = map.get(current) ?? entry.parentUuid ?? undefined;
-  }
-  chain.reverse();
-  return chain;
-}
-
-const arraysEqual = (a: readonly string[], b: readonly string[]): boolean =>
-  a.length === b.length && a.every((value, index) => value === b[index]);
-
-/**
- * One override slot for get-messages, replaced by each successful
- * set-context:
- * - filterTail (no-write rewind): the session file still contains the
- *   superseded tail of the active chain; subtract those uuids from
- *   getSessionMessages output.
- * - synthesize (durable boundary append): getSessionMessages picks its tip as
- *   the latest user/assistant leaf in file order, so it reports the wrong
- *   chain for any playlist whose tip predates another dangling leaf (spec
- *   criterion 3 mechanism note); serve the chain straight from the session
- *   file instead.
- * TDC: don't use the term "playlist". Future readers/maintainers won't understand that term.
- * Both variants are pinned to the transcript leaf they were installed at:
- * the next transcript write closes the synthesis window (getSessionMessages
- * agrees with the loader again) and makes the tail filter inert, so the slot
- * is dropped lazily when `lastTranscriptUuid` moves. Every transcript write
- * moves `lastTranscriptUuid`: the CLI echoes each appended user/assistant
- * entry on the stream with its transcript uuid, including host-pushed input
- * — the same echo that clears deliveredMessages (agent-state.ts fold).
- */
-type GetMessagesOverride = (
-  | { kind: "filterTail"; uuids: Set<string> }  // TDC: How about we name the field "droppedUuids" for clarity? Otherwise it's a bit confusing that one variant lists what to drop and the other lists what to keep.
-  | { kind: "synthesize"; chain: UUID[] }
-) & { installedAtLeafUuid: string | undefined };
-
-/**
- * The synthesis window: the file's last boundary has no post-boundary
- * user/assistant entries besides its own summary. Returns the chain to
- * synthesize while the window is open, undefined otherwise. Being purely
- * file-derived, this also reconstructs the window at daemon startup — unlike
- * a no-write rewind, which the file carries no record of (criterion 8).
- */
-function synthesizeWindowChain(entries: SessionEntry[]): UUID[] | undefined {
-  const boundaryIndex = entries.findLastIndex(
-    (entry) => entry.subtype === "compact_boundary",
-  );
-  if (boundaryIndex === -1) {
-    return undefined;
-  }
-  const summaryUuid = summaryOf(entries, boundaryIndex)?.uuid;
-  const windowClosed = entries
-    .slice(boundaryIndex + 1)
-    .some(
-      (entry) =>
-        (entry.type === "user" || entry.type === "assistant") &&
-        entry.uuid !== summaryUuid,
-    );
-  return windowClosed ? undefined : effectiveChain(entries);
-}
-
-/** getSessionMessages' runtime objects also carry `timestamp`, absent from
- *  the SDK's declared SessionMessage type; synthesized output matches the
- *  wire shape. */
-type SessionMessageOnWire = SessionMessage & { timestamp?: string };
-
-/** The get-messages response for a synthesize override: the chain's entries
- *  mapped to SessionMessage shape, mirroring the SDK's own mapping and
- *  filters (user/assistant only, isMeta/isSidechain excluded,
- *  parent_tool_use_id always null in getSessionMessages output). */
-function synthesizeMessages(
-  filePath: string,
-  chain: UUID[],
-): SessionMessageOnWire[] {
-  const byUuid = new Map<UUID, SessionEntry>();
-  for (const entry of readSessionEntries(filePath)) {
-    if (entry.uuid !== undefined) {
-      byUuid.set(entry.uuid, entry);
-    }
-  }
-  const messages: SessionMessageOnWire[] = [];
-  for (const uuid of chain) {
-    const entry = byUuid.get(uuid);
-    if (
-      entry === undefined ||
-      (entry.type !== "user" && entry.type !== "assistant") ||
-      entry.isMeta === true ||
-      entry.isSidechain === true
-    ) {
-      continue;
-    }
-    messages.push({
-      type: entry.type,
-      uuid,
-      session_id: entry.sessionId as string,
-      message: entry.message,
-      parent_tool_use_id: null,
-      ...(typeof entry.timestamp === "string" && {
-        timestamp: entry.timestamp,
-      }),
-    });
-  }
-  return messages;
-}
-
-function startupOverride(
-  deps: RequestHandlerDeps,
-): GetMessagesOverride | undefined {
-  const sessionId = deps.events.agentState.sessionId;
-  if (sessionId === undefined) {
-    return undefined;
-  }
-  const filePath = deps.sessionFilePath(sessionId);
-  if (!existsSync(filePath)) {
-    return undefined;
-  }
-  const chain = synthesizeWindowChain(readSessionEntries(filePath));
-  if (chain === undefined) {
-    return undefined;
-  }
-  return {
-    kind: "synthesize",
-    chain,
-    installedAtLeafUuid: deps.events.agentState.lastTranscriptUuid,
-  };
-}
-
 export function createRequestHandler(
   deps: RequestHandlerDeps,
 ): (request: SdkRequestRecord, connection: SdkConnection) => Promise<unknown> {
   const { events } = deps;
-  const gate = new QueryGate();
+  // Serializes set-context (the writer) against everything Query-bound.
+  // Request dispatch is deliberately concurrent, so an idle check alone is a
+  // moment-in-time read; the gate guarantees no request touches the old Query
+  // during teardown/replacement. While set-context holds (or awaits) the
+  // gate, Query-bound arrivals error and file reads wait.
+  const gate = new RwGate();
+  // Daemon policy, separate from the gate: a concurrent set-context errors
+  // instead of queueing. Checked-and-set synchronously, so two arrivals
+  // cannot both pass.
+  let contextChangeInProgress = false;
 
   // After a restart failure the daemon has no live Query; Query-bound
   // requests error until a subsequent set-context (or daemon restart)
   // reconstructs it. File reads keep working.
-  // TDC: can we negate this to "queryAvailable"? The negation in a boolean variable name is confusing.
-  let queryUnavailable = false;
+  let queryAvailable = true;
 
   // Startup reconstruction (criterion 3): a daemon that (re)starts inside the
-  // synthesis window must keep synthesizing — one session-file read here
-  // identifies it. Only synthesize is reconstructible; a no-write rewind is
-  // not durable until the next turn (criterion 8): the file carries no
-  // record of it, so if the daemon exits first, a later resume sees the
-  // un-rewound chain.
-  let override: GetMessagesOverride | undefined = startupOverride(deps);
+  // synthesis window must keep synthesizing — the startup entries identify
+  // it. Only synthesize is reconstructible; a no-write rewind is not durable
+  // until the next turn (criterion 8): the file carries no record of it, so
+  // if the daemon exits first, a later resume sees the un-rewound chain.
+  let override: GetMessagesOverride | undefined = startupOverride(
+    deps.startupEntries,
+    events.agentState.lastTranscriptUuid,
+  );
 
-  /** Query-bound operations: gate shared, and refuse while no Query is up. */
+  const handleSetContext = createSetContextHandler(deps, {
+    gate,
+    installOverride: (next) => {
+      override = next;
+    },
+    setQueryAvailable: (available) => {
+      queryAvailable = available;
+    },
+  });
+
+  /** Query-bound operations: gate shared, and refuse while no Query is up.
+   *  The flag check comes first so its message reaches the client; the
+   *  gate's own tryShared refusal is unreachable while the flag is honest
+   *  (set-context only holds the gate inside its flag window). */
   const acquireQuery = (): (() => void) => {
-    if (queryUnavailable) {
+    if (!queryAvailable) {
       throw new Error("query restart failed; retry set-context");
     }
-    return gate.sharedOrThrow();
+    if (contextChangeInProgress) {
+      throw new Error("context change in progress");
+    }
+    return gate.tryShared();
   };
 
   const controlApplied = (record: SdkRequestRecord): void => {
@@ -458,270 +144,6 @@ export function createRequestHandler(
   // property for mutations only; they never wait on daemon state, so the
   // chain cannot deadlock.
   let mutationChain: Promise<unknown> = Promise.resolve();
-
-  /** The current session's jsonl entries, after waiting for everything the
-   *  daemon has already reported on the event stream to be on disk (read
-   *  consistency; the leaf uuid is unset when no turn has run this daemon
-   *  lifetime — the file is quiescent then). */
-  // TDC: the name of this function does not communicate what it does. How about we pass leafUuid as an argument and call it something like readSessionEntriesOnceEntryOnDisk (that's awful ... any other suggestions)?
-  const readCurrentEntries = async (
-    sessionId: string,
-  ): Promise<{ filePath: string; entries: SessionEntry[] }> => {
-    const filePath = deps.sessionFilePath(sessionId);
-    const leafUuid = events.agentState.lastTranscriptUuid;
-    if (leafUuid !== undefined) {
-      await waitForEntryOnDisk(filePath, leafUuid as UUID);
-    }
-    return { filePath, entries: readSessionEntries(filePath) };
-  };
-
-  const handleSetContext = async (
-    parsed: SetContextRequest,
-  ): Promise<SetContextResult> => {
-    if ("uuids" in parsed) {
-      if (parsed.uuids.length === 0 && parsed.summaryText === undefined) {
-        throw new Error(
-          "set-context: empty uuids without summaryText — nothing to load",
-        );
-      }
-      if (parsed.anchor === "summary" && parsed.summaryText === undefined) {
-        throw new Error(
-          'set-context: anchor "summary" requires summaryText — nothing to anchor on',
-        );
-      }
-      if (new Set(parsed.uuids).size !== parsed.uuids.length) {
-        throw new Error(
-          "set-context: duplicate uuids — the loader silently skips the whole relink (P3 m4)",
-          // TDC: "P3 m4" will make no sense to a future reader of this file/message.
-        );
-      }
-    }
-    const sessionId = events.agentState.sessionId;
-    if (sessionId === undefined) {
-      throw new Error("set-context: no session yet");
-    }
-
-    const releaseGate = await gate.exclusiveOrThrow();
-    let fileMutated = false;
-    let succeeded = false;
-    try {
-      // Eligibility, checked under the gate: nothing running, nothing queued,
-      // nothing delivered-but-unconfirmed. No implicit waiting — callers can
-      // wait-idle first.
-      const state = events.agentState;
-      if (
-        state.activity !== "idle" ||
-        state.queuedMessages.length > 0 ||
-        state.deliveredMessages.length > 0
-      ) {
-        throw new Error(
-          "set-context requires an idle assistant with an empty queue",
-        );
-      }
-      const { filePath, entries } = await readCurrentEntries(sessionId);
-
-      // Restart + verification shared by every file-mutating path. The
-      // append is already durable, so contextChanged is broadcast (via
-      // fileMutated in the finally) and the synthesize override installed
-      // even when the restart or verification then fails: the file carries
-      // the truth, and any later resume picks the boundary up.
-      const restartAndVerify = async (expected: UUID[]): Promise<void> => {
-        // One re-read serves the override and the verification below; the
-        // file is quiescent between the append and the restarted Query's
-        // first turn. The override carries the file's effective chain, not
-        // `expected` — identical on success, and on a verification failure
-        // get-messages still reflects the loader's actual view.
-        const effective = effectiveChain(readSessionEntries(filePath));
-        override = {
-          kind: "synthesize",
-          chain: effective,
-          installedAtLeafUuid: events.agentState.lastTranscriptUuid,
-        };
-        try {
-          await deps.restartQuery(sessionId);
-        } catch (error) {
-          queryUnavailable = true;
-          throw new Error(
-            `query restart failed; retry set-context (boundary already appended): ${String(error)}`,
-          );
-        }
-        queryUnavailable = false;
-        // This checks the loader's view of the FILE, not the live Query — a
-        // streaming Query initializes on its first turn, so a bad resume can
-        // still surface at the next turn. The check compares the effective
-        // chain rather than asking the SDK: getSessionMessages picks its tip
-        // as the LAST user/assistant leaf in file order across all dangling
-        // leaves, so it reports the wrong chain for any playlist whose tip
-        // predates another leaf (abandoned branch tips, orphaned summaries)
-        // — the CLI loader honors those playlists (P9 a/b, wire-verified).
-        // TDC: fix "playlists", "P9 a/b"
-        // The check is structural: it catches torn or failed appends, but
-        // not the CLI's inference-time normalization of authoring-rule
-        // violations (orphan tool blocks, attachment uuids) — no file-reading
-        // oracle can. Divergence is reported without rolling back the append
-        // — boundaries stack, a subsequent set-context can fix it.
-        if (!arraysEqual(effective, expected)) {
-          throw new Error(
-            "set-context verification failed: effective context " +
-              `[${effective.join(", ")}] != expected [${expected.join(", ")}] ` +
-              "(the appended boundary is kept; a subsequent set-context can fix it)",
-          );
-        }
-      };
-
-      let result: SetContextResult;
-      if ("uuids" in parsed) {
-        const onDisk = new Set(
-          entries.map((entry) => entry.uuid).filter((uuid) => uuid),
-        );
-        const missing = parsed.uuids.filter((uuid) => !onDisk.has(uuid));
-        if (missing.length > 0) {
-          throw new Error(
-            `set-context: uuids not in the session file: ${missing.join(", ")}`,
-          );
-        }
-        const anchor =
-          parsed.summaryText === undefined
-            ? "boundary"
-            : (parsed.anchor ?? "summary");
-        const built = buildBoundaryEntries({
-          sessionId: sessionId as UUID,
-          cwd: deps.cwd,
-          uuids: parsed.uuids,
-          ...(parsed.summaryText !== undefined && {
-            summaryText: parsed.summaryText,
-          }),
-          anchor,
-          logicalParentUuid: effectiveChain(entries).at(-1) ?? null,
-        });
-        await deps.teardownQuery();
-        appendSessionEntries(filePath, built.entries);
-        fileMutated = true;
-        const summaryUuid = built.result.summaryUuid;
-        const expected =
-          summaryUuid === undefined
-            ? parsed.uuids
-            : anchor === "summary"
-              ? [summaryUuid, ...parsed.uuids]
-              : [...parsed.uuids, summaryUuid];
-        await restartAndVerify(expected);
-        result = built.result;
-      } else {
-        result = await handleRewind(parsed.rewindTo, {
-          filePath,
-          entries,
-          sessionId,
-          restartAndVerify,
-          markMutated: () => {
-            fileMutated = true;
-          },
-        });
-      }
-      succeeded = true;
-      return result;
-    } finally {
-      // Watchers track file truth: broadcast whenever the file was mutated,
-      // even if the restart then failed; the RPC itself still returns the
-      // error (criterion 7).
-      if (succeeded || fileMutated) {
-        events.emit({ kind: "contextChanged", request: parsed });
-      }
-      releaseGate();
-    }
-  };
-
-  const handleRewind = async (
-    rewindTo: UUID,
-    context: {
-      filePath: string;
-      entries: SessionEntry[];
-      sessionId: string;
-      restartAndVerify: (expected: UUID[]) => Promise<void>;
-      markMutated: () => void;
-    },
-  ): Promise<SetContextResult> => {
-    const { filePath, entries, sessionId } = context;
-    const targetIndex = entries.findIndex((entry) => entry.uuid === rewindTo);
-    if (targetIndex === -1) {
-      throw new Error(`set-context: rewindTo ${rewindTo} is not in the session file`);
-    }
-    const target = entries[targetIndex]!;
-    if (target.type !== "assistant") {
-      throw new Error(
-        `set-context: rewindTo must be an assistant entry, got type ${JSON.stringify(target.type)}`,
-      );
-    }
-    // Only the FINAL transcript entry of an assistant API message is a valid
-    // target: it keeps the chain answer-terminated with whole API messages —
-    // resumeSessionAt and getSessionMessages behavior for mid-message
-    // siblings (e.g. a thinking entry) is untested.
-    const apiMessageId = (target.message as { id?: string } | undefined)?.id;
-    if (
-      apiMessageId !== undefined &&
-      entries
-        .slice(targetIndex + 1)
-        .some(
-          (entry) =>
-            (entry.message as { id?: string } | undefined)?.id === apiMessageId,
-        )
-    ) {
-      throw new Error(
-        "set-context: rewindTo must be the FINAL transcript entry of its assistant API message (a later entry shares its message.id)",
-      );
-    }
-
-    // "Context as it was when the target first appeared": loader semantics on
-    // the file truncated just after the target.
-    const desired = effectiveChain(entries.slice(0, targetIndex + 1));
-    const active = effectiveChain(entries);
-    const targetPosition = active.indexOf(rewindTo);
-
-    if (
-      targetPosition !== -1 &&
-      arraysEqual(desired, active.slice(0, targetPosition + 1))
-    ) {
-      // The desired chain truncates the active chain: resumeSessionAt gives
-      // exactly these semantics (P2 d, P9 c) with no file mutation.
-      await deps.teardownQuery();
-      try {
-        await deps.restartQuery(sessionId, rewindTo);
-      } catch (error) {
-        queryUnavailable = true;
-        throw new Error(
-          `query restart failed; retry set-context: ${String(error)}`,
-        );
-      }
-      queryUnavailable = false;
-      override = {
-        kind: "filterTail",
-        uuids: new Set(active.slice(targetPosition + 1)),
-        installedAtLeafUuid: events.agentState.lastTranscriptUuid,
-      };
-      return {};
-    }
-
-    // Abandoned branch (unreachable by resumeSessionAt, P2 e) or boundary
-    // playlist member (reachable but with boundary-kept semantics, P9 c):
-    // append a no-summary boundary listing the computed chain (P9 a).
-    // System entries on the chain (e.g. turn_duration) carry no context and
-    // are left off the playlist.
-    const messageUuids = desired.filter((uuid) => {
-      const type = entries.find((entry) => entry.uuid === uuid)?.type;
-      return type === "user" || type === "assistant";
-    });
-    const built = buildBoundaryEntries({
-      sessionId: sessionId as UUID,
-      cwd: deps.cwd,
-      uuids: messageUuids,
-      anchor: "boundary",
-      logicalParentUuid: active.at(-1) ?? null,
-    });
-    await deps.teardownQuery();
-    appendSessionEntries(filePath, built.entries);
-    context.markMutated();
-    await context.restartAndVerify(messageUuids);
-    return built.result;
-  };
 
   return async (
     request: SdkRequestRecord,
@@ -782,7 +204,7 @@ export function createRequestHandler(
         await events.whenIdle();
         return undefined;
       case "get-messages": {
-        const release = await gate.sharedWait();
+        const release = await gate.awaitShared();
         try {
           // Valid before the first init because the hub is seeded (on
           // revival, with the last recorded session).
@@ -809,31 +231,49 @@ export function createRequestHandler(
           });
           return active === undefined
             ? messages
-            : messages.filter((message) => !active.uuids.has(message.uuid));
+            : messages.filter(
+                (message) => !active.droppedUuids.has(message.uuid),
+              );
         } finally {
           release();
         }
       }
       case "get-entries":
       case "get-tree": {
-        const release = await gate.sharedWait();
+        const release = await gate.awaitShared();
         try {
           const sessionId = events.agentState.sessionId;
           if (sessionId === undefined) {
             throw new Error(`${request.type}: no session yet`);
           }
-          const { entries } = await readCurrentEntries(sessionId);
+          // Waiting on the last stream-reported leaf gives read consistency
+          // across the CLI's flush lag; the leaf uuid is unset when no turn
+          // has run this daemon lifetime — the file is quiescent then.
+          const entries = await readEntriesAfterStreamFlush(
+            deps.sessionFilePath(sessionId),
+            events.agentState.lastTranscriptUuid as UUID | undefined,
+          );
           return request.type === "get-entries" ? entries : buildTree(entries);
         } finally {
           release();
         }
       }
-      case "set-context":
+      case "set-context": {
         // The socket casts untrusted JSON; the one destructive command is
         // parsed explicitly before any teardown.
-        return await handleSetContext(
-          parseSetContextRequest(request as unknown as Record<string, unknown>),
+        const parsed = parseSetContextRequest(
+          request as unknown as Record<string, unknown>,
         );
+        if (contextChangeInProgress) {
+          throw new Error("context change in progress");
+        }
+        contextChangeInProgress = true;
+        try {
+          return await handleSetContext(parsed);
+        } finally {
+          contextChangeInProgress = false;
+        }
+      }
       case "subscribe": {
         // State capture, response write, and sink attach happen in one
         // synchronous section, so the seed is exact: no event is lost or

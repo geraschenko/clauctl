@@ -1,10 +1,10 @@
 /**
  * The session transcript jsonl: locating it, reading it, and appending
  * synthetic compact-boundary entries (the set-context mechanism derisked in
- * docs/derisk/compact-boundary-injection/FINDINGS.md). Reads the file
- * directly rather than through the SDK's @alpha importSessionToStore: direct
- * access avoids the alpha dependency, and the path is needed for appending
- * anyway.
+ * docs/derisk/compact-boundary-injection/FINDINGS.md). Probe ids in comments
+ * (e.g. p0b/p0c) cite the experiments in that file. Reads the file directly
+ * rather than through the SDK's @alpha importSessionToStore: direct access
+ * avoids the alpha dependency, and the path is needed for appending anyway.
  */
 
 import { randomUUID, type UUID } from "node:crypto";
@@ -79,11 +79,14 @@ export function readSessionEntries(filePath: string): SessionEntry[] {
  * (FINDINGS.md "The known-working recipe"). Pure construction split from the
  * write so tests can inspect entries without a filesystem.
  *
- * The stamp boilerplate (userType, entrypoint, version, gitBranch, token
- * counts, …) carries plausible placeholder values copied from the proven
- * recipe, not live metadata: ablation showed only compactMetadata and a valid
- * uuids list matter to the loader, and none of these fields were individually
- * ablated, so we keep writing what was tested.
+ * The stamp boilerplate (userType, entrypoint, gitBranch, …) carries
+ * plausible placeholder values copied from the proven recipe, not live
+ * metadata: ablation showed only compactMetadata and a valid uuids list
+ * matter to the loader, and none of these fields were individually ablated,
+ * so we keep writing what was tested. Of the recipe's compactMetadata token
+ * counts only the required `preTokens` is written, from real usage —
+ * `durationMs`/`postTokens` are optional and would be made up, and someone
+ * might plausibly trust them.
  */
 export function buildBoundaryEntries(params: {
   sessionId: UUID;
@@ -93,6 +96,12 @@ export function buildBoundaryEntries(params: {
   anchor: "summary" | "boundary";
   /** Recorded as the boundary's logicalParentUuid (tree anchoring). */
   logicalParentUuid: UUID | null;
+  /** The version stamp; when the daemon has not observed the CLI's version,
+   *  falls back to the recipe's proven constant. */
+  version: string | undefined;
+  /** compactMetadata.preTokens: the context size this boundary supersedes;
+   *  0 when unknown. */
+  preTokens: number;
 }): { entries: SessionEntry[]; result: SetContextResult } {
   const boundaryUuid = randomUUID();
   const summaryUuid =
@@ -104,7 +113,7 @@ export function buildBoundaryEntries(params: {
     entrypoint: "sdk-cli",
     cwd: params.cwd,
     sessionId: params.sessionId,
-    version: "2.1.195",  // TDC: can we use the actual version here instead, at least the default pinned version from the sdk? 
+    version: params.version ?? "2.1.195",
     gitBranch: "HEAD",
   };
   const boundary: SessionEntry = {
@@ -119,10 +128,7 @@ export function buildBoundaryEntries(params: {
     level: "info",
     compactMetadata: {
       trigger: "manual",
-      // TDC: whoa, do we really have to put made-up token counts in here? This seems kind of sketchy, because somebody might plausibly trust these for something. I see that preTokens is required, but duration and postTokens are not. Can we get preTokens based on the usage from the last assistant message? It makes sense to update AgentState to include last usage numbers.
-      preTokens: 40000,
-      durationMs: 1,
-      postTokens: 1000,
+      preTokens: params.preTokens,
       preservedMessages: {
         anchorUuid: params.anchor === "summary" ? summaryUuid : boundaryUuid,
         uuids: params.uuids,
@@ -152,7 +158,8 @@ export function buildBoundaryEntries(params: {
 }
 
 /** All entries in ONE write() call, boundary line first (native file order,
- *  p0b/p0c captures) — a crash can tear only the tail of the single write. */
+ *  p0b/p0c; see file comment) — a crash can tear only the tail of the single
+ *  write. */
 export function appendSessionEntries(
   filePath: string,
   entries: SessionEntry[],
@@ -161,6 +168,20 @@ export function appendSessionEntries(
     filePath,
     entries.map((entry) => `${JSON.stringify(entry)}\n`).join(""),
   );
+}
+
+/** The file's entries once `leafUuid` (the last transcript entry the caller
+ *  has seen reported elsewhere, e.g. on the daemon's event stream) is on
+ *  disk — read consistency across the CLI's flush lag. Pass undefined when
+ *  there is nothing to wait for. */
+export async function readEntriesAfterStreamFlush(
+  filePath: string,
+  leafUuid: UUID | undefined,
+): Promise<SessionEntry[]> {
+  if (leafUuid !== undefined) {
+    await waitForEntryOnDisk(filePath, leafUuid);
+  }
+  return readSessionEntries(filePath);
 }
 
 /** Resolves when an entry with this uuid is in the file (fs.watch + predicate;

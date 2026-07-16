@@ -10,6 +10,7 @@ import {
   type SDKMessage,
   type SDKUserMessage,
 } from "@anthropic-ai/claude-agent-sdk";
+import { INITIAL_AGENT_STATE } from "../agent-state.ts";
 import type { PersistedOptions } from "../options.ts";
 import {
   readSessionEntries,
@@ -20,7 +21,6 @@ import type { SdkEvent, SdkRequestRecord } from "../sdk-socket.ts";
 import { EventHub } from "./event-hub.ts";
 import {
   createRequestHandler,
-  effectiveChain,
   type RequestHandlerDeps,
 } from "./request-handlers.ts";
 import { RESPONSE_SENT, type SdkConnection } from "./sdk-server.ts";
@@ -103,120 +103,6 @@ function summaryEntry(
   };
 }
 
-// --- effectiveChain ------------------------------------------------------------
-
-test("effectiveChain without a boundary is the raw walk from the last entry", () => {
-  const sid = uuid();
-  const u1 = userEntry(null, sid);
-  const a1 = assistantEntry(u1.uuid, sid);
-  const u2a = userEntry(a1.uuid, sid); // abandoned branch
-  const u2b = userEntry(a1.uuid, sid); // active branch (later in file)
-  assert.deepEqual(effectiveChain([u1, a1, u2a, u2b]), [
-    u1.uuid,
-    a1.uuid,
-    u2b.uuid,
-  ]);
-});
-
-test("effectiveChain up_to boundary: summary first, then uuids; post entries chain on", () => {
-  const sid = uuid();
-  const u1 = userEntry(null, sid);
-  const a1 = assistantEntry(u1.uuid, sid);
-  const u2 = userEntry(a1.uuid, sid);
-  const a2 = assistantEntry(u2.uuid, sid);
-  const summaryUuid = uuid();
-  const boundary = boundaryEntry({
-    sessionId: sid,
-    uuids: [u2.uuid, a2.uuid],
-    anchor: summaryUuid,
-  });
-  const summary = summaryEntry(boundary.uuid, sid, summaryUuid);
-  const base = [u1, a1, u2, a2, boundary, summary];
-  assert.deepEqual(effectiveChain(base), [summaryUuid, u2.uuid, a2.uuid]);
-
-  // A post-boundary turn parents onto the preserved tail (never the boundary).
-  const u3 = userEntry(a2.uuid, sid);
-  assert.deepEqual(effectiveChain([...base, u3]), [
-    summaryUuid,
-    u2.uuid,
-    a2.uuid,
-    u3.uuid,
-  ]);
-});
-
-test("effectiveChain from-shape: uuids first, then summary; walk crosses the playlist", () => {
-  const sid = uuid();
-  const u1 = userEntry(null, sid);
-  const a1 = assistantEntry(u1.uuid, sid);
-  const boundary = boundaryEntry({
-    sessionId: sid,
-    uuids: [u1.uuid, a1.uuid],
-    anchor: "own",
-  });
-  const summary = summaryEntry(boundary.uuid, sid);
-  const base = [u1, a1, boundary, summary];
-  assert.deepEqual(effectiveChain(base), [u1.uuid, a1.uuid, summary.uuid]);
-
-  // From-shape post-boundary writes chain through the synthetic assistant →
-  // summary; the summary's effective parent carries the walk across the
-  // playlist.
-  const synthetic = assistantEntry(summary.uuid, sid);
-  assert.deepEqual(effectiveChain([...base, synthetic]), [
-    u1.uuid,
-    a1.uuid,
-    summary.uuid,
-    synthetic.uuid,
-  ]);
-});
-
-test("effectiveChain no-summary boundary: context is exactly the playlist", () => {
-  const sid = uuid();
-  const u1 = userEntry(null, sid);
-  const a1 = assistantEntry(u1.uuid, sid);
-  const u2 = userEntry(a1.uuid, sid);
-  const boundary = boundaryEntry({
-    sessionId: sid,
-    uuids: [u2.uuid],
-    anchor: "own",
-  });
-  assert.deepEqual(effectiveChain([u1, a1, u2, boundary]), [u2.uuid]);
-});
-
-test("effectiveChain stacked boundaries: the last one wins entirely", () => {
-  const sid = uuid();
-  const u1 = userEntry(null, sid);
-  const a1 = assistantEntry(u1.uuid, sid);
-  const first = boundaryEntry({
-    sessionId: sid,
-    uuids: [a1.uuid],
-    anchor: "own",
-  });
-  const second = boundaryEntry({
-    sessionId: sid,
-    uuids: [u1.uuid, a1.uuid],
-    anchor: "own",
-  });
-  assert.deepEqual(effectiveChain([u1, a1, first, second]), [
-    u1.uuid,
-    a1.uuid,
-  ]);
-});
-
-test("effectiveChain on a truncated file ignores later boundaries", () => {
-  const sid = uuid();
-  const u1 = userEntry(null, sid);
-  const a1 = assistantEntry(u1.uuid, sid);
-  const boundary = boundaryEntry({
-    sessionId: sid,
-    uuids: [a1.uuid],
-    anchor: "own",
-  });
-  // "Context when a1 first appeared": the boundary does not exist yet.
-  const entries = [u1, a1, boundary];
-  assert.deepEqual(effectiveChain(entries.slice(0, 2)), [u1.uuid, a1.uuid]);
-  assert.deepEqual(effectiveChain(entries), [a1.uuid]);
-});
-
 // --- fixture ---------------------------------------------------------------
 
 interface Fixture {
@@ -259,6 +145,7 @@ function fixture(options: FixtureOptions = {}): Fixture {
   mkdirSync(join(configDir, "projects", "-work-fixture"), { recursive: true });
   const events = new EventHub({
     seed: {
+      ...INITIAL_AGENT_STATE,
       cwd,
       ...(options.withSession !== false && { sessionId }),
     },
@@ -311,7 +198,10 @@ function fixture(options: FixtureOptions = {}): Fixture {
     },
   };
   if (options.initialEntries !== undefined) {
-    f.writeEntries(options.initialEntries(sessionId));
+    const entries = options.initialEntries(sessionId);
+    f.writeEntries(entries);
+    // Mirrors daemon.ts: the startup read feeds the handler as a dep.
+    deps.startupEntries = entries;
   }
   const handler = createRequestHandler(deps);
   return f;
@@ -574,7 +464,7 @@ test("boundary mode appends boundary+summary, restarts, verifies, broadcasts", a
     ["contextChanged"],
   );
   // The effective context (also what get-messages now returns): summary
-  // first, then the playlist.
+  // first, then the preserved uuids.
   const messages = (await f.handle({ type: "get-messages", id: "g1" })) as Array<{
     uuid: string;
   }>;
@@ -671,9 +561,10 @@ test("rewind to an abandoned branch appends a no-summary boundary", async () => 
 });
 
 // Pins a characterized SDK divergence (see the verification comment in
-// request-handlers.ts): getSessionMessages reports the WRONG chain for a
-// boundary playlist whose tip predates another dangling leaf in file order,
-// even though the CLI loader honors the playlist (P9 a/b, wire-verified).
+// set-context.ts): getSessionMessages reports the WRONG chain for a boundary
+// whose preserved-uuids tip predates another dangling leaf in file order,
+// even though the CLI loader honors the boundary (FINDINGS.md P9 a/b,
+// wire-verified).
 // get-messages papers over it with the synthesize override (asserted here
 // too). If an SDK upgrade fixes this, the raw assertion fails and the
 // override becomes unnecessary.
@@ -693,7 +584,7 @@ test("KNOWN DIVERGENCE: raw getSessionMessages ignores a branch-switch boundary;
   assert.deepEqual(
     raw.map((message) => message.uuid),
     // Wrong: the tip u2b/a2b predates nothing, so W6 picks it over the
-    // playlist tip a2a.
+    // preserved-uuids tip a2a.
     [u1.uuid, a1.uuid, u2b.uuid, a2b.uuid],
   );
   const messages = (await f.handle({ type: "get-messages", id: "g1" })) as Array<{
@@ -751,7 +642,7 @@ test("startup inside the synthesis window reconstructs the synthesize override",
   const messages = (await f.handle({ type: "get-messages", id: "g1" })) as Array<{
     uuid: string;
   }>;
-  // The loader honors the playlist [u1, a1]; raw getSessionMessages would
+  // The loader honors the preserved uuids [u1, a1]; raw getSessionMessages would
   // report [u1, a1, u2, a2] (a2 is the latest dangling leaf).
   assert.deepEqual(
     messages.map((message) => message.uuid),
@@ -759,8 +650,9 @@ test("startup inside the synthesis window reconstructs the synthesize override",
   );
 });
 
-// On a tail playlist the raw SDK picks the RIGHT chain even inside the
-// window, so its output is the ground truth for the synthesized shape
+// On a boundary preserving the file's tail the raw SDK picks the RIGHT chain
+// even inside the window, so its output is the ground truth for the
+// synthesized shape
 // (message payloads, session_id, parent_tool_use_id, timestamp — compared on
 // the wire, i.e. after JSON serialization).
 test("synthesized get-messages matches raw getSessionMessages field-for-field", async () => {
@@ -811,7 +703,7 @@ test("startup after the window closed passes get-messages through", async () => 
   );
 });
 
-test("rewind to a boundary playlist member resurrects the summarized region", async () => {
+test("rewind to a member of a boundary's preserved uuids resurrects the summarized region", async () => {
   const f = fixture();
   const sid = f.sessionId;
   const u1 = userEntry(null, sid);

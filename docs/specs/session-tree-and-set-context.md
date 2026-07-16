@@ -17,7 +17,7 @@ sees. This spec adds three RPC commands to the daemon socket and matching
 - `get-tree` — the session as a forest with boundaries resolved.
 - `set-context` — reshape the effective context and restart the `Query` so it
   takes effect. Two modes: **boundary mode** (append a boundary + optional
-  summary; arbitrary uuid playlists) and **rewind mode** (`--rewind-to
+  summary; arbitrary uuid lists) and **rewind mode** (`--rewind-to
   <uuid>`: the final entry of any assistant API message in the session file;
   context becomes what it was when that message first appeared). Rewind mode
   is a semantic, not a mechanism: it
@@ -78,9 +78,9 @@ sees. This spec adds three RPC commands to the daemon socket and matching
    whole-API-message granularity: `getSessionMessages` includes same-message
    sibling entries; see FINDINGS.md P8). The next turn's user entry
    parents onto the last uuid of the list (up_to/no-summary) or the synthetic
-   assistant (from-shape). This exactness is promised only for playlists that
+   assistant (from-shape). This exactness is promised only for uuid lists that
    keep whole API messages together and form a valid sequence (the documented
-   authoring rule); strange playlists (orphan tool blocks, attachment uuids)
+   authoring rule); strange uuid lists (orphan tool blocks, attachment uuids)
    are silently normalized by the CLI at inference time (FINDINGS.md failure
    modes). The post-restart verification is structural — the loader's relink
    recomputed over the re-read file — so it catches torn or failed appends
@@ -90,7 +90,7 @@ sees. This spec adds three RPC commands to the daemon socket and matching
    Mechanism note (discovered at implementation time): `getSessionMessages`
    alone does NOT deliver this — its chain selection picks the user/assistant
    leaf with the largest file index across all dangling leaves, so for any
-   playlist whose tip predates another leaf in file order (branch switch,
+   uuid list whose tip predates another leaf in file order (branch switch,
    resurrecting a summarized region) it reports the wrong chain until the
    first post-boundary transcript write lands (verified: after that write it
    agrees with the loader again). During that window — boundary appended, no
@@ -129,11 +129,12 @@ sees. This spec adds three RPC commands to the daemon socket and matching
    the target don't exist yet from the target's point of view. (Equivalently:
    what the loader would produce for the file truncated just after the
    target.) So rewinding to a post-compaction message keeps its summary;
-   rewinding to a boundary playlist member follows raw ancestry — the
-   summarized region comes back. When the desired chain is a truncation of
-   the current active chain, nothing is written to disk (`resumeSessionAt`)
-   and the daemon records the superseded tail (the uuids of the active-chain
-   entries after the target); `get-messages` filters those out of its output.
+   rewinding to a member of a boundary's preserved uuids follows raw
+   ancestry — the summarized region comes back. When the desired chain is a
+   truncation of the current active chain, nothing is written to disk
+   (`resumeSessionAt`) and the daemon records the superseded tail (the uuids
+   of the active-chain entries after the target); `get-messages` filters
+   those out of its output.
    No clearing event is needed: once the next turn writes a new leaf, the
    active chain no longer contains the superseded entries and the filter is
    inert. Filter lifecycle: installed/replaced only when a no-write restart
@@ -171,10 +172,11 @@ Rewind semantics: "rewind the context to what it was when this message FIRST
 appeared" — run loader semantics on the file as it stood when the target was
 written, i.e. truncated just after the target. This is the only
 well-specified reading: the alternative "truncate the effective chain, keeping
-boundary effects" breaks down once a uuid sits on multiple boundary playlists
-(which boundary's view wins?), whereas file position is unique. Callers who
-want a specific boundary's view of a message address it through that boundary
-(boundary mode with a playlist prefix, P9 b).
+boundary effects" breaks down once a uuid sits on multiple boundaries'
+preserved uuids (which boundary's view wins?), whereas file position is
+unique. Callers who want a specific boundary's view of a message address it
+through that boundary (boundary mode with a prefix of its preserved uuids,
+P9 b).
 
 Computing the desired chain needs no tree: find the last `compact_boundary`
 entry that precedes the target in file order. If none, the chain is the raw
@@ -184,13 +186,13 @@ parent map and walk from the target taking mapped parents first, raw
 
 - `uuids[i] → uuids[i-1]`; `uuids[0] → anchorUuid`.
 - From-shape only (`anchorUuid` = the boundary's own uuid, summary present,
-  playlist non-empty): the summary's effective parent is `uuids[last]` — the
-  raw chain there runs summary → boundary and would skip the playlist
+  `uuids` non-empty): the summary's effective parent is `uuids[last]` — the
+  raw chain there runs summary → boundary and would skip the preserved uuids
   entirely, but the loader's from-shape context is `[uuids…, summary]`
   (p2.b: prefix first, summary after). Post-boundary writes chain through
   the synthetic "No response requested." assistant → summary, so this rule
-  is what carries a from-shape walk across the playlist. With an empty
-  playlist the summary keeps its raw parent (the boundary) — the intended
+  is what carries a from-shape walk across the preserved uuids. With empty
+  `uuids` the summary keeps its raw parent (the boundary) — the intended
   summary-only context.
 - The boundary entry itself is transparent: a system entry, not part of the
   message context; reaching it (or an entry with no parent) ends the walk.
@@ -203,9 +205,10 @@ preceding boundary applies (stacked boundaries: last wins entirely, P3 m5).
 
 The SDK option that exists, `resumeSessionAt`, implements something narrower —
 truncation of the current EFFECTIVE chain — and disagrees with these semantics
-on boundary playlist members: it keeps the boundary's summary and seals the
-summarized region there (P9 c), while our semantics never cross a boundary
-that the target predates. (`upToMessageId` is a `forkSession()` param minting a
+on members of a boundary's preserved uuids: it keeps the boundary's summary
+and seals the summarized region there (P9 c), while our semantics never
+cross a boundary that the target predates. (`upToMessageId` is a
+`forkSession()` param minting a
 NEW session id with fresh uuids — wrong tool for a daemon that keeps one
 session.) So the handler computes the desired chain itself and dispatches:
 
@@ -213,8 +216,9 @@ session.) So the handler computes the desired chain itself and dispatches:
   `resumeSessionAt`, no file mutation (P2 d), plus the pending-rewind
   tracking of criterion 8.
 - Otherwise (abandoned branch — unreachable by `resumeSessionAt`, P2 e;
-  boundary playlist member — reachable but with the WRONG semantics, P9 c) →
-  append a no-summary boundary listing the computed chain (P9 a, P2 j). A
+  member of a boundary's preserved uuids — reachable but with the WRONG
+  semantics, P9 c) → append a no-summary boundary listing the computed chain
+  (P9 a, P2 j). A
   leaf-marker is not an alternative: markers pointing into a sealed region are
   ignored (P2 k).
 
@@ -222,11 +226,11 @@ How a future TUI `/tree` maps a selected `TreeNode` onto these modes (recorded
 here so the design survives; TUI itself is a non-goal):
 - Target reached `viaBoundary` → boundary mode with `uuids` = a prefix of the
   chain the creating boundary spelled out (including its summary entry as a
-  playlist member — verified, P9 b).
+  preserved-uuids member — verified, P9 b).
 - Target not `viaBoundary` → rewind mode: first-appeared semantics. (The
-  duplicate-node design earns its keep here: a playlist member's raw node
-  means "resurrect my raw history", its viaBoundary node means "keep the
-  compaction".)
+  duplicate-node design earns its keep here: a preserved-uuids member's raw
+  node means "resurrect my raw history", its viaBoundary node means "keep
+  the compaction".)
 - Target on an abandoned raw branch → boundary mode listing that branch's
   chain (P2 j).
 - Target is a user message → rewind/navigate to the immediately previous
@@ -423,7 +427,7 @@ export function buildTree(entries: SessionEntry[]): SessionTree;
 // Verification: boundary mode re-reads the file and asserts that
 // effectiveChain over it matches (summary first when given, tail == uuids) —
 // NOT via getSessionMessages, whose latest-leaf tip selection is wrong for
-// branch-switch playlists (criterion 3 mechanism note). Weaker as an
+// branch-switch uuid lists (criterion 3 mechanism note). Weaker as an
 // independent oracle (same model that computed the append), but the
 // wire-level truth was derisked (P9) and the check still catches torn or
 // failed appends. This checks the loader's view of the FILE, not the live
@@ -463,7 +467,7 @@ export function buildTree(entries: SessionEntry[]): SessionTree;
   (native file order, p0b/p0c captures). A crash can still tear the tail of a
   single write; the residual case — complete boundary, torn summary — leaves
   an anchorUuid pointing at a missing entry. Untested, but the analogous
-  missing-playlist-uuid case fails closed (relink silently skipped, P1 d).
+  missing-preserved-uuid case fails closed (relink silently skipped, P1 d).
   Accepted risk; no repair protocol in v1.
 - Unknown uuid in `uuids` → error before any file mutation (criterion 4).
   (A missing/duplicate uuid that reached the loader would silently produce a
@@ -507,10 +511,10 @@ export function buildTree(entries: SessionEntry[]): SessionTree;
   `docs/derisk/compact-boundary-injection/p9-navigation.mjs`)**: (a) a
   boundary with NO summary entry and `anchorUuid` = the boundary's own uuid
   relinks correctly even as the last entry in the file; (b) a boundary whose
-  playlist is a prefix of an earlier boundary's chain — including that
+  preserved uuids are a prefix of an earlier boundary's chain — including that
   boundary's summary entry and entries it summarized away — is honored
-  exactly; (c) `resumeSessionAt` onto a playlist member of a relinked chain
-  preserves the boundary's effect and writes nothing to the file.
+  exactly; (c) `resumeSessionAt` onto a preserved-uuids member of a relinked
+  chain preserves the boundary's effect and writes nothing to the file.
 - Boundary entry construction mirrors the known-working recipe
   (FINDINGS.md): `type:"system"`, `subtype:"compact_boundary"`,
   `parentUuid:null`, `logicalParentUuid` = current active leaf,
@@ -539,7 +543,7 @@ export function buildTree(entries: SessionEntry[]): SessionTree;
   mode) and exits the daemon via the normal stream-death path, with revival
   reconstructing from the file.
 - Post-restart verification: ~~use `getSessionMessages` (cross-validated
-  against the wire, P8)~~ — P8's fixtures all had active-chain-tail playlists
+  against the wire, P8)~~ — P8's fixtures all had active-chain-tail uuid lists
   and missed the latest-leaf tip selection (sdk.mjs `W6`); verification now
   recomputes `effectiveChain` over the re-read file instead. Divergence
   returns an error but the file mutation is not rolled back (subsequent
@@ -602,11 +606,12 @@ export function buildTree(entries: SessionEntry[]): SessionTree;
   any assistant uuid in the file with raw-ancestry semantics ("as if the SDK
   let you resume at any uuid"); `resumeSessionAt` is only the fast path when
   the desired chain truncates the active chain, since P9 c shows it gives
-  effective-chain (boundary-kept) semantics on playlist members — the
+  effective-chain (boundary-kept) semantics on preserved-uuids members — the
   ancestry-walk semantics there require a no-summary boundary instead.
   Confirmed by user: raw-ancestry is the intended reading ("rewind to what the
   context was when this message first appeared"); the boundary-kept variant
-  isn't well-specified when a uuid is on multiple playlists.
+  isn't well-specified when a uuid is on multiple boundaries' preserved
+  uuids.
 - 2026-07-14: Fresh-context reviewer round 1 (agent 3a42a99f). Confirmed
   blocking findings, all resolved with user decisions: (1) no-write rewind vs
   get-messages contradiction → daemon tracks pendingRewindTo and truncates
@@ -622,15 +627,16 @@ export function buildTree(entries: SessionEntry[]): SessionTree;
   substructure moved to a follow-up spec; (7) uuid-less entries get no tree
   node; (8) boundary+summary in one write(), boundary first (native order per
   p0b/p0c captures), residual torn-tail risk accepted; (9) criterion 3
-  scoped to well-formed playlists; (10) parseSetContextRequest runtime
+  scoped to well-formed uuid lists; (10) parseSetContextRequest runtime
   validation. Pushed back on: crash-repair protocol (residual window is one
-  syscall) and exact-context for strange playlists (non-goal + verification
+  syscall) and exact-context for strange uuid lists (non-goal + verification
   error suffice).
 - 2026-07-14: Reviewer round 2 — five remaining blockers, all accepted and
   fixed: (1) from-shape counterexample — the relink map alone skips the
-  playlist because from-shape post-boundary writes chain synthetic assistant
-  → summary → boundary; fixed by extending the map (summary's effective
-  parent = uuids[last] in from-shape; boundary transparent), matching p2.b's
+  preserved uuids because from-shape post-boundary writes chain synthetic
+  assistant → summary → boundary; fixed by extending the map (summary's
+  effective parent = uuids[last] in from-shape; boundary transparent),
+  matching p2.b's
   observed [uuids…, summary] order; (2) pendingRewindTo "cleared on next
   transcript write" was not observably implementable — replaced with
   recording the superseded tail uuids and filtering them from get-messages
@@ -642,13 +648,13 @@ export function buildTree(entries: SessionEntry[]): SessionTree;
   state defined for restart failure; contextChanged broadcast iff the file
   was mutated, even when the restart then fails.
 - 2026-07-14: Reviewer round 3 — conditional approval on three small edits,
-  all applied: empty-playlist from-shape keeps the summary's raw parent;
+  all applied: empty-uuids from-shape keeps the summary's raw parent;
   superseded-tail filter lifecycle made explicit (install only on successful
   no-write restart; clear on a later durable boundary append; failed
   non-mutating requests leave it unchanged); problem statement updated to the
   final-assistant-entry restriction. Reviewer confirmed the effective-parent
   map equivalent to loader-on-truncated-file across both shapes, no-summary,
-  stacked boundaries, and playlists containing an earlier boundary's summary.
+  stacked boundaries, and uuid lists containing an earlier boundary's summary.
 - [x] Reviewer final sign-off: approved 2026-07-14 after one wording fix
   (daemon sketch filter-lifecycle reference aligned with criterion 8).
   Reviewer agent 3a42a99f, archived (revivable by prompting).
@@ -681,19 +687,20 @@ export function buildTree(entries: SessionEntry[]): SessionTree;
   matter. Flagged for review.
 - 2026-07-15: **SPEC DEVIATION — verification oracle replaced.** Discovered
   during testing: the SDK's `getSessionMessages` does NOT model the loader for
-  branch-switch playlists. Its chain selection (sdk.mjs `W6`) applies every
+  branch-switch uuid lists. Its chain selection (sdk.mjs `W6`) applies every
   boundary's relink, then picks the tip as the user/assistant LEAF WITH THE
-  LARGEST FILE INDEX across all dangling leaves — so any playlist whose tip
-  predates another leaf in file order (abandoned-branch rewinds, resurrecting
-  a summarized region) yields the WRONG chain, while the CLI loader honors
-  those playlists (P9 a/b, wire-verified). P8 missed this because its
-  fixtures' playlists were all tails of the active chain. Consequences:
+  LARGEST FILE INDEX across all dangling leaves — so any preserved-uuids list
+  whose tip predates another leaf in file order (abandoned-branch rewinds,
+  resurrecting a summarized region) yields the WRONG chain, while the CLI
+  loader honors those boundaries (P9 a/b, wire-verified). P8 missed this
+  because its fixtures' uuid lists were all tails of the active chain.
+  Consequences:
   (1) post-restart verification now recomputes `effectiveChain` over the
   re-read file instead of calling getSessionMessages — weaker as an
   independent oracle (same model that computed the append), but the wire-level
   truth was derisked and the check still catches torn/failed appends;
   (2) criterion 3's "get-messages returns exactly the new effective context"
-  does NOT hold for branch-switch playlists — get-messages still uses
+  does NOT hold for branch-switch uuid lists — get-messages still uses
   getSessionMessages and reports the raw-latest-leaf chain there. Pinned by
   the "KNOWN DIVERGENCE" test in request-handlers.test.ts (fails when an SDK
   upgrade fixes it). Open question resolved below (2026-07-15, get-messages
@@ -732,8 +739,8 @@ export function buildTree(entries: SessionEntry[]): SessionTree;
   lazy override clearing (every appended user/assistant entry is echoed on
   the stream with its uuid — the same mechanism deliveredMessages
   confirmation already relies on); (e) added a field-for-field parity test:
-  synthesized get-messages vs raw getSessionMessages on a tail playlist
-  (where the raw SDK picks the right chain), compared after JSON
+  synthesized get-messages vs raw getSessionMessages on an active-chain-tail
+  uuid list (where the raw SDK picks the right chain), compared after JSON
   serialization; (f) segment-only boundaries (`preservedSegment`, older
   CLIs) documented as unmodeled by effectiveChain; (g) the CLI now runs
   `parseSetContextRequest` client-side, so malformed set-context invocations
@@ -772,3 +779,146 @@ export function buildTree(entries: SessionEntry[]): SessionTree;
   `getSessionMessages` behavior directly and asserts that `get-messages`
   synthesizes the loader chain; new tests cover window close on the next
   transcript write and startup reconstruction (open and closed windows).
+- 2026-07-16: **User review round (commit a103a77) — decisions and plan.**
+  All decisions below are user-approved; implementation is IN PROGRESS in
+  the numbered units. Remove each `TDC:` comment as its item lands.
+  - **RwGate** (extracted to `src/core/daemon/rw-gate.ts`): general-purpose
+    readers-writer lock (no suitable maintained library: async-mutex has no
+    RW mode; RW packages are unmaintained and all queue rather than throw).
+    Methods `tryShared`/`awaitShared`/`tryExclusive`/`awaitExclusive` —
+    try* are sync and throw instead of waiting; awaitExclusive queues behind
+    readers AND writers; writer-preferring (a pending writer blocks new
+    shared acquisitions so the drain terminates). The "concurrent
+    set-context errors instead of queueing" contract is daemon policy, NOT
+    lock policy: a `contextChangeInProgress` flag in request-handlers,
+    checked-and-set synchronously (also checked by `acquireQuery` so
+    Query-bound requests get the "context change in progress" message —
+    the gate's own refusal is unreachable while the flag is honest).
+    `tryExclusive` has no production caller (user asked for completeness).
+  - **queryUnavailable → queryAvailable** (rename, done).
+  - **File split**: `src/core/effective-chain.ts` (loader-relink semantics:
+    effectiveChain + preservedMessagesOf/summaryOf/effectiveParentMap +
+    segment-only-boundary note; summaryOf exported for get-messages.ts);
+    `src/core/daemon/get-messages.ts` (GetMessagesOverride,
+    synthesizeWindowChain, synthesizeMessages, startupOverride — now takes
+    `(startupEntries: SessionEntry[] | undefined, installedAtLeafUuid)`
+    instead of deps, no file read of its own);
+    `src/core/daemon/set-context.ts` (createSetContextHandler(deps, shared)
+    where shared = { gate: RwGate; installOverride(o): void;
+    setQueryAvailable(b): void }; the flag stays in request-handlers,
+    wrapped around the handler call at the dispatch site; type-only import
+    of RequestHandlerDeps is acceptable).
+    `readEntriesAfterStreamFlush(filePath, leafUuid)` added to
+    session-file.ts (replaces readCurrentEntries; leafUuid explicit per
+    user).
+  - **Naming/comment sweep**: filterTail `uuids` → `droppedUuids`; the term
+    "playlist" is banned — say "preserved uuids" / "the boundary's uuids"
+    (comments AND the sdk-commands set-context help text); probe citations
+    keep their ids but each file using shorthands gets one header line
+    naming docs/derisk/compact-boundary-injection/FINDINGS.md and inline
+    refs read "(P9 a/b; see file comment)"; drop "(P3 m4)" from the
+    duplicate-uuids ERROR MESSAGE (runtime string), cite in a comment;
+    same treatment for p0b/p0c in session-file.ts and build-tree.ts.
+    TDC answers needing no code change: byUuid Map stores references (no
+    idxByUuid needed — delete the comment); summary-only set-context is
+    deliberate (empty uuids + summary = summary-only context — add a
+    one-line comment at the sdk-commands usage check). build-tree.ts
+    "TODO:" (relinked-chain rendering) stays deferred.
+  - **AgentState** gains `lastUsage?: NonNullableUsage` (folded from each
+    assistant sdkMessage's message.usage — NOT result.usage; last assistant
+    usage is the context-size-relevant number) and
+    `claudeCodeVersion?: string` (folded from init's claude_code_version;
+    note daemon.ts already persists record.claudeCodeVersion).
+  - **File-derived seeding**: `seedFromEntries(entries)` in
+    effective-chain.ts returns { lastUsage?, claudeCodeVersion?, model?,
+    permissionMode?, lastTranscriptUuid? }. Sources: lastUsage + model from
+    the last assistant entry ON THE EFFECTIVE CHAIN (message.usage /
+    message.model; chain-based, not file-order); claudeCodeVersion from the
+    last entry's version stamp; permissionMode from the last
+    `{type: "permission-mode"}` entry in FILE order (those entries have no
+    uuid/parentUuid — verified against real session files);
+    lastTranscriptUuid = last non-meta/non-sidechain user/assistant entry
+    on the effective chain (an abandoned-branch tip would give subscribers
+    an attach boundary absent from their history replay). Seeding
+    lastTranscriptUuid is behavior-compatible (flush-wait resolves
+    immediately; startupOverride pins the seeded value) but the
+    agent-state.ts "unset when no turn has run this daemon lifetime"
+    comment must be updated.
+  - **Seed precedence for model/permissionMode** — report what the NEXT
+    query will use: PersistedOptions win; else the settings tier
+    (`settingsSeed(persisted, cwd)` in options.ts: resolveSettings({cwd,
+    settingSources, managedSettings from persisted}) → effective.model and
+    filterEscalatingDefaultMode(resolved).permissions?.defaultMode); else
+    for model the file tier (best concrete guess at the CLI built-in
+    default), for permissionMode the literal "default" (the CLI's own
+    fallback — the file tier is WRONG for prediction and is dropped).
+    Known fidelity gaps (accepted): ResolveSettingsOptions has no slot for
+    Options.settings (flag tier); policyHelper not executed; settings model
+    may be an alias. Init overwrites everything at the first turn.
+  - **EventHub** constructor takes a full `AgentState` seed and ASSERTS
+    activity === "idle" and empty queuedMessages/deliveredMessages (loud,
+    not silent overwrite — the seed comes from our own pure function).
+    daemon.ts does ONE startup readSessionEntries (when the seeded
+    session's file exists) feeding both the EventHub seed composition
+    ({...INITIAL_AGENT_STATE, cwd, sessionId, ...seedFromEntries(entries),
+    settings/persisted overlays, observedPermissionModes: mode ? [mode] :
+    []}) and a new `RequestHandlerDeps.startupEntries?: SessionEntry[]`
+    (request-handlers passes it to startupOverride; its own read goes
+    away). File-usage nullable fields coerce to 0 for NonNullableUsage.
+  - **buildBoundaryEntries**: new explicit params `version:
+    string | undefined` (fallback: the current "2.1.195" constant) and
+    `preTokens: number`; DROP durationMs and postTokens (not required —
+    made-up values are worse than absent ones). Caller computes preTokens
+    from state.lastUsage as input + cache_creation + cache_read + output,
+    0 when no usage is known.
+  - **Progress at this checkpoint** (tree green: 205/205 tests, check +
+    lint clean; nothing committed): units 1–4 are DONE — everything in this
+    entry is implemented except the final spec-text pass (unit 5).
+    Implementation notes on decisions made in flight:
+    - daemon/set-context.ts exports `createSetContextHandler(deps, shared)`
+      with `shared: SetContextShared = { gate; installOverride;
+      setQueryAvailable }`; the `contextChangeInProgress` flag set/clear
+      lives at the request-handlers dispatch site wrapping the handler call
+      (so a concurrent set-context errors before the handler runs; the
+      handler itself acquires the gate exclusively). Type-only import of
+      RequestHandlerDeps into set-context.ts (no runtime cycle).
+    - request-handlers.ts is dispatch-only now; it takes
+      `RequestHandlerDeps.startupEntries?: SessionEntry[]` (the daemon's
+      one startup read) and passes it to startupOverride — no file read of
+      its own. `preTokensOf(usage)` (input + cache_creation + cache_read +
+      output) lives in set-context.ts next to its only callers.
+    - `foldUsage(usage)` in agent-state.ts coerces the API usage object to
+      NonNullableUsage: the four numeric token counters default to 0;
+      other null fields are DROPPED, not given made-up non-null values
+      (full-fidelity coercion of object/string fields would be lies; the
+      cast is documented on the function). Used by both the fold (every
+      assistant sdkMessage) and seedFromEntries.
+    - The fold sets lastUsage on every assistant message even while
+      compacting; claudeCodeVersion is set at init. Test stub builders in
+      agent-state.test.ts / event-hub.test.ts now supply a default
+      `message.usage` for assistant stubs (the wire type guarantees it).
+    - seedFromEntries lives in effective-chain.ts as approved; it also
+      returns the file-derived permissionMode per the approved signature,
+      but the daemon's seed composition ignores it (persisted > settings >
+      literal "default").
+    - settingsSeed(persisted, cwd) in options.ts forwards
+      persisted.settingSources/managedSettings to resolveSettings and
+      applies filterEscalatingDefaultMode for the mode; fidelity gaps
+      (flag-tier settings, policyHelper, model aliases) documented on it.
+    - EventHub seed is a full AgentState asserted quiescent (throws on
+      non-idle / non-empty queues); daemon.ts composes
+      INITIAL_AGENT_STATE + seedFromEntries(startupEntries) + the
+      model/permissionMode precedence, with sessionId still
+      `record.sessions.at(-1)` (unchanged on initial spawn with --resume).
+    - New tests: rw-gate (4), EventHub seed assertion (1), effectiveChain
+      moved to effective-chain.test.ts (6, self-contained builders) +
+      seedFromEntries (4); session-file tests cover version stamp,
+      preTokens passthrough, and the "2.1.195" fallback. All `TDC:`
+      markers in src/ are resolved and deleted; "playlist" no longer
+      appears in src/.
+  - **Unit 5** (2026-07-16, user-directed): "playlist" swept from this
+    spec's body text too — "preserved uuids" for a boundary's stored list,
+    "uuid list" for a caller-supplied one. The word survives only where it
+    is mentioned AS a word (the naming decision and the ban rule above).
+    Self-review of the full diff done; awaiting Anton's review of all
+    changes. Nothing committed.

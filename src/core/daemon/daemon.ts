@@ -11,7 +11,7 @@
 
 import type { UUID } from "node:crypto";
 import { once } from "node:events";
-import { closeSync, writeSync } from "node:fs";
+import { closeSync, existsSync, writeSync } from "node:fs";
 import { rm } from "node:fs/promises";
 import { homedir } from "node:os";
 import { type Server } from "node:net";
@@ -30,7 +30,9 @@ import {
   requiredStringFlag,
   type InferFlags,
 } from "../generated/cli.ts";
-import { invariantOptions } from "../options.ts";
+import { INITIAL_AGENT_STATE } from "../agent-state.ts";
+import { seedFromEntries } from "../effective-chain.ts";
+import { invariantOptions, settingsSeed } from "../options.ts";
 import {
   agentDirPath,
   daemonLogPath,
@@ -42,7 +44,7 @@ import {
   writeAgentRecord,
   type AgentRecord,
 } from "../registry.ts";
-import { sessionFilePath } from "../session-file.ts";
+import { readSessionEntries, sessionFilePath } from "../session-file.ts";
 import { type CommandContext } from "../generated/targets.ts";
 import { EventHub } from "./event-hub.ts";
 import { createRequestHandler } from "./request-handlers.ts";
@@ -205,10 +207,38 @@ async function daemon(this: CommandContext, flags: DaemonFlags): Promise<void> {
   // the full event stream is observed via sdk.sock subscribers.
   // Observable state (agent-state.ts) is folded by the hub; it is separate
   // from the persisted record — nothing here writes back to agent.json.
+  //
+  // One startup session-file read serves both the AgentState seed below and
+  // the request handler's override reconstruction (startupEntries).
+  const seedSessionId = record.sessions.at(-1)?.sessionId;
+  const seedSessionFile =
+    seedSessionId !== undefined
+      ? sessionFilePath(configDir, record.cwd, seedSessionId as UUID)
+      : undefined;
+  const startupEntries =
+    seedSessionFile !== undefined && existsSync(seedSessionFile)
+      ? readSessionEntries(seedSessionFile)
+      : undefined;
+  const fileSeed =
+    startupEntries !== undefined ? seedFromEntries(startupEntries) : {};
+  const settings = await settingsSeed(record.persistedOptions, record.cwd);
   const events = new EventHub({
     seed: {
+      ...INITIAL_AGENT_STATE,
+      ...fileSeed,
+      // model and permissionMode report what the NEXT query will use:
+      // explicit persisted options win, then the settings cascade. The
+      // file's last assistant is the remaining model evidence, but a
+      // file-derived permissionMode predicts nothing (mode entries record a
+      // past run's choice, not the next run's default), so it falls back to
+      // the literal default.
+      model: record.persistedOptions.model ?? settings.model ?? fileSeed.model,
+      permissionMode:
+        record.persistedOptions.permissionMode ??
+        settings.permissionMode ??
+        "default",
       cwd: record.cwd,
-      sessionId: record.sessions.at(-1)?.sessionId,
+      sessionId: seedSessionId,
     },
     deliver: (message) => turnQueue.push(message),
   });
@@ -325,6 +355,7 @@ async function daemon(this: CommandContext, flags: DaemonFlags): Promise<void> {
     createRequestHandler({
       getQuery: () => claudeQuery,
       events,
+      startupEntries,
       getTurnQueue: () => turnQueue,
       cwd: record.cwd,
       getPersistedOptions: () => record.persistedOptions,

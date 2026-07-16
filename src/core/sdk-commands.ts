@@ -386,7 +386,8 @@ async function setContext(
     uuids.length === 0 &&
     flags.summary === undefined
   ) {
-    // TDC: if only `summary` is provided, should we throw? Doesn't it seem reasonable that either `uuids` or `--rewind-to` is required? Oh, I guess if only summary is provided then it's assumed that `uuids` is passed as empty?
+    // --summary alone is valid: empty uuids + a summary is the deliberate
+    // summary-only context (the boundary preserves nothing).
     throw new UsageError("expected message uuids, --summary, or --rewind-to");
   }
   let request: SetContextRequest;
@@ -663,7 +664,7 @@ export const sdkRoutes = {
   "set-context": commandOneTarget<SetContextFlags, string[]>({
     docs: {
       brief:
-        "reshape the agent's effective context (uuid playlist or --rewind-to)",
+        "reshape the agent's effective context (preserved uuids or --rewind-to)",
     },
     parameters: {
       flags: setContextFlags,

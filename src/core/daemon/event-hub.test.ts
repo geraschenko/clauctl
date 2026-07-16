@@ -4,7 +4,7 @@ import type {
   SDKMessage,
   SDKUserMessage,
 } from "@anthropic-ai/claude-agent-sdk";
-import type { AgentState } from "../agent-state.ts";
+import { INITIAL_AGENT_STATE, type AgentState } from "../agent-state.ts";
 import type { SdkEvent } from "../sdk-socket.ts";
 import { EventHub, type EventHubOptions } from "./event-hub.ts";
 
@@ -21,12 +21,19 @@ function sdkMessage(
   type: "assistant" | "result",
   fields: Record<string, unknown> = {},
 ): SDKMessage {
-  return { type, ...fields } as unknown as SDKMessage;
+  return {
+    type,
+    // The state fold reads message.usage off every assistant message.
+    ...(type === "assistant" && {
+      message: { usage: { input_tokens: 5, output_tokens: 7 } },
+    }),
+    ...fields,
+  } as unknown as SDKMessage;
 }
 
 function hub(options: Partial<EventHubOptions> = {}): EventHub {
   return new EventHub({
-    seed: { cwd: "/work" },
+    seed: { ...INITIAL_AGENT_STATE, cwd: "/work" },
     deliver: () => {},
     ...options,
   });
@@ -37,10 +44,44 @@ function eventsOf(lines: string[]): SdkEvent[] {
 }
 
 test("seeded cwd and sessionId are visible before any event", () => {
-  const seeded = hub({ seed: { cwd: "/work", sessionId: "sess-1" } });
+  const seeded = hub({
+    seed: { ...INITIAL_AGENT_STATE, cwd: "/work", sessionId: "sess-1" },
+  });
   assert.equal(seeded.agentState.cwd, "/work");
   assert.equal(seeded.agentState.sessionId, "sess-1");
   assert.equal(seeded.agentState.activity, "idle");
+});
+
+test("a non-quiescent seed is rejected loudly", () => {
+  assert.throws(
+    () =>
+      hub({
+        seed: { ...INITIAL_AGENT_STATE, cwd: "/work", activity: "working" },
+      }),
+    /quiescent/,
+  );
+  assert.throws(
+    () =>
+      hub({
+        seed: {
+          ...INITIAL_AGENT_STATE,
+          cwd: "/work",
+          queuedMessages: [{ id: 1, message: userMessage() }],
+        },
+      }),
+    /quiescent/,
+  );
+  assert.throws(
+    () =>
+      hub({
+        seed: {
+          ...INITIAL_AGENT_STATE,
+          cwd: "/work",
+          deliveredMessages: [userMessage()],
+        },
+      }),
+    /quiescent/,
+  );
 });
 
 test("a sink observes post-event state (fold before broadcast)", () => {

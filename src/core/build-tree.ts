@@ -1,3 +1,9 @@
+/**
+ * The session tree over raw jsonl entries (get-tree). Probe ids in comments
+ * (e.g. p0b/p0c) cite the experiments in
+ * docs/derisk/compact-boundary-injection/FINDINGS.md.
+ */
+
 import type { UUID } from "node:crypto";
 import type { SessionEntry } from "./session-file.ts";
 
@@ -32,9 +38,9 @@ export interface SessionTree {
  *  the last message before the summarization point (full /compact: the
  *  pre-compaction leaf; up_to: the last entry of the summarized segment;
  *  from: the last preserved entry = parent of the first summarized message —
- *  confirmed in the p0b/p0c captures). Native summary entries parent onto the
- *  boundary in BOTH shapes, so parentUuid-based tree construction stays
- *  correct without special-casing. */
+ *  confirmed in the p0b/p0c captures; see file comment). Native summary
+ *  entries parent onto the boundary in BOTH shapes, so parentUuid-based tree
+ *  construction stays correct without special-casing. */
 export function buildTree(entries: SessionEntry[]): SessionTree {
   const payloads: Record<UUID, SessionEntry> = {};
   const nodes = new Map<UUID, TreeNode>();

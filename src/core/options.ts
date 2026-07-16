@@ -11,11 +11,13 @@
  */
 
 import { readFileSync } from "node:fs";
-import type {
-  McpServerConfig,
-  Options,
-  PermissionMode,
-  ThinkingConfig,
+import {
+  filterEscalatingDefaultMode,
+  resolveSettings,
+  type McpServerConfig,
+  type Options,
+  type PermissionMode,
+  type ThinkingConfig,
 } from "@anthropic-ai/claude-agent-sdk";
 import { oneOf, UsageError } from "./generated/util.ts";
 
@@ -127,6 +129,39 @@ export function invariantOptions(): Pick<
     // TUI renders subagent activity nested under its Task/Agent tool, which
     // only exists on the stream when subagent text is forwarded.
     forwardSubagentText: true,
+  };
+}
+
+/**
+ * The model and permission mode the settings cascade would give a `query()`
+ * run with these persisted options — the settings tier of the AgentState
+ * seed's "what will the NEXT query use" precedence (PersistedOptions win over
+ * this; the daemon applies the fallbacks). Known fidelity gaps, accepted:
+ * the `Options.settings` flag tier has no resolveSettings input; the
+ * policy-tier policyHelper subprocess is not executed; the model may be an
+ * alias the CLI would still resolve.
+ */
+export async function settingsSeed(
+  persisted: PersistedOptions,
+  cwd: string,
+): Promise<{ model?: string; permissionMode?: PermissionMode }> {
+  const resolved = await resolveSettings({
+    cwd,
+    ...(persisted.settingSources !== undefined && {
+      settingSources: persisted.settingSources,
+    }),
+    ...(persisted.managedSettings !== undefined && {
+      managedSettings: persisted.managedSettings,
+    }),
+  });
+  const model = resolved.effective.model;
+  // The CLI's trust filter: escalating defaultModes from repo-committed
+  // files are not honored, so they must not be predicted either.
+  const permissionMode =
+    filterEscalatingDefaultMode(resolved).permissions?.defaultMode;
+  return {
+    ...(model !== undefined && { model }),
+    ...(permissionMode !== undefined && { permissionMode }),
   };
 }
 

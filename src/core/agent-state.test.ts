@@ -12,14 +12,21 @@ import {
 } from "./agent-state.ts";
 import type { SdkEvent } from "./sdk-socket.ts";
 
-// The fold only inspects the fields each step reads, so minimal stubs suffice.
+// The fold only inspects the fields each step reads, so minimal stubs
+// suffice; assistant messages get the usage payload the fold reads.
 function sdkMessage(
   type: "assistant" | "result" | "system" | "stream_event",
   fields: Record<string, unknown> = {},
 ): SdkEvent {
   return {
     kind: "sdkMessage",
-    message: { type, ...fields } as unknown as SDKMessage,
+    message: {
+      type,
+      ...(type === "assistant" && {
+        message: { usage: { input_tokens: 5, output_tokens: 7 } },
+      }),
+      ...fields,
+    } as unknown as SDKMessage,
   };
 }
 

@@ -72,6 +72,8 @@ test("buildBoundaryEntries with summary, anchor summary (up_to shape)", () => {
     summaryText: "the summary",
     anchor: "summary",
     logicalParentUuid: leaf,
+    version: "2.2.7",
+    preTokens: 12345,
   });
   assert.equal(entries.length, 2);
   const [boundary, summary] = entries as [SessionEntry, SessionEntry];
@@ -87,6 +89,11 @@ test("buildBoundaryEntries with summary, anchor summary (up_to shape)", () => {
     preservedMessages: { anchorUuid: UUID; uuids: UUID[]; allUuids: UUID[] };
   };
   assert.equal(metadata.trigger, "manual");
+  assert.equal(boundary.version, "2.2.7");
+  assert.equal(
+    (boundary.compactMetadata as { preTokens: number }).preTokens,
+    12345,
+  );
   assert.equal(metadata.preservedMessages.anchorUuid, result.summaryUuid);
   assert.deepEqual(metadata.preservedMessages.uuids, uuids);
   assert.deepEqual(metadata.preservedMessages.allUuids, uuids);
@@ -105,6 +112,8 @@ test("buildBoundaryEntries with summary, anchor boundary (from shape)", () => {
     summaryText: "kept prefix",
     anchor: "boundary",
     logicalParentUuid: null,
+    version: undefined,
+    preTokens: 0,
   });
   const boundary = entries[0]!;
   const metadata = boundary.compactMetadata as {
@@ -122,8 +131,12 @@ test("buildBoundaryEntries without summary writes only the boundary", () => {
     uuids: [uuid()],
     anchor: "boundary",
     logicalParentUuid: null,
+    version: undefined,
+    preTokens: 0,
   });
   assert.equal(entries.length, 1);
+  // An unobserved version falls back to the recipe's proven constant.
+  assert.equal(entries[0]!.version, "2.1.195");
   assert.equal(result.summaryUuid, undefined);
   const metadata = entries[0]!.compactMetadata as {
     preservedMessages: { anchorUuid: UUID };
@@ -142,6 +155,8 @@ test("appendSessionEntries round-trips through readSessionEntries", () => {
     summaryText: "s",
     anchor: "summary",
     logicalParentUuid: existing.uuid,
+    version: undefined,
+    preTokens: 0,
   });
   appendSessionEntries(file, entries);
   assert.deepEqual(readSessionEntries(file), [existing, ...entries]);

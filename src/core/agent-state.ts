@@ -33,7 +33,9 @@
  */
 
 import type {
+  NonNullableUsage,
   PermissionMode,
+  SDKAssistantMessage,
   SDKUserMessage,
 } from "@anthropic-ai/claude-agent-sdk";
 import type { SdkEvent } from "./sdk-socket.ts";
@@ -55,6 +57,11 @@ export interface AgentState {
   readonly sessionId?: string;
   readonly model?: string;
   readonly permissionMode?: PermissionMode;
+  /** API usage of the last assistant message (per-message, not cumulative);
+   *  its token counters approximate the current context size. */
+  readonly lastUsage?: NonNullableUsage;
+  /** The CLI version announced by the session's claude child. */
+  readonly claudeCodeVersion?: string;
   /** Every mode observed this daemon lifetime, in first-observed order. */
   readonly observedPermissionModes: readonly PermissionMode[];
   readonly cwd?: string;
@@ -72,6 +79,27 @@ export const INITIAL_AGENT_STATE: AgentState = {
   queuedMessages: [],
   deliveredMessages: [],
 };
+
+/**
+ * The API's usage object with nulls removed, as NonNullableUsage promises:
+ * the numeric token counters are defaulted to 0 (arithmetic over them never
+ * sees a hole); other null fields are dropped rather than given made-up
+ * non-null values. Also used to coerce usage objects read back from session
+ * file entries (effective-chain.ts seedFromEntries).
+ */
+export function foldUsage(
+  usage: SDKAssistantMessage["message"]["usage"],
+): NonNullableUsage {
+  return {
+    ...Object.fromEntries(
+      Object.entries(usage).filter(([, value]) => value !== null),
+    ),
+    input_tokens: usage.input_tokens ?? 0,
+    output_tokens: usage.output_tokens ?? 0,
+    cache_creation_input_tokens: usage.cache_creation_input_tokens ?? 0,
+    cache_read_input_tokens: usage.cache_read_input_tokens ?? 0,
+  } as NonNullableUsage;
+}
 
 /** `shouldQuery !== false` — whether this message predicts a future result. */
 function isQuerying(message: SDKUserMessage): boolean {
@@ -191,6 +219,7 @@ export function nextAgentState(state: AgentState, event: SdkEvent): AgentState {
             sessionId: message.session_id,
             model: message.model,
             cwd: message.cwd,
+            claudeCodeVersion: message.claude_code_version,
           },
           message.permissionMode,
         );
@@ -204,11 +233,14 @@ export function nextAgentState(state: AgentState, event: SdkEvent): AgentState {
         // transitions).
         return withObservedPermissionMode(next, message.permissionMode);
       }
-      // Top-level assistant output confirms the turn started. Compacting is
-      // exited by the subsequent `result`, not by assistant output or the
-      // compact-boundary message (which arrives when compaction *finishes*).
-      if (message.type === "assistant" && next.activity !== "compacting") {
-        return { ...next, activity: "working" };
+      if (message.type === "assistant") {
+        next = { ...next, lastUsage: foldUsage(message.message.usage) };
+        // Top-level assistant output confirms the turn started. Compacting is
+        // exited by the subsequent `result`, not by assistant output or the
+        // compact-boundary message (which arrives when compaction *finishes*).
+        if (next.activity !== "compacting") {
+          return { ...next, activity: "working" };
+        }
       }
       if (message.type === "result") {
         // The about-to-run bucket (if any) is still in queuedMessages — its
