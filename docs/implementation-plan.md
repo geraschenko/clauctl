@@ -1,8 +1,10 @@
-# clauctl — Implementation Plan (DRAFT for review)
+# clauctl — Implementation Plan (historical)
 
-> Status: **draft for Anton's review.** This proposes an order of work, surfaces
-> the decisions we need _from Anton_ (we are not deciding these unilaterally), and
-> lists the risks still to be de-risked. Read `docs/overview.md` first.
+> Status: **executed.** All phases are implemented and the risk register is
+> retired; the phase specs under `docs/specs/` (and the derisk findings under
+> `docs/derisk/`) record how each item actually landed. Kept as the decision
+> record — the DECISION rationales below remain authoritative. Read
+> `docs/overview.md` first.
 >
 > Convention: **[DECISION-N]** = a choice we need from Anton before/at that step.
 > **[RISK-N]** = an open risk; **[SPIKE]** = a throwaway experiment to retire a risk.
@@ -173,8 +175,8 @@ lifecycle spec are written to these resolutions. Kept here as the decision recor
 > Superseded in detail by `docs/specs/phase-2-sdk-sock-protocol.md`: the event
 > vocabulary became `userMessageQueued`/`userMessageDequeued` (queue model)
 > instead of `EchoedUserMessage`/`QueueDepthChanged`, there is no late-joiner
-> replay (subscribers start at a StateSnapshot), and raw `tail` landed in
-> Phase 2.
+> replay (subscribers start at a state snapshot — today the `AgentState` of
+> `docs/specs/daemon-architecture.md`), and raw `tail` landed in Phase 2.
 
 > Depends on **[SPIKE → RISK-8]** below: echo placement is undefined until the
 > `--priority`/queue-ordering behavior is known.

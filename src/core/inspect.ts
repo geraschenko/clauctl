@@ -96,7 +96,11 @@ async function list(this: CommandContext, flags: ListFlags): Promise<void> {
     rows.push([
       probe.agentId.slice(0, 8),
       probe.record?.tag ?? "-",
-      probe.status,
+      // tui failure is a running-daemon condition, not an agent status; for
+      // any other status the field is stale daemon state and stays hidden.
+      probe.status === "running" && probe.record?.tuiFailedAt !== undefined
+        ? "running (tui failed)"
+        : probe.status,
       probe.record?.cwd ?? "-",
       probe.record?.createdAt ?? "-",
     ]);
@@ -131,6 +135,9 @@ function formatProbe(probe: AgentProbe): string {
     );
     if (record.claudeCodeVersion !== undefined) {
       lines.push(`claude:   ${record.claudeCodeVersion}`);
+    }
+    if (probe.status === "running" && record.tuiFailedAt !== undefined) {
+      lines.push(`tui:      failed at ${record.tuiFailedAt} (see daemon.log)`);
     }
     const currentSession = record.sessions.at(-1);
     lines.push(`session:  ${currentSession?.sessionId ?? "-"}`);

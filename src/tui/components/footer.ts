@@ -1,7 +1,10 @@
 /**
  * Ours, pi-inspired (pi's footer renders session token/cost/context state
  * that lives in-process; ours reflects what an sdk.sock subscriber can know):
- * assistant activity, queue depth, and the model, on one dim line.
+ * assistant activity, queue depth, mode, model, and session, on one dim line.
+ * Rendered straight from the folded AgentState — display conventions (the
+ * "default" fallback for an unobserved model/mode) live here, not in the
+ * event dispatch.
  */
 
 import {
@@ -9,50 +12,37 @@ import {
   truncateToWidth,
   visibleWidth,
 } from "@earendil-works/pi-tui";
-import type { PermissionMode } from "@anthropic-ai/claude-agent-sdk";
-import type { AssistantState } from "../../core/assistant-state.ts";
+import {
+  INITIAL_AGENT_STATE,
+  type AgentState,
+} from "../../core/agent-state.ts";
 import { theme } from "../theme.ts";
 
 export class FooterComponent implements Component {
-  private assistantState: AssistantState = { activity: "idle", queued: [] };
-  private model?: string;
-  private permissionMode?: PermissionMode;
-  private sessionId?: string;
+  private state: AgentState = INITIAL_AGENT_STATE;
 
-  setAssistantState(state: AssistantState): void {
-    this.assistantState = state;
-  }
-
-  setModel(model: string): void {
-    this.model = model;
-  }
-
-  setPermissionMode(mode: PermissionMode): void {
-    this.permissionMode = mode;
-  }
-
-  setSessionId(sessionId: string): void {
-    this.sessionId = sessionId;
+  setState(state: AgentState): void {
+    this.state = state;
   }
 
   invalidate(): void {}
 
   render(width: number): string[] {
-    const parts: string[] = [this.assistantState.activity];
-    if (this.assistantState.queued.length > 0) {
-      parts.push(`queued: ${this.assistantState.queued.length}`);
+    const parts: string[] = [this.state.activity];
+    if (this.state.queuedMessages.length > 0) {
+      parts.push(`queued: ${this.state.queuedMessages.length}`);
     }
     let left = parts.join(" • ");
 
-    const rightParts: string[] = [];
-    if (this.permissionMode !== undefined) {
-      rightParts.push(this.permissionMode);
-    }
-    if (this.model !== undefined) {
-      rightParts.push(this.model);
-    }
-    if (this.sessionId !== undefined) {
-      rightParts.push(this.sessionId.slice(0, 8));
+    // Unknown model/mode (no init yet, or a pre-extension daemon) display as
+    // "default" — the same convention the shift+tab cycle and set-model with
+    // no model use; the first init corrects both.
+    const rightParts: string[] = [
+      this.state.permissionMode ?? "default",
+      this.state.model ?? "default",
+    ];
+    if (this.state.sessionId !== undefined) {
+      rightParts.push(this.state.sessionId.slice(0, 8));
     }
     const right = rightParts.join(" • ");
 

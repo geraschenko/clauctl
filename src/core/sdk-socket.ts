@@ -15,7 +15,7 @@ import type {
   SDKUserMessage,
   Settings,
 } from "@anthropic-ai/claude-agent-sdk";
-import type { AssistantState } from "./assistant-state.ts";
+import type { AgentState } from "./agent-state.ts";
 
 export const SDK_SOCKET_PROTOCOL = "clauctl-sdk-socket";
 export const SDK_SOCKET_VERSION = 1;
@@ -25,9 +25,9 @@ export type MessageDelivery = "turn" | "steer" | "append";
 /**
  * The augmented event stream (DECISION-6): every SDK message, plus the events
  * only the daemon can know about, serialized so an observer can follow what is
- * happening. This is protocol: the daemon's event bus writes exactly this
- * stream to every subscriber, and the assistant-state tracker folds over the
- * same stream — so daemon state is always reconstructible by an observer.
+ * happening. This is protocol: the daemon's event hub writes exactly this
+ * stream to every subscriber and folds its own state over the same stream
+ * (agent-state.ts) — so daemon state is always reconstructible by an observer.
  *
  * The CLI's queue operations are invisible on the live stream, so the daemon
  * models the queue (queue-model.ts) and synthesizes the queued/dequeued pair:
@@ -109,9 +109,10 @@ export type SdkRequest =
   // Resolves once the assistant is Idle; the polite-stop path (archive) waits
   // on this instead of polling.
   | { type: "wait-idle" }
-  // Response data is a StateSnapshot; every event emitted after it follows as
-  // an SdkEventRecord line until the connection closes. No history replay — a
-  // subscriber starts at "now".
+  // Response data is the daemon's current AgentState; every event emitted
+  // after it follows as an SdkEventRecord line until the connection closes.
+  // No history replay — a subscriber starts at "now" and folds from there
+  // (agent-state.ts).
   | { type: "subscribe" }
   // Response data is SessionMessage[] — the transcript segment since the last
   // compaction, verbatim from getSessionMessages. Reads the transcript file,
@@ -123,57 +124,6 @@ export type SdkRequest =
 /** A pushed stream event on a subscribed connection; no `id`, unlike responses. */
 export interface SdkEventRecord {
   event: SdkEvent;
-}
-
-/**
- * What a subscriber starts from; no history replay.
- *
- * Prompt-visibility invariant: for any snapshot, every accepted turn/append
- * prompt appears in exactly one place — `queuedMessages` (accepted, not yet
- * consumed by the CLI), `deliveredMessages` (consumed, not yet confirmed by
- * a later stream emission), or the transcript at/before
- * `lastTranscriptUuid` (confirmed; a history read covers it). Each
- * transition happens in one synchronous daemon step, so no snapshot can
- * catch a prompt in two places or in none. An attaching observer therefore
- * renders each prompt exactly once: history replay up to the boundary, then
- * `deliveredMessages`, then `queuedMessages` in the pending area —
- * everything past the boundary arrives on the live stream. Background on
- * why the daemon must track this itself: docs/user-message-tracking.md.
- */
-export interface StateSnapshot {
-  assistantState: AssistantState;
-  sessionId?: string;
-  model?: string;
-  permissionMode?: PermissionMode;
-  observedPermissionModes?: PermissionMode[];
-  cwd?: string;
-  /**
-   * Queued-but-undelivered messages (present when non-empty). These live only
-   * in the daemon's queue model — not in the transcript — so the snapshot is
-   * the only way an attaching observer learns their content.
-   */
-  queuedMessages?: { id: number; message: SDKUserMessage }[];
-  /**
-   * Delivered-but-unconfirmed prompts (present when non-empty): dequeued as
-   * turn/append, with no stream emission since to confirm their transcript
-   * entries (the stream never emits prompts themselves; any later
-   * uuid-carrying message confirms everything appended before it). Not in
-   * `queuedMessages` (already dequeued), not covered by a boundary-cut
-   * history read, and their dequeue events pre-date the subscription —
-   * without this field they would be invisible to an attacher until the
-   * next emission (unbounded for an idle-accepted `shouldQuery: false`
-   * append). In dequeue order.
-   */
-  deliveredMessages?: SDKUserMessage[];
-  /**
-   * The attach boundary: uuid of the last user/assistant sdkMessage emitted
-   * this daemon lifetime (absent if none). Transcript entries at/before it
-   * were emitted before this snapshot — the subscriber never saw them;
-   * everything after arrives on the live stream. History replay renders up
-   * to the boundary and no further, making the overlap window render-once
-   * without any dedupe.
-   */
-  lastTranscriptUuid?: string;
 }
 
 export type SdkRequestRecord = SdkRequest & { id: string };
@@ -306,22 +256,25 @@ export class SdkSocketClient {
 
   /**
    * Turn this connection into a subscriber: onEvent fires for every
-   * SdkEventRecord the daemon pushes after the snapshot. Single-use per
-   * client; requests may still be sent on a subscribed connection.
+   * SdkEventRecord the daemon pushes after the returned seed state. A
+   * stateful subscriber folds the events into the seed with `nextAgentState`
+   * — the same fold the daemon runs, so its state always matches the
+   * daemon's. Single-use per client; requests may still be sent on a
+   * subscribed connection.
    *
-   * The daemon writes the snapshot response before any event line, but
-   * response resolution is a microtask while onEvent is called synchronously
-   * from the data handler — so onEvent may fire before the returned promise
-   * settles. Every delivered event is post-snapshot regardless; a caller that
-   * needs strict output ordering (tail) gates on the snapshot itself.
+   * The daemon writes the seed response before any event line, but response
+   * resolution is a microtask while onEvent is called synchronously from the
+   * data handler — so onEvent may fire before the returned promise settles.
+   * Every delivered event is post-seed regardless; a caller that needs
+   * strict output ordering (tail) gates on the seed itself.
    */
-  async subscribe(onEvent: (event: SdkEvent) => void): Promise<StateSnapshot> {
+  async subscribe(onEvent: (event: SdkEvent) => void): Promise<AgentState> {
     if (this.onEvent !== undefined) {
       throw new Error("sdk socket client is already subscribed");
     }
     this.onEvent = onEvent;
     const data = await this.request({ type: "subscribe" });
-    return data as StateSnapshot;
+    return data as AgentState;
   }
 
   /** Resolves when the daemon closes the socket. */
