@@ -87,6 +87,7 @@ export const INITIAL_AGENT_STATE: AgentState = {
  * non-null values. Also used to coerce usage objects read back from session
  * file entries (effective-chain.ts seedFromEntries).
  */
+// TDC: why "fold"? That term makes it seem like this is combining previous state with the `usage` argument, but it's simply converting a usage into a non-nullable usage by filling in 0's for nulls, right?
 export function foldUsage(
   usage: SDKAssistantMessage["message"]["usage"],
 ): NonNullableUsage {
