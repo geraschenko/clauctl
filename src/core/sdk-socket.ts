@@ -6,6 +6,7 @@
  * SdkEvent }`, only on connections that sent `subscribe`).
  */
 
+import type { UUID } from "node:crypto";
 import { connect, type Socket } from "node:net";
 import type { ContentBlockParam } from "@anthropic-ai/sdk/resources";
 import type {
@@ -44,6 +45,12 @@ export type SdkEvent =
   | { kind: "compactSent"; message: SDKUserMessage } // /compact issued while Idle
   | { kind: "interruptSent" }
   | { kind: "controlApplied"; request: SdkControlMutation }
+  // Broadcast after every successful set-context (both modes, including
+  // no-write rewinds), and also when the session file was mutated but the
+  // subsequent Query restart failed — watchers track file truth. Deliberately
+  // NOT an SdkControlMutation: that type is reserved for controls the real
+  // SDK supports, while set-context is a method we wish the SDK had.
+  | { kind: "contextChanged"; request: SetContextRequest }
   | { kind: "sdkMessage"; message: SDKMessage };
 
 export type TurnPriority = "now" | "next" | "later";
@@ -98,6 +105,89 @@ export type SdkControlRead =
       encoding?: "utf-8" | "base64";
     };
 
+/** Exactly one of `uuids` / `rewindTo` selects the mode. */
+export type SetContextRequest =
+  // Boundary mode: append a compact_boundary (+ optional summary) to the
+  // session jsonl and restart the Query so the listed messages become the
+  // effective context.
+  | {
+      type: "set-context";
+      /** Ordered; becomes compactMetadata.preservedMessages.uuids (and allUuids). */
+      uuids: UUID[];
+      /** Omitted → no summary entry is written and anchor is forced to "boundary". */
+      summaryText?: string;
+      /** "summary" (default): summary first, then uuids (up_to shape).
+       *  "boundary": uuids first, then summary (from shape). */
+      anchor?: "summary" | "boundary";
+    }
+  // Rewind mode: the final transcript entry of an assistant API message;
+  // context = what it was when that message first appeared (the loader's view
+  // of the file truncated just after the target). Uses resumeSessionAt when
+  // the desired chain truncates the active chain, a no-summary boundary
+  // otherwise.
+  | { type: "set-context"; rewindTo: UUID };
+
+/** Response data for set-context. boundaryUuid absent when a rewind needed no
+ *  boundary; summaryUuid absent whenever no summary entry was written. */
+export interface SetContextResult {
+  boundaryUuid?: UUID;
+  summaryUuid?: UUID;
+}
+
+const UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function assertUuid(value: unknown, label: string): UUID {
+  if (typeof value !== "string" || !UUID_PATTERN.test(value)) {
+    throw new Error(`${label} must be a uuid, got ${JSON.stringify(value)}`);
+  }
+  return value as UUID;
+}
+
+/** The socket casts untrusted JSON, so the one destructive command is parsed
+ *  explicitly before any teardown. Throws with a descriptive message on:
+ *  both or neither of uuids/rewindTo, non-array or non-uuid-string uuids,
+ *  unknown anchor, non-string or empty summaryText. */
+export function parseSetContextRequest(
+  raw: Record<string, unknown>,
+): SetContextRequest {
+  const { uuids, rewindTo, summaryText, anchor } = raw;
+  if (rewindTo !== undefined) {
+    if (uuids !== undefined || summaryText !== undefined || anchor !== undefined) {
+      throw new Error(
+        "set-context: rewindTo is mutually exclusive with uuids/summaryText/anchor",
+      );
+    }
+    return {
+      type: "set-context",
+      rewindTo: assertUuid(rewindTo, "rewindTo"),
+    };
+  }
+  if (uuids === undefined) {
+    throw new Error("set-context: exactly one of uuids/rewindTo is required");
+  }
+  if (!Array.isArray(uuids)) {
+    throw new Error("set-context: uuids must be an array");
+  }
+  const parsedUuids = uuids.map((uuid) => assertUuid(uuid, "uuids entry"));
+  if (summaryText !== undefined) {
+    if (typeof summaryText !== "string" || summaryText === "") {
+      throw new Error("set-context: summaryText must be a non-empty string");
+    }
+  }
+  if (anchor !== undefined && anchor !== "summary" && anchor !== "boundary") {
+    throw new Error(
+      `set-context: anchor must be "summary" or "boundary", got ${JSON.stringify(anchor)}`,
+    );
+  }
+  return {
+    type: "set-context",
+    uuids: parsedUuids,
+    ...(summaryText !== undefined && { summaryText }),
+    ...(anchor !== undefined && { anchor }),
+  };
+}
+
 export type SdkRequest =
   | {
       type: "query";
@@ -118,6 +208,13 @@ export type SdkRequest =
   // compaction, verbatim from getSessionMessages. Reads the transcript file,
   // not the Query, so it is not an SdkControlRead.
   | { type: "get-messages" }
+  // Response data: SessionEntry[] — every jsonl line of the current session,
+  // verbatim.
+  | { type: "get-entries" }
+  // Response data: SessionTree — the session as a forest.
+  | { type: "get-tree" }
+  // Response data: SetContextResult.
+  | SetContextRequest
   | SdkControlMutation
   | SdkControlRead;
 

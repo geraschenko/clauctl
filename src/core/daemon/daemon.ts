@@ -9,6 +9,7 @@
  * stream read loop stays (see its section comment).
  */
 
+import type { UUID } from "node:crypto";
 import { once } from "node:events";
 import { closeSync, writeSync } from "node:fs";
 import { rm } from "node:fs/promises";
@@ -41,6 +42,7 @@ import {
   writeAgentRecord,
   type AgentRecord,
 } from "../registry.ts";
+import { sessionFilePath } from "../session-file.ts";
 import { type CommandContext } from "../generated/targets.ts";
 import { EventHub } from "./event-hub.ts";
 import { createRequestHandler } from "./request-handlers.ts";
@@ -68,18 +70,6 @@ function signalReady(
   } catch {
     // Spawner already gone; the daemon runs on regardless.
   }
-}
-
-/**
- * Where claude persists the session transcript: config dir + the project key
- * (cwd with every non-alphanumeric character replaced by '-'). Recorded in
- * the registry so the transcript is findable on disk; clauctl itself never
- * reads it back.
- */
-function sessionFilePath(cwd: string, sessionId: string): string {
-  const configDir = process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), ".claude");
-  const projectKey = cwd.replace(/[^A-Za-z0-9]/g, "-");
-  return join(configDir, "projects", projectKey, `${sessionId}.jsonl`);
 }
 
 /** `Options.env` replaces the subprocess env entirely, so rebuild it fully. */
@@ -178,16 +168,32 @@ async function daemon(this: CommandContext, flags: DaemonFlags): Promise<void> {
     rm(ttySocketPath(agentDir), { force: true }),
   ]);
 
-  const options: Options = {
+  // The transcript lives where the CLI child looks for it: CLAUDE_CONFIG_DIR
+  // from the child's env (persisted env can override ours), else ~/.claude.
+  const configDir =
+    childEnv(record.persistedOptions.env, agentId).CLAUDE_CONFIG_DIR ??
+    join(homedir(), ".claude");
+
+  const buildOptions = (
+    resume: string | undefined,
+    resumeSessionAt?: string,
+  ): Options => ({
     ...record.persistedOptions,
     ...invariantOptions(),
     cwd: record.cwd,
     env: childEnv(record.persistedOptions.env, agentId),
-    ...(resumeSessionId !== undefined && { resume: resumeSessionId }),
-  };
+    ...(resume !== undefined && { resume }),
+    ...(resumeSessionAt !== undefined && { resumeSessionAt }),
+  });
 
-  const turnQueue = new TurnQueue();
-  const claudeQuery: Query = query({ prompt: turnQueue, options });
+  // The Query and its TurnQueue are replaced by set-context (restartQuery
+  // below), so both are mutable slots; closures over them always see the
+  // current instance.
+  let turnQueue = new TurnQueue();
+  let claudeQuery: Query = query({
+    prompt: turnQueue,
+    options: buildOptions(resumeSessionId),
+  });
 
   await writeAgentRecord(record);
   // Unconditional delete after the first successful agent.json write: on
@@ -207,18 +213,129 @@ async function daemon(this: CommandContext, flags: DaemonFlags): Promise<void> {
     deliver: (message) => turnQueue.push(message),
   });
 
+  // --- stream reader ---------------------------------------------------------
+  // What remains of the reader is record bookkeeping plus a trivial loop, and
+  // it stays here deliberately — it is the record owner's code, not a module
+  // of its own. State tracking lives in the hub's fold (agent-state.ts).
+  const handleMessage = (message: SDKMessage): void => {
+    // Record bookkeeping before the fold: by the time the init event reaches
+    // any observer, the record (and its queued agent.json write) already
+    // reflects the new session.
+    if (message.type === "system" && message.subtype === "init") {
+      handleSessionInit(message);
+    }
+    events.observeSdkMessage(message);
+  };
+
+  const handleSessionInit = (
+    message: SDKMessage & { type: "system"; subtype: "init" },
+  ): void => {
+    record.claudeCodeVersion = message.claude_code_version;
+    const currentSessionId = record.sessions.at(-1)?.sessionId;
+    // An init fires every turn; a rollover is an init whose session_id
+    // *differs*. The history is duplicate-free: re-announcing a known
+    // session moves it to the end (most recent).
+    if (message.session_id !== currentSessionId) {
+      const previousIndex = record.sessions.findIndex(
+        (s) => s.sessionId === message.session_id,
+      );
+      if (previousIndex !== -1) {
+        record.sessions.splice(previousIndex, 1);
+      }
+      record.sessions.push({
+        sessionId: message.session_id,
+        sessionFile: sessionFilePath(
+          configDir,
+          record.cwd,
+          message.session_id as UUID,
+        ),
+      });
+      log(`session: ${message.session_id}`);
+    }
+    queueRecordWrite();
+  };
+
+  const runReader = (q: Query): Promise<void> =>
+    (async () => {
+      for await (const message of q) {
+        handleMessage(message);
+      }
+    })();
+
+  // set-context replaces the Query; the old reader's intentional completion
+  // (tearingDown) is part of that replacement, not a daemon shutdown.
+  // daemonStreamDone settles only when a reader ends on its own.
+  let tearingDown = false;
+  let resolveStreamDone!: () => void;
+  let rejectStreamDone!: (error: unknown) => void;
+  const daemonStreamDone = new Promise<void>((resolve, reject) => {
+    resolveStreamDone = resolve;
+    rejectStreamDone = reject;
+  });
+  // Mark handled: the failure paths below exit without awaiting it.
+  void daemonStreamDone.catch(() => undefined);
+  const watchReader = (done: Promise<void>): void => {
+    done.then(
+      () => {
+        if (!tearingDown) {
+          resolveStreamDone();
+        }
+      },
+      (error: unknown) => {
+        if (!tearingDown) {
+          rejectStreamDone(error);
+        }
+      },
+    );
+  };
+
+  let readerDone = runReader(claudeQuery);
+  watchReader(readerDone);
+
+  const teardownQuery = async (): Promise<void> => {
+    tearingDown = true;
+    turnQueue.close();
+    // The stream ends once the child is gone (the SDK's cleanup awaits child
+    // exit); an errored stream still means the old child is done.
+    await readerDone.catch(() => undefined);
+  };
+
+  // Rejects only on synchronous construction failure: streaming-input mode
+  // has no readiness signal to await (init fires on the first turn — see the
+  // ready barrier below), so an async child-startup failure surfaces as a
+  // reader error → daemonStreamDone rejection → daemon exit, the same path
+  // as any other stream death; the handler's query-unavailable state covers
+  // only the synchronous case, and revival reconstructs the rest.
+  const restartQuery = async (
+    resumeSessionId: string,
+    resumeSessionAt?: string,
+  ): Promise<void> => {
+    turnQueue = new TurnQueue();
+    claudeQuery = query({
+      prompt: turnQueue,
+      options: buildOptions(resumeSessionId, resumeSessionAt),
+    });
+    readerDone = runReader(claudeQuery);
+    watchReader(readerDone);
+    tearingDown = false;
+  };
+
   const sdkServer: Server = startSdkServer(
     sdkSocketPath(agentDir),
     createRequestHandler({
-      claudeQuery,
+      getQuery: () => claudeQuery,
       events,
-      turnQueue,
+      getTurnQueue: () => turnQueue,
       cwd: record.cwd,
       getPersistedOptions: () => record.persistedOptions,
       setPersistedOptions: (options) => {
         record.persistedOptions = options;
         queueRecordWrite();
       },
+      sessionFilePath: (sessionId) =>
+        sessionFilePath(configDir, record.cwd, sessionId as UUID),
+      teardownQuery,
+      restartQuery,
     }),
   );
 
@@ -261,52 +378,6 @@ async function daemon(this: CommandContext, flags: DaemonFlags): Promise<void> {
   // query.close() SIGTERMs the claude subprocess with SIGKILL escalation.
   proc.on("SIGTERM", () => cleanupAndExit(0));
   proc.on("SIGINT", () => cleanupAndExit(0));
-
-  // --- stream reader ---------------------------------------------------------
-  // What remains of the reader is record bookkeeping plus a trivial loop, and
-  // it stays here deliberately — it is the record owner's code, not a module
-  // of its own. State tracking lives in the hub's fold (agent-state.ts).
-  const handleMessage = (message: SDKMessage): void => {
-    // Record bookkeeping before the fold: by the time the init event reaches
-    // any observer, the record (and its queued agent.json write) already
-    // reflects the new session.
-    if (message.type === "system" && message.subtype === "init") {
-      handleSessionInit(message);
-    }
-    events.observeSdkMessage(message);
-  };
-
-  const handleSessionInit = (
-    message: SDKMessage & { type: "system"; subtype: "init" },
-  ): void => {
-    record.claudeCodeVersion = message.claude_code_version;
-    const currentSessionId = record.sessions.at(-1)?.sessionId;
-    // An init fires every turn; a rollover is an init whose session_id
-    // *differs*. The history is duplicate-free: re-announcing a known
-    // session moves it to the end (most recent).
-    if (message.session_id !== currentSessionId) {
-      const previousIndex = record.sessions.findIndex(
-        (s) => s.sessionId === message.session_id,
-      );
-      if (previousIndex !== -1) {
-        record.sessions.splice(previousIndex, 1);
-      }
-      record.sessions.push({
-        sessionId: message.session_id,
-        sessionFile: sessionFilePath(record.cwd, message.session_id),
-      });
-      log(`session: ${message.session_id}`);
-    }
-    queueRecordWrite();
-  };
-
-  const readerDone = (async () => {
-    for await (const message of claudeQuery) {
-      handleMessage(message);
-    }
-  })();
-  // Mark handled: the failure paths below exit without awaiting readerDone.
-  void readerDone.catch(() => undefined);
 
   // Ready once sdk.sock is bound. The barrier cannot include the first
   // system/init: in streaming-input mode claude does not announce itself until
@@ -359,7 +430,7 @@ async function daemon(this: CommandContext, flags: DaemonFlags): Promise<void> {
   signalReady(flags.readyFd, { ok: true });
 
   try {
-    await readerDone;
+    await daemonStreamDone;
     log("stream ended");
   } catch (error) {
     if (!exiting) {

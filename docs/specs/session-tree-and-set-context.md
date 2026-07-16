@@ -81,8 +81,29 @@ sees. This spec adds three RPC commands to the daemon socket and matching
    assistant (from-shape). This exactness is promised only for playlists that
    keep whole API messages together and form a valid sequence (the documented
    authoring rule); strange playlists (orphan tool blocks, attachment uuids)
-   are silently normalized by the CLI (FINDINGS.md failure modes) and the
-   post-restart verification reports the divergence as an error.
+   are silently normalized by the CLI at inference time (FINDINGS.md failure
+   modes). The post-restart verification is structural — the loader's relink
+   recomputed over the re-read file — so it catches torn or failed appends
+   but NOT that inference-time normalization (no file-reading oracle can:
+   `getSessionMessages` reads the same file). Authoring-rule compliance is
+   the caller's responsibility.
+   Mechanism note (discovered at implementation time): `getSessionMessages`
+   alone does NOT deliver this — its chain selection picks the user/assistant
+   leaf with the largest file index across all dangling leaves, so for any
+   playlist whose tip predates another leaf in file order (branch switch,
+   resurrecting a summarized region) it reports the wrong chain until the
+   first post-boundary transcript write lands (verified: after that write it
+   agrees with the loader again). During that window — boundary appended, no
+   user/assistant entry yet — the daemon SYNTHESIZES the get-messages
+   response from the session file: the expected chain (already computed for
+   verification) mapped to SessionMessage shape. The window state is tracked
+   in the daemon (installed on a durable boundary append, cleared when
+   `lastTranscriptUuid` changes or a later set-context replaces it) and
+   reconstructed once at daemon startup by reading the session file (last
+   boundary has no post-boundary user/assistant entries besides its own
+   summary → synthesize), so a restart inside the window stays correct.
+   Unlike the superseded-tail filter, this state is file-derivable — hence
+   startup reconstruction works here but not for no-write rewinds.
 4. `set-context` with a uuid not in the file fails with a clear error and does
    not restart the query.
 5. `set-context` while the assistant is busy fails with a clear error (caller
@@ -386,20 +407,40 @@ export function buildTree(entries: SessionEntry[]): SessionTree;
 // (naturally inert after the next turn; filter lifecycle per criterion 8).
 // Different → build + append a no-summary boundary listing the computed
 // chain, then a plain restart.
-// Restart failure (child fails to come up): the daemon enters a
-// query-unavailable state — Query-bound requests error clearly ("query
-// restart failed; retry set-context"), file reads keep working, and a
-// subsequent set-context (or daemon restart) reconstructs the Query; an
-// appended boundary is already durable and any later resume picks it up.
+// Restart failure: a synchronous query() construction failure puts the
+// daemon in a query-unavailable state — Query-bound requests error clearly
+// ("query restart failed; retry set-context"), file reads keep working, and
+// a subsequent set-context (or daemon restart) reconstructs the Query. An
+// ASYNC child-startup failure is not catchable at restart time (streaming
+// mode has no readiness signal; init fires on the first turn) — it surfaces
+// as a reader error and exits the daemon like any other stream death, and
+// revival reconstructs from the file. Either way an appended boundary is
+// already durable and any later resume picks it up.
 // contextChanged is broadcast iff the FILE was mutated, even when the
 // restart then fails (watchers track file truth); the RPC itself still
 // returns the restart error. The intentional completion of the old Query's
 // stream-consumption loop must not be treated as daemon shutdown.
-// Verification: boundary mode asserts via getSessionMessages that the file's
-// effective chain matches (summary first when given, tail == uuids). This
-// checks the loader's view of the FILE, not the live Query — a streaming
-// Query initializes on its first turn, so a bad resume can still surface at
-// the next turn. No-write rewinds skip file verification (nothing changed).
+// Verification: boundary mode re-reads the file and asserts that
+// effectiveChain over it matches (summary first when given, tail == uuids) —
+// NOT via getSessionMessages, whose latest-leaf tip selection is wrong for
+// branch-switch playlists (criterion 3 mechanism note). Weaker as an
+// independent oracle (same model that computed the append), but the
+// wire-level truth was derisked (P9) and the check still catches torn or
+// failed appends. This checks the loader's view of the FILE, not the live
+// Query — a streaming Query initializes on its first turn, so a bad resume
+// can still surface at the next turn. No-write rewinds skip file
+// verification (nothing changed).
+// get-messages override slot (one slot, two variants, mutually exclusive):
+//   { kind: "filterTail", uuids }   — after a successful no-write rewind
+//   { kind: "synthesize", chain }   — after a durable boundary append
+// filterTail subtracts the superseded tail from getSessionMessages output;
+// synthesize maps the stored chain to SessionMessage shape from the session
+// file, avoiding getSessionMessages' wrong-chain window entirely. Cleared
+// when lastTranscriptUuid changes (next transcript write makes both inert /
+// wrong to keep); replaced by the next successful set-context. On daemon
+// startup the synthesize variant is reconstructed from one session-file read
+// (see criterion 3); filterTail is not reconstructible (criterion 8's
+// documented durability limitation).
 ```
 
 ```ts
@@ -490,15 +531,21 @@ export function buildTree(entries: SessionEntry[]): SessionTree;
   EventBus/subscribers untouched. A TurnQueue generator cannot be restarted
   after ending — restartQuery creates a fresh TurnQueue too. Audit which
   pieces are per-Query vs per-daemon before extracting `startQuery`.
-- Restart failure (CLI child fails to come up after append): the boundary is
-  already on disk and is picked up by any later resume. The daemon enters the
-  query-unavailable state defined in the daemon.ts sketch; no rollback of the
-  appended entries.
-- Post-restart verification: `getSessionMessages` was cross-validated against
-  the wire (P8) — equal at whole-API-message granularity. Use it to assert the
-  first message is the summary (when given) and the tail matches `uuids`;
-  divergence returns an error but the file mutation is not rolled back
-  (subsequent `set-context` can fix it; boundaries stack, last wins).
+- Restart failure after append: the boundary is already on disk and is picked
+  up by any later resume; no rollback of the appended entries. A synchronous
+  `query()` construction failure puts the daemon in the query-unavailable
+  state defined in the daemon.ts sketch; an asynchronous child-startup
+  failure is not catchable at restart time (no readiness signal in streaming
+  mode) and exits the daemon via the normal stream-death path, with revival
+  reconstructing from the file.
+- Post-restart verification: ~~use `getSessionMessages` (cross-validated
+  against the wire, P8)~~ — P8's fixtures all had active-chain-tail playlists
+  and missed the latest-leaf tip selection (sdk.mjs `W6`); verification now
+  recomputes `effectiveChain` over the re-read file instead. Divergence
+  returns an error but the file mutation is not rolled back (subsequent
+  `set-context` can fix it; boundaries stack, last wins). The "KNOWN
+  DIVERGENCE" test in request-handlers.test.ts pins the SDK behavior and
+  fails when an upgrade fixes it.
 - Idle definition: the eligibility predicate (daemon sketch) covers
   assistantState, queueModel.queued, and deliveredPending; `set-context` also
   needs "leaf on disk", which `waitForEntryOnDisk` covers using
@@ -605,4 +652,123 @@ export function buildTree(entries: SessionEntry[]): SessionTree;
 - [x] Reviewer final sign-off: approved 2026-07-14 after one wording fix
   (daemon sketch filter-lifecycle reference aligned with criterion 8).
   Reviewer agent 3a42a99f, archived (revivable by prompting).
-- [ ] Implementation (awaiting user approval)
+- [x] Implementation (start approved by user 2026-07-15). All code landed, `npm run check`
+  / lint / 191 tests green: `session-file.ts`, `build-tree.ts` (+ tests),
+  sdk-socket.ts types + `parseSetContextRequest` (+ tests), agent-state.ts
+  `contextChanged` fold case, daemon.ts restart machinery, request-handlers.ts
+  (gate, `effectiveChain`, set-context/get-entries/get-tree handlers + tests),
+  sdk-commands.ts CLI wiring. Durability caveat landed as the code comment at
+  the superseded-tail filter.
+
+## Implementation-Time Decisions
+
+- 2026-07-15: **Adaptation to the daemon refactor** (main merged daemon.ts →
+  src/core/daemon/ modules): the set-context handler lives in
+  request-handlers.ts per user instruction; `effectiveChain` + the QueryGate
+  live there too (exported for tests). `RequestHandlerDeps` gained
+  `getQuery()`/`getTurnQueue()` (the Query/TurnQueue are now mutable slots in
+  daemon.ts), `sessionFilePath(sessionId)`, `teardownQuery()`, and
+  `restartQuery(resumeSessionId, resumeSessionAt?)`. daemon.ts's reader loop
+  ends into `daemonStreamDone`, which teardownQuery suppresses via a
+  `tearingDown` flag so an intentional stream end is not treated as shutdown.
+  daemon.ts's local sessionFilePath helper was replaced by the session-file.ts
+  one, with configDir now resolved from the CHILD's env (persisted env can
+  override CLAUDE_CONFIG_DIR), not the daemon's.
+- 2026-07-15: **Boundary stamp boilerplate**: `buildBoundaryEntries` writes the
+  proven-recipe placeholder values (version "2.1.195", gitBranch "HEAD",
+  preTokens 40000, …) rather than live metadata — the agreed signature has no
+  params for them and ablation showed only compactMetadata + valid uuids
+  matter. Flagged for review.
+- 2026-07-15: **SPEC DEVIATION — verification oracle replaced.** Discovered
+  during testing: the SDK's `getSessionMessages` does NOT model the loader for
+  branch-switch playlists. Its chain selection (sdk.mjs `W6`) applies every
+  boundary's relink, then picks the tip as the user/assistant LEAF WITH THE
+  LARGEST FILE INDEX across all dangling leaves — so any playlist whose tip
+  predates another leaf in file order (abandoned-branch rewinds, resurrecting
+  a summarized region) yields the WRONG chain, while the CLI loader honors
+  those playlists (P9 a/b, wire-verified). P8 missed this because its
+  fixtures' playlists were all tails of the active chain. Consequences:
+  (1) post-restart verification now recomputes `effectiveChain` over the
+  re-read file instead of calling getSessionMessages — weaker as an
+  independent oracle (same model that computed the append), but the wire-level
+  truth was derisked and the check still catches torn/failed appends;
+  (2) criterion 3's "get-messages returns exactly the new effective context"
+  does NOT hold for branch-switch playlists — get-messages still uses
+  getSessionMessages and reports the raw-latest-leaf chain there. Pinned by
+  the "KNOWN DIVERGENCE" test in request-handlers.test.ts (fails when an SDK
+  upgrade fixes it). Open question resolved below (2026-07-15, get-messages
+  synthesis).
+- 2026-07-15: **get-messages synthesis window (user decision, spec amended,
+  NOT yet implemented).** The divergence window is exactly "boundary
+  appended, no post-boundary user/assistant entry yet" — verified empirically
+  that getSessionMessages agrees with the loader again once the first
+  post-boundary turn's entries land (they become the latest-file-index leaf).
+  Decision: during that window the daemon synthesizes the get-messages
+  response from the session file (expected chain → SessionMessage shape);
+  state tracked in the daemon (install on durable boundary append, clear on
+  lastTranscriptUuid change, replace on later set-context), unified with the
+  superseded-tail filter as one override slot with two mutually exclusive
+  variants (filterTail | synthesize). On daemon startup, one session-file
+  read reconstructs the synthesize variant (last boundary has no
+  post-boundary user/assistant entries besides its own summary) — closing
+  the revival window without a file read per get-messages call (passthrough
+  get-messages already pays getSessionMessages' own file read; the startup
+  read avoids a second parse per call). filterTail stays non-reconstructible
+  (criterion 8's durability limitation). Criterion 3, the daemon.ts sketch,
+  and the verification bullet updated accordingly.
+- 2026-07-15: **Implementation review round 1** (spec reviewer revived).
+  Fixed in response: (a) `readSessionEntries` now tolerates only a torn
+  FINAL line and throws on malformed earlier lines or non-object values
+  (silent skipping would let chain computation and file mutation run against
+  incomplete history); (b) criterion 3 and the verification comment
+  corrected — the structural check does not detect the CLI's inference-time
+  normalization of authoring-rule violations, and no file-reading oracle can
+  (the original getSessionMessages oracle read the same file); (c) documented
+  that query-unavailable covers only a synchronous `restartQuery` failure —
+  an async child-startup failure surfaces as a reader error and exits the
+  daemon via the normal stream-death path, with revival reconstructing from
+  the file (spec sketch + daemon.ts comment; behavior unchanged, the spec
+  text was overconfident); (d) documented the stream-echo assumption behind
+  lazy override clearing (every appended user/assistant entry is echoed on
+  the stream with its uuid — the same mechanism deliveredMessages
+  confirmation already relies on); (e) added a field-for-field parity test:
+  synthesized get-messages vs raw getSessionMessages on a tail playlist
+  (where the raw SDK picks the right chain), compared after JSON
+  serialization; (f) segment-only boundaries (`preservedSegment`, older
+  CLIs) documented as unmodeled by effectiveChain; (g) the CLI now runs
+  `parseSetContextRequest` client-side, so malformed set-context invocations
+  (including bad uuid syntax) fail before a daemon revival. Declined:
+  rejecting rewind targets whose entry lacks `message.id` (real assistant
+  entries always carry one; with it absent there is nothing to validate
+  finality against, and rejecting would refuse unusual-but-valid entries);
+  changing effectiveChain tip selection to skip uuid-bearing
+  attachment/sidechain entries (every comparison computes both sides with
+  the same function, message filters strip non-messages downstream, and
+  current CLIs put sidechains in separate files — flagged as a limitation,
+  not fixed).
+- 2026-07-15: **Implementation review round 2 + sign-off.** Two residual
+  blockers fixed: (1) torn-tail tolerance narrowed to an UNTERMINATED final
+  line only — a malformed terminated final line throws (once the newline is
+  on disk, the whole record before it is too); (2) the IMPLEMENTATION IDEAS
+  restart-failure bullet now matches the corrected sync/async distinction.
+  Reviewer approved the implementation as on disk; awaiting user review.
+- [x] Implement the get-messages override slot (synthesize variant + startup
+  reconstruction; rework the existing supersededTail into the slot).
+  Implementation notes: the synthesize variant is installed inside
+  `restartAndVerify` BEFORE the restart attempt (the append is already
+  durable, so get-messages should reflect it even when the restart then
+  fails), and it carries the re-read file's `effectiveChain` rather than the
+  caller's `expected` — identical on success, and on a verification failure
+  get-messages still reflects the loader's actual view. Clearing is lazy:
+  each variant records `installedAtLeafUuid` (the hub's `lastTranscriptUuid`
+  at install time) and get-messages drops the slot when the current leaf
+  differs. Startup reconstruction lives in `createRequestHandler`
+  construction (one `readSessionEntries` when the seeded session's file
+  exists; `synthesizeWindowChain` detects the open window). The synthesized
+  messages mirror the SDK's own mapping (user/assistant only, isMeta and
+  isSidechain excluded, `parent_tool_use_id` always null, `timestamp`
+  included — present in getSessionMessages' runtime output though absent
+  from its declared type). The KNOWN DIVERGENCE test now pins the raw
+  `getSessionMessages` behavior directly and asserts that `get-messages`
+  synthesizes the loader chain; new tests cover window close on the next
+  transcript write and startup reconstruction (open and closed windows).

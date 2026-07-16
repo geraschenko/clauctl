@@ -93,7 +93,13 @@ export class EventHub {
   emit(
     event: Extract<
       SdkEvent,
-      { kind: "interruptSent" | "compactSent" | "controlApplied" }
+      {
+        kind:
+          | "interruptSent"
+          | "compactSent"
+          | "controlApplied"
+          | "contextChanged";
+      }
     >,
   ): void {
     this.applyEvent(event);

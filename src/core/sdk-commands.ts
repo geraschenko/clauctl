@@ -24,6 +24,7 @@ import {
   completeChoices,
   enumFlag,
   parsedFlag,
+  restArgs,
   stringArg,
   stringFlag,
   variadicStringFlag,
@@ -33,7 +34,12 @@ import { oneTarget, type CommandContext } from "./generated/targets.ts";
 import { ensureAgentRunning } from "./lifecycle.ts";
 import { parseMcpConfig } from "./options.ts";
 import { sdkSocketPath } from "./registry.ts";
-import { connectWithRetry, type SdkRequest } from "./sdk-socket.ts";
+import {
+  connectWithRetry,
+  parseSetContextRequest,
+  type SdkRequest,
+  type SetContextRequest,
+} from "./sdk-socket.ts";
 import { oneOf, UsageError } from "./generated/util.ts";
 
 const SOCKET_CONNECT_DEADLINE_MS = 5_000;
@@ -341,6 +347,64 @@ async function seedReadState(
   await sendRequest(this, { type: "seed-read-state", path, mtime: parsed });
 }
 
+// --- set-context ----------------------------------------------------------------
+
+const setContextFlags = {
+  summary: stringFlag("Summary text written as the compact summary", "text"),
+  anchor: enumFlag(
+    "Context order: summary first (up_to, default) or uuids first (from)",
+    ["summary", "boundary"] as const,
+  ),
+  rewindTo: stringFlag(
+    "Rewind to this assistant message uuid (mutually exclusive with uuids)",
+    "uuid",
+  ),
+};
+
+type SetContextFlags = InferFlags<typeof setContextFlags>;
+
+async function setContext(
+  this: CommandContext,
+  flags: SetContextFlags,
+  ...uuids: string[]
+): Promise<void> {
+  // The daemon re-validates; failing malformed invocations here (flag-named
+  // mode conflicts, then the daemon's own parser for uuid syntax and the
+  // rest) avoids a pointless daemon revival.
+  if (
+    flags.rewindTo !== undefined &&
+    (uuids.length > 0 ||
+      flags.summary !== undefined ||
+      flags.anchor !== undefined)
+  ) {
+    throw new UsageError(
+      "--rewind-to is mutually exclusive with uuids/--summary/--anchor",
+    );
+  }
+  if (
+    flags.rewindTo === undefined &&
+    uuids.length === 0 &&
+    flags.summary === undefined
+  ) {
+    throw new UsageError("expected message uuids, --summary, or --rewind-to");
+  }
+  let request: SetContextRequest;
+  try {
+    request = parseSetContextRequest(
+      flags.rewindTo !== undefined
+        ? { rewindTo: flags.rewindTo }
+        : {
+            uuids,
+            ...(flags.summary !== undefined && { summaryText: flags.summary }),
+            ...(flags.anchor !== undefined && { anchor: flags.anchor }),
+          },
+    );
+  } catch (error) {
+    throw new UsageError(error instanceof Error ? error.message : String(error));
+  }
+  await sendRequest(this, request);
+}
+
 // --- reads with arguments ------------------------------------------------------
 
 const readFileFlags = {
@@ -588,6 +652,25 @@ export const sdkRoutes = {
     "print the transcript since the last compaction",
     { type: "get-messages" },
   ),
+  "get-entries": bareRequestCommand(
+    "print every session jsonl entry, verbatim",
+    { type: "get-entries" },
+  ),
+  "get-tree": bareRequestCommand("print the session transcript as a forest", {
+    type: "get-tree",
+  }),
+  "set-context": commandOneTarget<SetContextFlags, string[]>({
+    docs: {
+      brief:
+        "reshape the agent's effective context (uuid playlist or --rewind-to)",
+    },
+    parameters: {
+      flags: setContextFlags,
+      positional: restArgs("Message uuids to keep, in order", "uuid"),
+    },
+    audited: true,
+    func: setContext,
+  }),
   "initialization-result": bareRequestCommand(
     "print the full initialization result",
     { type: "initialization-result" },

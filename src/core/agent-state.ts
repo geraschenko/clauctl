@@ -152,6 +152,10 @@ export function nextAgentState(state: AgentState, event: SdkEvent): AgentState {
     // interrupt — the interruptSent event on the stream is the record).
     case "interruptSent":
       return state;
+    // The effective context lives in the session file; nothing in AgentState
+    // tracks it, so the fold only forwards the event to observers.
+    case "contextChanged":
+      return state;
     case "controlApplied": {
       const request = event.request;
       if (request.type === "set-model") {
