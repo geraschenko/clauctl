@@ -12,6 +12,7 @@
 import { readFileSync } from "node:fs";
 import { appendFile, readFile } from "node:fs/promises";
 import { auditLogPath, sourcesLogPath } from "../registry.ts";
+import { type AttachmentInfo } from "./tty-server.ts";
 
 /** "clauctl:<agent-id>" | "<comm>:<pid>" | "process:<pid>". */
 export type CallerSource = string;
@@ -202,4 +203,33 @@ export async function recordAuditEvent(
     cmdline: manager.cmdline,
   };
   await appendFile(sourcesLogPath(agentDir), `${JSON.stringify(record)}\n`);
+}
+
+/**
+ * Fire-and-forget attach/detach audit for the daemon's tty.sock hooks:
+ * resolve the client's caller source and record the event. A no-op unless
+ * enabled (the audit toggle is frozen at daemon start). Never throws and
+ * never kills the daemon — failures are reported via log and otherwise
+ * ignored.
+ */
+export function auditAttachEvent(
+  agentDir: string,
+  enabled: boolean,
+  event: "attach" | "detach",
+  info: AttachmentInfo,
+  log: (message: string) => void,
+): void {
+  if (!enabled) {
+    return;
+  }
+  const { source, manager } = resolveCallerSourceForPid(info.pid);
+  const auditRecord = {
+    ts: new Date().toISOString(),
+    source,
+    event,
+    pid: info.pid,
+  };
+  void recordAuditEvent(agentDir, auditRecord, manager).catch((error) =>
+    log(`${event} audit failed: ${String(error)}`),
+  );
 }

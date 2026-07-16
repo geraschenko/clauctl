@@ -6,14 +6,12 @@
  * this service: start, two-phase teardown, and record-facing callbacks
  * (attachments, tui-failure) it can persist.
  *
- * Attach auditing lives here too (it hangs off the attach/detach hooks); it
- * never kills the daemon — failures are logged and otherwise ignored.
+ * Attach auditing (the shared auditAttachEvent in generated/audit.ts) hangs
+ * off the attach/detach hooks; it never kills the daemon — failures are
+ * logged and otherwise ignored.
  */
 
-import {
-  recordAuditEvent,
-  resolveCallerSourceForPid,
-} from "../generated/audit.ts";
+import { auditAttachEvent } from "../generated/audit.ts";
 import { TtyServer, type AttachmentInfo } from "../generated/tty-server.ts";
 import { ttySocketPath } from "../registry.ts";
 import { TuiHost } from "./tui-host.ts";
@@ -46,25 +44,6 @@ export interface TtyService {
 export async function startTtyService(
   opts: TtyServiceOptions,
 ): Promise<TtyService> {
-  const auditAttachEvent = (
-    event: "attach" | "detach",
-    info: AttachmentInfo,
-  ): void => {
-    if (!opts.auditEnabled) {
-      return;
-    }
-    const { source, manager } = resolveCallerSourceForPid(info.pid);
-    const auditRecord = {
-      ts: new Date().toISOString(),
-      source,
-      event,
-      pid: info.pid,
-    };
-    void recordAuditEvent(opts.agentDir, auditRecord, manager).catch((error) =>
-      opts.log(`${event} audit failed: ${String(error)}`),
-    );
-  };
-
   // Hooks fire only once listen() succeeds, after both assignments below,
   // so they never see tuiHost unassigned.
   /* eslint-disable prefer-const -- assigned after ttyServer, but read by its hooks */
@@ -78,9 +57,22 @@ export async function startTtyService(
     onAttach: (info) => {
       // A new attacher wakes a failed tui host (retries the spawn).
       tuiHost.notifyAttach();
-      auditAttachEvent("attach", info);
+      auditAttachEvent(
+        opts.agentDir,
+        opts.auditEnabled,
+        "attach",
+        info,
+        opts.log,
+      );
     },
-    onDetach: (info) => auditAttachEvent("detach", info),
+    onDetach: (info) =>
+      auditAttachEvent(
+        opts.agentDir,
+        opts.auditEnabled,
+        "detach",
+        info,
+        opts.log,
+      ),
     onAttachmentsChanged: opts.onAttachmentsChanged,
   });
   // The tui connects to sdk.sock, which the caller has listening by now.
