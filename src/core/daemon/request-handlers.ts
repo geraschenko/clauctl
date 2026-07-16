@@ -11,6 +11,7 @@
  * docs/derisk/compact-boundary-injection/FINDINGS.md and specified in
  * docs/specs/session-tree-and-set-context.md.
  */
+// TDC: Whoa, this really expanded this file. How about we put all the set-context machinery in a separate set-context.ts sibling file, and get-messages machinery in a separate get-messages.ts sibling file?
 
 import type { UUID } from "node:crypto";
 import { existsSync } from "node:fs";
@@ -77,6 +78,7 @@ export interface RequestHandlerDeps {
  * the gate, Query-bound arrivals error and file reads wait — so the shared
  * drain terminates.
  */
+// TDC: QueryGate is not at all query-specific, right? It's a general-purpose reference-counted mutex. Two questions: (1) is there a library we can use instead of writing our own, and if not, (2) why not move this out into its own file, named something like mutex.ts?
 class QueryGate {
   private sharedCount = 0;
   private exclusive = false;
@@ -230,7 +232,9 @@ function effectiveParentMap(
  * parents first, raw `parentUuid` otherwise; any boundary entry is
  * transparent — reaching one (or an entry with no parent) ends the walk.
  */
+// TDC: "P3 m5" is not going to make sense to a future reader of this file.
 export function effectiveChain(entries: SessionEntry[]): UUID[] {
+  // TDC: is it worth making this idxByUuid so that the values of this map are small, or are `SessionEntry`s already pointers/references rather than being copied by value?
   const byUuid = new Map<UUID, SessionEntry>();
   for (const entry of entries) {
     if (entry.uuid !== undefined) {
@@ -302,6 +306,7 @@ const arraysEqual = (a: readonly string[], b: readonly string[]): boolean =>
  *   chain for any playlist whose tip predates another dangling leaf (spec
  *   criterion 3 mechanism note); serve the chain straight from the session
  *   file instead.
+ * TDC: don't use the term "playlist". Future readers/maintainers won't understand that term.
  * Both variants are pinned to the transcript leaf they were installed at:
  * the next transcript write closes the synthesis window (getSessionMessages
  * agrees with the loader again) and makes the tail filter inert, so the slot
@@ -311,7 +316,7 @@ const arraysEqual = (a: readonly string[], b: readonly string[]): boolean =>
  * — the same echo that clears deliveredMessages (agent-state.ts fold).
  */
 type GetMessagesOverride = (
-  | { kind: "filterTail"; uuids: Set<string> }
+  | { kind: "filterTail"; uuids: Set<string> }  // TDC: How about we name the field "droppedUuids" for clarity? Otherwise it's a bit confusing that one variant lists what to drop and the other lists what to keep.
   | { kind: "synthesize"; chain: UUID[] }
 ) & { installedAtLeafUuid: string | undefined };
 
@@ -415,6 +420,7 @@ export function createRequestHandler(
   // After a restart failure the daemon has no live Query; Query-bound
   // requests error until a subsequent set-context (or daemon restart)
   // reconstructs it. File reads keep working.
+  // TDC: can we negate this to "queryAvailable"? The negation in a boolean variable name is confusing.
   let queryUnavailable = false;
 
   // Startup reconstruction (criterion 3): a daemon that (re)starts inside the
@@ -457,6 +463,7 @@ export function createRequestHandler(
    *  daemon has already reported on the event stream to be on disk (read
    *  consistency; the leaf uuid is unset when no turn has run this daemon
    *  lifetime — the file is quiescent then). */
+  // TDC: the name of this function does not communicate what it does. How about we pass leafUuid as an argument and call it something like readSessionEntriesOnceEntryOnDisk (that's awful ... any other suggestions)?
   const readCurrentEntries = async (
     sessionId: string,
   ): Promise<{ filePath: string; entries: SessionEntry[] }> => {
@@ -485,6 +492,7 @@ export function createRequestHandler(
       if (new Set(parsed.uuids).size !== parsed.uuids.length) {
         throw new Error(
           "set-context: duplicate uuids — the loader silently skips the whole relink (P3 m4)",
+          // TDC: "P3 m4" will make no sense to a future reader of this file/message.
         );
       }
     }
@@ -546,6 +554,7 @@ export function createRequestHandler(
         // leaves, so it reports the wrong chain for any playlist whose tip
         // predates another leaf (abandoned branch tips, orphaned summaries)
         // — the CLI loader honors those playlists (P9 a/b, wire-verified).
+        // TDC: fix "playlists", "P9 a/b"
         // The check is structural: it catches torn or failed appends, but
         // not the CLI's inference-time normalization of authoring-rule
         // violations (orphan tool blocks, attachment uuids) — no file-reading

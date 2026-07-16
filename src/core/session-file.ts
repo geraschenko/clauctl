@@ -104,7 +104,7 @@ export function buildBoundaryEntries(params: {
     entrypoint: "sdk-cli",
     cwd: params.cwd,
     sessionId: params.sessionId,
-    version: "2.1.195",
+    version: "2.1.195",  // TDC: can we use the actual version here instead, at least the default pinned version from the sdk? 
     gitBranch: "HEAD",
   };
   const boundary: SessionEntry = {
@@ -119,6 +119,7 @@ export function buildBoundaryEntries(params: {
     level: "info",
     compactMetadata: {
       trigger: "manual",
+      // TDC: whoa, do we really have to put made-up token counts in here? This seems kind of sketchy, because somebody might plausibly trust these for something. I see that preTokens is required, but duration and postTokens are not. Can we get preTokens based on the usage from the last assistant message? It makes sense to update AgentState to include last usage numbers.
       preTokens: 40000,
       durationMs: 1,
       postTokens: 1000,

@@ -17,7 +17,7 @@ export interface SessionTree {
   entries: Record<UUID, SessionEntry>;
 }
 
-/** THIS SPEC ships the raw forest only: raw parentUuid edges give the base
+/** TODO: THIS SPEC ships the raw forest only: raw parentUuid edges give the base
  *  forest, and each boundary node is attached as a child of its
  *  logicalParentUuid entry (root if absent). The boundary's relinked chain —
  *  summary + uuids per anchor shape hanging under it as DUPLICATE nodes
