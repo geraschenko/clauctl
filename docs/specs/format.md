@@ -9,7 +9,7 @@
 ### Problem
 
 clauctl's message-carrying commands emit verbose JSON: `tail` emits JSONL of
-`{snapshot: StateSnapshot}` / `{event: SdkEvent}` records, and `get-messages`
+`{snapshot: AgentState}` / `{event: SdkEvent}` records, and `get-messages`
 emits the transcript segment as `SessionMessage`s. Neither is pleasant for a
 human — or economical for an LLM — to read. `clauctl format` is a pure filter
 (file arg or stdin, plain text to stdout) that renders them readably.
@@ -75,9 +75,10 @@ consumed by LLMs; color is noise):
   `getSessionMessages` filters those entries out).
 - Unknown session-record types (`attachment`, `file-history-snapshot`, …) are
   skipped silently.
-- Events mode extras: the snapshot renders as a short header (assistant
-  state, model, permission mode, session id, then one `[queued #N: text]` /
-  `[delivered #N: text]` line per snapshot queued/delivered message).
+- Events mode extras: the snapshot (an `AgentState`) renders as a short
+  header (activity, model, permission mode, session id, then one
+  `[queued #N: text]` / `[delivered: text]` line per snapshot
+  queued/delivered message — delivered prompts carry no ids).
   `userMessageQueued` → one-line truncated `[queued #N: text]`, but the full
   `SDKUserMessage` is remembered (snapshot `queuedMessages` seed the same
   store); `userMessageDequeued` → `[dequeued (turn|steer|append): #N, …]`
@@ -155,7 +156,7 @@ export interface MessageFormatOptions {
 export type SessionRecord = Record<string, unknown> & { type: string };
 
 /** One line of `format events` input: tail's framing. */
-export type TailRecord = { snapshot: StateSnapshot } | { event: SdkEvent };
+export type TailRecord = { snapshot: AgentState } | { event: SdkEvent };
 ```
 
 **`src/core/generated/read-input.ts`** — pictl's format-agnostic input
@@ -306,3 +307,9 @@ mark completed ones with [x], document decisions and problems encountered.
   than `src/format/` — clauctl-side simplification: it joins the existing
   core sync set (`src/core/generated/read-input.ts`); the format sync set is
   just the import-free `text.ts`. Spec updated.
+- 2026-07-15: Rebased the spec on the daemon reorganization merged from main:
+  the subscribe response is now `AgentState` (agent-state.ts fold seed;
+  `assistantState` → `activity`, snapshot `deliveredMessages` carry no ids)
+  instead of the deleted `StateSnapshot`. `SdkEvent`, tail's `{snapshot}`/
+  `{event}` framing, sdk-render.ts, get-messages, and the sync-script plan
+  are unaffected.
