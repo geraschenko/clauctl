@@ -49,22 +49,29 @@ const PERMISSION_MODES = [
 
 const PRIORITIES = ["now", "next", "later"] as const;
 
-async function sendRequest(
+async function requestData(
   context: CommandContext,
   request: SdkRequest,
-): Promise<void> {
+): Promise<unknown> {
   const agent = await ensureAgentRunning(oneTarget(context).id);
   const client = await connectWithRetry(
     sdkSocketPath(agent.agentDir),
     SOCKET_CONNECT_DEADLINE_MS,
   );
   try {
-    const data = await client.request(request);
-    if (data !== undefined) {
-      context.process.stdout.write(`${JSON.stringify(data, null, 2)}\n`);
-    }
+    return await client.request(request);
   } finally {
     client.close();
+  }
+}
+
+async function sendRequest(
+  context: CommandContext,
+  request: SdkRequest,
+): Promise<void> {
+  const data = await requestData(context, request);
+  if (data !== undefined) {
+    context.process.stdout.write(`${JSON.stringify(data, null, 2)}\n`);
   }
 }
 
@@ -584,10 +591,17 @@ export const sdkRoutes = {
     { type: "reload-skills" },
     true,
   ),
-  "get-messages": bareRequestCommand(
-    "print the transcript since the last compaction",
-    { type: "get-messages" },
-  ),
+  // JSONL rather than a pretty-printed array: one SessionMessage per line,
+  // the shape `format messages` consumes.
+  "get-messages": commandOneTarget({
+    docs: { brief: "print the transcript since the last compaction as JSONL" },
+    func: async function (this: CommandContext): Promise<void> {
+      const data = await requestData(this, { type: "get-messages" });
+      for (const message of data as unknown[]) {
+        this.process.stdout.write(`${JSON.stringify(message)}\n`);
+      }
+    },
+  }),
   "initialization-result": bareRequestCommand(
     "print the full initialization result",
     { type: "initialization-result" },

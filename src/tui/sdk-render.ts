@@ -1,6 +1,9 @@
 /**
  * ALL claude-specificity of the TUI: pure conversions from SDK messages and
  * raw API stream events to the pi-ai-shaped render model (render-types.ts).
+ * Also the conversion layer for `clauctl format` (src/format/) — format and
+ * the TUI present differently, but both read SDK payloads through exactly
+ * these conversions.
  *
  * pi's renderers receive a fully-reconstructed partial AssistantMessage on
  * every delta; our stream carries raw API deltas (`stream_event`,

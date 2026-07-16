@@ -1,6 +1,6 @@
 # Spec: `clauctl format` — human/LLM-readable rendering of JSON output
 
-> Status: **spec approved, not yet implemented.** Supersedes the `format` half of
+> Status: **implemented.** Supersedes the `format` half of
 > `docs/specs/convenience-commands.md` (`completion` remains there). Phase-4 item
 > in `docs/implementation-plan.md`.
 
@@ -49,8 +49,9 @@ Feeding `tail` output to `format messages` (or message-shaped input to
 
 ### Rendering rules
 
-pictl's `format messages` conventions, no ANSI/color ever (the output is
-consumed by LLMs; color is noise):
+pictl's `format messages` conventions, no ANSI/color ever — the formatter
+generates no styling (the output is consumed by LLMs; color is noise); input
+text passes through verbatim:
 
 - `user` / `assistant` render **fully**: `== user ==` / `== assistant ==`
   headers, text verbatim, `[thinking]` marker (content elided),
@@ -59,7 +60,7 @@ consumed by LLMs; color is noise):
 - A `user` message whose content carries `tool_result` blocks renders those as
   `[Name:ok 12 lines, 340 bytes]` summaries (errors additionally show up to
   `--max-error-lines` of the result text; `full` shows everything; `none`
-  drops them). The tool *name* comes from the preceding assistant message's
+  drops them). The tool _name_ comes from the preceding assistant message's
   `tool_use` block with the matching id — the formatter memoizes id→name
   across the stream.
 - `result` renders as a one-liner: subtype, num_turns, duration, cost.
@@ -214,7 +215,8 @@ export function formatTailRecords(records: readonly TailRecord[], options: Messa
 **`src/format/command.ts`**
 
 ```ts
-export const formatRoute: RouteMap<CommandContext>; // routes: messages, events
+// { format: RouteMap } — spread into app.ts routes like the other *Route exports.
+export const formatRoute: { format: RouteMap<CommandContext> };
 ```
 
 **Modified files:**
@@ -235,8 +237,9 @@ export const formatRoute: RouteMap<CommandContext>; // routes: messages, events
 ### Success criteria
 
 - `clauctl get-messages A | clauctl format messages` renders a real transcript
-  per the rules above; `clauctl tail A | clauctl format events` renders a live
-  stream including queue/control annotations.
+  per the rules above; `clauctl tail A | clauctl format events` renders a
+  captured stream including queue/control annotations (v1 reads the whole
+  input before emitting — see non-goals).
 - `get-messages` output is JSONL; each line parses as a `SessionMessage`.
 - Wrong-subcommand input fails with the cross-pointing `UsageError`.
 - Unit tests cover: full user/assistant rendering, tool-result naming via the
@@ -268,7 +271,7 @@ Derisk findings (empirical, from real session files and pictl source):
 - `permission-mode` entries are written unconditionally every turn (identical
   repeats, no uuid/timestamp) — rendering them requires dedupe-on-change.
 - Every assistant entry carries `.message.model` — model-change inference.
-- Thinking *level* is not recorded in the transcript at all (only thinking
+- Thinking _level_ is not recorded in the transcript at all (only thinking
   blocks), so it is not inferable in messages mode; in events mode it is
   explicit via `controlApplied: set-max-thinking-tokens`.
 - User/assistant/system entries carry `timestamp` — a `--timestamps` flag is
@@ -313,3 +316,60 @@ mark completed ones with [x], document decisions and problems encountered.
   instead of the deleted `StateSnapshot`. `SdkEvent`, tail's `{snapshot}`/
   `{event}` framing, sdk-render.ts, get-messages, and the sync-script plan
   are unaffected.
+- 2026-07-15: Implemented per the type design; presubmit green (177 tests).
+  - [x] sync-from-pictl.mjs generalized to sync sets (source/output directory
+        pairs, import rewriting scoped per set); core set gained
+        `read-input.ts`; format set syncs `text.ts` →
+        `src/format/generated/text.ts`.
+  - [x] `src/format/{types,input,messages,events,command}.ts`; `formatRoute`
+        registered in app.ts.
+  - [x] `get-messages` prints JSONL (`sendRequest` split into
+        `requestData` + printing wrapper); sdk-render.ts header notes format
+        as a second consumer.
+  - [x] Unit tests: messages.test.ts, events.test.ts, input.test.ts (the
+        success-criteria list, minus a command-level `get-messages` JSONL test
+        — its func needs a live daemon; the print loop is three lines);
+        smoke-tested on a real 589-entry session file and synthetic tail
+        input, where events output matched the spec example.
+- 2026-07-15: Fresh-context reviewer round (pictl reviewer agent). Fixed:
+  merged-bucket dequeues now blank-line-separate their full renders (only the
+  first attaches to the annotation); `[control: …]` details are one-lined and
+  truncated for primitive payloads too; `parseTailRecords` requires exactly
+  one of `snapshot`/`event` with an object payload (a UsageError beats a
+  renderer crash); a snapshot clears the remembered queue before reseeding;
+  mixed user content (text alongside tool_result blocks) renders both. Doc
+  fixes: `formatRoute` wrapper shape, "captured stream" wording, ANSI
+  clarification, sdk-render header softened. Deferred: shallow validation of
+  malformed known-type records (lenient means unknown _types_ may drift;
+  malformed known types are invalid input — unlike pictl, whose strict
+  decoders raise UsageError, here they may fail mid-render), and streaming
+  output (already a non-goal).
+- 2026-07-15: sync-from-pictl.mjs's default pictl location now derives from
+  `git rev-parse --git-common-dir` (pictl sits next to the *main* clauctl
+  checkout), so the sync and presubmit work from git worktrees without
+  `PICTL_DIR`; identical to `../pictl` in the canonical layout.
+
+## Implementation-Time Decisions
+
+- **`type` beats `snapshot`/`event` in input detection**: a real transcript's
+  `file-history-snapshot` entry carries a top-level `snapshot` payload, which
+  tripped the tail-shape heuristic. Genuine tail records never carry a
+  top-level `type`, so `parseSessionRecords` accepts any record with a string
+  `type` before checking the tail shape (found by smoke test, covered by a
+  regression test).
+- **Model inference lives in `formatSessionRecords`, not `formatSdkMessage`**:
+  events mode shares `formatSdkMessage`, and the spec scopes inferred change
+  lines to messages mode (events mode reports set-model explicitly via
+  `controlApplied`). Keeping the inference in the messages-mode driver keeps
+  the shared renderer mode-agnostic.
+- **Snapshot renders as one chunk**: the header line plus its
+  `[queued …]`/`[delivered …]` lines join with single newlines (one logical
+  record), mirroring the dequeue annotation + full render, which also joins
+  with single newlines per the spec example.
+- **Queued/delivered one-liners truncate at a fixed 80 chars** (pictl's
+  summary width), not `--max-tool-arg-chars` — that flag is about tool
+  arguments; prompt summaries are a different knob nobody asked for yet.
+- **Generic `[control: …]` renderer**: primitive-only mutation payloads print
+  their values space-joined (`[control: set-model claude-opus-4-8]`); anything
+  structured falls back to truncated one-line JSON. No per-mutation renderers
+  for the same reason as the SDKMessage long tail.
