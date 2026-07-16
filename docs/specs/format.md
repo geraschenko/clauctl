@@ -17,8 +17,7 @@ human — or economical for an LLM — to read. `clauctl format` is a pure filte
 ### Command surface
 
 A `format` routemap with two subcommands (a third, `format tree`, rendering
-`get-tree` output, is a later spec — see
-`docs/specs/session-tree-and-set-context.md`):
+`get-tree` output, is a later spec — see `docs/specs/format-tree.md`):
 
 - **`clauctl format messages [file]`** — formats `get-messages` output (JSONL,
   one `SessionMessage` per line) and `get-entries` output (verbatim
