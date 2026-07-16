@@ -102,9 +102,9 @@ export function createRequestHandler(
     events.agentState.lastTranscriptUuid,
   );
 
-  /** The override, dropped lazily once stale: the next transcript write
-   *  moves lastTranscriptUuid, closing the window it corrected for. Shared
-   *  by get-messages and get-tree so both report the same context tip. */
+  /** The get-messages override, dropped lazily once stale: the next transcript
+   * write moves lastTranscriptUuid, closing the window it corrected for. Shared
+   * by get-messages and get-tree so both report the same context tip. */
   const freshOverride = (): GetMessagesOverride | undefined => {
     if (
       override !== undefined &&
@@ -285,6 +285,7 @@ export function createRequestHandler(
           const leafUuid = chain.at(-1);
           const tree: SessionTree = {
             tree: buildTree(entries),
+            // TDC: wait, what if the chain ends within the boundary? Don't we need to set viaBoundary in that case?
             leaf: leafUuid === undefined ? null : { uuid: leafUuid },
           };
           return tree;
