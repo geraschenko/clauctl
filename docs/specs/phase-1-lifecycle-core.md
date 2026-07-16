@@ -177,10 +177,10 @@ into the `agent.json` it writes (preserving "daemon is the sole `agent.json` wri
 The daemon adds bucket-2 code + bucket-3 invariants at spawn to build the full
 `Options` for `query()`.
 
-The daemon sets **`CLAUCTL_AGENT_ID`** in the child env on every (re)spawn (pictl's
-`PI_AGENT_ID` pattern). `Options.env`, when set, **replaces** the subprocess env
+The daemon sets **`CLAUCTL_ID`** in the child env on every (re)spawn (pictl's
+`PICTL_ID` pattern). `Options.env`, when set, **replaces** the subprocess env
 entirely, so the daemon builds the env as
-`{ ...process.env, ...persistedOptions.env, CLAUCTL_AGENT_ID: agentId }`.
+`{ ...process.env, ...persistedOptions.env, CLAUCTL_ID: agentId }`.
 
 ### Daemon: the SDK loop, session tracking, assistant state, persistence
 

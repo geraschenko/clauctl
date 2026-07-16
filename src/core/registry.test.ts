@@ -35,6 +35,7 @@ async function writeAgent(agentId: string): Promise<void> {
     persistedOptions: { model: "sonnet" },
     sessions: [],
     daemonPid: 1,
+    attachments: [],
     agentDir,
   };
   await writeAgentRecord(record);
