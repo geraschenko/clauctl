@@ -887,7 +887,9 @@ export function buildTree(entries: SessionEntry[]): SessionTree;
       one startup read) and passes it to startupOverride — no file read of
       its own. `preTokensOf(usage)` (input + cache_creation + cache_read +
       output) lives in set-context.ts next to its only callers.
-    - `foldUsage(usage)` in agent-state.ts coerces the API usage object to
+    - `toNonNullableUsage(usage)` (initially `foldUsage`; renamed per a
+      2026-07-16 review comment — it converts one usage object, it does not
+      fold state) in agent-state.ts coerces the API usage object to
       NonNullableUsage: the four numeric token counters default to 0;
       other null fields are DROPPED, not given made-up non-null values
       (full-fidelity coercion of object/string fields would be lies; the

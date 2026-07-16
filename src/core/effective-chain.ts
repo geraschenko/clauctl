@@ -17,7 +17,7 @@ import type {
   PermissionMode,
   SDKAssistantMessage,
 } from "@anthropic-ai/claude-agent-sdk";
-import { foldUsage } from "./agent-state.ts";
+import { toNonNullableUsage } from "./agent-state.ts";
 import type { SessionEntry } from "./session-file.ts";
 
 interface PreservedMessages {
@@ -216,7 +216,7 @@ export function seedFromEntries(entries: SessionEntry[]): SessionFileSeed {
 
   return {
     ...(lastAssistantMessage?.usage !== undefined && {
-      lastUsage: foldUsage(lastAssistantMessage.usage),
+      lastUsage: toNonNullableUsage(lastAssistantMessage.usage),
     }),
     ...(lastAssistantMessage?.model !== undefined && {
       model: lastAssistantMessage.model,

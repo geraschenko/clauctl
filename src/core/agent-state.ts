@@ -87,8 +87,7 @@ export const INITIAL_AGENT_STATE: AgentState = {
  * non-null values. Also used to coerce usage objects read back from session
  * file entries (effective-chain.ts seedFromEntries).
  */
-// TDC: why "fold"? That term makes it seem like this is combining previous state with the `usage` argument, but it's simply converting a usage into a non-nullable usage by filling in 0's for nulls, right?
-export function foldUsage(
+export function toNonNullableUsage(
   usage: SDKAssistantMessage["message"]["usage"],
 ): NonNullableUsage {
   return {
@@ -235,7 +234,10 @@ export function nextAgentState(state: AgentState, event: SdkEvent): AgentState {
         return withObservedPermissionMode(next, message.permissionMode);
       }
       if (message.type === "assistant") {
-        next = { ...next, lastUsage: foldUsage(message.message.usage) };
+        next = {
+          ...next,
+          lastUsage: toNonNullableUsage(message.message.usage),
+        };
         // Top-level assistant output confirms the turn started. Compacting is
         // exited by the subsequent `result`, not by assistant output or the
         // compact-boundary message (which arrives when compaction *finishes*).
