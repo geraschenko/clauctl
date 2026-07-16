@@ -59,9 +59,11 @@ stays a single pretty-printed JSON document):
   carries `viaBoundary` (raw placement is unique per uuid — each entry
   appears once in the file), provided one boundary's rendered chain never
   repeats a uuid: true for valid data (set-context rejects duplicate uuids;
-  the CLI loader silently skips a relink containing them), and the
-  substructure follow-up must mirror that skip for degenerate hand-edited
-  boundaries (assumption recorded there via this spec). `leaf.viaBoundary`
+  the CLI loader silently skips a relink containing them). The substructure
+  follow-up's `buildTree` **must implement** the same skip for degenerate
+  hand-edited boundaries — the synced layout treats unique layout ids as a
+  checked precondition and throws on duplicates, so a violation crashes
+  `format tree` rather than merely rendering oddly. `leaf.viaBoundary`
   mirrors the node field and is therefore always absent until the follow-up
   lands.
 - `buildTree` returns the forest only (`TreeNode[]`); the get-tree handler
@@ -251,9 +253,9 @@ export interface TreeFormatOptions {
  * the cursor line. Layout ids are adapter-internal occurrence composites —
  * `uuid` when the node has no viaBoundary, else `${uuid}@${viaBoundary}`
  * ("@" cannot appear in a uuid) — and currentLeafId is the same composite
- * over `input.leaf`, so the synced layout's unique-id assumption holds and
- * its every-matching-occurrence semantics stays a robustness guarantee, not
- * rendered behavior. Entry summaries and filters are private helpers here
+ * over `input.leaf`. Unique layout ids are a checked precondition of the
+ * synced layout: `flattenVisibleTree` throws on duplicates, so an adapter
+ * bug fails loudly. Entry summaries and filters are private helpers here
  * (split into a filter.ts later only if another subcommand grows filtering). */
 export function formatSessionTree(input: SessionTree, options: TreeFormatOptions): string;
 ```
@@ -417,3 +419,15 @@ encountered.
   never repeats a uuid — valid data guarantees it (set-context rejects
   duplicates; the loader skips degenerate relinks), and the follow-up's
   buildTree must mirror the loader's skip.
+- 2026-07-16 (pi-diffability round, pictl `bdb98fe`): Anton overturned the
+  pictl-side reference-keying decision — the layout file must stay
+  structurally diffable against pi's `TreeSelector`, so internals stay
+  id-keyed and duplicate layout ids become a **checked precondition**
+  (`flattenVisibleTree` throws, one Set pass while flattening) instead of a
+  tolerated input. clauctl consequences: the composite ids already satisfy
+  the precondition for valid data (nothing to change in the design); the
+  formatSessionTree doc comment's "every-matching-occurrence semantics
+  stays a robustness guarantee" wording was replaced with the precondition
+  statement; and the substructure follow-up's obligation hardened from
+  "assumption recorded" to "must implement the degenerate-boundary skip" —
+  violating it now crashes `format tree` instead of rendering oddly.
