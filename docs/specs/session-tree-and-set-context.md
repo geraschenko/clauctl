@@ -925,3 +925,8 @@ export function buildTree(entries: SessionEntry[]): SessionTree;
     is mentioned AS a word (the naming decision and the ban rule above).
     Self-review of the full diff done; awaiting Anton's review of all
     changes. Nothing committed.
+- 2026-07-16 (format-tree spec): the get-tree response was reshaped by
+  `docs/specs/format-tree.md`: `TreeNode` embeds its entry (the shared
+  `entries` record is gone) and `SessionTree` is
+  `{ tree: TreeNode[]; leaf: { uuid, viaBoundary? } | null }` with a
+  daemon-computed current-leaf occurrence. See that spec for rationale.

@@ -682,9 +682,10 @@ export const sdkRoutes = {
     "print every session jsonl entry, verbatim, as JSONL",
     { type: "get-entries" },
   ),
-  "get-tree": bareRequestCommand("print the session transcript as a forest", {
-    type: "get-tree",
-  }),
+  "get-tree": bareRequestCommand(
+    "print the session transcript as a forest plus the current leaf",
+    { type: "get-tree" },
+  ),
   "set-context": commandOneTarget<SetContextFlags, string[]>({
     docs: {
       brief:

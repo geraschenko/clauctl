@@ -10,8 +10,13 @@ import { readInputFile } from "../core/generated/read-input.ts";
 import type { CommandContext } from "../core/generated/targets.ts";
 import { UsageError } from "../core/generated/util.ts";
 import { formatTailRecords } from "./events.ts";
-import { parseSessionEntries, parseTailRecords } from "./input.ts";
+import {
+  parseSessionEntries,
+  parseSessionTree,
+  parseTailRecords,
+} from "./input.ts";
 import { formatSessionEntries } from "./messages.ts";
+import { FILTER_MODES, formatSessionTree } from "./tree.ts";
 import type { MessageFormatOptions } from "./types.ts";
 
 function parsePositiveInteger(input: string): number {
@@ -78,6 +83,26 @@ async function formatEvents(
   );
 }
 
+const treeFlags = {
+  filter: enumFlag("Tree filter", FILTER_MODES),
+  width: parsedFlag("Output width", parsePositiveInteger, "num"),
+};
+type TreeFlags = InferFlags<typeof treeFlags>;
+
+async function formatTree(
+  this: CommandContext,
+  flags: TreeFlags,
+  file?: string,
+): Promise<void> {
+  const input = await readInputFile(this, file);
+  this.process.stdout.write(
+    formatSessionTree(parseSessionTree(input), {
+      filter: flags.filter ?? "conversation",
+      width: flags.width ?? 120,
+    }),
+  );
+}
+
 export const formatRoute = {
   format: Object.assign(
     buildRouteMap({
@@ -95,6 +120,12 @@ export const formatRoute = {
           docs: { brief: "format the tail stream as plain text" },
           parameters: { flags: formatFlags, positional: filePositional },
           func: formatEvents,
+        }),
+        tree: commandNoTarget<TreeFlags, [string | undefined]>({
+          common: true,
+          docs: { brief: "format get-tree output as an indented tree" },
+          parameters: { flags: treeFlags, positional: filePositional },
+          func: formatTree,
         }),
       },
       docs: { brief: "Format raw clauctl output as plain text" },

@@ -1,13 +1,26 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { UsageError } from "../core/generated/util.ts";
-import { parseSessionEntries, parseTailRecords } from "./input.ts";
+import {
+  parseSessionEntries,
+  parseSessionTree,
+  parseTailRecords,
+} from "./input.ts";
 
 const MESSAGE_LINE = JSON.stringify({
   type: "user",
   message: { role: "user", content: "hi" },
 });
 const TAIL_LINE = JSON.stringify({ event: { kind: "interruptSent" } });
+// Pretty-printed like real get-tree output, so the first line is just "{".
+const TREE_DOCUMENT = JSON.stringify(
+  {
+    tree: [{ entry: { uuid: "u1", type: "user" }, children: [] }],
+    leaf: { uuid: "u1" },
+  },
+  null,
+  2,
+);
 
 test("parseSessionEntries accepts message JSONL", () => {
   const records = parseSessionEntries(`${MESSAGE_LINE}\n${MESSAGE_LINE}\n`);
@@ -61,4 +74,47 @@ test("parseTailRecords rejects malformed framing", () => {
     () => parseTailRecords('{"snapshot": {}, "event": {}}\n'),
     UsageError,
   );
+});
+
+test("parseSessionTree accepts a pretty-printed tree document", () => {
+  const tree = parseSessionTree(TREE_DOCUMENT);
+  assert.equal(tree.tree.length, 1);
+  assert.deepEqual(tree.leaf, { uuid: "u1" });
+  assert.equal(parseSessionTree('{"tree": [], "leaf": null}').leaf, null);
+});
+
+test("parseSessionTree validates the leaf shape", () => {
+  assert.throws(() => parseSessionTree('{"tree": []}'), UsageError);
+  assert.throws(() => parseSessionTree('{"tree": [], "leaf": 3}'), UsageError);
+  assert.throws(
+    () => parseSessionTree('{"tree": [], "leaf": {"viaBoundary": "b"}}'),
+    UsageError,
+  );
+});
+
+test("parseSessionTree points the other shapes at their subcommands", () => {
+  assert.throws(
+    () => parseSessionTree(`${MESSAGE_LINE}\n${MESSAGE_LINE}\n`),
+    (error: unknown) =>
+      error instanceof UsageError &&
+      error.message.includes("clauctl format messages"),
+  );
+  assert.throws(
+    () => parseSessionTree(`${TAIL_LINE}\n`),
+    (error: unknown) =>
+      error instanceof UsageError &&
+      error.message.includes("clauctl format events"),
+  );
+  assert.throws(() => parseSessionTree("not json"), UsageError);
+});
+
+test("parseSessionEntries and parseTailRecords point tree input at format tree", () => {
+  for (const parse of [parseSessionEntries, parseTailRecords]) {
+    assert.throws(
+      () => parse(TREE_DOCUMENT),
+      (error: unknown) =>
+        error instanceof UsageError &&
+        error.message.includes("clauctl format tree"),
+    );
+  }
 });

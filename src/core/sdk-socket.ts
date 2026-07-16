@@ -215,7 +215,8 @@ export type SdkRequest =
   // Response data: SessionEntry[] — every jsonl line of the current session,
   // verbatim.
   | { type: "get-entries" }
-  // Response data: SessionTree — the session as a forest.
+  // Response data: SessionTree — the session as a forest plus the
+  // current-leaf occurrence (build-tree.ts).
   | { type: "get-tree" }
   // Response data: SetContextResult.
   | SetContextRequest

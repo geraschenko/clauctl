@@ -13,12 +13,12 @@ function chainEntry(
   return { uuid: uuid(), parentUuid, type };
 }
 
-function find(roots: TreeNode[], entryUuid: UUID): TreeNode | undefined {
-  for (const root of roots) {
-    if (root.entryUuid === entryUuid) {
-      return root;
+function find(tree: TreeNode[], entryUuid: UUID): TreeNode | undefined {
+  for (const node of tree) {
+    if (node.entry.uuid === entryUuid) {
+      return node;
     }
-    const inChildren = find(root.children, entryUuid);
+    const inChildren = find(node.children, entryUuid);
     if (inChildren !== undefined) {
       return inChildren;
     }
@@ -51,18 +51,17 @@ test("branch point plus boundary: raw forest with boundary under logicalParentUu
   };
   const tree = buildTree([root, branchA, branchB, leafB, boundary, summary]);
 
-  assert.equal(tree.roots.length, 1);
-  const rootNode = tree.roots[0]!;
-  assert.equal(rootNode.entryUuid, root.uuid);
+  assert.equal(tree.length, 1);
+  const rootNode = tree[0]!;
+  assert.equal(rootNode.entry, root);
   assert.deepEqual(
-    rootNode.children.map((child) => child.entryUuid),
+    rootNode.children.map((child) => child.entry.uuid),
     [branchA.uuid, branchB.uuid],
   );
-  const boundaryNode = find(tree.roots, boundaryUuid);
-  assert.equal(find(tree.roots, leafB.uuid)!.children[0], boundaryNode);
-  assert.equal(boundaryNode!.children[0]!.entryUuid, summaryUuid);
+  const boundaryNode = find(tree, boundaryUuid);
+  assert.equal(find(tree, leafB.uuid)!.children[0], boundaryNode);
+  assert.equal(boundaryNode!.children[0]!.entry, summary);
   assert.equal(boundaryNode!.viaBoundary, undefined);
-  assert.equal(tree.entries[summaryUuid], summary);
 });
 
 test("entries without a uuid get no node but chain entries still resolve", () => {
@@ -73,9 +72,9 @@ test("entries without a uuid get no node but chain entries still resolve", () =>
   };
   const child = chainEntry(root.uuid);
   const tree = buildTree([root, snapshot, child]);
-  assert.equal(tree.roots.length, 1);
-  assert.equal(tree.roots[0]!.children[0]!.entryUuid, child.uuid);
-  assert.equal(Object.keys(tree.entries).length, 2);
+  assert.equal(tree.length, 1);
+  assert.equal(tree[0]!.children[0]!.entry, child);
+  assert.equal(find(tree, root.uuid)!.children.length, 1);
 });
 
 test("a boundary without logicalParentUuid becomes a root", () => {
@@ -86,13 +85,13 @@ test("a boundary without logicalParentUuid becomes a root", () => {
     subtype: "compact_boundary",
   };
   const tree = buildTree([boundary]);
-  assert.equal(tree.roots.length, 1);
-  assert.equal(tree.roots[0]!.entryUuid, boundary.uuid);
+  assert.equal(tree.length, 1);
+  assert.equal(tree[0]!.entry, boundary);
 });
 
 test("a parentUuid pointing at a missing entry falls back to a root", () => {
   const orphan = chainEntry(uuid());
   const tree = buildTree([orphan]);
-  assert.equal(tree.roots.length, 1);
-  assert.equal(tree.roots[0]!.entryUuid, orphan.uuid);
+  assert.equal(tree.length, 1);
+  assert.equal(tree[0]!.entry, orphan);
 });

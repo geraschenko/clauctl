@@ -17,7 +17,8 @@ import {
   type Query,
   type SDKUserMessage,
 } from "@anthropic-ai/claude-agent-sdk";
-import { buildTree } from "../build-tree.ts";
+import { buildTree, type SessionTree } from "../build-tree.ts";
+import { effectiveChain } from "../effective-chain.ts";
 import type { PersistedOptions } from "../options.ts";
 import {
   readEntriesAfterStreamFlush,
@@ -100,6 +101,19 @@ export function createRequestHandler(
     deps.startupEntries,
     events.agentState.lastTranscriptUuid,
   );
+
+  /** The override, dropped lazily once stale: the next transcript write
+   *  moves lastTranscriptUuid, closing the window it corrected for. Shared
+   *  by get-messages and get-tree so both report the same context tip. */
+  const freshOverride = (): GetMessagesOverride | undefined => {
+    if (
+      override !== undefined &&
+      override.installedAtLeafUuid !== events.agentState.lastTranscriptUuid
+    ) {
+      override = undefined;
+    }
+    return override;
+  };
 
   const handleSetContext = createSetContextHandler(deps, {
     gate,
@@ -220,14 +234,7 @@ export function createRequestHandler(
           if (sessionId === undefined) {
             return [];
           }
-          if (
-            override !== undefined &&
-            override.installedAtLeafUuid !==
-              events.agentState.lastTranscriptUuid
-          ) {
-            override = undefined;
-          }
-          const active = override;
+          const active = freshOverride();
           if (active?.kind === "synthesize") {
             return synthesizeMessages(
               deps.sessionFilePath(sessionId),
@@ -261,7 +268,26 @@ export function createRequestHandler(
             deps.sessionFilePath(sessionId),
             events.agentState.lastTranscriptUuid as UUID | undefined,
           );
-          return request.type === "get-entries" ? entries : buildTree(entries);
+          if (request.type === "get-entries") {
+            return entries;
+          }
+          // The leaf is the effective-context tip, minus a live filterTail
+          // override's dropped uuids (a no-write rewind moves the leaf to
+          // the rewind target; the synthesize variant needs nothing — the
+          // re-read file already reflects the appended boundary).
+          const active = freshOverride();
+          const chain =
+            active?.kind === "filterTail"
+              ? effectiveChain(entries).filter(
+                  (chainUuid) => !active.droppedUuids.has(chainUuid),
+                )
+              : effectiveChain(entries);
+          const leafUuid = chain.at(-1);
+          const tree: SessionTree = {
+            tree: buildTree(entries),
+            leaf: leafUuid === undefined ? null : { uuid: leafUuid },
+          };
+          return tree;
         } finally {
           release();
         }

@@ -8,7 +8,12 @@ import type { UUID } from "node:crypto";
 import type { SessionEntry } from "./session-file.ts";
 
 export interface TreeNode {
-  entryUuid: UUID;
+  /** The entry, embedded verbatim. Entries lacking a uuid
+   *  (file-history-snapshot, queue-operation) get no tree node and are
+   *  visible via get-entries only. Duplicated tree nodes (boundary
+   *  substructure, follow-up spec) will serialize their payload once per
+   *  node — accepted for a self-contained format input. */
+  entry: SessionEntry;
   children: TreeNode[];
   /** Set when the edge to this node's parent comes from a boundary relink
    *  rather than the entry's raw parentUuid. */
@@ -16,11 +21,14 @@ export interface TreeNode {
 }
 
 export interface SessionTree {
-  roots: TreeNode[];
-  /** Payloads by uuid; duplicated tree nodes share one payload. Entries
-   *  lacking a uuid (file-history-snapshot, queue-operation) are omitted —
-   *  they get no tree node and are visible via get-entries only. */
-  entries: Record<UUID, SessionEntry>;
+  tree: TreeNode[];
+  /** The current-leaf occurrence — where the next turn attaches. uuid =
+   *  tip of the current effective context, daemon-computed (effectiveChain
+   *  minus a live filterTail override). viaBoundary mirrors the node field
+   *  and identifies the occurrence once duplicates exist (absent until the
+   *  substructure follow-up sets it). Null when the session has no chain
+   *  entries. */
+  leaf: { uuid: UUID; viaBoundary?: UUID } | null;
 }
 
 /** TODO: THIS SPEC ships the raw forest only: raw parentUuid edges give the base
@@ -41,16 +49,14 @@ export interface SessionTree {
  *  confirmed in the p0b/p0c captures; see file comment). Native summary
  *  entries parent onto the boundary in BOTH shapes, so parentUuid-based tree
  *  construction stays correct without special-casing. */
-export function buildTree(entries: SessionEntry[]): SessionTree {
-  const payloads: Record<UUID, SessionEntry> = {};
+export function buildTree(entries: SessionEntry[]): TreeNode[] {
   const nodes = new Map<UUID, TreeNode>();
   const roots: TreeNode[] = [];
   for (const entry of entries) {
     if (entry.uuid === undefined) {
       continue;
     }
-    payloads[entry.uuid] = entry;
-    const node: TreeNode = { entryUuid: entry.uuid, children: [] };
+    const node: TreeNode = { entry, children: [] };
     nodes.set(entry.uuid, node);
     // Boundaries carry parentUuid null; their tree anchor is
     // logicalParentUuid.
@@ -68,5 +74,5 @@ export function buildTree(entries: SessionEntry[]): SessionTree {
       roots.push(node);
     }
   }
-  return { roots, entries: payloads };
+  return roots;
 }

@@ -11,6 +11,7 @@ import {
   type SDKUserMessage,
 } from "@anthropic-ai/claude-agent-sdk";
 import { INITIAL_AGENT_STATE } from "../agent-state.ts";
+import type { SessionTree } from "../build-tree.ts";
 import type { PersistedOptions } from "../options.ts";
 import {
   readSessionEntries,
@@ -358,22 +359,31 @@ test("a failed mutation rejects its requester without poisoning the chain", asyn
 
 // --- get-entries / get-tree ----------------------------------------------------
 
-test("get-entries returns every entry verbatim; get-tree builds the forest", async () => {
+test("get-entries returns every entry verbatim; get-tree builds the forest plus the leaf", async () => {
   const f = fixture();
-  const { u1, a1 } = linearSession(f);
+  const { u1, a1, a2 } = linearSession(f);
   const entries = (await f.handle({
     type: "get-entries",
     id: "e1",
   })) as SessionEntry[];
   assert.equal(entries.length, 4);
   assert.deepEqual(entries[0], u1);
-  const tree = (await f.handle({ type: "get-tree", id: "t1" })) as {
-    roots: Array<{ entryUuid: UUID; children: unknown[] }>;
-    entries: Record<UUID, SessionEntry>;
-  };
-  assert.equal(tree.roots.length, 1);
-  assert.equal(tree.roots[0]!.entryUuid, u1.uuid);
-  assert.deepEqual(tree.entries[a1.uuid], a1);
+  const tree = (await f.handle({ type: "get-tree", id: "t1" })) as SessionTree;
+  assert.equal(tree.tree.length, 1);
+  assert.deepEqual(tree.tree[0]!.entry, u1);
+  assert.deepEqual(tree.tree[0]!.children[0]!.entry, a1);
+  assert.deepEqual(tree.leaf, { uuid: a2.uuid });
+});
+
+// Criterion 2: the leaf follows the same override the get-messages answer
+// uses — a no-write rewind moves it to the rewind target until the next
+// transcript write.
+test("get-tree leaf reflects a no-write rewind's filterTail override", async () => {
+  const f = fixture();
+  const { a1 } = linearSession(f);
+  await f.handle({ type: "set-context", rewindTo: a1.uuid, id: "c1" });
+  const tree = (await f.handle({ type: "get-tree", id: "t1" })) as SessionTree;
+  assert.deepEqual(tree.leaf, { uuid: a1.uuid });
 });
 
 test("get-entries and get-tree error without a session", async () => {
@@ -585,6 +595,10 @@ test("rewind to an abandoned branch appends a no-summary boundary", async () => 
     a2a.uuid,
   ]);
   assert.equal(metadata.preservedMessages.anchorUuid, result.boundaryUuid);
+  // Criterion 2: after the boundary append, the leaf is the new effective
+  // tip straight from the re-read file (no override involvement).
+  const tree = (await f.handle({ type: "get-tree", id: "t1" })) as SessionTree;
+  assert.deepEqual(tree.leaf, { uuid: a2a.uuid });
 });
 
 // Pins a characterized SDK divergence (see the verification comment in

@@ -1,6 +1,6 @@
 # Spec: `clauctl format tree` — readable rendering of the session tree
 
-> Status: **spec written, not implemented.** Follow-up to
+> Status: **implemented, awaiting review.** Follow-up to
 > `docs/specs/format.md` (which deferred `format tree`) and
 > `docs/specs/session-tree-and-set-context.md` (which shipped `get-tree`).
 > Prerequisite: the pictl-side tree-layout extraction
@@ -54,7 +54,7 @@ stays a single pretty-printed JSON document):
   the same entry uuid can appear at multiple tree positions, so a bare uuid
   cannot name "the" leaf — and the distinction matters: per the session-tree
   spec's TUI mapping, a raw occurrence and a viaBoundary occurrence of the
-  same uuid map to *different* set-context actions. The pair suffices
+  same uuid map to _different_ set-context actions. The pair suffices
   because duplicates only arise from relink edges and every relink-edge node
   carries `viaBoundary` (raw placement is unique per uuid — each entry
   appears once in the file), provided one boundary's rendered chain never
@@ -431,3 +431,42 @@ encountered.
   statement; and the substructure follow-up's obligation hardened from
   "assumption recorded" to "must implement the degenerate-boundary skip" —
   violating it now crashes `format tree` instead of rendering oddly.
+- 2026-07-16 (implemented): pictl landed the extraction (`cfd664b`);
+  clauctl side implemented per the type design. All criteria except the
+  live-daemon end-to-end (criterion 1) are covered by tests — 261 pass,
+  sync `--check` green. The rendering was smoke-tested through the real
+  CLI on a buildTree-generated document, matching the spec's first
+  example.
+
+### Implementation-Time Decisions
+
+- **Multi-root rendering pins a pictl↔pi divergence.** pi's TreeSelector
+  shifts EVERY node's display indent left by one under multiple roots
+  (`tree-selector.ts` renderTree `displayIndent`), while pictl's
+  `treePrefix` shifts only the virtual-root children themselves — so
+  virtual-root children render flush without connectors, and deeper
+  multi-root trees show connectors one level right of their gutters
+  (probe: a fork under a multi-root root renders `├─ …` with its
+  grandchild gutter at column 0). pictl's `tree-layout.test.ts` pins this,
+  the extraction handoff required byte-identical output, and this spec
+  defines parity as "whatever the synced code does" — so clauctl pins it
+  too (`tree.test.ts` multi-root test) rather than unilaterally changing
+  the synced file. Multi-root DOES occur in clauctl (a boundary without
+  `logicalParentUuid` roots itself), so if the misalignment matters it
+  should be fixed pictl-side (where pi-diffability argues for adopting
+  pi's all-nodes shift) and resynced. The spec sentence "one extra
+  connector level, like pictl" describes the indent shift the virtual
+  root imposes on descendants, not a connector on the roots themselves.
+- **Uuid-less nodes in hand-crafted parse input** are not validated away:
+  the adapter stringifies `entry.uuid` (`"undefined"` for a missing one),
+  and two such nodes collide in the layout's duplicate-id guard. Lenient
+  by the same policy as `format messages` (verbatim entries drift);
+  `buildTree` output never contains them.
+- **`freshOverride` helper** (request-handlers.ts): the get-messages
+  staleness check moved into a closure-local helper as planned; get-tree
+  filters `effectiveChain` through it inline in the shared
+  get-entries/get-tree case, after an early `get-entries` return.
+- **Fallback names**: entries with no `type` summarize as `unknown`
+  (`<type>[: <subtype>]` needs something to print); unnamed tool results
+  and tool_use blocks fall back to `tool`, matching `sdk-message.ts`'s
+  existing fallback.
