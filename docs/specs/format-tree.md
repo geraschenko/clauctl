@@ -40,14 +40,30 @@ stays a single pretty-printed JSON document):
   embedding means those will serialize their payload once per node —
   accepted (decided 2026-07-16) in exchange for a self-contained format
   input and near-verbatim reuse of pictl's rendering code.
-- `SessionTree` becomes `{ tree: TreeNode[]; leafUuid: UUID | null }`.
-  `leafUuid` is the tip of the daemon's **current effective context** — the
-  entry the next turn will parent onto (modulo boundary shapes): the last
-  uuid of `effectiveChain(entries)`, minus a live filterTail override's
-  `droppedUuids` (so a no-write rewind moves the leaf to the rewind target).
-  The override is consulted with the same freshness rule `get-messages`
-  applies (stale once `lastTranscriptUuid` moves). `null` when the session
-  file has no chain entries.
+- `SessionTree` becomes
+  `{ tree: TreeNode[]; leaf: { uuid: UUID; viaBoundary?: UUID } | null }`.
+  `leaf` names the **current-leaf occurrence** — the position the next turn
+  attaches to. `leaf.uuid` is the tip of the daemon's current effective
+  context: the last uuid of `effectiveChain(entries)`, minus a live
+  filterTail override's `droppedUuids` (so a no-write rewind moves the leaf
+  to the rewind target). The override is consulted with the same freshness
+  rule `get-messages` applies (stale once `lastTranscriptUuid` moves).
+  `null` when the session file has no chain entries.
+- **Occurrence identity is the pair `(entry uuid, viaBoundary)`** (decided
+  2026-07-16). Once the boundary-substructure follow-up sets `viaBoundary`,
+  the same entry uuid can appear at multiple tree positions, so a bare uuid
+  cannot name "the" leaf — and the distinction matters: per the session-tree
+  spec's TUI mapping, a raw occurrence and a viaBoundary occurrence of the
+  same uuid map to *different* set-context actions. The pair suffices
+  because duplicates only arise from relink edges and every relink-edge node
+  carries `viaBoundary` (raw placement is unique per uuid — each entry
+  appears once in the file), provided one boundary's rendered chain never
+  repeats a uuid: true for valid data (set-context rejects duplicate uuids;
+  the CLI loader silently skips a relink containing them), and the
+  substructure follow-up must mirror that skip for degenerate hand-edited
+  boundaries (assumption recorded there via this spec). `leaf.viaBoundary`
+  mirrors the node field and is therefore always absent until the follow-up
+  lands.
 - `buildTree` returns the forest only (`TreeNode[]`); the get-tree handler
   composes the `SessionTree`.
 
@@ -64,8 +80,8 @@ the same code, synced from pictl (see Type design). No ANSI, ever.
     prefixes.)
   - `<marker>` = `*` on the current leaf, `•` on its ancestors, empty
     otherwise.
-- **Active path = tree-edge ancestry**: the walk from the `leafUuid` node to
-  its root follows the tree's parent edges (NOT raw `parentUuid` — they
+- **Active path = tree-edge ancestry**: the walk from the leaf occurrence's
+  node to its root follows the tree's parent edges (NOT raw `parentUuid` — they
   diverge at boundary nodes, which hang under `logicalParentUuid`). This is
   genealogy, not effective context: after a compaction, the walk runs
   through the preserved tail's raw ancestry, so the summarized-away region
@@ -80,8 +96,9 @@ the same code, synced from pictl (see Type design). No ANSI, ever.
 - After filtering, the visible structure is recomputed: a visible node whose
   parent was filtered out re-attaches to its nearest visible ancestor, so
   connectors and gutters stay correct.
-- Last line, always: `[cursor: <full leaf uuid>]`, or `[cursor: null]` when
-  there is no leaf. An empty tree renders just the cursor line.
+- Last line, always: `[cursor: <leaf.uuid>]` (full uuid, no viaBoundary
+  qualifier — the cursor feeds uuid-taking commands), or `[cursor: null]`
+  when there is no leaf. An empty tree renders just the cursor line.
 
 Per-entry summaries (each one-lined, truncated to the remaining width):
 
@@ -205,16 +222,19 @@ export interface TreeNode {
 }
 export interface SessionTree {
   tree: TreeNode[];
-  /** Tip of the current effective context — what the next turn parents onto.
-   *  Daemon-computed (effectiveChain minus a live filterTail override);
-   *  null when the session has no chain entries. */
-  leafUuid: UUID | null;
+  /** The current-leaf occurrence — where the next turn attaches. uuid =
+   *  tip of the current effective context, daemon-computed (effectiveChain
+   *  minus a live filterTail override). viaBoundary mirrors the node field
+   *  and identifies the occurrence once duplicates exist (absent until the
+   *  substructure follow-up sets it). Null when the session has no chain
+   *  entries. */
+  leaf: { uuid: UUID; viaBoundary?: UUID } | null;
 }
 export function buildTree(entries: SessionEntry[]): TreeNode[]; // forest only
 ```
 
 **`src/core/daemon/request-handlers.ts`** — the get-tree case composes
-`{ tree: buildTree(entries), leafUuid }`, sharing the override-freshness
+`{ tree: buildTree(entries), leaf }`, sharing the override-freshness
 check with the get-messages case (calls `effectiveChain`).
 
 **`src/format/tree.ts`** (clauctl-specific rendering):
@@ -228,7 +248,12 @@ export interface TreeFormatOptions {
 }
 /** Whole-input formatter for `format tree`: adapts TreeNode[] to
  * LayoutNode<SessionEntry>[], calls flattenVisibleTree, renders lines +
- * the cursor line. Entry summaries and filters are private helpers here
+ * the cursor line. Layout ids are adapter-internal occurrence composites —
+ * `uuid` when the node has no viaBoundary, else `${uuid}@${viaBoundary}`
+ * ("@" cannot appear in a uuid) — and currentLeafId is the same composite
+ * over `input.leaf`, so the synced layout's unique-id assumption holds and
+ * its every-matching-occurrence semantics stays a robustness guarantee, not
+ * rendered behavior. Entry summaries and filters are private helpers here
  * (split into a filter.ts later only if another subcommand grows filtering). */
 export function formatSessionTree(input: SessionTree, options: TreeFormatOptions): string;
 ```
@@ -236,7 +261,8 @@ export function formatSessionTree(input: SessionTree, options: TreeFormatOptions
 **`src/format/input.ts`**:
 
 ```ts
-/** One JSON document with a `tree` array and string-or-null `leafUuid`.
+/** One JSON document with a `tree` array and a `leaf` that is null or an
+ * object with a string `uuid` (and optional string `viaBoundary`).
  * Tail-shaped or session-entry JSONL input → UsageError pointing at the
  * other subcommands. */
 export function parseSessionTree(input: string): SessionTree;
@@ -264,10 +290,10 @@ the response reshape.
    point and a compaction renders both branches, the boundary and summary
    nodes, `•`/`*` markers along the tree-edge ancestry of the leaf, and the
    trailing full-uuid cursor line.
-2. `get-tree` returns `{tree, leafUuid}`; after a no-write rewind, `leafUuid`
+2. `get-tree` returns `{tree, leaf}`; after a no-write rewind, `leaf.uuid`
    is the rewind target (filterTail override consulted, freshness rule
    shared with get-messages); after a boundary append, it is the new
-   effective tip.
+   effective tip. `leaf.viaBoundary` is absent (raw forest).
 3. Each `--filter` mode shows/hides per its definition; filtered parents
    re-attach children without breaking connectors; `all` shows every node.
 4. Wrong-shape input fails with cross-pointing `UsageError`s in all
@@ -276,18 +302,21 @@ the response reshape.
    `tree-layout.ts`; pictl's own tests are unaffected (pictl-side criterion).
 6. Unit tests cover: marker placement and active-branch-first ordering,
    multi-root virtual root, filter re-attachment, every summary row of the
-   table above, width truncation, empty tree, leafUuid-not-in-tree
-   degradation (no markers, cursor still prints), and the UsageError paths.
+   table above, width truncation, empty tree, leaf-not-in-tree degradation
+   (no markers, cursor still prints), a hand-built input with a duplicated
+   uuid where only the `viaBoundary`-matching occurrence gets `*` (the
+   composite-id contract, testable before the substructure lands), and the
+   UsageError paths.
 
 ### Edge cases
 
-- Empty session / no chain entries → `leafUuid: null`, `format tree` prints
+- Empty session / no chain entries → `leaf: null`, `format tree` prints
   only `[cursor: null]`.
-- `leafUuid` not among tree nodes (shouldn't happen) → no `*`/`•` markers;
-  cursor line still prints it.
+- `leaf` matching no tree node (shouldn't happen) → no `*`/`•` markers;
+  cursor line still prints `leaf.uuid`.
 - Uuid-less entries (`file-history-snapshot`, `queue-operation`) have no
   tree node (unchanged `buildTree` behavior) and thus never render.
-- `leafUuid` inherits `effectiveChain`'s documented tip-selection limitation
+- `leaf.uuid` inherits `effectiveChain`'s documented tip-selection limitation
   (uuid-bearing attachment/sidechain entries could win the tip); already
   flagged in session-tree-and-set-context.md, not worsened here.
 - Sidechain entries (`isSidechain`) render like any user/assistant entry;
@@ -371,3 +400,20 @@ encountered.
   touches two repos), and the anticipated-consumer note was added to Type
   design (twice-called flatten for full+filtered lists; summaries/filters
   stay standalone). Handoff doc updated to match.
+- 2026-07-16 (duplicate-id round): Anton flagged (while reviewing the pictl
+  handoff) that a bare `leafUuid` breaks once the substructure follow-up
+  produces duplicate nodes — and the pictl-side layout was hardened for
+  duplicate ids (reference keying, every-matching-occurrence semantics; see
+  the handoff's same-date work log). clauctl-side resolution: a daemon-set
+  `isCurrentLeaf` node flag was considered and rejected (Anton) in favor of
+  the occurrence pair `(uuid, viaBoundary)` — the discriminator is already
+  node data, `buildTree` stays pure, and the response stays declarative.
+  `SessionTree.leafUuid` became `leaf: {uuid, viaBoundary?} | null`; layout
+  ids are adapter-internal composites (`uuid` / `uuid@viaBoundary`, plain
+  concatenation over hashing for debuggability), keeping the synced
+  layout's unique-id assumption true; the cursor line prints `leaf.uuid`
+  only (Anton's call). Recorded assumption handed to the substructure
+  follow-up: pair uniqueness requires that a boundary's rendered chain
+  never repeats a uuid — valid data guarantees it (set-context rejects
+  duplicates; the loader skips degenerate relinks), and the follow-up's
+  buildTree must mirror the loader's skip.
