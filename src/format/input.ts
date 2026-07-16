@@ -6,7 +6,8 @@
 
 import { parseJsonlInput } from "../core/generated/read-input.ts";
 import { UsageError } from "../core/generated/util.ts";
-import type { SessionRecord, TailRecord } from "./types.ts";
+import type { SessionEntry } from "../core/session-file.ts";
+import type { TailRecord } from "./types.ts";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
@@ -16,14 +17,18 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 // consuming end of a live pipe (`clauctl query … | clauctl format messages`).
 // Formatted tail/query needs streaming parse-and-emit — see
 // docs/thoughts/formatted-tail-and-query.md.
-export function parseSessionRecords(input: string): readonly SessionRecord[] {
+
+/** SessionEntry leaves `type` optional (a verbatim jsonl line guarantees
+ * nothing), but every real session line carries one — requiring it here is
+ * what tells session entries apart from tail framing and garbage input. */
+export function parseSessionEntries(input: string): readonly SessionEntry[] {
   const lines = parseJsonlInput(input);
   return lines.map((line, index) => {
     if (isRecord(line) && typeof line.type === "string") {
       // A `type` field wins over `snapshot`/`event` keys: session entries
       // like file-history-snapshot carry a top-level `snapshot` payload,
       // while genuine tail records never carry a `type`.
-      return line as SessionRecord;
+      return line as SessionEntry;
     }
     if (isRecord(line) && ("snapshot" in line || "event" in line)) {
       throw new UsageError(
@@ -31,7 +36,7 @@ export function parseSessionRecords(input: string): readonly SessionRecord[] {
       );
     }
     throw new UsageError(
-      `record ${index + 1} is not a session record (expected a "type" field)`,
+      `record ${index + 1} is not a session entry (expected a "type" field)`,
     );
   });
 }
@@ -41,7 +46,7 @@ export function parseTailRecords(input: string): readonly TailRecord[] {
   return lines.map((line, index) => {
     if (isRecord(line) && typeof line.type === "string") {
       throw new UsageError(
-        `record ${index + 1} looks like message output; use \`clauctl format messages\``,
+        `record ${index + 1} looks like session-entry output; use \`clauctl format messages\``,
       );
     }
     if (isRecord(line)) {

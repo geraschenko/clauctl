@@ -205,16 +205,16 @@ Daemon wiring (mirrors pictl's):
 
 - `TtyServer` hooks: `serializeScreen` → `tuiHost.serializeScreen()`;
   `writeInput` → `tuiHost.write`; `resize` → `tuiHost.resize`;
-  `onAttach` → `tuiHost.notifyAttach()` + `auditAttachEvent("attach", info)`;
-  `onDetach` → `auditAttachEvent("detach", info)`;
+  `onAttach` → `tuiHost.notifyAttach()` + `auditAttachEvent(...)`;
+  `onDetach` → `auditAttachEvent(...)`;
   `onAttachmentsChanged` → `record.attachments = attachments;
   queueRecordWrite()`.
 - `TuiHost.onFailedChanged` → set/delete `record.tuiFailedAt`;
   `queueRecordWrite()`.
-- `auditAttachEvent` is pictl's verbatim: `auditEnabled` gate,
+- `auditAttachEvent(agentDir, enabled, event, info, log)` is shared from
+  pictl via generated/audit.ts: `enabled` gate,
   `resolveCallerSourceForPid(info.pid)`, `recordAuditEvent(agentDir,
-  {ts, source, event, pid}, manager)`, failures logged, never fatal
-  (all already exported by generated/audit.ts).
+  {ts, source, event, pid}, manager)`, failures logged, never fatal.
 - Startup: `record.attachments = []` (a crashed predecessor leaves stale
   entries) and `delete record.tuiFailedAt`; stale `tty.sock` removed
   alongside sdk.sock; after sdk.sock is listening, construct TuiHost +

@@ -2,22 +2,20 @@ import type {
   SDKMessage,
   SDKUserMessage,
 } from "@anthropic-ai/claude-agent-sdk";
-import {
-  INITIAL_AGENT_STATE,
-  isBusy,
-  nextAgentState,
-  type AgentState,
-} from "../agent-state.ts";
+import { isBusy, nextAgentState, type AgentState } from "../agent-state.ts";
 import * as QueueModel from "./queue-model.ts";
 import { type SdkEvent } from "../sdk-socket.ts";
 
 export interface EventHubOptions {
   /**
-   * Pre-init values meaningful before the first system/init — the same
-   * seed-then-fold contract subscribers follow. On revival, sessionId is the
-   * last recorded session.
+   * The state before the first event — the same seed-then-fold contract
+   * subscribers follow. The daemon composes it from INITIAL_AGENT_STATE, the
+   * session file, and the options/settings cascade (daemon.ts). Must be
+   * quiescent — idle with empty queuedMessages/deliveredMessages — because
+   * the hub's queue model always starts fresh; the constructor asserts this
+   * rather than silently overwriting, so a disagreeing seed is a loud bug.
    */
-  seed: { cwd: string; sessionId?: string };
+  seed: AgentState;
   /**
    * Hands an accepted message to the SDK (wired to turnQueue.push). Called by
    * deliverUserMessage before the queued events are emitted, preserving the
@@ -41,9 +39,9 @@ export interface EventHubOptions {
  *
  * The public surface keeps the invariants out of callers' hands: `emit` is
  * typed to the simple-event subset, so raw sdkMessage or queued/dequeued
- * events cannot bypass the queue model; the constructor takes a narrow seed,
- * so the state and the fresh queue model cannot start in disagreement; the
- * deliver callback runs inside `deliverUserMessage`, so a
+ * events cannot bypass the queue model; the constructor asserts a quiescent
+ * seed, so the state and the fresh queue model cannot start in disagreement;
+ * the deliver callback runs inside `deliverUserMessage`, so a
  * delivered-but-unmodeled (or modeled-but-undelivered) message cannot exist.
  * The residue is convention: `agentState` is shallow-readonly (nested SDK
  * payloads are immutable by convention — agent-state.ts), and the deliver
@@ -62,11 +60,17 @@ export class EventHub {
 
   constructor(options: EventHubOptions) {
     this.deliver = options.deliver;
-    this.state = {
-      ...INITIAL_AGENT_STATE,
-      cwd: options.seed.cwd,
-      sessionId: options.seed.sessionId,
-    };
+    const seed = options.seed;
+    if (
+      seed.activity !== "idle" ||
+      seed.queuedMessages.length > 0 ||
+      seed.deliveredMessages.length > 0
+    ) {
+      throw new Error(
+        "EventHub seed must be quiescent (idle, empty queues): the fresh queue model would disagree with it",
+      );
+    }
+    this.state = seed;
   }
 
   get agentState(): AgentState {
@@ -93,7 +97,10 @@ export class EventHub {
   emit(
     event: Extract<
       SdkEvent,
-      { kind: "interruptSent" | "compactSent" | "controlApplied" }
+      {
+        kind:
+          "interruptSent" | "compactSent" | "controlApplied" | "contextChanged";
+      }
     >,
   ): void {
     this.applyEvent(event);

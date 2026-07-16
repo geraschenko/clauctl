@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { UsageError } from "../core/generated/util.ts";
-import { parseSessionRecords, parseTailRecords } from "./input.ts";
+import { parseSessionEntries, parseTailRecords } from "./input.ts";
 
 const MESSAGE_LINE = JSON.stringify({
   type: "user",
@@ -9,15 +9,15 @@ const MESSAGE_LINE = JSON.stringify({
 });
 const TAIL_LINE = JSON.stringify({ event: { kind: "interruptSent" } });
 
-test("parseSessionRecords accepts message JSONL", () => {
-  const records = parseSessionRecords(`${MESSAGE_LINE}\n${MESSAGE_LINE}\n`);
+test("parseSessionEntries accepts message JSONL", () => {
+  const records = parseSessionEntries(`${MESSAGE_LINE}\n${MESSAGE_LINE}\n`);
   assert.equal(records.length, 2);
   assert.equal(records[0]!.type, "user");
 });
 
-test("parseSessionRecords points tail-shaped input at format events", () => {
+test("parseSessionEntries points tail-shaped input at format events", () => {
   assert.throws(
-    () => parseSessionRecords(`${TAIL_LINE}\n`),
+    () => parseSessionEntries(`${TAIL_LINE}\n`),
     (error: unknown) =>
       error instanceof UsageError &&
       error.message.includes("clauctl format events"),
@@ -29,11 +29,11 @@ test("a typed entry with a snapshot payload is a session record", () => {
     type: "file-history-snapshot",
     snapshot: { trackedFileBackups: {} },
   });
-  assert.equal(parseSessionRecords(`${line}\n`).length, 1);
+  assert.equal(parseSessionEntries(`${line}\n`).length, 1);
 });
 
-test("parseSessionRecords rejects records without a type", () => {
-  assert.throws(() => parseSessionRecords('{"foo": 1}\n'), UsageError);
+test("parseSessionEntries rejects records without a type", () => {
+  assert.throws(() => parseSessionEntries('{"foo": 1}\n'), UsageError);
 });
 
 test("parseTailRecords accepts tail JSONL", () => {

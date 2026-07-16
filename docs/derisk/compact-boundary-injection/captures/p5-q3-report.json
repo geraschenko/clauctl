@@ -1,0 +1,11 @@
+{
+  "importError": null,
+  "rawCount": 30,
+  "storedCount": 30,
+  "sameOrder": true,
+  "onlyInRaw": [],
+  "onlyInStored": [],
+  "unknownFieldPreserved": true,
+  "boundaryMetadataVerbatim": true,
+  "missingSessionError": "Error: Session 1e3edd2c-750d-420d-931e-80f68318e315 not found"
+}

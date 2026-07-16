@@ -1,17 +1,20 @@
 /**
- * `format messages`: the session-message stream (get-messages output or a raw
- * session file). Individual SDK messages render via the shared sdk-message.ts;
- * this file adds the messages-mode-only inferred change lines and the
- * record-stream driver.
+ * `format messages`: the session-entry stream (get-messages / get-entries
+ * output or a raw session file). Individual SDK messages render via the
+ * shared sdk-message.ts; this file adds the messages-mode-only inferred
+ * change lines and the entry-stream driver. Lenient — verbatim entries drift
+ * with Anthropic CLI versions, so unrecognized types are skipped rather than
+ * rejected.
  */
 
 import type {
   SDKAssistantMessage,
   SDKMessage,
 } from "@anthropic-ai/claude-agent-sdk";
+import type { SessionEntry } from "../core/session-file.ts";
 import { formatSdkMessage, joinChunks, newFormatState } from "./sdk-message.ts";
 import type { FormatState } from "./sdk-message.ts";
-import type { MessageFormatOptions, SessionRecord } from "./types.ts";
+import type { MessageFormatOptions } from "./types.ts";
 
 /**
  * `[model: old -> new]` inferred from consecutive assistant entries; nothing
@@ -36,10 +39,10 @@ function modelChangeLine(
  * get-entries input — getSessionMessages filters these entries out.
  */
 function permissionModeChangeLine(
-  record: SessionRecord,
+  entry: SessionEntry,
   formatState: FormatState,
 ): string | undefined {
-  const mode = record.permissionMode;
+  const mode = entry.permissionMode;
   if (typeof mode !== "string") {
     return undefined;
   }
@@ -51,30 +54,30 @@ function permissionModeChangeLine(
 }
 
 /** Whole-input formatter for `format messages`. */
-export function formatSessionRecords(
-  records: readonly SessionRecord[],
+export function formatSessionEntries(
+  entries: readonly SessionEntry[],
   options: MessageFormatOptions,
 ): string {
   const formatState = newFormatState();
   const chunks: string[] = [];
-  for (const record of records) {
-    if (record.type === "permission-mode") {
-      const change = permissionModeChangeLine(record, formatState);
+  for (const entry of entries) {
+    if (entry.type === "permission-mode") {
+      const change = permissionModeChangeLine(entry, formatState);
       if (change !== undefined) {
         chunks.push(change);
       }
       continue;
     }
     if (
-      record.type !== "user" &&
-      record.type !== "assistant" &&
-      record.type !== "system"
+      entry.type !== "user" &&
+      entry.type !== "assistant" &&
+      entry.type !== "system"
     ) {
-      continue; // unknown session-record types (attachment, …) are skipped
+      continue; // unknown session-entry types (attachment, …) are skipped
     }
     // The same narrowing historyToSdkMessages performs: a SessionMessage
     // carries every field its SDKMessage variant requires.
-    const message = record as unknown as SDKMessage;
+    const message = entry as unknown as SDKMessage;
     if (message.type === "assistant") {
       const change = modelChangeLine(message, formatState);
       if (change !== undefined) {

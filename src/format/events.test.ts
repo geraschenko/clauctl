@@ -159,6 +159,22 @@ test("compact/interrupt/control events render one-liners", () => {
   );
 });
 
+test("contextChanged renders a request one-liner", () => {
+  const output = format([
+    event({
+      kind: "contextChanged",
+      request: {
+        type: "set-context",
+        rewindTo: "28972c69-9dd5-4524-bb56-d8aaeb982094",
+      },
+    }),
+  ]);
+  assert.equal(
+    output,
+    "[context changed: set-context 28972c69-9dd5-4524-bb56-d8aaeb982094]\n",
+  );
+});
+
 test("sdkMessage events flow through the shared message renderer", () => {
   const output = format([
     event({

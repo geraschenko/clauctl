@@ -24,6 +24,7 @@ import {
   completeChoices,
   enumFlag,
   parsedFlag,
+  restArgs,
   stringArg,
   stringFlag,
   variadicStringFlag,
@@ -33,7 +34,12 @@ import { oneTarget, type CommandContext } from "./generated/targets.ts";
 import { ensureAgentRunning } from "./lifecycle.ts";
 import { parseMcpConfig } from "./options.ts";
 import { sdkSocketPath } from "./registry.ts";
-import { connectWithRetry, type SdkRequest } from "./sdk-socket.ts";
+import {
+  connectWithRetry,
+  parseSetContextRequest,
+  type SdkRequest,
+  type SetContextRequest,
+} from "./sdk-socket.ts";
 import { oneOf, UsageError } from "./generated/util.ts";
 
 const SOCKET_CONNECT_DEADLINE_MS = 5_000;
@@ -73,6 +79,19 @@ async function sendRequest(
   if (data !== undefined) {
     context.process.stdout.write(`${JSON.stringify(data, null, 2)}\n`);
   }
+}
+
+/** Like bareRequestCommand, but the response is a list printed as JSONL. */
+function jsonlRequestCommand(brief: string, request: SdkRequest) {
+  return commandOneTarget({
+    docs: { brief },
+    func: async function (this: CommandContext): Promise<void> {
+      const data = await requestData(this, request);
+      for (const record of data as unknown[]) {
+        this.process.stdout.write(`${JSON.stringify(record)}\n`);
+      }
+    },
+  });
 }
 
 /** A target-taking subcommand whose request needs no arguments. */
@@ -348,6 +367,68 @@ async function seedReadState(
   await sendRequest(this, { type: "seed-read-state", path, mtime: parsed });
 }
 
+// --- set-context ----------------------------------------------------------------
+
+const setContextFlags = {
+  summary: stringFlag("Summary text written as the compact summary", "text"),
+  anchor: enumFlag(
+    "Context order: summary first (up_to, default) or uuids first (from)",
+    ["summary", "boundary"] as const,
+  ),
+  rewindTo: stringFlag(
+    "Rewind to this assistant message uuid (mutually exclusive with uuids)",
+    "uuid",
+  ),
+};
+
+type SetContextFlags = InferFlags<typeof setContextFlags>;
+
+async function setContext(
+  this: CommandContext,
+  flags: SetContextFlags,
+  ...uuids: string[]
+): Promise<void> {
+  // The daemon re-validates; failing malformed invocations here (flag-named
+  // mode conflicts, then the daemon's own parser for uuid syntax and the
+  // rest) avoids a pointless daemon revival.
+  if (
+    flags.rewindTo !== undefined &&
+    (uuids.length > 0 ||
+      flags.summary !== undefined ||
+      flags.anchor !== undefined)
+  ) {
+    throw new UsageError(
+      "--rewind-to is mutually exclusive with uuids/--summary/--anchor",
+    );
+  }
+  if (
+    flags.rewindTo === undefined &&
+    uuids.length === 0 &&
+    flags.summary === undefined
+  ) {
+    // --summary alone is valid: empty uuids + a summary is the deliberate
+    // summary-only context (the boundary preserves nothing).
+    throw new UsageError("expected message uuids, --summary, or --rewind-to");
+  }
+  let request: SetContextRequest;
+  try {
+    request = parseSetContextRequest(
+      flags.rewindTo !== undefined
+        ? { rewindTo: flags.rewindTo }
+        : {
+            uuids,
+            ...(flags.summary !== undefined && { summaryText: flags.summary }),
+            ...(flags.anchor !== undefined && { anchor: flags.anchor }),
+          },
+    );
+  } catch (error) {
+    throw new UsageError(
+      error instanceof Error ? error.message : String(error),
+    );
+  }
+  await sendRequest(this, request);
+}
+
 // --- reads with arguments ------------------------------------------------------
 
 const readFileFlags = {
@@ -591,16 +672,30 @@ export const sdkRoutes = {
     { type: "reload-skills" },
     true,
   ),
-  // JSONL rather than a pretty-printed array: one SessionMessage per line,
-  // the shape `format messages` consumes.
-  "get-messages": commandOneTarget({
-    docs: { brief: "print the transcript since the last compaction as JSONL" },
-    func: async function (this: CommandContext): Promise<void> {
-      const data = await requestData(this, { type: "get-messages" });
-      for (const message of data as unknown[]) {
-        this.process.stdout.write(`${JSON.stringify(message)}\n`);
-      }
+  // JSONL rather than a pretty-printed array: one record per line, the shape
+  // `format messages` consumes.
+  "get-messages": jsonlRequestCommand(
+    "print the transcript since the last compaction as JSONL",
+    { type: "get-messages" },
+  ),
+  "get-entries": jsonlRequestCommand(
+    "print every session jsonl entry, verbatim, as JSONL",
+    { type: "get-entries" },
+  ),
+  "get-tree": bareRequestCommand("print the session transcript as a forest", {
+    type: "get-tree",
+  }),
+  "set-context": commandOneTarget<SetContextFlags, string[]>({
+    docs: {
+      brief:
+        "reshape the agent's effective context (preserved uuids or --rewind-to)",
     },
+    parameters: {
+      flags: setContextFlags,
+      positional: restArgs("Message uuids to keep, in order", "uuid"),
+    },
+    audited: true,
+    func: setContext,
   }),
   "initialization-result": bareRequestCommand(
     "print the full initialization result",

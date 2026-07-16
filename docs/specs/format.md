@@ -16,19 +16,21 @@ human — or economical for an LLM — to read. `clauctl format` is a pure filte
 
 ### Command surface
 
-A `format` routemap with two subcommands (a third, `format tree`, is deferred
-until `get-tree` exists — see `docs/specs/session-tree-and-set-context.md`):
+A `format` routemap with two subcommands (a third, `format tree`, rendering
+`get-tree` output, is a later spec — see
+`docs/specs/session-tree-and-set-context.md`):
 
 - **`clauctl format messages [file]`** — formats `get-messages` output (JSONL,
-  one `SessionMessage` per line) and, in the future, `get-entries` output
-  (verbatim session-file entries). Emits **inferred change lines**: a model
+  one `SessionMessage` per line) and `get-entries` output (verbatim
+  session-file entries). Emits **inferred change lines**: a model
   change detected from consecutive assistant entries' `.message.model`, and a
   permission-mode change deduped from verbatim `permission-mode` entries
   (which the CLI writes identically every turn).
 - **`clauctl format events [file]`** — formats the `tail` stream. Same
   `SDKMessage` rendering; daemon-synthesized events (`userMessageQueued`,
-  `userMessageDequeued`, `compactSent`, `interruptSent`, `controlApplied`)
-  and the subscribe snapshot render as explicit one-line annotations.
+  `userMessageDequeued`, `compactSent`, `interruptSent`, `controlApplied`,
+  `contextChanged`) and the subscribe snapshot render as explicit one-line
+  annotations.
 
 Both: `[file]` optional, `-` or absent = stdin. Flags (shared):
 
@@ -41,9 +43,9 @@ Feeding `tail` output to `format messages` (or message-shaped input to
 
 ### Scope changes to existing commands
 
-- **`get-messages` prints JSONL** (one `SessionMessage` per line) instead of a
-  pretty-printed JSON array. The socket protocol is unchanged (response data
-  stays `SessionMessage[]`); only the CLI printing changes.
+- **`get-messages` and `get-entries` print JSONL** (one record per line)
+  instead of a pretty-printed JSON array. The socket protocol is unchanged
+  (response data stays a list); only the CLI printing changes.
 - `tail` stays raw JSONL; its TODO about flipping to formatted-by-default (and
   `query` likewise) is a **later spec**.
 
@@ -151,12 +153,10 @@ export interface MessageFormatOptions {
   maxErrorLines: number;
 }
 
-/** One line of `format messages` input: a SessionMessage or a verbatim
- * session-file entry (future get-entries). Lenient: only `type` is
- * required; unrecognized types are skipped. */
-export type SessionRecord = Record<string, unknown> & { type: string };
-
-/** One line of `format events` input: tail's framing. */
+/** One line of `format events` input: tail's framing. (`format messages`
+ * input lines are core/session-file.ts SessionEntrys — a SessionMessage or a
+ * verbatim session-file entry from get-entries. Lenient: unrecognized types
+ * are skipped.) */
 export type TailRecord = { snapshot: AgentState } | { event: SdkEvent };
 ```
 
@@ -175,11 +175,11 @@ export function parseJsonlInput(input: string): readonly unknown[]; // UsageErro
 **`src/format/input.ts`** — the clauctl-specific decoders:
 
 ```ts
-export function parseSessionRecords(input: string): readonly SessionRecord[]; // {snapshot|event} shape → UsageError suggesting `format events`
-export function parseTailRecords(input: string): readonly TailRecord[]; // message shape → UsageError suggesting `format messages`
+export function parseSessionEntries(input: string): readonly SessionEntry[]; // {snapshot|event} shape → UsageError suggesting `format events`
+export function parseTailRecords(input: string): readonly TailRecord[]; // typed shape → UsageError suggesting `format messages`
 ```
 
-**`src/format/messages.ts`** — shared `SDKMessage` rendering + inference:
+**`src/format/sdk-message.ts`** — shared `SDKMessage` rendering:
 
 ```ts
 /** Mutable rendering context threaded through a whole stream: tool_use id →
@@ -198,9 +198,13 @@ export function newFormatState(): FormatState;
 /** Render one SDK message; undefined = dropped. Calls
  * renderAssistant/toolResultsOf/userText from src/tui/sdk-render.ts. */
 export function formatSdkMessage(message: SDKMessage, state: FormatState, options: MessageFormatOptions): string | undefined;
+```
 
+**`src/format/messages.ts`** — messages-mode change-line inference + driver:
+
+```ts
 /** Whole-input formatter for `format messages`; calls formatSdkMessage. */
-export function formatSessionRecords(records: readonly SessionRecord[], options: MessageFormatOptions): string;
+export function formatSessionEntries(entries: readonly SessionEntry[], options: MessageFormatOptions): string;
 ```
 
 **`src/format/events.ts`**
@@ -266,8 +270,7 @@ Derisk findings (empirical, from real session files and pictl source):
   `user | assistant | system` entries; the raw session file additionally has
   `permission-mode`, `mode`, `attachment`, `file-history-snapshot`,
   `last-prompt`, `ai-title`, `agent-name` entries. Those reach the formatter
-  only via the future `get-entries` — hence lenient decoding, and
-  permission-mode inference is dead code until then.
+  only via `get-entries` — hence lenient decoding.
 - `permission-mode` entries are written unconditionally every turn (identical
   repeats, no uuid/timestamp) — rendering them requires dedupe-on-change.
 - Every assistant entry carries `.message.model` — model-change inference.
@@ -283,7 +286,7 @@ Derisk findings (empirical, from real session files and pictl source):
 - The `SDKMessage` union has ~35 variants; per-variant renderers for the long
   tail is over-implementation — the generic `type`/`subtype` one-liner covers
   them, and specific variants can be promoted (or demoted to dropped) later.
-- A `SessionRecord` with type `user`/`assistant` narrows to `SDKMessage` by
+- A `SessionEntry` with type `user`/`assistant` narrows to `SDKMessage` by
   cast, the same narrowing `historyToSdkMessages` (sdk-render.ts) already
   performs — a `SessionMessage` carries every field the variant requires.
 
@@ -360,16 +363,23 @@ mark completed ones with [x], document decisions and problems encountered.
   default to formatted output) is captured in
   docs/thoughts/formatted-tail-and-query.md alongside the `[cursor: uuid]` /
   `tail --since` follow-ups.
+- 2026-07-16: Merged main (get-entries/get-tree/set-context). Resolutions:
+  `get-entries` prints JSONL like `get-messages` (both via a new
+  `jsonlRequestCommand` helper) since it is `format messages` input; the new
+  `contextChanged` event renders via the same request-annotation logic as
+  `controlApplied` (`formatControl` generalized to `requestAnnotation`);
+  `SessionRecord` replaced by core/session-file.ts `SessionEntry` (decision
+  below).
 
 ## Implementation-Time Decisions
 
 - **`type` beats `snapshot`/`event` in input detection**: a real transcript's
   `file-history-snapshot` entry carries a top-level `snapshot` payload, which
   tripped the tail-shape heuristic. Genuine tail records never carry a
-  top-level `type`, so `parseSessionRecords` accepts any record with a string
+  top-level `type`, so `parseSessionEntries` accepts any record with a string
   `type` before checking the tail shape (found by smoke test, covered by a
   regression test).
-- **Model inference lives in `formatSessionRecords`, not `formatSdkMessage`**:
+- **Model inference lives in `formatSessionEntries`, not `formatSdkMessage`**:
   events mode shares `formatSdkMessage`, and the spec scopes inferred change
   lines to messages mode (events mode reports set-model explicitly via
   `controlApplied`). Keeping the inference in the messages-mode driver keeps
@@ -385,13 +395,17 @@ mark completed ones with [x], document decisions and problems encountered.
   their values space-joined (`[control: set-model claude-opus-4-8]`); anything
   structured falls back to truncated one-line JSON. No per-mutation renderers
   for the same reason as the SDKMessage long tail.
-- **`SessionRecord`/`TailRecord` keep their names**: both name one JSONL line
-  of their input, which is exactly what "record" means; the subcommand names
-  (`messages`/`events`) describe the dominant content, not the framing.
-  Renaming `SessionRecord` → `SessionMessage` would collide with the SDK's
-  stricter `SessionMessage` export (type restricted to user|assistant|system,
-  `uuid` required) that sdk-render.ts already imports; `TailEvent` would
-  misname the `{snapshot}` arm, which is not an event.
+- **`format messages` input is `SessionEntry`** (core/session-file.ts), not a
+  format-local type: get-entries returns verbatim `SessionEntry[]`, so the
+  formatter consumes the producer's type (Anton's call, replacing the earlier
+  format-local `SessionRecord`). `SessionEntry` leaves `type` optional (a
+  verbatim jsonl line guarantees nothing), but `parseSessionEntries` still
+  requires a string `type` per line — that requirement is the pipe-swap and
+  garbage detection, and every real session line carries one. `SessionMessage`
+  was rejected for the name: it would collide with the SDK's stricter export
+  (type restricted to user|assistant|system, `uuid` required) that
+  sdk-render.ts already imports. `TailRecord` keeps its name: `TailEvent`
+  would misname the `{snapshot}` arm, which is not an event.
 - **The tail wire key stays `snapshot`**: it names the record's role in the
   stream (point-in-time state at subscribe), while `AgentState` names the
   payload's type — `{ snapshot: AgentState }` reads as "a snapshot of the

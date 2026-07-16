@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
-import { formatSessionRecords } from "./messages.ts";
+import type { SessionEntry } from "../core/session-file.ts";
+import { formatSessionEntries } from "./messages.ts";
 import { formatSdkMessage, newFormatState } from "./sdk-message.ts";
-import type { MessageFormatOptions, SessionRecord } from "./types.ts";
+import type { MessageFormatOptions } from "./types.ts";
 
 const OPTIONS: MessageFormatOptions = {
   toolResults: "summary",
@@ -13,19 +14,16 @@ const OPTIONS: MessageFormatOptions = {
 
 // The renderers only inspect the fields they read, so minimal stubs suffice
 // (same convention as agent-state.test.ts).
-function record(fields: Record<string, unknown>): SessionRecord {
-  return fields as SessionRecord;
+function entry(fields: Record<string, unknown>): SessionEntry {
+  return fields as SessionEntry;
 }
 
-function user(content: unknown): SessionRecord {
-  return record({ type: "user", message: { role: "user", content } });
+function user(content: unknown): SessionEntry {
+  return entry({ type: "user", message: { role: "user", content } });
 }
 
-function assistant(
-  content: unknown[],
-  model = "claude-fable-5",
-): SessionRecord {
-  return record({
+function assistant(content: unknown[], model = "claude-fable-5"): SessionEntry {
+  return entry({
     type: "assistant",
     message: { role: "assistant", model, content, stop_reason: null },
   });
@@ -39,7 +37,7 @@ function toolResult(
   toolUseId: string,
   content: unknown,
   isError = false,
-): SessionRecord {
+): SessionEntry {
   return user([
     {
       type: "tool_result",
@@ -51,10 +49,10 @@ function toolResult(
 }
 
 function format(
-  records: SessionRecord[],
+  entries: SessionEntry[],
   options: Partial<MessageFormatOptions> = {},
 ): string {
-  return formatSessionRecords(records, { ...OPTIONS, ...options });
+  return formatSessionEntries(entries, { ...OPTIONS, ...options });
 }
 
 test("user message renders fully", () => {
@@ -150,19 +148,19 @@ test("model change is inferred, but not for the first assistant message", () => 
 
 test("permission-mode entries dedupe to change lines only", () => {
   const mode = (permissionMode: string) =>
-    record({ type: "permission-mode", permissionMode });
+    entry({ type: "permission-mode", permissionMode });
   const output = format([mode("auto"), mode("auto"), mode("plan")]);
   assert.equal(output, "[permission-mode: auto -> plan]\n");
 });
 
 test("dropped variants render nothing", () => {
   const dropped = [
-    record({
+    entry({
       type: "user",
       isReplay: true,
       message: { role: "user", content: "replayed" },
     }),
-    record({ type: "system", subtype: "init" }),
+    entry({ type: "system", subtype: "init" }),
   ];
   assert.equal(format(dropped), "");
   // stream_event / rate_limit_event only reach the renderer in events mode.
@@ -188,7 +186,7 @@ test("mixed text and tool_result content renders both", () => {
 
 test("the SDKMessage long tail gets a generic type/subtype one-liner", () => {
   assert.equal(
-    format([record({ type: "system", subtype: "compact_boundary" })]),
+    format([entry({ type: "system", subtype: "compact_boundary" })]),
     "[system: compact_boundary]\n",
   );
   const formatState = newFormatState();
@@ -199,10 +197,10 @@ test("the SDKMessage long tail gets a generic type/subtype one-liner", () => {
   );
 });
 
-test("unknown session-record types are skipped silently", () => {
+test("unknown session-entry types are skipped silently", () => {
   const output = format([
-    record({ type: "file-history-snapshot", snapshot: {} }),
-    record({ type: "attachment", attachment: {} }),
+    entry({ type: "file-history-snapshot", snapshot: {} }),
+    entry({ type: "attachment", attachment: {} }),
     user("hello"),
   ]);
   assert.equal(output, "== user ==\nhello\n");

@@ -1,0 +1,105 @@
+{
+  "versions": {
+    "sdk": "0.3.195"
+  },
+  "a": {
+    "name": "a-exact-replay",
+    "error": null,
+    "resultText": "pong",
+    "resumedSessionId": "c4a1bb69-58cb-4e57-b5f9-7f7e27a9fe36",
+    "sameSessionId": true,
+    "probe": {
+      "nMessages": 6,
+      "roles": "user,assistant,user,user,assistant,user",
+      "summaryIdx": 0,
+      "preservedRedIdx": 1,
+      "u2OnlyInSummary": true,
+      "u2Indices": [
+        0
+      ],
+      "probeIdx": 5,
+      "toolReminderIdx": 2
+    },
+    "firstNewUserParent": "bce69095-b899-41f3-a39e-058aa10b7bf5",
+    "appendedTypes": [
+      "queue-operation",
+      "queue-operation",
+      "user",
+      "assistant",
+      "user",
+      "attachment"
+    ],
+    "configDir": "/tmp/clauctl-cbi-derisk/p1-a-exact-replay",
+    "file": "/tmp/clauctl-cbi-derisk/p1-a-exact-replay/projects/-tmp-clauctl-cbi-derisk-p0b-native-compact-cwd/c4a1bb69-58cb-4e57-b5f9-7f7e27a9fe36.jsonl"
+  },
+  "b": {
+    "name": "b-synthetic",
+    "error": null,
+    "resultText": "pong",
+    "resumedSessionId": "c4a1bb69-58cb-4e57-b5f9-7f7e27a9fe36",
+    "sameSessionId": true,
+    "probe": {
+      "nMessages": 3,
+      "roles": "user,assistant,user",
+      "summaryIdx": 0,
+      "preservedRedIdx": 1,
+      "u2OnlyInSummary": true,
+      "u2Indices": [],
+      "probeIdx": 2,
+      "toolReminderIdx": -1
+    },
+    "firstNewUserParent": "254029a1-4a9c-42de-a203-636db3353fe0",
+    "appendedTypes": [
+      "queue-operation",
+      "queue-operation",
+      "user",
+      "attachment",
+      "attachment"
+    ],
+    "configDir": "/tmp/clauctl-cbi-derisk/p1-b-synthetic",
+    "file": "/tmp/clauctl-cbi-derisk/p1-b-synthetic/projects/-tmp-clauctl-cbi-derisk-p0b-native-compact-cwd/c4a1bb69-58cb-4e57-b5f9-7f7e27a9fe36.jsonl"
+  },
+  "c": {
+    "name": "c-durability",
+    "error": null,
+    "probe": {
+      "nMessages": 5,
+      "roles": "user,assistant,user,assistant,user",
+      "summaryIdx": 0,
+      "preservedRedIdx": 1,
+      "u2OnlyInSummary": true,
+      "u2Indices": [],
+      "probeIdx": 4,
+      "toolReminderIdx": -1
+    },
+    "priorProbeStillThere": true
+  },
+  "d": {
+    "name": "d-bad-uuid",
+    "error": null,
+    "resultText": "pong",
+    "resumedSessionId": "c4a1bb69-58cb-4e57-b5f9-7f7e27a9fe36",
+    "sameSessionId": true,
+    "probe": {
+      "nMessages": 3,
+      "roles": "user,assistant,user",
+      "summaryIdx": 0,
+      "preservedRedIdx": -1,
+      "u2OnlyInSummary": true,
+      "u2Indices": [],
+      "probeIdx": 2,
+      "toolReminderIdx": -1
+    },
+    "firstNewUserParent": "4f71dc74-2e07-4dbd-b3d9-47c2c0010f49",
+    "appendedTypes": [
+      "queue-operation",
+      "queue-operation",
+      "assistant",
+      "user",
+      "attachment",
+      "attachment"
+    ],
+    "configDir": "/tmp/clauctl-cbi-derisk/p1-d-bad-uuid",
+    "file": "/tmp/clauctl-cbi-derisk/p1-d-bad-uuid/projects/-tmp-clauctl-cbi-derisk-p0b-native-compact-cwd/c4a1bb69-58cb-4e57-b5f9-7f7e27a9fe36.jsonl"
+  }
+}

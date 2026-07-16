@@ -8,7 +8,7 @@
  */
 
 import type { AgentState } from "../core/agent-state.ts";
-import type { SdkControlMutation, SdkEvent } from "../core/sdk-socket.ts";
+import type { SdkEvent } from "../core/sdk-socket.ts";
 import { userText } from "../tui/sdk-render.ts";
 import { oneLine, truncateText } from "./generated/text.ts";
 import {
@@ -55,11 +55,14 @@ function agentStateChunk(
   return lines.join("\n");
 }
 
-function formatControl(request: SdkControlMutation): string {
+/** `[label: type detail]` for a request-carrying event (controlApplied,
+ * contextChanged): primitive-only payloads print their values space-joined,
+ * anything structured falls back to one-line JSON. */
+function requestAnnotation(label: string, request: { type: string }): string {
   const { type, ...rest } = request;
   const values = Object.values(rest).filter((value) => value !== undefined);
   if (values.length === 0) {
-    return `[control: ${type}]`;
+    return `[${label}: ${type}]`;
   }
   const detail = values.every(
     (value) =>
@@ -70,7 +73,7 @@ function formatControl(request: SdkControlMutation): string {
   )
     ? values.map(String).join(" ")
     : JSON.stringify(rest);
-  return annotation(`control: ${type} ${detail}`);
+  return annotation(`${label}: ${type} ${detail}`);
 }
 
 function eventChunks(
@@ -110,7 +113,9 @@ function eventChunks(
     case "interruptSent":
       return ["[interrupt sent]"];
     case "controlApplied":
-      return [formatControl(event.request)];
+      return [requestAnnotation("control", event.request)];
+    case "contextChanged":
+      return [requestAnnotation("context changed", event.request)];
     case "sdkMessage": {
       const chunk = formatSdkMessage(event.message, formatState, options);
       return chunk === undefined || chunk === "" ? [] : [chunk];

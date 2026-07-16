@@ -10,8 +10,8 @@ import { readInputFile } from "../core/generated/read-input.ts";
 import type { CommandContext } from "../core/generated/targets.ts";
 import { UsageError } from "../core/generated/util.ts";
 import { formatTailRecords } from "./events.ts";
-import { parseSessionRecords, parseTailRecords } from "./input.ts";
-import { formatSessionRecords } from "./messages.ts";
+import { parseSessionEntries, parseTailRecords } from "./input.ts";
+import { formatSessionEntries } from "./messages.ts";
 import type { MessageFormatOptions } from "./types.ts";
 
 function parsePositiveInteger(input: string): number {
@@ -63,7 +63,7 @@ async function formatMessages(
 ): Promise<void> {
   const input = await readInputFile(this, file);
   this.process.stdout.write(
-    formatSessionRecords(parseSessionRecords(input), formatOptions(flags)),
+    formatSessionEntries(parseSessionEntries(input), formatOptions(flags)),
   );
 }
 
@@ -84,7 +84,9 @@ export const formatRoute = {
       routes: {
         messages: commandNoTarget<FormatFlags, [string | undefined]>({
           common: true,
-          docs: { brief: "format get-messages JSONL as plain text" },
+          docs: {
+            brief: "format get-messages/get-entries JSONL as plain text",
+          },
           parameters: { flags: formatFlags, positional: filePositional },
           func: formatMessages,
         }),
