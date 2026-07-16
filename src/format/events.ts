@@ -7,7 +7,6 @@
  * preserves when it arrived.
  */
 
-import type { SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
 import type { AgentState } from "../core/agent-state.ts";
 import type { SdkControlMutation, SdkEvent } from "../core/sdk-socket.ts";
 import { userText } from "../tui/sdk-render.ts";
@@ -17,16 +16,17 @@ import {
   joinChunks,
   newFormatState,
   type FormatState,
-} from "./messages.ts";
+} from "./sdk-message.ts";
 import type { MessageFormatOptions, TailRecord } from "./types.ts";
 
-const PROMPT_SUMMARY_CHARS = 80;
+const ANNOTATION_CHARS = 80;
 
-function promptSummary(message: SDKUserMessage): string {
-  return truncateText(oneLine(userText(message)), PROMPT_SUMMARY_CHARS);
+/** `[content]`, one-lined and truncated as a whole so every annotation line
+ * caps at the same width regardless of its prefix. */
+function annotation(content: string): string {
+  return `[${truncateText(oneLine(content), ANNOTATION_CHARS)}]`;
 }
 
-// TDC: make sure the "snapshot" terminology is fixed everywhere.
 function agentStateChunk(
   agentState: AgentState,
   formatState: FormatState,
@@ -42,15 +42,15 @@ function agentStateChunk(
     parts.push(`session ${agentState.sessionId}`);
   }
   const lines = [`[snapshot: ${parts.join(", ")}]`];
-  // The snapshot is the authoritative queue state; anything remembered from
-  // before it (a concatenated or restarted stream) is stale.
+  // A snapshot record carries the authoritative queue state; anything
+  // remembered from before it (a concatenated or restarted stream) is stale.
   formatState.queuedMessages.clear();
   for (const { id, message } of agentState.queuedMessages) {
     formatState.queuedMessages.set(id, message);
-    lines.push(`[queued #${id}: ${promptSummary(message)}]`);
+    lines.push(annotation(`queued #${id}: ${userText(message)}`));
   }
   for (const message of agentState.deliveredMessages) {
-    lines.push(`[delivered: ${promptSummary(message)}]`);
+    lines.push(annotation(`delivered: ${userText(message)}`));
   }
   return lines.join("\n");
 }
@@ -70,7 +70,7 @@ function formatControl(request: SdkControlMutation): string {
   )
     ? values.map(String).join(" ")
     : JSON.stringify(rest);
-  return `[control: ${type} ${truncateText(oneLine(detail), PROMPT_SUMMARY_CHARS)}]`;
+  return annotation(`control: ${type} ${detail}`);
 }
 
 function eventChunks(
@@ -81,11 +81,10 @@ function eventChunks(
   switch (event.kind) {
     case "userMessageQueued":
       formatState.queuedMessages.set(event.id, event.message);
-      // TDC: the truncation should happen *after* the concatenation, or should at least take the lengths of concatenated strings into account. Otherwise because promptSummary truncates to 80 chars, we'll get different lengths based on how wide `event.id` is. I think it would be logical to build the concatenated string inside the brackets, then truncate, then add the brackets around that result.
-      return [`[queued #${event.id}: ${promptSummary(event.message)}]`];
+      return [annotation(`queued #${event.id}: ${userText(event.message)}`)];
     case "userMessageDequeued": {
       const ids = event.ids.map((id) => `#${id}`).join(", ");
-      const annotation = `[dequeued (${event.delivery}): ${ids}]`;
+      const dequeued = `[dequeued (${event.delivery}): ${ids}]`;
       const renders: string[] = [];
       for (const id of event.ids) {
         const message = formatState.queuedMessages.get(id);
@@ -103,8 +102,8 @@ function eventChunks(
       // ordinary blank-line records.
       const [first, ...rest] = renders;
       return first === undefined
-        ? [annotation]
-        : [`${annotation}\n${first}`, ...rest];
+        ? [dequeued]
+        : [`${dequeued}\n${first}`, ...rest];
     }
     case "compactSent":
       return ["[compact sent]"];

@@ -21,9 +21,8 @@ function prompt(text: string): SDKUserMessage {
   };
 }
 
-// TDC: fix references to "snapshot"
-function snapshot(overrides: Partial<AgentState> = {}): TailRecord {
-  return { snapshot: { ...INITIAL_AGENT_STATE, ...overrides } };
+function snapshotRecord(agentState: Partial<AgentState> = {}): TailRecord {
+  return { snapshot: { ...INITIAL_AGENT_STATE, ...agentState } };
 }
 
 function event(sdkEvent: SdkEvent): TailRecord {
@@ -36,7 +35,7 @@ function format(records: TailRecord[]): string {
 
 test("snapshot renders a header with the observed fields", () => {
   const output = format([
-    snapshot({
+    snapshotRecord({
       activity: "idle",
       model: "claude-fable-5",
       permissionMode: "auto",
@@ -51,7 +50,7 @@ test("snapshot renders a header with the observed fields", () => {
 
 test("snapshot omits unobserved fields and lists queued/delivered prompts", () => {
   const output = format([
-    snapshot({
+    snapshotRecord({
       activity: "pending",
       queuedMessages: [{ id: 3, message: prompt("queued text") }],
       deliveredMessages: [prompt("delivered text")],
@@ -71,12 +70,17 @@ test("queued prompts render one-line truncated, full at dequeue", () => {
   ]);
   const [queuedChunk, dequeuedChunk] = output.split("\n\n");
   assert.match(queuedChunk!, /^\[queued #3: start x+…\]$/u);
+  // The whole bracketed content truncates, so the line width is fixed
+  // regardless of how wide the id prefix is.
+  assert.equal(queuedChunk!.length, "[]".length + 80);
   assert.equal(dequeuedChunk, `[dequeued (turn): #3]\n== user ==\n${long}\n`);
 });
 
 test("snapshot queued messages seed the dequeue store", () => {
   const output = format([
-    snapshot({ queuedMessages: [{ id: 7, message: prompt("from snapshot") }] }),
+    snapshotRecord({
+      queuedMessages: [{ id: 7, message: prompt("from snapshot") }],
+    }),
     event({ kind: "userMessageDequeued", delivery: "steer", ids: [7] }),
   ]);
   assert.match(
@@ -100,7 +104,7 @@ test("a merged-bucket dequeue separates its messages as records", () => {
 test("a new snapshot supersedes remembered queued messages", () => {
   const output = format([
     event({ kind: "userMessageQueued", id: 1, message: prompt("stale") }),
-    snapshot({ queuedMessages: [] }),
+    snapshotRecord({ queuedMessages: [] }),
     event({ kind: "userMessageDequeued", delivery: "turn", ids: [1] }),
   ]);
   assert.match(output, /\[dequeued \(turn\): #1\]\n$/u);

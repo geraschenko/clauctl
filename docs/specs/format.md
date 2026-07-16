@@ -348,6 +348,18 @@ mark completed ones with [x], document decisions and problems encountered.
   `git rev-parse --git-common-dir` (pictl sits next to the _main_ clauctl
   checkout), so the sync and presubmit work from git worktrees without
   `PICTL_DIR`; identical to `../pictl` in the canonical layout.
+- 2026-07-15: Anton's review round (TDC comments in 946dc14). Fixed: the
+  shared per-message renderer moved out of messages.ts into
+  `src/format/sdk-message.ts` (messages.ts keeps only the messages-mode
+  change-line inference and driver); annotation lines with embedded prompt
+  text (queued/delivered/control) now build the full bracket content first
+  and truncate that, so line width no longer varies with the id prefix;
+  finished the snapshot→agentState naming sweep (test helper
+  `snapshotRecord`, comments). Terminology questions resolved below. The
+  streaming requirement (format must consume/emit a stream once tail/query
+  default to formatted output) is captured in
+  docs/thoughts/formatted-tail-and-query.md alongside the `[cursor: uuid]` /
+  `tail --since` follow-ups.
 
 ## Implementation-Time Decisions
 
@@ -373,3 +385,16 @@ mark completed ones with [x], document decisions and problems encountered.
   their values space-joined (`[control: set-model claude-opus-4-8]`); anything
   structured falls back to truncated one-line JSON. No per-mutation renderers
   for the same reason as the SDKMessage long tail.
+- **`SessionRecord`/`TailRecord` keep their names**: both name one JSONL line
+  of their input, which is exactly what "record" means; the subcommand names
+  (`messages`/`events`) describe the dominant content, not the framing.
+  Renaming `SessionRecord` → `SessionMessage` would collide with the SDK's
+  stricter `SessionMessage` export (type restricted to user|assistant|system,
+  `uuid` required) that sdk-render.ts already imports; `TailEvent` would
+  misname the `{snapshot}` arm, which is not an event.
+- **The tail wire key stays `snapshot`**: it names the record's role in the
+  stream (point-in-time state at subscribe), while `AgentState` names the
+  payload's type — `{ snapshot: AgentState }` reads as "a snapshot of the
+  agent state". The naming confusion Anton flagged was AgentState _values_
+  called `snapshot` in format code, fixed by the agentState/formatState
+  renames.

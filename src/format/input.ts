@@ -12,7 +12,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
 
-// TDC: wait a second, these functions are assuming we have the full input. They can't stream? This is going to be a problem, because when we do something like `clauctl query XXX | clauctl format messages`, the query command could take a long time because it emits messages as they arrive on the sdk socket. We need `format` to be able to consume a stream and emit a stream.
+// Whole-input only: these block until stdin closes, so they cannot sit on the
+// consuming end of a live pipe (`clauctl query … | clauctl format messages`).
+// Formatted tail/query needs streaming parse-and-emit — see
+// docs/thoughts/formatted-tail-and-query.md.
 export function parseSessionRecords(input: string): readonly SessionRecord[] {
   const lines = parseJsonlInput(input);
   return lines.map((line, index) => {
