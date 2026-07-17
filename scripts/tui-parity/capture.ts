@@ -89,16 +89,28 @@ export const claudeConfigDir = join(
   "clauctl-tui-parity",
   "config",
 );
-export const claudeConfigEnv = { CLAUDE_CONFIG_DIR: claudeConfigDir };
+/**
+ * Environment for every claude invocation in the harness. Besides the
+ * config-dir isolation, auto-compaction is disabled: resuming a
+ * near-context-limit session would otherwise compact on open — rewriting
+ * the transcript being compared, burning tokens, and animating a progress
+ * bar that defeats settle detection.
+ */
+export const claudeEnv = {
+  CLAUDE_CONFIG_DIR: claudeConfigDir,
+  DISABLE_AUTO_COMPACT: "1",
+};
 
 /**
  * Seeds the isolated config dir ONCE from the real credentials and
  * top-level config (login + onboarding state; without them claude blocks on
  * the login/onboarding wizard). The seeded `.claude.json` drops the user's
  * per-project map — the harness shouldn't inherit per-project MCP servers
- * or history. Existing copies are never overwritten — claude refreshes
- * tokens and records trust in the copies, so re-copying could clobber
- * fresher state. Delete the dir to re-seed.
+ * or history — and marks the fullscreen-renderer upsell as already seen:
+ * that dialog's default answer OPTS IN to a different renderer, so the
+ * generic Enter-dismissal must never reach it. Existing copies are never
+ * overwritten — claude refreshes tokens and records trust in the copies, so
+ * re-copying could clobber fresher state. Delete the dir to re-seed.
  */
 export async function ensureClaudeConfigDir(): Promise<void> {
   await mkdir(claudeConfigDir, { recursive: true });
@@ -115,6 +127,7 @@ export async function ensureClaudeConfigDir(): Promise<void> {
       unknown
     >;
     config.projects = {};
+    config.fullscreenUpsellSeenCount = 3;
     await writeFile(configDestination, JSON.stringify(config, null, 2));
   }
 }
@@ -125,7 +138,7 @@ export async function ensureClaudeConfigDir(): Promise<void> {
  * (agentDir/sdk.sock), which an out/-based registry would exceed.
  */
 const clauctlDir = "/tmp/clauctl-tui-parity";
-const clauctlEnv = { CLAUCTL_DIR: clauctlDir, ...claudeConfigEnv };
+const clauctlEnv = { CLAUCTL_DIR: clauctlDir, ...claudeEnv };
 
 async function tmux(...args: string[]): Promise<string> {
   // maxBuffer: full-scrollback captures of long sessions can exceed the
@@ -199,15 +212,28 @@ export async function captureInTmux(
       // First-open dialogs (folder trust, external CLAUDE.md imports) settle
       // like any screen; accept the default and keep polling. Trust answers
       // persist per directory, so this normally fires once per workdir.
-      if (stable >= SETTLE_POLLS && current.includes("Enter to confirm")) {
-        if (dialogsDismissed >= 3) {
-          throw new Error(`pane stuck on a dialog:\n${current}`);
+      // A live dialog's "Enter to confirm…" hint is the LAST line of the
+      // visible viewport; anchoring there keeps transcripts that merely
+      // QUOTE dialog text (e.g. a session about this very harness, where
+      // the string appears mid-scrollback and even mid-viewport) from
+      // being mistaken for a stuck dialog.
+      if (stable >= SETTLE_POLLS) {
+        const viewport = await tmux("capture-pane", "-p", "-t", session);
+        const lastLine =
+          viewport
+            .split("\n")
+            .map((line) => line.trim())
+            .findLast((line) => line !== "") ?? "";
+        if (lastLine.startsWith("Enter to confirm")) {
+          if (dialogsDismissed >= 3) {
+            throw new Error(`pane stuck on a dialog:\n${viewport}`);
+          }
+          dialogsDismissed += 1;
+          await tmux("send-keys", "-t", session, "Enter");
+          stable = 0;
+          last = undefined;
+          delayMs = 300;
         }
-        dialogsDismissed += 1;
-        await tmux("send-keys", "-t", session, "Enter");
-        stable = 0;
-        last = undefined;
-        delayMs = 300;
       }
     }
     const plain = await tmux("capture-pane", "-p", "-t", session, "-S", "-");
@@ -400,7 +426,7 @@ async function captureSubject(subject: CaptureSubject): Promise<boolean> {
     {
       command: [resolveBundledClaude(), "--resume", subject.sessionId],
       cwd: subject.cwd,
-      env: claudeConfigEnv,
+      env: claudeEnv,
     },
     CAPTURE_COLS,
   );

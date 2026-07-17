@@ -16,7 +16,7 @@ import { promisify } from "node:util";
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import {
   claudeConfigDir,
-  claudeConfigEnv,
+  claudeEnv,
   ensureClaudeConfigDir,
   manifestPath,
   outDir,
@@ -68,7 +68,7 @@ export async function generateSession(
         ...scenario.options,
         cwd: workdir,
         resume: sessionId,
-        env: { ...process.env, ...claudeConfigEnv },
+        env: { ...process.env, ...claudeEnv },
       },
     });
     for await (const message of turn) {

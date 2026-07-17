@@ -331,6 +331,22 @@ provides.
       bodies byte-identical across runs (determinism criterion holds
       without restore; diffFiles uses --label so diff headers carry no
       mtimes)
+- [x] 2026-07-17 `--session` on a large LIVE session (this harness's own
+      conversation) surfaced three failure modes, all fixed: (1) resuming a
+      near-context-limit session auto-compacts on open (animated progress →
+      settle timeout; also rewrites the transcript and burns tokens) →
+      `DISABLE_AUTO_COMPACT=1` in `claudeEnv` (renamed from
+      `claudeConfigEnv`), applied to every claude invocation; (2) a
+      first-open "Try the new fullscreen renderer?" upsell whose DEFAULT
+      answer opts into a different renderer → suppressed via
+      `fullscreenUpsellSeenCount: 3` in the seeded `.claude.json` (the
+      binary shows it until seenCount ≥ 3), never dismissed generically;
+      (3) dialog detection matched "Enter to confirm" anywhere in the
+      scrollback, but a transcript ABOUT this harness quotes that string →
+      detection now anchors on the last non-blank line of the visible
+      viewport, where a live modal's hint always sits and below which
+      quoted text always has claude's footer. This session (2700+ diff
+      lines) now captures in ~9s.
 - [ ] Rework the slash-command scenario: `/compact` via SDK query() passed
       through with no compaction (probably a no-op on a 2-turn session), so
       the corpus has no compact-boundary coverage yet
