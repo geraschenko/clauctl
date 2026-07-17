@@ -172,14 +172,34 @@ capture to confirm the diff closed.
 
 ## Open verification items
 
-- **Does `claude --resume` + exit leave the session file untouched?**
-  Believed yes. Verify with a checksum before/after during harness bring-up;
-  if it appends, capture clauctl first or resume from a copy.
-- The exact clauctl-side command sequence for `CaptureTarget` (spawn with
-  `--resume`, then attach in the pane; daemon lifecycle around it) — settle
-  during harness bring-up.
+- ~~Does `claude --resume` + exit leave the session file untouched?~~
+  **Resolved: NO.** Verified by checksum during bring-up: a full interactive
+  resume (render + exit, nothing sent) mutates the live session file; a
+  resume that only reaches a trust dialog does not. The harness therefore
+  snapshots each session at generation time and restores the live file
+  before rendering each side (see WORK LOG).
+- ~~The exact clauctl-side command sequence~~ **Resolved**: `spawn --cwd
+  <workdir> --id <uuid> -- --resume <sessionId>` (outside the pane; exits
+  when sdk.sock is ready), `attach -t <uuid>` inside the pane, `archive -t
+  <uuid>` for cleanup. Verified none of these steps mutate the session file.
 - The shortcut table below is agent-sourced; verify against the bundled
   2.1.211 binary's `?` panel before the follow-up specs rely on it.
+
+## Blocker found: clauctl renders resumed history as empty
+
+`clauctl spawn -- --resume <id>` + `attach` shows an empty transcript. The
+daemon starts its streaming-input `query()` at spawn, but a streaming Query
+only initializes on its first turn (`set-context.ts` notes this), so
+`events.agentState.sessionId` stays undefined and the daemon's `get-messages`
+handler (`request-handlers.ts`) returns `[]` until the first prompt. Every
+scenario's clauctl capture is currently just rules + footer.
+
+Candidate fix (needs approval — it is a `src/` change outside this spec's
+harness phase): seed the daemon's event hub with the resume session id from
+`spawn-options.json`, the same seeding revival already does with the last
+recorded session, so `get-messages` can serve the resumed transcript before
+the first turn. This is a genuine product gap, not just a harness obstacle:
+any user attaching to a freshly spawned `--resume` agent sees nothing.
 
 ## Design notes
 
@@ -263,13 +283,44 @@ provides.
       harness type design. Decisions: generated (not pre-existing) sessions as
       the corpus; sessions/captures never committed; plain-text diff before ANSI;
       shortcuts and view modes deferred to follow-up specs.
-- [ ] Add `scripts/tui-parity/out/` to `.gitignore` (currently absent)
-- [ ] Harness: scenarios.ts + generate.ts
-- [ ] Harness: capture.ts (resolveBundledClaude, captureInTmux, normalize)
-- [ ] Verify `claude --resume` leaves session file untouched
+- [x] Add `scripts/tui-parity/out/` to `.gitignore`
+- [x] Harness: scenarios.ts + generate.ts
+- [x] Harness: capture.ts (resolveBundledClaude, captureInTmux, normalize)
+- [x] Verify `claude --resume` leaves session file untouched → it does NOT
+      (see Open verification items); snapshot/restore added in response
 - [ ] Verify shortcut table against bundled binary's `?` panel
-- [ ] Initial corpus generation + first diff run
+- [x] Initial corpus generation + first diff run (5 scenarios; claude side
+      renders fully, clauctl side blocked on the resumed-history gap)
+- [ ] Resolve the clauctl resumed-history blocker (needs approval; see
+      "Blocker found" in IMPLEMENTATION IDEAS)
+- [ ] Rework the slash-command scenario: `/compact` via SDK query() passed
+      through with no compaction (probably a no-op on a 2-turn session), so
+      the corpus has no compact-boundary coverage yet
 - [ ] Diff catalog in docs/derisk/tui-parity/ with triage decisions
 - [ ] Rendering fixes (one catalog entry at a time, each with type-design
       check-in and unit test)
 - [ ] ANSI/coloration pass
+
+## Implementation-Time Decisions (2026-07-16, harness bring-up)
+
+- **Workdirs live outside the repo**
+  (`~/.cache/clauctl-tui-parity/workdir/<name>`, exported as `workdirBase`),
+  not under `out/` as originally sketched. Inside the repo, claude walks up
+  to clauctl's own CLAUDE.md, which pollutes generated sessions with
+  clauctl's instructions and triggers the external-import trust dialog on
+  every interactive resume.
+- **Session snapshot/restore** (`GeneratedSession` gained `sessionFilePath`
+  and `snapshotPath`): generation copies the pristine session file to
+  `out/sessions/<name>.jsonl`; capture restores it before rendering each
+  side. Motivated by the mutation finding; also makes repeated captures
+  deterministic and survives claude's session pruning.
+- **Dialog dismissal inside captureInTmux**: a pane that settles on a screen
+  containing "Enter to confirm" gets Enter sent (accepting the default) and
+  the settle loop restarts, bounded at 3 dialogs. Trust answers persist per
+  directory in ~/.claude.json, so this normally fires once per workdir.
+- **`scripts/tui-parity/tsconfig.json`** (extends the root config, noEmit):
+  the root tsconfig only includes `src/`, so the harness gets its own config
+  for `npx tsc -p scripts/tui-parity`. Not wired into presubmit.
+- **Default clauctl registry** (no CLAUCTL_DIR override): pointing
+  CLAUCTL_DIR into `out/` would push sdk.sock past the unix socket path
+  budget. Harness agents are archived after capture instead.

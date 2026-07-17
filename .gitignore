@@ -2,3 +2,4 @@ node_modules
 dist
 .worktrees
 .fallow
+scripts/tui-parity/out
