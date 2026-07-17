@@ -21,6 +21,7 @@ import {
   manifestPath,
   outDir,
   resolveBundledClaude,
+  sessionFilePathFor,
   workdirBase,
 } from "./capture.ts";
 import { scenarios, type Scenario } from "./scenarios.ts";
@@ -79,11 +80,10 @@ export async function generateSession(
   if (sessionId === undefined) {
     throw new Error(`${scenario.name}: no session id observed`);
   }
-  const sessionFilePath = join(
+  const sessionFilePath = sessionFilePathFor(
     claudeConfigDir,
-    "projects",
-    workdir.replaceAll(/[/.]/g, "-"),
-    `${sessionId}.jsonl`,
+    workdir,
+    sessionId,
   );
   const snapshotPath = join(outDir, "sessions", `${scenario.name}.jsonl`);
   await mkdir(dirname(snapshotPath), { recursive: true });

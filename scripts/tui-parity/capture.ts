@@ -4,14 +4,25 @@
  * tmux, capture both panes, normalize, and diff.
  *
  * Entry point: node scripts/tui-parity/capture.ts [scenario…]
+ *   [--session <id-or-jsonl-path>]…
+ *
+ * `--session` imports a copy of a real session (from the real ~/.claude)
+ * into the isolated config dir and captures both views of it — for turning
+ * unexpected rendering in day-to-day sessions into comparison cases.
  */
 
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
-import { copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
+import {
+  copyFile,
+  mkdir,
+  readdir,
+  readFile,
+  writeFile,
+} from "node:fs/promises";
 import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { promisify } from "node:util";
@@ -84,11 +95,10 @@ export const claudeConfigEnv = { CLAUDE_CONFIG_DIR: claudeConfigDir };
  * Seeds the isolated config dir ONCE from the real credentials and
  * top-level config (login + onboarding state; without them claude blocks on
  * the login/onboarding wizard). The seeded `.claude.json` drops the user's
- * per-project map — foreign MCP servers there otherwise leak
- * auth-state-dependent warning lines into captures. Existing copies are
- * never overwritten — claude refreshes tokens and records trust in the
- * copies, so re-copying could clobber fresher state. Delete the dir to
- * re-seed.
+ * per-project map — the harness shouldn't inherit per-project MCP servers
+ * or history. Existing copies are never overwritten — claude refreshes
+ * tokens and records trust in the copies, so re-copying could clobber
+ * fresher state. Delete the dir to re-seed.
  */
 export async function ensureClaudeConfigDir(): Promise<void> {
   await mkdir(claudeConfigDir, { recursive: true });
@@ -226,6 +236,9 @@ export function normalize(capture: string): string {
   return (
     capture
       .replaceAll(/[⠁⠂⠄⡀⢀⠠⠐⠈⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏✢✳✶✻✽]/gu, "·")
+      // Auth-state-dependent chrome from account-level (claude.ai) MCP
+      // connectors; comes and goes with login/token state.
+      .replaceAll(/^.*⚠ \d+ MCP servers? need authentication.*\n/gmu, "")
       .replaceAll(
         /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi,
         "<uuid>",
@@ -239,8 +252,79 @@ export function normalize(capture: string): string {
   );
 }
 
+/**
+ * What a capture run renders: a generated scenario or an imported real
+ * session. `name` is the basename for the out/ files.
+ */
+interface CaptureSubject {
+  name: string;
+  sessionId: string;
+  cwd: string;
+}
+
+/** Where claude persists/reads a session for `cwd` under `configDir`. */
+export function sessionFilePathFor(
+  configDir: string,
+  cwd: string,
+  sessionId: string,
+): string {
+  return join(
+    configDir,
+    "projects",
+    cwd.replaceAll(/[/.]/g, "-"),
+    `${sessionId}.jsonl`,
+  );
+}
+
+/**
+ * Imports a real session into the isolated config dir so both TUIs render a
+ * COPY — the original under the real ~/.claude is never opened or mutated.
+ * Accepts a path to the session jsonl, or a bare session id (searched under
+ * the real config dir's projects/). The session's cwd is read from its
+ * entries. Re-importing overwrites the copy, so the capture always reflects
+ * the session's current content.
+ */
+async function importRealSession(idOrPath: string): Promise<CaptureSubject> {
+  const realConfigDir =
+    process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), ".claude");
+  let sourcePath: string;
+  if (idOrPath.endsWith(".jsonl")) {
+    sourcePath = idOrPath;
+  } else {
+    const projectsDir = join(realConfigDir, "projects");
+    const matches = (
+      await readdir(projectsDir, { withFileTypes: true })
+    ).flatMap((dirent) => {
+      const candidate = join(projectsDir, dirent.name, `${idOrPath}.jsonl`);
+      return dirent.isDirectory() && existsSync(candidate) ? [candidate] : [];
+    });
+    if (matches.length !== 1) {
+      throw new Error(
+        matches.length === 0
+          ? `session ${idOrPath} not found under ${projectsDir}`
+          : `session ${idOrPath} is ambiguous: ${matches.join(", ")}`,
+      );
+    }
+    sourcePath = matches[0]!;
+  }
+  const sessionId = basename(sourcePath, ".jsonl");
+  const entryWithCwd = (await readFile(sourcePath, "utf8"))
+    .split("\n")
+    .filter(Boolean)
+    .map((line) => JSON.parse(line) as { cwd?: string })
+    .find((entry) => entry.cwd !== undefined);
+  if (entryWithCwd?.cwd === undefined) {
+    throw new Error(`no cwd found in any entry of ${sourcePath}`);
+  }
+  const { cwd } = entryWithCwd;
+  const destination = sessionFilePathFor(claudeConfigDir, cwd, sessionId);
+  await mkdir(dirname(destination), { recursive: true });
+  await copyFile(sourcePath, destination);
+  return { name: `session-${sessionId.slice(0, 8)}`, sessionId, cwd };
+}
+
 async function captureClauctl(
-  entry: GeneratedSession,
+  subject: CaptureSubject,
 ): Promise<{ plain: string; ansi: string }> {
   const agentId = randomUUID();
   const spawnEnv = { ...process.env, ...clauctlEnv };
@@ -250,12 +334,12 @@ async function captureClauctl(
       clauctlMain,
       "spawn",
       "--cwd",
-      entry.cwd,
+      subject.cwd,
       "--id",
       agentId,
       "--",
       "--resume",
-      entry.sessionId,
+      subject.sessionId,
     ],
     { env: spawnEnv },
   );
@@ -263,7 +347,7 @@ async function captureClauctl(
     return await captureInTmux(
       {
         command: [process.execPath, clauctlMain, "attach", "-t", agentId],
-        cwd: entry.cwd,
+        cwd: subject.cwd,
         env: clauctlEnv,
       },
       CAPTURE_COLS,
@@ -305,7 +389,7 @@ async function diffFiles(fileA: string, fileB: string): Promise<string> {
   }
 }
 
-async function captureScenario(entry: GeneratedSession): Promise<boolean> {
+async function captureSubject(subject: CaptureSubject): Promise<boolean> {
   // Both sides render the LIVE session file. Interactive resume appends
   // convergent metadata (ai-title/agent-name, then mode/permission-mode) on
   // the first two opens and nothing after; captures are deterministic with
@@ -314,14 +398,14 @@ async function captureScenario(entry: GeneratedSession): Promise<boolean> {
   // session is ever mutated for real (e.g. a prompt typed during triage).
   const claude = await captureInTmux(
     {
-      command: [resolveBundledClaude(), "--resume", entry.sessionId],
-      cwd: entry.cwd,
+      command: [resolveBundledClaude(), "--resume", subject.sessionId],
+      cwd: subject.cwd,
       env: claudeConfigEnv,
     },
     CAPTURE_COLS,
   );
-  const clauctl = await captureClauctl(entry);
-  const base = join(outDir, entry.scenario);
+  const clauctl = await captureClauctl(subject);
+  const base = join(outDir, subject.name);
   await writeFile(`${base}.claude.txt`, normalize(claude.plain));
   await writeFile(`${base}.clauctl.txt`, normalize(clauctl.plain));
   await writeFile(`${base}.claude.ansi`, claude.ansi);
@@ -333,37 +417,61 @@ async function captureScenario(entry: GeneratedSession): Promise<boolean> {
     .filter((line) => /^[+-][^+-]/.test(line)).length;
   console.log(
     diff === ""
-      ? `${entry.scenario}: identical`
-      : `${entry.scenario}: ${differingLines} differing lines (${base}.diff)`,
+      ? `${subject.name}: identical`
+      : `${subject.name}: ${differingLines} differing lines (${base}.diff)`,
   );
   return diff === "";
 }
 
 async function main(): Promise<void> {
   await ensureClaudeConfigDir();
-  const manifest = JSON.parse(
-    await readFile(manifestPath, "utf8"),
-  ) as GeneratedSession[];
-  const requested = process.argv.slice(2);
-  const unknown = requested.filter(
-    (name) => !manifest.some((entry) => entry.scenario === name),
-  );
-  if (unknown.length > 0) {
-    throw new Error(
-      `not in manifest: ${unknown.join(", ")} (run generate.ts first?)`,
+  const args = process.argv.slice(2);
+  const subjects: CaptureSubject[] = [];
+  const requested: string[] = [];
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === "--session") {
+      const value = args[++i];
+      if (value === undefined) {
+        throw new Error("--session requires a session id or jsonl path");
+      }
+      subjects.push(await importRealSession(value));
+    } else {
+      requested.push(args[i]!);
+    }
+  }
+  // Scenario subjects come from the manifest: all of it by default, unless
+  // specific scenarios (or only --session imports) were requested.
+  if (requested.length > 0 || subjects.length === 0) {
+    const manifest = JSON.parse(
+      await readFile(manifestPath, "utf8"),
+    ) as GeneratedSession[];
+    const unknown = requested.filter(
+      (name) => !manifest.some((entry) => entry.scenario === name),
+    );
+    if (unknown.length > 0) {
+      throw new Error(
+        `not in manifest: ${unknown.join(", ")} (run generate.ts first?)`,
+      );
+    }
+    const entries =
+      requested.length === 0
+        ? manifest
+        : manifest.filter((entry) => requested.includes(entry.scenario));
+    subjects.push(
+      ...entries.map((entry) => ({
+        name: entry.scenario,
+        sessionId: entry.sessionId,
+        cwd: entry.cwd,
+      })),
     );
   }
-  const entries =
-    requested.length === 0
-      ? manifest
-      : manifest.filter((entry) => requested.includes(entry.scenario));
   let identical = 0;
-  for (const entry of entries) {
-    if (await captureScenario(entry)) {
+  for (const subject of subjects) {
+    if (await captureSubject(subject)) {
       identical += 1;
     }
   }
-  console.log(`${identical}/${entries.length} scenarios identical`);
+  console.log(`${identical}/${subjects.length} subjects identical`);
 }
 
 if (process.argv[1] !== undefined) {

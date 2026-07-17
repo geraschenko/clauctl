@@ -322,9 +322,11 @@ provides.
       isolated to `~/.cache/clauctl-tui-parity/config` seeded from the real
       credentials + `~/.claude.json` (verified: headless generation and
       interactive resume both work in the isolated dir; unseeded dirs block
-      on the onboarding wizard). The seed drops the user's per-project map:
-      foreign project MCP servers leaked an auth-state-dependent "⚠ N MCP
-      servers need authentication" line into claude captures. Corpus
+      on the onboarding wizard). The seed drops the user's per-project map
+      (foreign MCP servers, history — isolation hygiene). Separately, claude
+      shows an auth-state-dependent "⚠ N MCP servers need authentication"
+      line sourced from ACCOUNT-level (claude.ai) connectors, which no local
+      config isolation can remove — normalize() strips it. Corpus
       regenerated in the isolated dir; capture rerun repeatedly — diff
       bodies byte-identical across runs (determinism criterion holds
       without restore; diffFiles uses --label so diff headers carry no
@@ -360,9 +362,18 @@ provides.
   onboarding state; a bare dir blocks interactively on the onboarding
   wizard) and never overwrites — claude refreshes tokens and records trust
   in the copies. Delete the dir to re-seed. The seeded `.claude.json` gets
-  `projects: {}`: the user's per-project MCP servers otherwise surface an
-  auth-state-dependent warning line in captures, and trust state for the
-  harness workdirs is re-recorded by the dialog-dismissal loop anyway.
+  `projects: {}` — the harness has no business inheriting the user's
+  per-project MCP servers or history, and trust state for the harness
+  workdirs is re-recorded by the dialog-dismissal loop anyway.
+- **Real-session capture** (2026-07-17, per review): `capture.ts --session
+  <id-or-jsonl-path>` imports a COPY of a real session into the isolated
+  config dir (cwd read from the session's own entries; bare ids searched
+  under the real `~/.claude/projects`) and runs the same capture/diff as a
+  scenario, as `out/session-<id8>.*`. The original file is never opened by
+  either TUI. This is the path for turning unexpected rendering in
+  day-to-day sessions into comparison cases. Internally `captureSubject`
+  now takes a `CaptureSubject` (name/sessionId/cwd) fed by either the
+  manifest or the import.
 - **Dialog dismissal inside captureInTmux**: a pane that settles on a screen
   containing "Enter to confirm" gets Enter sent (accepting the default) and
   the settle loop restarts, bounded at 3 dialogs. Trust answers persist per
