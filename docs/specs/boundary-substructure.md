@@ -1,6 +1,6 @@
 # Spec: boundary substructure — relink-aware chain and tree
 
-> Status: **implemented, awaiting review.** Follow-up to
+> Status: **implemented.** Follow-up to
 > `docs/specs/session-tree-and-set-context.md` (which shipped `get-tree` and
 > deferred the boundary substructure) and `docs/specs/format-tree.md` (which
 > fixed the node identity `(uuid, viaBoundary)` — called "occurrence
@@ -329,7 +329,9 @@ encountered.
   unvalidated `parentUuid` pointers, so a corrupt file (or a hand-crafted
   anchor whose raw ancestry re-enters a relinked uuid) can cycle. Tests:
   well-formed fixtures use a throwing sink, invalid-relink tests assert
-  the diagnostic, plus a new parentUuid-cycle test (275 pass).
+  the diagnostic, plus a new parentUuid-cycle test (275 pass). Anton
+  approved the diagnostic line (no `onInvalid` for absent
+  preservedMessages / empty uuids) and the round; spec marked implemented.
 
 ### Implementation-Time Decisions
 
