@@ -116,15 +116,15 @@ export interface CaptureTarget {
   command: string[];       // claude --resume <id>, or the clauctl spawn/attach sequence
   cwd: string;
 }
-export interface PaneSize { cols: number; rows: number }
-
-// Launches the target in a fresh tmux session of fixed size, polls
-// capture-pane with backoff until the *normalized* capture is identical for
-// K consecutive polls (hard timeout), then captures once plain and once
-// with -e. captureInTmux calls normalize for settle detection.
+// Launches the target in a fresh tmux session `cols` wide, polls
+// `capture-pane -S -` (full scrollback — pane height is an internal
+// constant, irrelevant to captured content) with backoff until the
+// *normalized* capture is identical for K consecutive polls (hard timeout),
+// then captures once plain and once with -e. captureInTmux calls normalize
+// for settle detection.
 export async function captureInTmux(
   target: CaptureTarget,
-  size: PaneSize,  // TDC: we should `capture-pane -S -`, so really only the number of columns matter
+  cols: number,
 ): Promise<{ plain: string; ansi: string }>;
 
 // Strips animated/unstable regions: spinner frames, cursor, trailing
