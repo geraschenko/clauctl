@@ -129,18 +129,30 @@ export interface BoundaryRelink {
   /** Effective-parent overrides (uuid → parent uuid). */
   parentMap: Map<UUID, UUID>;
 }
+/** Sink for corrupt-session-file diagnostics (a relink that fails
+ *  validation, a parentUuid cycle). Required so ignoring them is a
+ *  visible choice at the call site; daemon callers pass the daemon log.
+ *  Threaded through every function that walks entries (including
+ *  seedFromEntries, buildTree, and get-messages' startupOverride). */
+export type OnInvalid = (message: string) => void;
+
 export function validRelink(
   entries: SessionEntry[],
   boundaryIndex: number,
+  onInvalid: OnInvalid,
 ): BoundaryRelink | undefined;
 
 /** Loader-true tree-node chain, root → tip. Calls validRelink. */
 export function effectiveTreeNodeChain(
   entries: SessionEntry[],
+  onInvalid: OnInvalid,
 ): TreeNodeRef[];
 
 /** Uuid projection of effectiveTreeNodeChain. */
-export function effectiveChain(entries: SessionEntry[]): UUID[];
+export function effectiveChain(
+  entries: SessionEntry[],
+  onInvalid: OnInvalid,
+): UUID[];
 
 // build-tree.ts — TreeNode and SessionTree shapes unchanged;
 // SessionTree.leaf's inline literal becomes TreeNodeRef | null (same
@@ -305,6 +317,19 @@ encountered.
   `effectiveTreeNodeChain` with the `*` landing on the relinked duplicate.
   Criterion 6: handler comment and build-tree TODO removed, format-tree.md
   notes updated.
+- 2026-07-17 (implementation review round): buildTree's deferred emission
+  became a single `pendingRelink` (decision entry updated below) and its
+  loop was reordered typical-case-first; the validRelink guards cite their
+  probes (P1e; P3 m4/P1 d). New type `OnInvalid`, a required callback
+  threaded through `validRelink` / `effectiveTreeNodeChain` /
+  `effectiveChain` / `seedFromEntries` / `buildTree` / `startupOverride`
+  and wired to the daemon log: invalid relinks (duplicate/unknown uuid)
+  and the chain walk's cycle guard now report corruption instead of
+  silently skipping. The guard itself stays — the walk follows raw
+  unvalidated `parentUuid` pointers, so a corrupt file (or a hand-crafted
+  anchor whose raw ancestry re-enters a relinked uuid) can cycle. Tests:
+  well-formed fixtures use a throwing sink, invalid-relink tests assert
+  the diagnostic, plus a new parentUuid-cycle test (275 pass).
 
 ### Implementation-Time Decisions
 
@@ -315,11 +340,15 @@ encountered.
   when `preservedMessages` lacks `anchorUuid` (valid per the definitions,
   which don't require an anchor); the alternative (root fallback) would
   diverge from the chain for no reason.
-- **Deferred emission is keyed by summary uuid** (`pendingRelinks` map): at
-  the summary's file position the from-shape summary node is created
-  unattached and registered in the running map purely so `emitSubstructure`
-  can read its entry — the relink immediately overwrites the registration
-  with the relinked node, and the raw node never enters the tree.
+- **Deferred emission holds a single `pendingRelink`** (review round: was a
+  map keyed by summary uuid): a summary always follows its boundary before
+  the next boundary in any CLI/clauctl-written file, so at most one relink
+  is pending at a time; in a hand-crafted interleaving the later boundary
+  displaces the earlier pending substructure. At the summary's file
+  position the from-shape summary node is created unattached and
+  registered in the running map purely so `emitSubstructure` can read its
+  entry — the relink immediately overwrites the registration with the
+  relinked node, and the raw node never enters the tree.
 - **A uuid-less boundary annotates nothing**: `effectiveTreeNodeChain`
   skips the relinked-uuid annotation when the boundary entry itself has no
   uuid (there is no value for `viaBoundary`), while the parent map still
@@ -328,4 +357,7 @@ encountered.
 - **Empty `uuids` classified invalid is not a behavior change**: the old
   tip-selection fallback already produced summary-only context for empty
   uuids; `validRelink` folding it into "invalid" keeps the same result with
-  one rule.
+  one rule. It does not fire `onInvalid`: absent `preservedMessages` is
+  normal (legacy segment-only boundaries) and empty `uuids` reads as "keep
+  nothing", not corruption — only duplicate/unknown uuids and walk cycles
+  are diagnostics.

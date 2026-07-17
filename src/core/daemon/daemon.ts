@@ -220,7 +220,7 @@ async function daemon(this: CommandContext, flags: DaemonFlags): Promise<void> {
       ? readSessionEntries(seedSessionFile)
       : undefined;
   const fileSeed =
-    startupEntries !== undefined ? seedFromEntries(startupEntries) : {};
+    startupEntries !== undefined ? seedFromEntries(startupEntries, log) : {};
   const settings = await settingsSeed(record.persistedOptions, record.cwd);
   const events = new EventHub({
     seed: {
@@ -352,6 +352,7 @@ async function daemon(this: CommandContext, flags: DaemonFlags): Promise<void> {
       startupEntries,
       getTurnQueue: () => turnQueue,
       cwd: record.cwd,
+      log,
       getPersistedOptions: () => record.persistedOptions,
       setPersistedOptions: (options) => {
         record.persistedOptions = options;

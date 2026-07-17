@@ -201,10 +201,13 @@ test("a buildTree-produced compacted session renders with the leaf on the relink
     parentUuid: uuid(3),
     isCompactSummary: true,
   };
+  const failOnInvalid = (message: string): never => {
+    throw new Error(`unexpected onInvalid: ${message}`);
+  };
   const entries = [start, reply, boundary, summary];
   const input: SessionTree = {
-    tree: buildTree(entries),
-    leaf: effectiveTreeNodeChain(entries).at(-1) ?? null,
+    tree: buildTree(entries, failOnInvalid),
+    leaf: effectiveTreeNodeChain(entries, failOnInvalid).at(-1) ?? null,
   };
   assert.equal(
     render(input, { filter: "all" }),

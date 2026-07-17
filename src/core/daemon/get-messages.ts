@@ -11,7 +11,11 @@
 
 import type { UUID } from "node:crypto";
 import type { SessionMessage } from "@anthropic-ai/claude-agent-sdk";
-import { effectiveChain, summaryOf } from "../effective-chain.ts";
+import {
+  effectiveChain,
+  summaryOf,
+  type OnInvalid,
+} from "../effective-chain.ts";
 import { readSessionEntries, type SessionEntry } from "../session-file.ts";
 
 /**
@@ -45,7 +49,10 @@ export type GetMessagesOverride = (
  * file-derived, this also reconstructs the window at daemon startup — unlike
  * a no-write rewind, which the file carries no record of (criterion 8).
  */
-function synthesizeWindowChain(entries: SessionEntry[]): UUID[] | undefined {
+function synthesizeWindowChain(
+  entries: SessionEntry[],
+  onInvalid: OnInvalid,
+): UUID[] | undefined {
   const boundaryIndex = entries.findLastIndex(
     (entry) => entry.subtype === "compact_boundary",
   );
@@ -60,7 +67,7 @@ function synthesizeWindowChain(entries: SessionEntry[]): UUID[] | undefined {
         (entry.type === "user" || entry.type === "assistant") &&
         entry.uuid !== summaryUuid,
     );
-  return windowClosed ? undefined : effectiveChain(entries);
+  return windowClosed ? undefined : effectiveChain(entries, onInvalid);
 }
 
 /** getSessionMessages' runtime objects also carry `timestamp`, absent from
@@ -116,11 +123,12 @@ export function synthesizeMessages(
 export function startupOverride(
   startupEntries: SessionEntry[] | undefined,
   installedAtLeafUuid: string | undefined,
+  onInvalid: OnInvalid,
 ): GetMessagesOverride | undefined {
   if (startupEntries === undefined) {
     return undefined;
   }
-  const chain = synthesizeWindowChain(startupEntries);
+  const chain = synthesizeWindowChain(startupEntries, onInvalid);
   if (chain === undefined) {
     return undefined;
   }

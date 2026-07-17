@@ -59,6 +59,8 @@ export interface RequestHandlerDeps {
   getTurnQueue(): TurnQueue;
   /** getSessionMessages dir. */
   cwd: string;
+  /** The daemon log; the sink for corrupt-session-file diagnostics. */
+  log(message: string): void;
   /** Mutation persistence; the write itself is queued by daemon.ts. */
   getPersistedOptions(): PersistedOptions;
   setPersistedOptions(options: PersistedOptions): void;
@@ -100,6 +102,7 @@ export function createRequestHandler(
   let override: GetMessagesOverride | undefined = startupOverride(
     deps.startupEntries,
     events.agentState.lastTranscriptUuid,
+    deps.log,
   );
 
   /** The get-messages override, dropped lazily once stale: the next transcript
@@ -278,12 +281,12 @@ export function createRequestHandler(
           const active = freshOverride();
           const chain =
             active?.kind === "filterTail"
-              ? effectiveTreeNodeChain(entries).filter(
+              ? effectiveTreeNodeChain(entries, deps.log).filter(
                   (ref) => !active.droppedUuids.has(ref.uuid),
                 )
-              : effectiveTreeNodeChain(entries);
+              : effectiveTreeNodeChain(entries, deps.log);
           const tree: SessionTree = {
-            tree: buildTree(entries),
+            tree: buildTree(entries, deps.log),
             leaf: chain.at(-1) ?? null,
           };
           return tree;

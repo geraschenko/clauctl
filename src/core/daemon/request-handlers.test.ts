@@ -1,3 +1,9 @@
+/**
+ * Probe ids in comments (e.g. P9 c) cite the experiments in
+ * docs/derisk/compact-boundary-injection/FINDINGS.md that established each
+ * behavior.
+ */
+
 import assert from "node:assert/strict";
 import { randomUUID, type UUID } from "node:crypto";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
@@ -183,6 +189,9 @@ function fixture(options: FixtureOptions = {}): Fixture {
         push: (message: SDKUserMessage) => pushed.push(message),
       }) as unknown as TurnQueue,
     cwd,
+    log: (message) => {
+      throw new Error(`unexpected daemon-log diagnostic: ${message}`);
+    },
     getPersistedOptions: () => persistedOptions,
     setPersistedOptions: (next) => {
       persistedOptions = next;
@@ -783,7 +792,8 @@ test("rewind to a member of a boundary's preserved uuids resurrects the summariz
 
   // a2 predates the boundary, so its first-appeared context is the raw chain
   // u1..a2 — not the boundary's [summary, u2, a2] view. resumeSessionAt would
-  // keep the boundary (P9 c), so this must go the no-summary-boundary route.
+  // keep the boundary (P9 c; see file comment), so this must go the
+  // no-summary-boundary route.
   await f.handle({ type: "set-context", rewindTo: a2.uuid, id: "c1" });
   const entries = readSessionEntries(f.file);
   assert.equal(entries.length, 7);

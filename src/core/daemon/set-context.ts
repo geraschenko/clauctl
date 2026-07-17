@@ -100,8 +100,8 @@ export function createSetContextHandler(
 
     // "Context as it was when the target first appeared": loader semantics on
     // the file truncated just after the target.
-    const desired = effectiveChain(entries.slice(0, targetIndex + 1));
-    const active = effectiveChain(entries);
+    const desired = effectiveChain(entries.slice(0, targetIndex + 1), deps.log);
+    const active = effectiveChain(entries, deps.log);
     const targetPosition = active.indexOf(rewindTo);
 
     if (
@@ -132,8 +132,8 @@ export function createSetContextHandler(
     // Abandoned branch (unreachable by resumeSessionAt, P2 e) or a member of
     // a boundary's preserved uuids (reachable but with boundary-kept
     // semantics, P9 c): append a no-summary boundary listing the computed
-    // chain (P9 a). System entries on the chain (e.g. turn_duration) carry no
-    // context and are left off the preserved uuids.
+    // chain (P9 a; see file comment). System entries on the chain (e.g.
+    // turn_duration) carry no context and are left off the preserved uuids.
     const messageUuids = desired.filter((uuid) => {
       const type = entries.find((entry) => entry.uuid === uuid)?.type;
       return type === "user" || type === "assistant";
@@ -211,7 +211,10 @@ export function createSetContextHandler(
         // first turn. The override carries the file's effective chain, not
         // `expected` — identical on success, and on a verification failure
         // get-messages still reflects the loader's actual view.
-        const effective = effectiveChain(readSessionEntries(filePath));
+        const effective = effectiveChain(
+          readSessionEntries(filePath),
+          deps.log,
+        );
         shared.installOverride({
           kind: "synthesize",
           chain: effective,
@@ -272,7 +275,7 @@ export function createSetContextHandler(
             summaryText: parsed.summaryText,
           }),
           anchor,
-          logicalParentUuid: effectiveChain(entries).at(-1) ?? null,
+          logicalParentUuid: effectiveChain(entries, deps.log).at(-1) ?? null,
           version: events.agentState.claudeCodeVersion,
           preTokens: preTokensOf(events.agentState.lastUsage),
         });

@@ -71,6 +71,11 @@ export interface TreeNodeRef {
   viaBoundary?: UUID;
 }
 
+/** Sink for corrupt-session-file diagnostics (a relink that fails
+ *  validation, a parentUuid cycle). Required so ignoring them is a visible
+ *  choice at the call site — pass `() => {}` to declare it. */
+export type OnInvalid = (message: string) => void;
+
 /** The validated relink of a boundary.
  *  This is exactly the part of the post-boundary chain which should have
  *  viaBoundary set to the boundary uuid. */
@@ -85,8 +90,9 @@ export interface BoundaryRelink {
 /**
  * The boundary's relink, validated loader-style: `uuids` non-empty, no
  * duplicates, every listed uuid names an entry earlier in the file. Anything
- * else silently skips the relink (P1 d, P3 m4; see file comment).
- * 
+ * else skips the relink as the loader does (P1 d, P3 m4; see file comment),
+ * reporting corrupt-file shapes through `onInvalid`.
+ *
  * The parent map is the load-time relink as overrides: `uuids[i] →
  * uuids[i-1]`, `uuids[0] → anchorUuid`; in from-shape (anchor = the
  * boundary's own uuid) with a summary, the summary's effective parent is
@@ -97,22 +103,37 @@ export interface BoundaryRelink {
 export function validRelink(
   entries: SessionEntry[],
   boundaryIndex: number,
+  onInvalid: OnInvalid,
 ): BoundaryRelink | undefined {
   const boundary = entries[boundaryIndex]!;
   const preserved = preservedMessagesOf(boundary);
   if (preserved === undefined || preserved.uuids.length === 0) {
-    // Loader skips boundaries with no preserved uuids. TDC: add probe ref
+    // Not corruption, so no onInvalid: legacy segment-only boundaries carry
+    // no preservedMessages at all, and empty uuids reads as "keep nothing".
+    // The loader skips such boundaries (P1e ablation: emptying uuids kills
+    // the relink; see file comment).
     return undefined;
   }
   const { anchorUuid, uuids } = preserved;
   const earlierUuids = new Set(
     entries.slice(0, boundaryIndex).map((entry) => entry.uuid),
   );
-  if (
-    new Set(uuids).size !== uuids.length ||
-    !uuids.every((preservedUuid) => earlierUuids.has(preservedUuid))
-  ) {
-    // Loader skips boundaries with duplicates in preserved uuid or unknown uuids. TDC: add probe refs
+  // The loader silently skips the whole relink on a duplicated uuid (P3 m4)
+  // or a uuid naming no earlier entry (P1 d); see file comment. Either means
+  // the session file is corrupt — surface it.
+  if (new Set(uuids).size !== uuids.length) {
+    onInvalid(
+      `boundary ${boundary.uuid}: relink skipped — duplicated uuid in preservedMessages.uuids`,
+    );
+    return undefined;
+  }
+  const unknownUuid = uuids.find(
+    (preservedUuid) => !earlierUuids.has(preservedUuid),
+  );
+  if (unknownUuid !== undefined) {
+    onInvalid(
+      `boundary ${boundary.uuid}: relink skipped — preserved uuid ${unknownUuid} names no earlier entry`,
+    );
     return undefined;
   }
 
@@ -145,7 +166,10 @@ export function validRelink(
  * `viaBoundary` iff its uuid is among the last boundary's relinked uuids —
  * elements reached below the anchor via raw parents stay bare.
  */
-export function effectiveTreeNodeChain(entries: SessionEntry[]): TreeNodeRef[] {
+export function effectiveTreeNodeChain(
+  entries: SessionEntry[],
+  onInvalid: OnInvalid,
+): TreeNodeRef[] {
   const byUuid = new Map<UUID, SessionEntry>();
   for (const entry of entries) {
     if (entry.uuid !== undefined) {
@@ -164,10 +188,9 @@ export function effectiveTreeNodeChain(entries: SessionEntry[]): TreeNodeRef[] {
     tip = entries.findLast((entry) => entry.uuid !== undefined)?.uuid;
   } else {
     boundaryUuid = entries[boundaryIndex]!.uuid;
-    const relink = validRelink(entries, boundaryIndex);
+    const relink = validRelink(entries, boundaryIndex, onInvalid);
     const summaryUuid = summaryOf(entries, boundaryIndex)?.uuid;
     if (relink !== undefined) {
-      // TDC: if the relink is invalid, we should emit some kind of error. I want the end user to know that something is fucked up in the session file.
       relinkMap = relink.parentMap;
       if (boundaryUuid !== undefined) {
         relinkedUuids = new Set(relink.relinkedUuids);
@@ -190,10 +213,21 @@ export function effectiveTreeNodeChain(entries: SessionEntry[]): TreeNodeRef[] {
   }
 
   const chain: TreeNodeRef[] = [];
-  // TDC: why do we need `seen`? Entries in the relink map have already been confirmed to be unique and post entries are unique. If ever `seen.has(current)`, we should probably emit some kind of error rather than silently stopping, no?
+  // Cycle guard. The relink map alone cannot cycle (validated unique uuids,
+  // each mapping to an earlier list position), but the walk also follows raw
+  // parentUuid pointers, which nothing validates — a corrupt file can carry
+  // a parentUuid cycle, and a hand-crafted anchor whose raw ancestry
+  // re-enters a relinked uuid jumps back up through the relink map. Without
+  // the guard either shape loops forever.
   const seen = new Set<UUID>();
   let current = tip;
-  while (current !== undefined && !seen.has(current)) {
+  while (current !== undefined) {
+    if (seen.has(current)) {
+      onInvalid(
+        `effective-chain walk revisited ${current} — parent cycle in the session file; stopping`,
+      );
+      break;
+    }
     seen.add(current);
     const entry = byUuid.get(current);
     if (entry === undefined || entry.subtype === "compact_boundary") {
@@ -211,8 +245,11 @@ export function effectiveTreeNodeChain(entries: SessionEntry[]): TreeNodeRef[] {
 }
 
 /** Uuid projection of effectiveTreeNodeChain. */
-export function effectiveChain(entries: SessionEntry[]): UUID[] {
-  return effectiveTreeNodeChain(entries).map((ref) => ref.uuid);
+export function effectiveChain(
+  entries: SessionEntry[],
+  onInvalid: OnInvalid,
+): UUID[] {
+  return effectiveTreeNodeChain(entries, onInvalid).map((ref) => ref.uuid);
 }
 
 /** File-derived AgentState seed values (daemon startup). */
@@ -235,14 +272,17 @@ export interface SessionFileSeed {
  * meta/sidechain filter the stream applies — the value the fold would have
  * arrived at had this daemon watched the session live.
  */
-export function seedFromEntries(entries: SessionEntry[]): SessionFileSeed {
+export function seedFromEntries(
+  entries: SessionEntry[],
+  onInvalid: OnInvalid,
+): SessionFileSeed {
   const byUuid = new Map<UUID, SessionEntry>();
   for (const entry of entries) {
     if (entry.uuid !== undefined) {
       byUuid.set(entry.uuid, entry);
     }
   }
-  const chainEntries = effectiveChain(entries)
+  const chainEntries = effectiveChain(entries, onInvalid)
     .map((uuid) => byUuid.get(uuid))
     .filter((entry) => entry !== undefined);
 

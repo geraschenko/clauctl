@@ -9,6 +9,7 @@ import {
   summaryOf,
   validRelink,
   type BoundaryRelink,
+  type OnInvalid,
   type TreeNodeRef,
 } from "./effective-chain.ts";
 import type { SessionEntry } from "./session-file.ts";
@@ -58,7 +59,10 @@ export interface SessionTree {
  * entries parent onto the boundary in BOTH shapes, so parentUuid-based tree
  * construction stays correct without special-casing.
  */
-export function buildTree(entries: SessionEntry[]): TreeNode[] {
+export function buildTree(
+  entries: SessionEntry[],
+  onInvalid: OnInvalid,
+): TreeNode[] {
   const nodes = new Map<UUID, TreeNode>();
   const roots: TreeNode[] = [];
 
@@ -93,61 +97,57 @@ export function buildTree(entries: SessionEntry[]): TreeNode[] {
     }
   };
 
-  // A valid relink whose boundary has a summary emits its substructure at
+  // A valid relink whose boundary has a summary defers its substructure to
   // the summary's file position — the up_to anchor (the summary node) does
-  // not exist before then. Keyed by summary uuid; whether the summary is
-  // itself relinked (from-shape, raw node omitted) is read off the relink's
-  // relinkedUuids at that point.
-  // TDC: Why is this a map? There can only ever be one pending relink at a time, right?
-  const pendingRelinks = new Map<
-    UUID,
-    { boundaryUuid: UUID; relink: BoundaryRelink }
-  >();
+  // not exist before then. At most one relink is pending at a time: a
+  // summary follows its boundary before the next boundary in any
+  // CLI/clauctl-written file (in a hand-crafted interleaving, the later
+  // boundary would displace the earlier pending substructure).
+  let pendingRelink:
+    | { summaryUuid: UUID; boundaryUuid: UUID; relink: BoundaryRelink }
+    | undefined;
 
   for (const [index, entry] of entries.entries()) {
     if (entry.uuid === undefined) {
       continue;
     }
-    // TDC: This ordering is unintuitive for the reader. It's easier to understand if we first do the typical case where pending is null, where the reader clearly sees how things are inserted into pendingRelinks, then sees how entries are removed and used.
-    const pending = pendingRelinks.get(entry.uuid);
-    if (pending !== undefined) {
-      pendingRelinks.delete(entry.uuid);
-      const summaryRelinked = pending.relink.relinkedUuids.includes(entry.uuid);
+    if (entry.uuid !== pendingRelink?.summaryUuid) {
       const node: TreeNode = { entry, children: [] };
-      if (!summaryRelinked) {
-        attach(node, entry.parentUuid ?? undefined);
-      }
-      // Registered even when raw placement is omitted (from-shape), so
-      // emitSubstructure can read the entry; the relink then overwrites
-      // the registration with the relinked node.
+      // Boundaries carry parentUuid null; their tree anchor is
+      // logicalParentUuid.
+      const parentUuid =
+        entry.parentUuid ??
+        (entry.subtype === "compact_boundary"
+          ? (entry.logicalParentUuid ?? undefined)
+          : undefined);
+      attach(node, parentUuid);
       nodes.set(entry.uuid, node);
-      emitSubstructure(pending.boundaryUuid, pending.relink);
-      continue;
-    }
-    const node: TreeNode = { entry, children: [] };
-    // Boundaries carry parentUuid null; their tree anchor is
-    // logicalParentUuid.
-    const parentUuid =
-      entry.parentUuid ??
-      (entry.subtype === "compact_boundary"
-        ? (entry.logicalParentUuid ?? undefined)
-        : undefined);
-    attach(node, parentUuid);
-    nodes.set(entry.uuid, node);
-    if (entry.subtype === "compact_boundary") {
-      const relink = validRelink(entries, index);
-      if (relink !== undefined) {
-        const summaryUuid = summaryOf(entries, index)?.uuid;
-        if (summaryUuid !== undefined) {
-          pendingRelinks.set(summaryUuid, {
-            boundaryUuid: entry.uuid,
-            relink,
-          });
-        } else {
-          emitSubstructure(entry.uuid, relink);
+      if (entry.subtype === "compact_boundary") {
+        const relink = validRelink(entries, index, onInvalid);
+        if (relink !== undefined) {
+          const summaryUuid = summaryOf(entries, index)?.uuid;
+          if (summaryUuid !== undefined) {
+            pendingRelink = { summaryUuid, boundaryUuid: entry.uuid, relink };
+          } else {
+            emitSubstructure(entry.uuid, relink);
+          }
         }
       }
+      continue;
     }
+    // The pending boundary's summary: emit the deferred substructure here.
+    // In from-shape the summary is itself relinked and its raw placement is
+    // omitted; it is still registered so emitSubstructure can read the
+    // entry (the relink then overwrites the registration with the relinked
+    // node).
+    const { boundaryUuid, relink } = pendingRelink;
+    pendingRelink = undefined;
+    const node: TreeNode = { entry, children: [] };
+    if (!relink.relinkedUuids.includes(entry.uuid)) {
+      attach(node, entry.parentUuid ?? undefined);
+    }
+    nodes.set(entry.uuid, node);
+    emitSubstructure(boundaryUuid, relink);
   }
   return roots;
 }

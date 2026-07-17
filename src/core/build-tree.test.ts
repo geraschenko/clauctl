@@ -6,6 +6,11 @@ import type { SessionEntry } from "./session-file.ts";
 
 const uuid = (): UUID => randomUUID();
 
+/** onInvalid sink for well-formed files: any diagnostic is a test failure. */
+const failOnInvalid = (message: string): never => {
+  throw new Error(`unexpected onInvalid: ${message}`);
+};
+
 function chainEntry(
   parentUuid: UUID | null,
   type = "user",
@@ -102,7 +107,10 @@ test("branch point plus boundary: raw forest with boundary under logicalParentUu
     type: "user",
     isCompactSummary: true,
   };
-  const tree = buildTree([root, branchA, branchB, leafB, boundary, summary]);
+  const tree = buildTree(
+    [root, branchA, branchB, leafB, boundary, summary],
+    failOnInvalid,
+  );
 
   assert.equal(tree.length, 1);
   const rootNode = tree[0]!;
@@ -124,7 +132,7 @@ test("entries without a uuid get no node but chain entries still resolve", () =>
     messageId: "m1",
   };
   const child = chainEntry(root.uuid);
-  const tree = buildTree([root, snapshot, child]);
+  const tree = buildTree([root, snapshot, child], failOnInvalid);
   assert.equal(tree.length, 1);
   assert.equal(tree[0]!.children[0]!.entry, child);
   assert.equal(find(tree, root.uuid)!.children.length, 1);
@@ -137,14 +145,14 @@ test("a boundary without logicalParentUuid becomes a root", () => {
     type: "system",
     subtype: "compact_boundary",
   };
-  const tree = buildTree([boundary]);
+  const tree = buildTree([boundary], failOnInvalid);
   assert.equal(tree.length, 1);
   assert.equal(tree[0]!.entry, boundary);
 });
 
 test("a parentUuid pointing at a missing entry falls back to a root", () => {
   const orphan = chainEntry(uuid());
-  const tree = buildTree([orphan]);
+  const tree = buildTree([orphan], failOnInvalid);
   assert.equal(tree.length, 1);
   assert.equal(tree[0]!.entry, orphan);
 });
@@ -164,7 +172,7 @@ test("up_to relink (example A): substructure under the raw summary, post entry o
   });
   const summary = summaryEntry(boundary.uuid, summaryUuid);
   const u4 = chainEntry(u3.uuid);
-  const tree = buildTree([u1, u2, u3, boundary, summary, u4]);
+  const tree = buildTree([u1, u2, u3, boundary, summary, u4], failOnInvalid);
   const path = pathOf(tree);
   assert.deepEqual(refsOf(path), [
     { uuid: u1.uuid },
@@ -192,7 +200,7 @@ test("from-shape relink (example B): substructure under the boundary, raw summar
   });
   const summary = summaryEntry(boundary.uuid);
   const u4 = chainEntry(summary.uuid);
-  const tree = buildTree([u1, u2, u3, boundary, summary, u4]);
+  const tree = buildTree([u1, u2, u3, boundary, summary, u4], failOnInvalid);
   assert.equal(tree.length, 1);
   const u2Node = find(tree, u2.uuid)!;
   assert.deepEqual(
@@ -232,7 +240,7 @@ test("stacked boundaries (example C): post entries and later boundaries attach t
   });
   const s2 = summaryEntry(second.uuid, s2Uuid);
   const e = chainEntry(d.uuid);
-  const tree = buildTree([a, b, c, first, s1, d, second, s2, e]);
+  const tree = buildTree([a, b, c, first, s1, d, second, s2, e], failOnInvalid);
   assert.deepEqual(refsOf(pathOf(tree)), [
     { uuid: a.uuid },
     { uuid: b.uuid },
@@ -259,7 +267,12 @@ test("invalid relink (example D): no substructure, raw summary kept", () => {
     logicalParentUuid: u3.uuid,
   });
   const summary = summaryEntry(boundary.uuid, summaryUuid);
-  const tree = buildTree([u1, u2, u3, boundary, summary]);
+  const invalidMessages: string[] = [];
+  const tree = buildTree([u1, u2, u3, boundary, summary], (message) =>
+    invalidMessages.push(message),
+  );
+  assert.equal(invalidMessages.length, 1);
+  assert.match(invalidMessages[0]!, /duplicated uuid/);
   assert.deepEqual(refsOf(pathOf(tree)), [
     { uuid: u1.uuid },
     { uuid: u2.uuid },
@@ -277,7 +290,7 @@ test("a valid relink with no summary emits its substructure at the boundary", ()
     anchor: "own",
     logicalParentUuid: u2.uuid,
   });
-  const tree = buildTree([u1, u2, boundary]);
+  const tree = buildTree([u1, u2, boundary], failOnInvalid);
   assert.deepEqual(refsOf(pathOf(tree)), [
     { uuid: u1.uuid },
     { uuid: u2.uuid },
