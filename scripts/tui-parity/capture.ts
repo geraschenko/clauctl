@@ -277,14 +277,14 @@ export function sessionFilePathFor(
 }
 
 /**
- * Imports a real session into the isolated config dir so both TUIs render a
+ * Imports a session into the isolated config dir so both TUIs render a
  * COPY — the original under the real ~/.claude is never opened or mutated.
  * Accepts a path to the session jsonl, or a bare session id (searched under
  * the real config dir's projects/). The session's cwd is read from its
  * entries. Re-importing overwrites the copy, so the capture always reflects
  * the session's current content.
  */
-async function importRealSession(idOrPath: string): Promise<CaptureSubject> {
+async function importSession(idOrPath: string): Promise<CaptureSubject> {
   const realConfigDir =
     process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), ".claude");
   let sourcePath: string;
@@ -434,7 +434,7 @@ async function main(): Promise<void> {
       if (value === undefined) {
         throw new Error("--session requires a session id or jsonl path");
       }
-      subjects.push(await importRealSession(value));
+      subjects.push(await importSession(value));
     } else {
       requested.push(args[i]!);
     }
