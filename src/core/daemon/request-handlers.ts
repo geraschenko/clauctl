@@ -285,7 +285,10 @@ export function createRequestHandler(
           const leafUuid = chain.at(-1);
           const tree: SessionTree = {
             tree: buildTree(entries),
-            // TDC: wait, what if the chain ends within the boundary? Don't we need to set viaBoundary in that case?
+            // No viaBoundary: the raw forest has one occurrence per uuid,
+            // so the bare uuid identifies the leaf even when the chain ends
+            // inside a boundary's relink. The substructure follow-up, which
+            // adds duplicate occurrences, must set it for such tips.
             leaf: leafUuid === undefined ? null : { uuid: leafUuid },
           };
           return tree;
