@@ -178,12 +178,18 @@ capture to confirm the diff closed.
   resume that only reaches a trust dialog does not. The harness therefore
   snapshots each session at generation time and restores the live file
   before rendering each side (see WORK LOG).
-  TDC: what is the actual mutation? i.e. what is the diff between the before and after session files?
+  The mutation (captured by diffing snapshot vs live after a full
+  interactive resume): four appended metadata entries, no conversation
+  entries touched — `ai-title` and `agent-name` (first-open title
+  generation), `mode`, and `permission-mode`.
 - ~~The exact clauctl-side command sequence~~ **Resolved**: `spawn --cwd
   <workdir> --id <uuid> -- --resume <sessionId>` (outside the pane; exits
   when sdk.sock is ready), `attach -t <uuid>` inside the pane, `archive -t
   <uuid>` for cleanup. Verified none of these steps mutate the session file.
-  TDC: the spawn command runs a `claude --resume` under the hood, so this observation is in tension with the claim in the point above.
+  No tension with the point above: the daemon's streaming Query never
+  initializes before the first turn (exactly the blocker below), so its
+  wrapped `--resume` never reaches the interactive CLI's first-open
+  bookkeeping that appends those metadata entries.
 - The shortcut table below is agent-sourced; verify against the bundled
   2.1.211 binary's `?` panel before the follow-up specs rely on it.
 
@@ -202,7 +208,13 @@ harness phase): seed the daemon's event hub with the resume session id from
 recorded session, so `get-messages` can serve the resumed transcript before
 the first turn. This is a genuine product gap, not just a harness obstacle:
 any user attaching to a freshly spawned `--resume` agent sees nothing.
-TDC: I approve this change.
+
+**Approved and implemented** (daemon.ts): the AgentState seed now uses
+`resumeSessionId`, which equals the last recorded session on revival
+(unchanged behavior) and `spawn-options.json`'s resume id on fresh spawn —
+so the file-derived seed and get-messages serve the resumed transcript
+before the first turn. Validated by the 2026-07-16 capture rerun: all five
+clauctl-side captures now render the resumed transcript.
 
 ## Design notes
 
@@ -294,8 +306,15 @@ provides.
 - [ ] Verify shortcut table against bundled binary's `?` panel
 - [x] Initial corpus generation + first diff run (5 scenarios; claude side
       renders fully, clauctl side blocked on the resumed-history gap)
-- [ ] Resolve the clauctl resumed-history blocker (needs approval; see
-      "Blocker found" in IMPLEMENTATION IDEAS)
+- [x] Resolve the clauctl resumed-history blocker (approved via TDC;
+      daemon.ts seed now uses resumeSessionId) — validated by capture rerun
+- [x] 2026-07-16 TDC round follow-up: `dontAsk` denied tools during
+      generation, fixed with per-scenario `allowedTools` (tools: Write/Read/
+      Bash; subagent: Task/Bash/Glob/Read) — `auto` mode rejected because the
+      claude footer reports "auto mode unavailable for this model" on haiku.
+      Corpus regenerated (0 denials) and capture rerun end-to-end: both sides
+      render on all 5 scenarios; diffs are 89/30/123/40/39 lines
+      (markdown/thinking/tools/subagent/slash-command) — triage is next
 - [ ] Rework the slash-command scenario: `/compact` via SDK query() passed
       through with no compaction (probably a no-op on a 2-turn session), so
       the corpus has no compact-boundary coverage yet
@@ -324,7 +343,10 @@ provides.
 - **`scripts/tui-parity/tsconfig.json`** (extends the root config, noEmit):
   the root tsconfig only includes `src/`, so the harness gets its own config
   for `npx tsc -p scripts/tui-parity`. Not wired into presubmit.
-- **Default clauctl registry** (no CLAUCTL_DIR override): pointing
-  CLAUCTL_DIR into `out/` would push sdk.sock past the unix socket path
-  budget. Harness agents are archived after capture instead.
-  TDC: use a directory in /tmp. Do not pollute the real CLAUCTL_DIR!
+- **Isolated clauctl registry at `/tmp/clauctl-tui-parity`** (per review):
+  spawn/attach/archive all run with `CLAUCTL_DIR` pointing there (the attach
+  pane gets it via `tmux new-session -e`), so harness agents never touch the
+  real registry. /tmp keeps agentDir/sdk.sock inside the unix socket path
+  budget, which an `out/`-based registry would exceed. Agents are still
+  archived after capture. (`CaptureTarget` gained an optional `env` field
+  for the pane environment.)

@@ -210,7 +210,12 @@ async function daemon(this: CommandContext, flags: DaemonFlags): Promise<void> {
   //
   // One startup session-file read serves both the AgentState seed below and
   // the request handler's override reconstruction (startupEntries).
-  const seedSessionId = record.sessions.at(-1)?.sessionId;
+  // resumeSessionId covers both startup shapes: revival (the last recorded
+  // session) and a fresh `spawn -- --resume` (the wrapped session, which is
+  // in no record yet). Seeding it is what lets get-messages serve the
+  // resumed transcript before the first turn — the streaming Query only
+  // initializes (and announces a session) once a prompt is sent.
+  const seedSessionId = resumeSessionId;
   const seedSessionFile =
     seedSessionId !== undefined
       ? sessionFilePath(configDir, record.cwd, seedSessionId as UUID)

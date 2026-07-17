@@ -43,8 +43,12 @@ export interface GeneratedSession {
 
 /**
  * Run the scenario's prompts sequentially, each as its own query() resuming
- * the previous one. Each resume forks to a NEW session id, so the id
- * recorded for --resume is the one observed on the final prompt.
+ * the previous one. Serialization comes from the drain: each iteration
+ * consumes its query to completion before the next resume starts, so the
+ * prompts chain linearly instead of forking siblings off one parent (which
+ * is what concurrent resumes of the same session would do). Each resume
+ * forks to a NEW session id, so the id recorded for --resume is the one
+ * observed on the final prompt.
  */
 export async function generateSession(
   scenario: Scenario,
@@ -53,12 +57,10 @@ export async function generateSession(
 ): Promise<GeneratedSession> {
   let sessionId: string | undefined;
   for (const prompt of scenario.prompts) {
-    // TDC: Huh? You're re-creating the Query object for each prompt? Why not put the prompts in an async iterator or TurnQueue as usual? By creating separate Query objects in quick succession, I suspect you're rooting all the prompts to the same parent rather than executing one after the other (which is what happens if you resume a session interactively from multiple terminals at the same time). Ah, I guess you await the resulting messages below, so it's fine.
     const turn = query({
       prompt,
       options: {
-        // TDC: NEVER use bypassPermissions. There's no good reason to use this mode. I consider it dangerous. If you don't want to deal with permission prompts, use dontAsk or auto
-        permissionMode: "bypassPermissions",
+        permissionMode: "dontAsk",
         ...scenario.options,
         cwd: workdir,
         resume: sessionId,

@@ -46,7 +46,9 @@ export const scenarios: Scenario[] = [
         "lines of `find /usr/share/doc -maxdepth 1 | sort` output. Reply with " +
         "one sentence.",
     ],
-    options: { model: "haiku" },
+    // dontAsk denies any tool not pre-allowed, so tool-using scenarios must
+    // allowlist what their prompts need.
+    options: { model: "haiku", allowedTools: ["Write", "Read", "Bash"] },
   },
   {
     name: "subagent",
@@ -55,6 +57,7 @@ export const scenarios: Scenario[] = [
       "Use the Task tool with subagent_type general-purpose to count the " +
         "files in this directory. Reply with one sentence about the result.",
     ],
+    options: { allowedTools: ["Task", "Bash", "Glob", "Read"] },
   },
   {
     name: "slash-command",

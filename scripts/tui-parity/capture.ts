@@ -62,7 +62,17 @@ export interface CaptureTarget {
   /** claude --resume <id>, or the clauctl spawn/attach sequence. */
   command: string[];
   cwd: string;
+  /** Extra environment for the pane (tmux new-session -e). */
+  env?: Record<string, string>;
 }
+
+/**
+ * Harness agents live in their own registry, not the user's real
+ * CLAUCTL_DIR. /tmp keeps the path short enough for the unix socket budget
+ * (agentDir/sdk.sock), which an out/-based registry would exceed.
+ */
+const clauctlDir = "/tmp/clauctl-tui-parity";
+const clauctlEnv = { CLAUCTL_DIR: clauctlDir };
 
 async function tmux(...args: string[]): Promise<string> {
   // maxBuffer: full-scrollback captures of long sessions can exceed the
@@ -93,6 +103,10 @@ export async function captureInTmux(
   cols: number,
 ): Promise<{ plain: string; ansi: string }> {
   const session = `cap-${randomUUID().slice(0, 8)}`;
+  const envArgs = Object.entries(target.env ?? {}).flatMap(([key, value]) => [
+    "-e",
+    `${key}=${value}`,
+  ]);
   await tmux(
     "new-session",
     "-d",
@@ -104,6 +118,7 @@ export async function captureInTmux(
     String(PANE_ROWS),
     "-c",
     target.cwd,
+    ...envArgs,
     target.command.map(shQuote).join(" "),
   );
   try {
@@ -185,32 +200,37 @@ async function captureClauctl(
   entry: GeneratedSession,
 ): Promise<{ plain: string; ansi: string }> {
   const agentId = randomUUID();
-  await execFileAsync(process.execPath, [
-    clauctlMain,
-    "spawn",
-    "--cwd",
-    entry.cwd,
-    "--id",
-    agentId,
-    "--",
-    "--resume",
-    entry.sessionId,
-  ]);
+  const spawnEnv = { ...process.env, ...clauctlEnv };
+  await execFileAsync(
+    process.execPath,
+    [
+      clauctlMain,
+      "spawn",
+      "--cwd",
+      entry.cwd,
+      "--id",
+      agentId,
+      "--",
+      "--resume",
+      entry.sessionId,
+    ],
+    { env: spawnEnv },
+  );
   try {
     return await captureInTmux(
       {
         command: [process.execPath, clauctlMain, "attach", "-t", agentId],
         cwd: entry.cwd,
+        env: clauctlEnv,
       },
       CAPTURE_COLS,
     );
   } finally {
-    await execFileAsync(process.execPath, [
-      clauctlMain,
-      "archive",
-      "-t",
-      agentId,
-    ]).catch((error: unknown) => {
+    await execFileAsync(
+      process.execPath,
+      [clauctlMain, "archive", "-t", agentId],
+      { env: spawnEnv },
+    ).catch((error: unknown) => {
       console.error(`warning: archive of agent ${agentId} failed:`, error);
     });
   }
