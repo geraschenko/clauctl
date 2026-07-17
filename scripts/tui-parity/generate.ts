@@ -10,12 +10,14 @@
 
 import { execFile } from "node:child_process";
 import { copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
-import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import {
+  claudeConfigDir,
+  claudeConfigEnv,
+  ensureClaudeConfigDir,
   manifestPath,
   outDir,
   resolveBundledClaude,
@@ -31,12 +33,13 @@ export interface GeneratedSession {
   cwd: string;
   /** Provenance: which bundled claude version produced it. */
   claudeVersion: string;
-  /** Where claude reads the session from (under ~/.claude/projects). */
+  /** Where claude reads the session from (under claudeConfigDir/projects). */
   sessionFilePath: string;
   /**
-   * Pristine copy taken right after generation. Interactive resume MUTATES
-   * the live session file (verified empirically), so capture restores from
-   * this snapshot before rendering each side.
+   * Pristine copy taken right after generation. Capture renders the live
+   * file (interactive resume only appends convergent metadata, which is
+   * harmless — see captureScenario); the snapshot is a manual-recovery
+   * point if a session is ever mutated for real.
    */
   snapshotPath: string;
 }
@@ -64,6 +67,7 @@ export async function generateSession(
         ...scenario.options,
         cwd: workdir,
         resume: sessionId,
+        env: { ...process.env, ...claudeConfigEnv },
       },
     });
     for await (const message of turn) {
@@ -75,9 +79,8 @@ export async function generateSession(
   if (sessionId === undefined) {
     throw new Error(`${scenario.name}: no session id observed`);
   }
-  const configDir = process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), ".claude");
   const sessionFilePath = join(
-    configDir,
+    claudeConfigDir,
     "projects",
     workdir.replaceAll(/[/.]/g, "-"),
     `${sessionId}.jsonl`,
@@ -107,6 +110,7 @@ async function readManifest(): Promise<GeneratedSession[]> {
 }
 
 async function main(): Promise<void> {
+  await ensureClaudeConfigDir();
   const requested = process.argv.slice(2);
   const unknown = requested.filter(
     (name) => !scenarios.some((scenario) => scenario.name === name),

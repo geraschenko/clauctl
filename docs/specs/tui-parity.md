@@ -173,16 +173,16 @@ capture to confirm the diff closed.
 ## Open verification items
 
 - ~~Does `claude --resume` + exit leave the session file untouched?~~
-  **Resolved: NO.** Verified by checksum during bring-up: a full interactive
-  resume (render + exit, nothing sent) mutates the live session file; a
-  resume that only reaches a trust dialog does not. The harness therefore
-  snapshots each session at generation time and restores the live file
-  before rendering each side (see WORK LOG).
-  The mutation (captured by diffing snapshot vs live after a full
-  interactive resume): four appended metadata entries, no conversation
-  entries touched — `ai-title` and `agent-name` (first-open title
-  generation), `mode`, and `permission-mode`.
-  TDC: Do these get appended *every* time? If not (and if these extra messages don't prevent us from observing some behavior we care about), then we can just let it happen and not worry about it.
+  **Resolved: NO, but the mutation is convergent and harmless.** A full
+  interactive resume (render + exit, nothing sent) appends metadata entries,
+  no conversation entries: resume 1 appends `ai-title` + `agent-name`,
+  resume 2 appends `mode` + `permission-mode`, resume 3+ append nothing.
+  Normalized captures were verified deterministic both across
+  restore-from-pristine runs and across converged-file runs, so the
+  metadata doesn't change anything we observe. Capture therefore renders
+  the live file with no restore; the generation-time snapshot in
+  `out/sessions/` is kept only as a manual-recovery point (e.g. a prompt
+  accidentally typed into a corpus session during triage).
 - ~~The exact clauctl-side command sequence~~ **Resolved**: `spawn --cwd
   <workdir> --id <uuid> -- --resume <sessionId>` (outside the pane; exits
   when sdk.sock is ready), `attach -t <uuid>` inside the pane, `archive -t
@@ -316,6 +316,19 @@ provides.
       Corpus regenerated (0 denials) and capture rerun end-to-end: both sides
       render on all 5 scenarios; diffs are 89/30/123/40/39 lines
       (markdown/thinking/tools/subagent/slash-command) — triage is next
+- [x] 2026-07-17 TDC round: mutation frequency verified (convergent — see
+      Open verification items), snapshot RESTORE removed from capture in
+      response (snapshot kept as manual-recovery point); claude config dir
+      isolated to `~/.cache/clauctl-tui-parity/config` seeded from the real
+      credentials + `~/.claude.json` (verified: headless generation and
+      interactive resume both work in the isolated dir; unseeded dirs block
+      on the onboarding wizard). The seed drops the user's per-project map:
+      foreign project MCP servers leaked an auth-state-dependent "⚠ N MCP
+      servers need authentication" line into claude captures. Corpus
+      regenerated in the isolated dir; capture rerun repeatedly — diff
+      bodies byte-identical across runs (determinism criterion holds
+      without restore; diffFiles uses --label so diff headers carry no
+      mtimes)
 - [ ] Rework the slash-command scenario: `/compact` via SDK query() passed
       through with no compaction (probably a no-op on a 2-turn session), so
       the corpus has no compact-boundary coverage yet
@@ -332,11 +345,24 @@ provides.
   to clauctl's own CLAUDE.md, which pollutes generated sessions with
   clauctl's instructions and triggers the external-import trust dialog on
   every interactive resume.
-- **Session snapshot/restore** (`GeneratedSession` gained `sessionFilePath`
-  and `snapshotPath`): generation copies the pristine session file to
-  `out/sessions/<name>.jsonl`; capture restores it before rendering each
-  side. Motivated by the mutation finding; also makes repeated captures
-  deterministic and survives claude's session pruning.
+- **Session snapshots** (`GeneratedSession` gained `sessionFilePath` and
+  `snapshotPath`): generation copies the pristine session file to
+  `out/sessions/<name>.jsonl`. Originally capture also restored it before
+  rendering each side; the restore was removed once the mutation was shown
+  to be convergent metadata with no capture impact (see Open verification
+  items). The snapshot remains as a manual-recovery point.
+- **Isolated claude config dir** (2026-07-17, per review):
+  `~/.cache/clauctl-tui-parity/config`, used by every claude invocation in
+  the harness — SDK generation (`env` option), the interactive claude pane,
+  and the clauctl daemon's claude child — so generated sessions never
+  pollute the user's `~/.claude`. `ensureClaudeConfigDir()` seeds it once
+  from `~/.claude/.credentials.json` + `~/.claude.json` (login and
+  onboarding state; a bare dir blocks interactively on the onboarding
+  wizard) and never overwrites — claude refreshes tokens and records trust
+  in the copies. Delete the dir to re-seed. The seeded `.claude.json` gets
+  `projects: {}`: the user's per-project MCP servers otherwise surface an
+  auth-state-dependent warning line in captures, and trust state for the
+  harness workdirs is re-recorded by the dialog-dismissal loop anyway.
 - **Dialog dismissal inside captureInTmux**: a pane that settles on a screen
   containing "Enter to confirm" gets Enter sent (accepting the default) and
   the settle loop restarts, bounded at 3 dialogs. Trust answers persist per

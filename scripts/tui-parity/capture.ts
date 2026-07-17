@@ -9,7 +9,7 @@
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
-import { copyFile, readFile, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
@@ -67,13 +67,55 @@ export interface CaptureTarget {
 }
 
 /**
+ * Generated sessions live in their own claude config dir, not the user's
+ * real ~/.claude. Every claude invocation in the harness (SDK generation,
+ * interactive capture, and the daemon's claude child) runs with this
+ * CLAUDE_CONFIG_DIR.
+ */
+export const claudeConfigDir = join(
+  homedir(),
+  ".cache",
+  "clauctl-tui-parity",
+  "config",
+);
+export const claudeConfigEnv = { CLAUDE_CONFIG_DIR: claudeConfigDir };
+
+/**
+ * Seeds the isolated config dir ONCE from the real credentials and
+ * top-level config (login + onboarding state; without them claude blocks on
+ * the login/onboarding wizard). The seeded `.claude.json` drops the user's
+ * per-project map — foreign MCP servers there otherwise leak
+ * auth-state-dependent warning lines into captures. Existing copies are
+ * never overwritten — claude refreshes tokens and records trust in the
+ * copies, so re-copying could clobber fresher state. Delete the dir to
+ * re-seed.
+ */
+export async function ensureClaudeConfigDir(): Promise<void> {
+  await mkdir(claudeConfigDir, { recursive: true });
+  const credentialsSource = join(homedir(), ".claude", ".credentials.json");
+  const credentialsDestination = join(claudeConfigDir, ".credentials.json");
+  if (existsSync(credentialsSource) && !existsSync(credentialsDestination)) {
+    await copyFile(credentialsSource, credentialsDestination);
+  }
+  const configSource = join(homedir(), ".claude.json");
+  const configDestination = join(claudeConfigDir, ".claude.json");
+  if (existsSync(configSource) && !existsSync(configDestination)) {
+    const config = JSON.parse(await readFile(configSource, "utf8")) as Record<
+      string,
+      unknown
+    >;
+    config.projects = {};
+    await writeFile(configDestination, JSON.stringify(config, null, 2));
+  }
+}
+
+/**
  * Harness agents live in their own registry, not the user's real
  * CLAUCTL_DIR. /tmp keeps the path short enough for the unix socket budget
  * (agentDir/sdk.sock), which an out/-based registry would exceed.
  */
-// TDC: shouldn't we also set CLAUDE_CONFIG_DIR so that the real claude sessions don't pollute the user's ~/.claude?
 const clauctlDir = "/tmp/clauctl-tui-parity";
-const clauctlEnv = { CLAUCTL_DIR: clauctlDir };
+const clauctlEnv = { CLAUCTL_DIR: clauctlDir, ...claudeConfigEnv };
 
 async function tmux(...args: string[]): Promise<string> {
   // maxBuffer: full-scrollback captures of long sessions can exceed the
@@ -237,10 +279,22 @@ async function captureClauctl(
   }
 }
 
-/** Unified diff of the two normalized captures; empty string if identical. */
+/**
+ * Unified diff of the two normalized captures; empty string if identical.
+ * --label drops the default mtime headers so diff files are byte-identical
+ * across runs.
+ */
 async function diffFiles(fileA: string, fileB: string): Promise<string> {
   try {
-    await execFileAsync("diff", ["-u", fileA, fileB]);
+    await execFileAsync("diff", [
+      "-u",
+      "--label",
+      fileA,
+      "--label",
+      fileB,
+      fileA,
+      fileB,
+    ]);
     return "";
   } catch (error) {
     const { code, stdout } = error as { code?: number; stdout?: string };
@@ -252,18 +306,20 @@ async function diffFiles(fileA: string, fileB: string): Promise<string> {
 }
 
 async function captureScenario(entry: GeneratedSession): Promise<boolean> {
-  // Interactive resume mutates the live session file (verified during
-  // bring-up), so each side renders from a fresh restore of the pristine
-  // generation-time snapshot.
-  await copyFile(entry.snapshotPath, entry.sessionFilePath);
+  // Both sides render the LIVE session file. Interactive resume appends
+  // convergent metadata (ai-title/agent-name, then mode/permission-mode) on
+  // the first two opens and nothing after; captures are deterministic with
+  // or without it (verified during bring-up), so no snapshot restore is
+  // needed here — out/sessions/ remains a manual-recovery point if a
+  // session is ever mutated for real (e.g. a prompt typed during triage).
   const claude = await captureInTmux(
     {
       command: [resolveBundledClaude(), "--resume", entry.sessionId],
       cwd: entry.cwd,
+      env: claudeConfigEnv,
     },
     CAPTURE_COLS,
   );
-  await copyFile(entry.snapshotPath, entry.sessionFilePath);
   const clauctl = await captureClauctl(entry);
   const base = join(outDir, entry.scenario);
   await writeFile(`${base}.claude.txt`, normalize(claude.plain));
@@ -284,6 +340,7 @@ async function captureScenario(entry: GeneratedSession): Promise<boolean> {
 }
 
 async function main(): Promise<void> {
+  await ensureClaudeConfigDir();
   const manifest = JSON.parse(
     await readFile(manifestPath, "utf8"),
   ) as GeneratedSession[];
