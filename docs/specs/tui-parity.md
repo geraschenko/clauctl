@@ -37,7 +37,7 @@ starting point for those specs.
 The reference is the claude binary **bundled with clauctl's pinned SDK**: the
 platform-specific optional dependency
 `node_modules/@anthropic-ai/claude-agent-sdk-<platform>-<arch>/claude`
-(currently 2.1.195, matching `@anthropic-ai/claude-agent-sdk` 0.3.195). The
+(currently 2.1.211, matching `@anthropic-ai/claude-agent-sdk` 0.3.211). The
 harness resolves this binary — never `claude` from PATH — so the comparison
 is always against exactly what clauctl runs. After an SDK version bump, the
 whole diff can be rerun cheaply: regenerate the corpus (or reuse existing
@@ -124,7 +124,7 @@ export interface PaneSize { cols: number; rows: number }
 // with -e. captureInTmux calls normalize for settle detection.
 export async function captureInTmux(
   target: CaptureTarget,
-  size: PaneSize,
+  size: PaneSize,  // TDC: we should `capture-pane -S -`, so really only the number of columns matter
 ): Promise<{ plain: string; ansi: string }>;
 
 // Strips animated/unstable regions: spinner frames, cursor, trailing
@@ -162,7 +162,7 @@ capture to confirm the diff closed.
 
 - The bundled binary is the platform optional dep
   `@anthropic-ai/claude-agent-sdk-linux-x64/claude` (etc.); verified runnable,
-  reports `2.1.195 (Claude Code)`. `extractFromBunfs` is only for bunfs
+  reports `2.1.211 (Claude Code)`. `extractFromBunfs` is only for bunfs
   builds — no extraction dance needed for npm installs.
 - clauctl pins `pathToClaudeCodeExecutable` as an SDK-default invariant
   (`src/core/options.ts`), so SDK-spawned sessions and the harness's
@@ -179,7 +179,7 @@ capture to confirm the diff closed.
   `--resume`, then attach in the pane; daemon lifecycle around it) — settle
   during harness bring-up.
 - The shortcut table below is agent-sourced; verify against the bundled
-  2.1.195 binary's `?` panel before the follow-up specs rely on it.
+  2.1.211 binary's `?` panel before the follow-up specs rely on it.
 
 ## Design notes
 
@@ -259,7 +259,7 @@ provides.
 **Instructions**: Update this section during each work session. Add new tasks, mark completed ones with [x], document decisions and problems encountered.
 
 - [x] 2026-07-16 Derisk: located bundled binary (platform optional dep,
-  2.1.195), confirmed node-runs-ts, gathered shortcut inventory, agreed
+  2.1.211), confirmed node-runs-ts, gathered shortcut inventory, agreed
   harness type design. Decisions: generated (not pre-existing) sessions as
   the corpus; sessions/captures never committed; plain-text diff before ANSI;
   shortcuts and view modes deferred to follow-up specs.
