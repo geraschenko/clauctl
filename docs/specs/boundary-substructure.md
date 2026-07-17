@@ -108,6 +108,7 @@ tip — no assumptions across module boundaries.
 // effective-chain.ts
 /** One tree position: a raw node (viaBoundary absent) or a boundary-
  *  substructure duplicate (viaBoundary = the boundary's uuid). */
+// TDC: should this be TreeNodeRef? Isn't "occurrence" just "tree node"? I think "occurrence" might be introducing needless additional terminology.
 export interface OccurrenceRef {
   uuid: UUID;
   viaBoundary?: UUID;
@@ -119,7 +120,7 @@ export interface OccurrenceRef {
 export interface BoundaryRelink {
   /** Ordered uuids receiving @boundary duplicates: preserved uuids, plus
    *  the re-parented summary (from-shape). */
-  duplicatedUuids: UUID[];
+  duplicatedUuids: UUID[];  // TDC: note: our buildTree should omit the "raw" summary node.
   /** Effective-parent overrides (uuid → parent uuid). */
   parentMap: Map<UUID, UUID>;
 }
@@ -129,7 +130,7 @@ export function validRelink(
 ): BoundaryRelink | undefined;
 
 /** Loader-true occurrence chain, root → tip. Calls validRelink. */
-export function effectiveOccurrenceChain(
+export function effectiveOccurrenceChain(  // TDC: I guess this should be "effectiveTreeNodeRefChain"?
   entries: SessionEntry[],
 ): OccurrenceRef[];
 
@@ -169,7 +170,7 @@ logicalParent=u2}, S(p=B), u4(p=S)`:
 ```
 u1 → u2 → u3
        └─ B → u1@B → u2@B → S@B → u4
-          └─ S (raw)
+          └─ S (raw)  // TDC: this node should be omitted from buildTree
 ```
 
 Occurrence chain: `[u1@B, u2@B, S@B, u4]`. The raw summary stays a child of
