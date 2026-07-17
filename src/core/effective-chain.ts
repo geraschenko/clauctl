@@ -71,13 +71,12 @@ export interface TreeNodeRef {
   viaBoundary?: UUID;
 }
 
-/** The validated relink of the boundary at entries[boundaryIndex];
- *  undefined when preservedMessages is absent or the relink is invalid
- *  (= behave as a no-relink boundary). Consumed by both the chain walk and
- *  buildTree's substructure emission. */
+/** The validated relink of a boundary.
+ *  This is exactly the part of the post-boundary chain which should have
+ *  viaBoundary set to the boundary uuid. */
 export interface BoundaryRelink {
   /** Ordered uuids receiving @boundary relinked nodes: the preserved uuids,
-   *  plus the re-parented summary (from-shape). */
+   *  plus the re-parented summary (when from-shape). */
   relinkedUuids: UUID[];
   /** Effective-parent overrides (uuid → parent uuid). */
   parentMap: Map<UUID, UUID>;
@@ -86,8 +85,8 @@ export interface BoundaryRelink {
 /**
  * The boundary's relink, validated loader-style: `uuids` non-empty, no
  * duplicates, every listed uuid names an entry earlier in the file. Anything
- * else silently skips the relink (P1 d, P3 m4) — context = summary only.
- *
+ * else silently skips the relink (P1 d, P3 m4; see file comment).
+ * 
  * The parent map is the load-time relink as overrides: `uuids[i] →
  * uuids[i-1]`, `uuids[0] → anchorUuid`; in from-shape (anchor = the
  * boundary's own uuid) with a summary, the summary's effective parent is
@@ -102,6 +101,7 @@ export function validRelink(
   const boundary = entries[boundaryIndex]!;
   const preserved = preservedMessagesOf(boundary);
   if (preserved === undefined || preserved.uuids.length === 0) {
+    // Loader skips boundaries with no preserved uuids. TDC: add probe ref
     return undefined;
   }
   const { anchorUuid, uuids } = preserved;
@@ -112,6 +112,7 @@ export function validRelink(
     new Set(uuids).size !== uuids.length ||
     !uuids.every((preservedUuid) => earlierUuids.has(preservedUuid))
   ) {
+    // Loader skips boundaries with duplicates in preserved uuid or unknown uuids. TDC: add probe refs
     return undefined;
   }
 
@@ -155,7 +156,7 @@ export function effectiveTreeNodeChain(entries: SessionEntry[]): TreeNodeRef[] {
   const boundaryIndex = entries.findLastIndex(
     (entry) => entry.subtype === "compact_boundary",
   );
-  let map = new Map<UUID, UUID>();
+  let relinkMap = new Map<UUID, UUID>();
   let relinkedUuids = new Set<UUID>();
   let boundaryUuid: UUID | undefined;
   let tip: UUID | undefined;
@@ -166,7 +167,8 @@ export function effectiveTreeNodeChain(entries: SessionEntry[]): TreeNodeRef[] {
     const relink = validRelink(entries, boundaryIndex);
     const summaryUuid = summaryOf(entries, boundaryIndex)?.uuid;
     if (relink !== undefined) {
-      map = relink.parentMap;
+      // TDC: if the relink is invalid, we should emit some kind of error. I want the end user to know that something is fucked up in the session file.
+      relinkMap = relink.parentMap;
       if (boundaryUuid !== undefined) {
         relinkedUuids = new Set(relink.relinkedUuids);
       }
@@ -188,6 +190,7 @@ export function effectiveTreeNodeChain(entries: SessionEntry[]): TreeNodeRef[] {
   }
 
   const chain: TreeNodeRef[] = [];
+  // TDC: why do we need `seen`? Entries in the relink map have already been confirmed to be unique and post entries are unique. If ever `seen.has(current)`, we should probably emit some kind of error rather than silently stopping, no?
   const seen = new Set<UUID>();
   let current = tip;
   while (current !== undefined && !seen.has(current)) {
@@ -201,7 +204,7 @@ export function effectiveTreeNodeChain(entries: SessionEntry[]): TreeNodeRef[] {
         ? { uuid: current, viaBoundary: boundaryUuid! }
         : { uuid: current },
     );
-    current = map.get(current) ?? entry.parentUuid ?? undefined;
+    current = relinkMap.get(current) ?? entry.parentUuid ?? undefined;
   }
   chain.reverse();
   return chain;

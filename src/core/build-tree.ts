@@ -98,6 +98,7 @@ export function buildTree(entries: SessionEntry[]): TreeNode[] {
   // not exist before then. Keyed by summary uuid; whether the summary is
   // itself relinked (from-shape, raw node omitted) is read off the relink's
   // relinkedUuids at that point.
+  // TDC: Why is this a map? There can only ever be one pending relink at a time, right?
   const pendingRelinks = new Map<
     UUID,
     { boundaryUuid: UUID; relink: BoundaryRelink }
@@ -107,6 +108,7 @@ export function buildTree(entries: SessionEntry[]): TreeNode[] {
     if (entry.uuid === undefined) {
       continue;
     }
+    // TDC: This ordering is unintuitive for the reader. It's easier to understand if we first do the typical case where pending is null, where the reader clearly sees how things are inserted into pendingRelinks, then sees how entries are removed and used.
     const pending = pendingRelinks.get(entry.uuid);
     if (pending !== undefined) {
       pendingRelinks.delete(entry.uuid);
