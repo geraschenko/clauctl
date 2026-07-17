@@ -1,7 +1,7 @@
 # Spec: TUI rendering parity with native claude
 
 > Status: **approved spec, not yet implemented**. Read `docs/specs/tui.md`
-> first — this spec builds a comparison harness *around* the TUI that spec
+> first — this spec builds a comparison harness _around_ the TUI that spec
 > describes, plus the process for closing rendering differences it surfaces.
 
 # SPEC
@@ -21,8 +21,8 @@ The deliverables of this spec:
    the clauctl TUI inside tmux, captures both panes, normalizes the captures,
    and diffs them.
 2. **A diff catalog** (`docs/derisk/tui-parity/`) recording each observed
-   difference and its triage decision: *match claude* / *intentionally
-   differ* / *skip*.
+   difference and its triage decision: _match claude_ / _intentionally
+   differ_ / _skip_.
 3. **Rendering parity fixes** driven by the catalog, applied as incremental
    changes to `src/tui/` — each fix gets its own type-design check-in before
    implementation (see "Process for fixes" below).
@@ -45,8 +45,8 @@ session files) and re-capture.
 
 ## What is committed to git
 
-- The harness code and the scenario definitions (the corpus is *specified*
-  in git and *materialized* locally).
+- The harness code and the scenario definitions (the corpus is _specified_
+  in git and _materialized_ locally).
 - The diff catalog and triage decisions.
 - Unit tests for rendering, using **synthetic fixtures only**.
 
@@ -145,7 +145,7 @@ capture to confirm the diff closed.
 
 ## Edge cases and non-goals
 
-- **Resume-vs-resume is the baseline.** Both TUIs render a *cold* session
+- **Resume-vs-resume is the baseline.** Both TUIs render a _cold_ session
   file. Live-streaming rendering parity is a smaller follow-up check, not
   part of this spec's success criteria.
 - **Regeneration nondeterminism is fine.** Regenerating the corpus changes
@@ -193,7 +193,7 @@ capture to confirm the diff closed.
 - Initial corpus should cover at least: plain markdown response, thinking
   blocks, tool calls with short and long outputs, subagent (Task) nesting,
   an interrupted turn, a compaction boundary, slash-command output.
-- Normalized claude captures can *inform* rendering unit tests, but their
+- Normalized claude captures can _inform_ rendering unit tests, but their
   content is never committed — tests reconstruct the relevant shape with
   synthetic fixtures.
 - Later ANSI pass: diff the `.ansi` captures (or a normalized form of them)
@@ -213,41 +213,41 @@ retained-mode (components stay alive in `chatContainer`), so view modes can
 re-render existing components against a shared render-options value — no
 transcript replay needed.
 
-| Shortcut | Behavior | Mode/Context |
-|:---------|:---------|:-------------|
-| Ctrl+C | Interrupt running operation; first press clears input, second press exits | Anytime |
-| Ctrl+D | Exit session (two presses within 800ms); deletes char after cursor if prompt has text | Anytime |
-| Ctrl+L | Redraw screen | Anytime |
-| Ctrl+O | Toggle transcript viewer (tool usage, timestamps, model per message, expands MCP calls) | Anytime |
-| Ctrl+E | Move cursor to end of logical line | Text editing |
-| Ctrl+R | Reverse search command history (100 most recent unique prompts) | Anytime |
-| Ctrl+T | Toggle task checklist (to-do view in status area) | Anytime |
-| Ctrl+V / Cmd+V (iTerm2) / Alt+V (Windows/WSL) | Paste image from clipboard; inserts `[Image #N]` chip | Anytime |
-| Ctrl+B | Background running Bash/agents (press twice under tmux) | During tool execution |
-| Ctrl+G / Ctrl+X Ctrl+E | Open prompt in external editor | Anytime |
-| Ctrl+K / Ctrl+U / Ctrl+W | Delete to line end / to line start / previous word (kill ring) | Text editing |
-| Ctrl+Y, then Alt+Y | Paste deleted text; cycle paste history | Text editing |
-| Ctrl+A | Move cursor to start of line | Text editing |
-| Ctrl+J / Shift+Enter / \ + Enter | Newline for multiline input (Shift+Enter needs terminal support) | Multiline input |
-| Esc | Interrupt mid-turn; close open dialog | Anytime |
-| Esc Esc | Clear input draft (saved to history); or open rewind menu if input empty | Anytime |
-| Shift+Tab / Alt+M | Cycle permission modes | Anytime |
-| Up/Down, Ctrl+P/Ctrl+N | Move within multiline input; at edge, navigate history | Text input |
-| Alt+B / Alt+F | Move cursor back/forward one word | Text editing |
-| Alt+P | Switch model | Anytime |
-| Alt+T | Toggle extended thinking | Anytime |
-| Alt+O | Toggle fast mode | Anytime |
-| Tab | Accept suggestion; `@` path autocomplete; exit reverse search | Anytime |
-| `/` at start | Command/skill menu | Prompt input |
-| `!` at start | Shell mode | Prompt input |
-| `@` | File path autocomplete | Prompt input |
-| `?` on empty input | Toggle shortcut help panel | Anytime |
-| Ctrl+X Ctrl+K | Stop all background subagents (twice within 3s) | Subagents running |
-| Transcript viewer: Ctrl+E | Toggle show-all content | Viewer open |
-| Transcript viewer: q / Ctrl+C / Esc | Exit viewer | Viewer open |
-| Transcript viewer: `{` / `}` | Jump to previous/next user prompt | Viewer (fullscreen) |
-| Transcript viewer: `[` | Write conversation to scrollback | Viewer (fullscreen) |
-| Transcript viewer: v | Open conversation in $VISUAL/$EDITOR | Viewer (fullscreen) |
+| Shortcut                                      | Behavior                                                                                | Mode/Context          |
+| :-------------------------------------------- | :-------------------------------------------------------------------------------------- | :-------------------- |
+| Ctrl+C                                        | Interrupt running operation; first press clears input, second press exits               | Anytime               |
+| Ctrl+D                                        | Exit session (two presses within 800ms); deletes char after cursor if prompt has text   | Anytime               |
+| Ctrl+L                                        | Redraw screen                                                                           | Anytime               |
+| Ctrl+O                                        | Toggle transcript viewer (tool usage, timestamps, model per message, expands MCP calls) | Anytime               |
+| Ctrl+E                                        | Move cursor to end of logical line                                                      | Text editing          |
+| Ctrl+R                                        | Reverse search command history (100 most recent unique prompts)                         | Anytime               |
+| Ctrl+T                                        | Toggle task checklist (to-do view in status area)                                       | Anytime               |
+| Ctrl+V / Cmd+V (iTerm2) / Alt+V (Windows/WSL) | Paste image from clipboard; inserts `[Image #N]` chip                                   | Anytime               |
+| Ctrl+B                                        | Background running Bash/agents (press twice under tmux)                                 | During tool execution |
+| Ctrl+G / Ctrl+X Ctrl+E                        | Open prompt in external editor                                                          | Anytime               |
+| Ctrl+K / Ctrl+U / Ctrl+W                      | Delete to line end / to line start / previous word (kill ring)                          | Text editing          |
+| Ctrl+Y, then Alt+Y                            | Paste deleted text; cycle paste history                                                 | Text editing          |
+| Ctrl+A                                        | Move cursor to start of line                                                            | Text editing          |
+| Ctrl+J / Shift+Enter / \ + Enter              | Newline for multiline input (Shift+Enter needs terminal support)                        | Multiline input       |
+| Esc                                           | Interrupt mid-turn; close open dialog                                                   | Anytime               |
+| Esc Esc                                       | Clear input draft (saved to history); or open rewind menu if input empty                | Anytime               |
+| Shift+Tab / Alt+M                             | Cycle permission modes                                                                  | Anytime               |
+| Up/Down, Ctrl+P/Ctrl+N                        | Move within multiline input; at edge, navigate history                                  | Text input            |
+| Alt+B / Alt+F                                 | Move cursor back/forward one word                                                       | Text editing          |
+| Alt+P                                         | Switch model                                                                            | Anytime               |
+| Alt+T                                         | Toggle extended thinking                                                                | Anytime               |
+| Alt+O                                         | Toggle fast mode                                                                        | Anytime               |
+| Tab                                           | Accept suggestion; `@` path autocomplete; exit reverse search                           | Anytime               |
+| `/` at start                                  | Command/skill menu                                                                      | Prompt input          |
+| `!` at start                                  | Shell mode                                                                              | Prompt input          |
+| `@`                                           | File path autocomplete                                                                  | Prompt input          |
+| `?` on empty input                            | Toggle shortcut help panel                                                              | Anytime               |
+| Ctrl+X Ctrl+K                                 | Stop all background subagents (twice within 3s)                                         | Subagents running     |
+| Transcript viewer: Ctrl+E                     | Toggle show-all content                                                                 | Viewer open           |
+| Transcript viewer: q / Ctrl+C / Esc           | Exit viewer                                                                             | Viewer open           |
+| Transcript viewer: `{` / `}`                  | Jump to previous/next user prompt                                                       | Viewer (fullscreen)   |
+| Transcript viewer: `[`                        | Write conversation to scrollback                                                        | Viewer (fullscreen)   |
+| Transcript viewer: v                          | Open conversation in $VISUAL/$EDITOR                                                    | Viewer (fullscreen)   |
 
 Current clauctl bindings for comparison (`interactive-mode.ts`): esc =
 interrupt while busy; shift+tab = cycle permission mode; ctrl+c ×2 = detach
@@ -259,10 +259,10 @@ provides.
 **Instructions**: Update this section during each work session. Add new tasks, mark completed ones with [x], document decisions and problems encountered.
 
 - [x] 2026-07-16 Derisk: located bundled binary (platform optional dep,
-  2.1.211), confirmed node-runs-ts, gathered shortcut inventory, agreed
-  harness type design. Decisions: generated (not pre-existing) sessions as
-  the corpus; sessions/captures never committed; plain-text diff before ANSI;
-  shortcuts and view modes deferred to follow-up specs.
+      2.1.211), confirmed node-runs-ts, gathered shortcut inventory, agreed
+      harness type design. Decisions: generated (not pre-existing) sessions as
+      the corpus; sessions/captures never committed; plain-text diff before ANSI;
+      shortcuts and view modes deferred to follow-up specs.
 - [ ] Add `scripts/tui-parity/out/` to `.gitignore` (currently absent)
 - [ ] Harness: scenarios.ts + generate.ts
 - [ ] Harness: capture.ts (resolveBundledClaude, captureInTmux, normalize)
@@ -271,5 +271,5 @@ provides.
 - [ ] Initial corpus generation + first diff run
 - [ ] Diff catalog in docs/derisk/tui-parity/ with triage decisions
 - [ ] Rendering fixes (one catalog entry at a time, each with type-design
-  check-in and unit test)
+      check-in and unit test)
 - [ ] ANSI/coloration pass
