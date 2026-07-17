@@ -178,10 +178,12 @@ capture to confirm the diff closed.
   resume that only reaches a trust dialog does not. The harness therefore
   snapshots each session at generation time and restores the live file
   before rendering each side (see WORK LOG).
+  TDC: what is the actual mutation? i.e. what is the diff between the before and after session files?
 - ~~The exact clauctl-side command sequence~~ **Resolved**: `spawn --cwd
   <workdir> --id <uuid> -- --resume <sessionId>` (outside the pane; exits
   when sdk.sock is ready), `attach -t <uuid>` inside the pane, `archive -t
   <uuid>` for cleanup. Verified none of these steps mutate the session file.
+  TDC: the spawn command runs a `claude --resume` under the hood, so this observation is in tension with the claim in the point above.
 - The shortcut table below is agent-sourced; verify against the bundled
   2.1.211 binary's `?` panel before the follow-up specs rely on it.
 
@@ -200,6 +202,7 @@ harness phase): seed the daemon's event hub with the resume session id from
 recorded session, so `get-messages` can serve the resumed transcript before
 the first turn. This is a genuine product gap, not just a harness obstacle:
 any user attaching to a freshly spawned `--resume` agent sees nothing.
+TDC: I approve this change.
 
 ## Design notes
 
@@ -324,3 +327,4 @@ provides.
 - **Default clauctl registry** (no CLAUCTL_DIR override): pointing
   CLAUCTL_DIR into `out/` would push sdk.sock past the unix socket path
   budget. Harness agents are archived after capture instead.
+  TDC: use a directory in /tmp. Do not pollute the real CLAUCTL_DIR!
