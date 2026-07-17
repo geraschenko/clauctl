@@ -350,6 +350,17 @@ provides.
 - [ ] Rework the slash-command scenario: `/compact` via SDK query() passed
       through with no compaction (probably a no-op on a 2-turn session), so
       the corpus has no compact-boundary coverage yet
+- [x] 2026-07-17 Capture-time breakdown measured (markdown, warm): claude
+      pane 4.0s / spawn 0.4s / clauctl pane 2.5s / archive 0.3s; ~2.4s per
+      pane is the settle-confirmation floor (3 identical polls with
+      backoff). Decision (Anton): acceptable — don't tune the settle loop.
+      The likely future shape instead: render the claude side ONCE per
+      session (it's the fixed reference), and add clauctl instrumentation
+      to render a session file directly without spawn/attach (no
+      interaction happens, and the session file fully determines the
+      render); and/or carve claude captures into lines per logical message
+      and unit-test clauctl's rendering of the same messages. Direction for
+      the upcoming rendering-parity spec.
 - [ ] Diff catalog in docs/derisk/tui-parity/ with triage decisions
 - [ ] Rendering fixes (one catalog entry at a time, each with type-design
       check-in and unit test)
