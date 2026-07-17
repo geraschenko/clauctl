@@ -71,6 +71,7 @@ export interface CaptureTarget {
  * CLAUCTL_DIR. /tmp keeps the path short enough for the unix socket budget
  * (agentDir/sdk.sock), which an out/-based registry would exceed.
  */
+// TDC: shouldn't we also set CLAUDE_CONFIG_DIR so that the real claude sessions don't pollute the user's ~/.claude?
 const clauctlDir = "/tmp/clauctl-tui-parity";
 const clauctlEnv = { CLAUCTL_DIR: clauctlDir };
 

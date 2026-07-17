@@ -182,6 +182,7 @@ capture to confirm the diff closed.
   interactive resume): four appended metadata entries, no conversation
   entries touched — `ai-title` and `agent-name` (first-open title
   generation), `mode`, and `permission-mode`.
+  TDC: Do these get appended *every* time? If not (and if these extra messages don't prevent us from observing some behavior we care about), then we can just let it happen and not worry about it.
 - ~~The exact clauctl-side command sequence~~ **Resolved**: `spawn --cwd
   <workdir> --id <uuid> -- --resume <sessionId>` (outside the pane; exits
   when sdk.sock is ready), `attach -t <uuid>` inside the pane, `archive -t
