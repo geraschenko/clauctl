@@ -1,0 +1,21 @@
+{
+  "sdkVersion": "0.3.211",
+  "resultSubtype": "success",
+  "error": null,
+  "stderr": null,
+  "nRequestMessages": 1,
+  "requestMessages": [
+    "user: [{\"type\":\"text\",\"text\":\"<system-reminder>\\nAvailable agent types for the Agent tool:\\n- claude: Catch-all for any task t"
+  ],
+  "markerPresence": {
+    "u1Tag": false,
+    "magicWord": false,
+    "u2Tag": false,
+    "four": false,
+    "u3Tag": false,
+    "red": false
+  },
+  "boundaryUuid": "f02c02db",
+  "firstNewUserParent": "f02c02db",
+  "violations": []
+}

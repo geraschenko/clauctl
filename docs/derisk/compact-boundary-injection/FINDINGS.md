@@ -30,6 +30,7 @@ subsequent native `/compact` (each verified once).
 | Branch selection                                   | **YES** — via a one-line leaf-marker append or a boundary listing the desired chain (both internal-format techniques; leaf-selection behavior could change across CLI versions)        | P2 i/j        |
 | Summary-free navigation                            | **YES** — a boundary with `anchorUuid` = its own uuid and NO summary entry relinks fine, even as the last entry in the file                                                            | P9 a          |
 | Boundary-prefix navigation                         | **YES** — a second boundary may list a prefix of an earlier boundary's chain, including that boundary's summary entry and entries it summarized away                                   | P9 b          |
+| Empty context (new root)                           | **YES** — a no-summary boundary with `uuids: []` as the trailing entry resets the context to nothing: the probe request carried only the new prompt, which parented onto the boundary (run on SDK 0.3.211, unlike the 0.3.195 rows above) | P10           |
 | Rewind within active chain                         | `resumeSessionAt` (assistant uuid on the active chain only); on a boundary-relinked chain it targets playlist members and PRESERVES the boundary's effect, writing nothing to the file | P2 d, P9 c    |
 | Reach into a summarized region                     | **NO** via the three mechanisms tested (`resumeSessionAt`, leaf-marker, `rewindFiles`); escape hatch = new boundary re-listing the old chain                                           | P2 g/k, P4 q8 |
 | System prompt, tools, MCP, permissions, filesystem | **Out of reach** — the boundary only restructures transcript messages                                                                                                                  | by design     |
@@ -53,7 +54,8 @@ Append two lines to the session jsonl, then resume with `resume: sessionId`:
    context is exactly the `uuids` chain (P9 a — pure navigation).
 
 Ablation results: removing `compactMetadata` or emptying `uuids` kills the
-relink; removing `isCompactSummary` + `isVisibleInTranscriptOnly` (jointly),
+relink (the boundary still resets the context: with no summary to fall back
+on, an empty-`uuids` trailing boundary yields an EMPTY context — P10); removing `isCompactSummary` + `isVisibleInTranscriptOnly` (jointly),
 using the legacy `preservedSegment` encoding instead of `preservedMessages`, or
 replacing the boilerplate summary text does not. Relink happens at load time
 only; on-disk entries keep their original parents, so the full tree is never

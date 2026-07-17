@@ -445,3 +445,16 @@ Also settled from existing evidence while addressing the review comments:
   skips the whole relink; the spec's fail-closed error stands.
 - Native `logicalParentUuid` semantics confirmed in p0b/p0c captures (see
   FINDINGS): always the last message before the summarization point.
+
+## 2026-07-17 — P10: empty preserved list (tui-tree spec derisk)
+
+The TUI `/tree` "rewind to the first user message" pick needs a context reset
+to nothing: a no-summary boundary with `preservedMessages.uuids: []` (the
+shape `buildBoundaryEntries` would write for an empty list). P1e only showed
+that emptying `uuids` kills the relink, and the tested skipped-relink shapes
+had a summary to fall back on — a bare trailing empty boundary had never been
+resumed. `p10-empty-boundary.mjs` (run on SDK 0.3.211, not the 0.3.195 pin;
+version recorded in the report): resume + probe turn succeeded, the captured
+request contained exactly 1 message (the probe; no fixture markers), and the
+first new write's `parentUuid` was the boundary uuid. Empty-context reset
+works; `set-context --empty` / TUI new-root rewind are viable.
