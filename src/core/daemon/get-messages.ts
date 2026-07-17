@@ -99,6 +99,9 @@ export function synthesizeMessages(
       session_id: entry.sessionId as string,
       message: entry.message,
       parent_tool_use_id: null,
+      // Synthesized messages are from the main transcript. SDK 0.3.211 made
+      // this runtime field part of the declared SessionMessage contract.
+      parent_agent_id: null,
       ...(typeof entry.timestamp === "string" && {
         timestamp: entry.timestamp,
       }),

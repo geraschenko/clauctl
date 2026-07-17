@@ -212,6 +212,20 @@ export function nextAgentState(state: AgentState, event: SdkEvent): AgentState {
           next = { ...next, deliveredMessages: [] };
         }
       }
+      if (message.type === "conversation_reset") {
+        // SDK 0.3.211 emits this before the new conversation's init. Despite
+        // its name, new_conversation_id is not the transcript session_id
+        // announced by that init (verified live), so clear session identity
+        // until the authoritative init while discarding old-context evidence.
+        // Queued future turns still belong to the running process.
+        const {
+          sessionId: _sessionId,
+          lastTranscriptUuid: _lastTranscriptUuid,
+          lastUsage: _lastUsage,
+          ...withoutOldContext
+        } = next;
+        return { ...withoutOldContext, deliveredMessages: [] };
+      }
       if (message.type === "system" && message.subtype === "init") {
         return withObservedPermissionMode(
           {

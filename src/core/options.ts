@@ -2,7 +2,7 @@
  * The four-bucket partition of the SDK `Options` type (spec: Phase 1,
  * "Options handling"), and the `claude`-flag → `Options` parser that `spawn`
  * uses — the inverse of the SDK's `initialize()` argv builder, pinned to SDK
- * 0.3.195.
+ * 0.3.211.
  *
  * OPTION_BUCKETS is exhaustive over `keyof Options` via `satisfies`, so an SDK
  * bump that adds or removes a field breaks the build until it is classified —

@@ -164,6 +164,9 @@ export function createRequestHandler(
               type: "user",
               message: { role: "user", content },
               parent_tool_use_id: null,
+              // SDK 0.3.211 treats absent origin as unattributed at strict
+              // human-input trust gates; this request came from the user CLI.
+              origin: { kind: "human" },
             };
             // Compaction deliberately bypasses the queue model: pushed to the
             // TurnQueue directly and announced via its own event.
@@ -175,6 +178,9 @@ export function createRequestHandler(
             type: "user",
             message: { role: "user", content },
             parent_tool_use_id: null,
+            // SDK 0.3.211 treats absent origin as unattributed at strict
+            // human-input trust gates; sdk.sock query requests are user input.
+            origin: { kind: "human" },
             ...(request.priority !== undefined && {
               priority: request.priority,
             }),
@@ -193,9 +199,11 @@ export function createRequestHandler(
       case "interrupt": {
         const releaseQuery = acquireQuery();
         try {
-          await deps.getQuery().interrupt();
+          const receipt = await deps.getQuery().interrupt();
           events.emit({ kind: "interruptSent" });
-          return undefined;
+          // SDK 0.3.211 returns the still-queued receipt when the bundled CLI
+          // advertises interrupt_receipt_v1; preserve the Query passthrough.
+          return receipt;
         } finally {
           releaseQuery();
         }

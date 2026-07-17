@@ -15,7 +15,8 @@ import type { SdkEvent } from "./sdk-socket.ts";
 // The fold only inspects the fields each step reads, so minimal stubs
 // suffice; assistant messages get the usage payload the fold reads.
 function sdkMessage(
-  type: "assistant" | "result" | "system" | "stream_event",
+  type:
+    "assistant" | "result" | "system" | "stream_event" | "conversation_reset",
   fields: Record<string, unknown> = {},
 ): SdkEvent {
   return {
@@ -262,6 +263,32 @@ function init(fields: Record<string, unknown> = {}): SdkEvent {
     ...fields,
   });
 }
+
+test("conversation_reset switches history state and preserves queued work", () => {
+  const oldUsage = run([sdkMessage("assistant")]).lastUsage;
+  assert.notEqual(oldUsage, undefined);
+  const before: AgentState = {
+    ...INITIAL_AGENT_STATE,
+    activity: "working",
+    sessionId: "old-session",
+    lastUsage: oldUsage,
+    lastTranscriptUuid: "old-leaf",
+    deliveredMessages: [userMessage()],
+    queuedMessages: [{ id: 2, message: userMessage({ priority: "later" }) }],
+  };
+  const state = nextAgentState(
+    before,
+    sdkMessage("conversation_reset", {
+      new_conversation_id: "new-session",
+    }),
+  );
+  assert.equal(state.sessionId, undefined);
+  assert.equal(state.lastUsage, undefined);
+  assert.equal(state.lastTranscriptUuid, undefined);
+  assert.deepEqual(state.deliveredMessages, []);
+  assert.deepEqual(queuedIds(state), [2]);
+  assert.equal(state.activity, "working");
+});
 
 test("system/init sets sessionId, model, cwd, and observes the mode", () => {
   const state = run([init()]);

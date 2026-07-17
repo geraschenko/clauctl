@@ -139,7 +139,7 @@ test("buildBoundaryEntries without summary writes only the boundary", () => {
   });
   assert.equal(entries.length, 1);
   // An unobserved version falls back to the recipe's proven constant.
-  assert.equal(entries[0]!.version, "2.1.195");
+  assert.equal(entries[0]!.version, "2.1.211");
   assert.equal(result.summaryUuid, undefined);
   const metadata = entries[0]!.compactMetadata as {
     preservedMessages: { anchorUuid: UUID };

@@ -256,6 +256,7 @@ function sessionMessage(
     session_id: "s1",
     message: { role: type, content: "x" },
     parent_tool_use_id: null,
+    parent_agent_id: null,
   };
 }
 

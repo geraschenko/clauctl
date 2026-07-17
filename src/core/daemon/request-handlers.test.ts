@@ -237,6 +237,7 @@ test("query delivers through the hub; the events are the response", async () => 
   const result = await f.handle({ type: "query", content: "hi", id: "r1" });
   assert.equal(result, undefined);
   assert.equal(f.pushed.length, 1);
+  assert.deepEqual(f.pushed[0]!.origin, { kind: "human" });
   assert.equal(f.events.agentState.activity, "pending");
 });
 
@@ -244,6 +245,7 @@ test("/compact while idle pushes directly and emits compactSent", async () => {
   const f = fixture();
   await f.handle({ type: "query", content: "/compact", id: "r1" });
   assert.equal(f.pushed.length, 1);
+  assert.deepEqual(f.pushed[0]!.origin, { kind: "human" });
   assert.deepEqual(
     f.emitted.map((event) => event.kind),
     ["compactSent"], // no queued/dequeued pair
@@ -290,6 +292,22 @@ test("subscribe writes its own response carrying events.agentState", async () =>
 test("get-messages with no session returns [] without touching the transcript", async () => {
   const f = fixture({ withSession: false });
   assert.deepEqual(await f.handle({ type: "get-messages", id: "g1" }), []);
+});
+
+test("interrupt returns the SDK queue-survival receipt and emits its event", async () => {
+  const stillQueued = [uuid(), uuid()];
+  const f = fixture({
+    claudeQuery: {
+      interrupt: async () => ({ still_queued: stillQueued }),
+    },
+  });
+  assert.deepEqual(await f.handle({ type: "interrupt", id: "i1" }), {
+    still_queued: stillQueued,
+  });
+  assert.deepEqual(
+    f.emitted.map((event) => event.kind),
+    ["interruptSent"],
+  );
 });
 
 test("two in-flight mutations do not interleave: apply and persist run as a chain", async () => {

@@ -215,7 +215,7 @@ test("seedFromEntries derives every field from a linear session", () => {
     permissionMode: "plan",
     sessionId: sid,
   };
-  const u2 = { ...userEntry(a1.uuid, sid), version: "2.1.195" };
+  const u2 = { ...userEntry(a1.uuid, sid), version: "2.1.211" };
   const a2 = {
     ...assistantEntry(u2.uuid, sid),
     message: {
@@ -232,7 +232,7 @@ test("seedFromEntries derives every field from a linear session", () => {
   };
   const seed = seedFromEntries([u1, a1, mode, u2, a2]);
   assert.equal(seed.model, "claude-new");
-  assert.equal(seed.claudeCodeVersion, "2.1.195");
+  assert.equal(seed.claudeCodeVersion, "2.1.211");
   assert.equal(seed.permissionMode, "plan");
   assert.equal(seed.lastTranscriptUuid, a2.uuid);
   // Null token counters are coerced to 0.

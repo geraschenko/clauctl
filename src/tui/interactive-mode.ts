@@ -396,6 +396,15 @@ class InteractiveMode {
         }
         break;
       }
+      case "conversation_reset":
+        // The old conversation is no longer this surface's transcript. New
+        // queued prompts remain in pendingMessages; the fold has cleared the
+        // old history identity until the new session's init arrives.
+        this.chatContainer.clear();
+        this.streaming.clear();
+        this.toolComponents.clear();
+        this.addBanner("conversation reset");
+        break;
       case "system": {
         // init and status carry only state (model/mode/session), which the
         // fold already covers; they render nothing.

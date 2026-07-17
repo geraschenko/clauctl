@@ -117,7 +117,7 @@ export function buildBoundaryEntries(params: {
     entrypoint: "sdk-cli",
     cwd: params.cwd,
     sessionId: params.sessionId,
-    version: params.version ?? "2.1.195",
+    version: params.version ?? "2.1.211",
     gitBranch: "HEAD",
   };
   const boundary: SessionEntry = {

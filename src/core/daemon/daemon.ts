@@ -247,42 +247,36 @@ async function daemon(this: CommandContext, flags: DaemonFlags): Promise<void> {
   // What remains of the reader is record bookkeeping plus a trivial loop, and
   // it stays here deliberately — it is the record owner's code, not a module
   // of its own. State tracking lives in the hub's fold (agent-state.ts).
-  const handleMessage = (message: SDKMessage): void => {
-    // Record bookkeeping before the fold: by the time the init event reaches
-    // any observer, the record (and its queued agent.json write) already
-    // reflects the new session.
-    if (message.type === "system" && message.subtype === "init") {
-      handleSessionInit(message);
-    }
-    events.observeSdkMessage(message);
-  };
-
-  const handleSessionInit = (
-    message: SDKMessage & { type: "system"; subtype: "init" },
-  ): void => {
-    record.claudeCodeVersion = message.claude_code_version;
+  const observeSessionId = (sessionId: string): void => {
     const currentSessionId = record.sessions.at(-1)?.sessionId;
-    // An init fires every turn; a rollover is an init whose session_id
-    // *differs*. The history is duplicate-free: re-announcing a known
-    // session moves it to the end (most recent).
-    if (message.session_id !== currentSessionId) {
+    // An init fires every turn; a rollover is an id that differs. The history
+    // is duplicate-free: re-announcing a known session moves it to the end.
+    if (sessionId !== currentSessionId) {
       const previousIndex = record.sessions.findIndex(
-        (s) => s.sessionId === message.session_id,
+        (session) => session.sessionId === sessionId,
       );
       if (previousIndex !== -1) {
         record.sessions.splice(previousIndex, 1);
       }
       record.sessions.push({
-        sessionId: message.session_id,
-        sessionFile: sessionFilePath(
-          configDir,
-          record.cwd,
-          message.session_id as UUID,
-        ),
+        sessionId,
+        sessionFile: sessionFilePath(configDir, record.cwd, sessionId as UUID),
       });
-      log(`session: ${message.session_id}`);
+      log(`session: ${sessionId}`);
     }
     queueRecordWrite();
+  };
+
+  const handleMessage = (message: SDKMessage): void => {
+    // Record bookkeeping before the fold: by the time a session-changing
+    // event reaches observers, agent.json already has its queued update.
+    if (message.type === "system" && message.subtype === "init") {
+      // conversation_reset.new_conversation_id is not this transcript id
+      // (verified live on 2.1.211); only init is authoritative for agent.json.
+      record.claudeCodeVersion = message.claude_code_version;
+      observeSessionId(message.session_id);
+    }
+    events.observeSdkMessage(message);
   };
 
   const runReader = (q: Query): Promise<void> =>
