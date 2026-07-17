@@ -1,6 +1,6 @@
 # Spec: boundary substructure — relink-aware chain and tree
 
-> Status: **approved, implementation not started.** Follow-up to
+> Status: **implemented, awaiting review.** Follow-up to
 > `docs/specs/session-tree-and-set-context.md` (which shipped `get-tree` and
 > deferred the boundary substructure) and `docs/specs/format-tree.md` (which
 > fixed the node identity `(uuid, viaBoundary)` — called "occurrence
@@ -247,7 +247,7 @@ bare.
   boundary-processing time in up_to/from shapes (parent node missing).
   Build it when its parent exists — e.g. look ahead with `summaryOf` at the
   boundary, and emit the substructure right after processing the summary's
-  file position (in from-shape, emitting the skeleton *instead of* a raw
+  file position (in from-shape, emitting the skeleton _instead of_ a raw
   summary node), or immediately for a valid relink with no summary. Entries
   between boundary and summary (snapshots etc.) are unaffected — they don't
   parent onto the skeleton.
@@ -293,3 +293,39 @@ encountered.
   example B, the definitions, and the child-ordering implementation note
   updated accordingly (the ordering question disappeared with the raw
   summary).
+- 2026-07-16 (implemented): types landed exactly as designed. Success
+  criteria 1–5 covered by tests (274 pass): shapes A–D pinned for both
+  walks (effective-chain.test.ts, build-tree.test.ts, including the
+  missing-uuid invalid variant, the no-summary immediate emission, and
+  shared entry identity); the existing daemon test "rewind to an abandoned
+  branch appends a no-summary boundary" became the criterion-4 test — its
+  leaf expectation gained `viaBoundary` (the spec-sanctioned behavior
+  change, and the only pre-existing test the change touched); criterion 5
+  is an end-to-end tree.test.ts case over `buildTree` +
+  `effectiveTreeNodeChain` with the `*` landing on the relinked duplicate.
+  Criterion 6: handler comment and build-tree TODO removed, format-tree.md
+  notes updated.
+
+### Implementation-Time Decisions
+
+- **Substructure attachment mirrors the walk's parent resolution**:
+  `emitSubstructure` attaches each relinked node at
+  `parentMap.get(uuid) ?? entry.parentUuid` — the same
+  map-first-raw-fallback the chain walk uses. Only reachable for `uuids[0]`
+  when `preservedMessages` lacks `anchorUuid` (valid per the definitions,
+  which don't require an anchor); the alternative (root fallback) would
+  diverge from the chain for no reason.
+- **Deferred emission is keyed by summary uuid** (`pendingRelinks` map): at
+  the summary's file position the from-shape summary node is created
+  unattached and registered in the running map purely so `emitSubstructure`
+  can read its entry — the relink immediately overwrites the registration
+  with the relinked node, and the raw node never enters the tree.
+- **A uuid-less boundary annotates nothing**: `effectiveTreeNodeChain`
+  skips the relinked-uuid annotation when the boundary entry itself has no
+  uuid (there is no value for `viaBoundary`), while the parent map still
+  applies so the walk stays loader-true. Degenerate hand-edit territory;
+  buildTree never sees it (uuid-less entries get no node).
+- **Empty `uuids` classified invalid is not a behavior change**: the old
+  tip-selection fallback already produced summary-only context for empty
+  uuids; `validRelink` folding it into "invalid" keeps the same result with
+  one rule.

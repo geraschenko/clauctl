@@ -595,10 +595,14 @@ test("rewind to an abandoned branch appends a no-summary boundary", async () => 
     a2a.uuid,
   ]);
   assert.equal(metadata.preservedMessages.anchorUuid, result.boundaryUuid);
-  // Criterion 2: after the boundary append, the leaf is the new effective
-  // tip straight from the re-read file (no override involvement).
+  // After the boundary append, the leaf is the new effective tip straight
+  // from the re-read file (no override involvement) — a relinked node, since
+  // the chain ends inside the boundary's relink (no post entries).
   const tree = (await f.handle({ type: "get-tree", id: "t1" })) as SessionTree;
-  assert.deepEqual(tree.leaf, { uuid: a2a.uuid });
+  assert.deepEqual(tree.leaf, {
+    uuid: a2a.uuid,
+    viaBoundary: result.boundaryUuid,
+  });
 });
 
 // Pins a characterized SDK divergence (see the verification comment in

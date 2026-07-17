@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
 import { randomUUID, type UUID } from "node:crypto";
 import { test } from "node:test";
-import { effectiveChain, seedFromEntries } from "./effective-chain.ts";
+import {
+  effectiveChain,
+  effectiveTreeNodeChain,
+  seedFromEntries,
+} from "./effective-chain.ts";
 import type { SessionEntry } from "./session-file.ts";
 
 const uuid = (): UUID => randomUUID();
@@ -190,6 +194,148 @@ test("effectiveChain on a truncated file ignores later boundaries", () => {
   const entries = [u1, a1, boundary];
   assert.deepEqual(effectiveChain(entries.slice(0, 2)), [u1.uuid, a1.uuid]);
   assert.deepEqual(effectiveChain(entries), [a1.uuid]);
+});
+
+// --- effectiveTreeNodeChain ------------------------------------------------
+// Shapes A–D from docs/specs/boundary-substructure.md "Concrete examples".
+
+test("tree-node chain, up_to shape (example A): bare summary, relinked uuids, bare post entries", () => {
+  const sid = uuid();
+  const u1 = userEntry(null, sid);
+  const u2 = assistantEntry(u1.uuid, sid);
+  const u3 = userEntry(u2.uuid, sid);
+  const summaryUuid = uuid();
+  const boundary = boundaryEntry({
+    sessionId: sid,
+    uuids: [u2.uuid, u3.uuid],
+    anchor: summaryUuid,
+    logicalParentUuid: u3.uuid,
+  });
+  const summary = summaryEntry(boundary.uuid, sid, summaryUuid);
+  const base = [u1, u2, u3, boundary, summary];
+  // No post entries: the tip is the last relinked uuid.
+  assert.deepEqual(effectiveTreeNodeChain(base), [
+    { uuid: summaryUuid },
+    { uuid: u2.uuid, viaBoundary: boundary.uuid },
+    { uuid: u3.uuid, viaBoundary: boundary.uuid },
+  ]);
+  const u4 = userEntry(u3.uuid, sid);
+  assert.deepEqual(effectiveTreeNodeChain([...base, u4]), [
+    { uuid: summaryUuid },
+    { uuid: u2.uuid, viaBoundary: boundary.uuid },
+    { uuid: u3.uuid, viaBoundary: boundary.uuid },
+    { uuid: u4.uuid },
+  ]);
+});
+
+test("tree-node chain, from shape (example B): relinked uuids end in the relinked summary", () => {
+  const sid = uuid();
+  const u1 = userEntry(null, sid);
+  const u2 = assistantEntry(u1.uuid, sid);
+  const u3 = userEntry(u2.uuid, sid);
+  const boundary = boundaryEntry({
+    sessionId: sid,
+    uuids: [u1.uuid, u2.uuid],
+    anchor: "own",
+    logicalParentUuid: u2.uuid,
+  });
+  const summary = summaryEntry(boundary.uuid, sid);
+  const base = [u1, u2, u3, boundary, summary];
+  // No post entries: the tip is the relinked summary.
+  assert.deepEqual(effectiveTreeNodeChain(base), [
+    { uuid: u1.uuid, viaBoundary: boundary.uuid },
+    { uuid: u2.uuid, viaBoundary: boundary.uuid },
+    { uuid: summary.uuid, viaBoundary: boundary.uuid },
+  ]);
+  const u4 = userEntry(summary.uuid, sid);
+  assert.deepEqual(effectiveTreeNodeChain([...base, u4]), [
+    { uuid: u1.uuid, viaBoundary: boundary.uuid },
+    { uuid: u2.uuid, viaBoundary: boundary.uuid },
+    { uuid: summary.uuid, viaBoundary: boundary.uuid },
+    { uuid: u4.uuid },
+  ]);
+});
+
+test("tree-node chain, stacked boundaries (example C): only the last boundary annotates", () => {
+  const sid = uuid();
+  const a = userEntry(null, sid);
+  const b = assistantEntry(a.uuid, sid);
+  const c = userEntry(b.uuid, sid);
+  const s1Uuid = uuid();
+  const first = boundaryEntry({
+    sessionId: sid,
+    uuids: [c.uuid],
+    anchor: s1Uuid,
+    logicalParentUuid: c.uuid,
+  });
+  const s1 = summaryEntry(first.uuid, sid, s1Uuid);
+  const d = assistantEntry(c.uuid, sid);
+  const s2Uuid = uuid();
+  const second = boundaryEntry({
+    sessionId: sid,
+    uuids: [d.uuid],
+    anchor: s2Uuid,
+    logicalParentUuid: d.uuid,
+  });
+  const s2 = summaryEntry(second.uuid, sid, s2Uuid);
+  const e = userEntry(d.uuid, sid);
+  assert.deepEqual(
+    effectiveTreeNodeChain([a, b, c, first, s1, d, second, s2, e]),
+    [
+      { uuid: s2Uuid },
+      { uuid: d.uuid, viaBoundary: second.uuid },
+      { uuid: e.uuid },
+    ],
+  );
+});
+
+test("tree-node chain, invalid relink (example D): loader-style skip to summary-only", () => {
+  const sid = uuid();
+  const u1 = userEntry(null, sid);
+  const u2 = assistantEntry(u1.uuid, sid);
+  const u3 = userEntry(u2.uuid, sid);
+  const summaryUuid = uuid();
+  const duplicated = boundaryEntry({
+    sessionId: sid,
+    uuids: [u2.uuid, u2.uuid],
+    anchor: summaryUuid,
+    logicalParentUuid: u3.uuid,
+  });
+  const summary = summaryEntry(duplicated.uuid, sid, summaryUuid);
+  const base = [u1, u2, u3, duplicated, summary];
+  assert.deepEqual(effectiveTreeNodeChain(base), [{ uuid: summaryUuid }]);
+  // A uuid naming no earlier entry skips the same way.
+  const missing = boundaryEntry({
+    sessionId: sid,
+    uuids: [u2.uuid, uuid()],
+    anchor: summaryUuid,
+    logicalParentUuid: u3.uuid,
+  });
+  assert.deepEqual(effectiveTreeNodeChain([u1, u2, u3, missing, summary]), [
+    { uuid: summaryUuid },
+  ]);
+  // Post-skip writes parent onto the summary (P1 d), all bare.
+  const u4 = userEntry(summaryUuid, sid);
+  assert.deepEqual(effectiveTreeNodeChain([...base, u4]), [
+    { uuid: summaryUuid },
+    { uuid: u4.uuid },
+  ]);
+});
+
+test("effectiveChain skips an invalid relink instead of applying it", () => {
+  // Loader parity (P1 d, P3 m4): a duplicated preserved uuid used to be
+  // silently deduped by the parent-map Map.set and the relink applied.
+  const sid = uuid();
+  const u1 = userEntry(null, sid);
+  const a1 = assistantEntry(u1.uuid, sid);
+  const summaryUuid = uuid();
+  const boundary = boundaryEntry({
+    sessionId: sid,
+    uuids: [u1.uuid, u1.uuid, a1.uuid],
+    anchor: summaryUuid,
+  });
+  const summary = summaryEntry(boundary.uuid, sid, summaryUuid);
+  assert.deepEqual(effectiveChain([u1, a1, boundary, summary]), [summaryUuid]);
 });
 
 // --- seedFromEntries -------------------------------------------------------

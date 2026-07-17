@@ -18,7 +18,7 @@ import {
   type SDKUserMessage,
 } from "@anthropic-ai/claude-agent-sdk";
 import { buildTree, type SessionTree } from "../build-tree.ts";
-import { effectiveChain } from "../effective-chain.ts";
+import { effectiveTreeNodeChain } from "../effective-chain.ts";
 import type { PersistedOptions } from "../options.ts";
 import {
   readEntriesAfterStreamFlush,
@@ -278,18 +278,13 @@ export function createRequestHandler(
           const active = freshOverride();
           const chain =
             active?.kind === "filterTail"
-              ? effectiveChain(entries).filter(
-                  (chainUuid) => !active.droppedUuids.has(chainUuid),
+              ? effectiveTreeNodeChain(entries).filter(
+                  (ref) => !active.droppedUuids.has(ref.uuid),
                 )
-              : effectiveChain(entries);
-          const leafUuid = chain.at(-1);
+              : effectiveTreeNodeChain(entries);
           const tree: SessionTree = {
             tree: buildTree(entries),
-            // No viaBoundary: the raw forest has one occurrence per uuid,
-            // so the bare uuid identifies the leaf even when the chain ends
-            // inside a boundary's relink. The substructure follow-up, which
-            // adds duplicate occurrences, must set it for such tips.
-            leaf: leafUuid === undefined ? null : { uuid: leafUuid },
+            leaf: chain.at(-1) ?? null,
           };
           return tree;
         } finally {

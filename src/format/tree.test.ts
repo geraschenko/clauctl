@@ -1,7 +1,12 @@
 import assert from "node:assert/strict";
 import type { UUID } from "node:crypto";
 import { test } from "node:test";
-import type { SessionTree, TreeNode } from "../core/build-tree.ts";
+import {
+  buildTree,
+  type SessionTree,
+  type TreeNode,
+} from "../core/build-tree.ts";
+import { effectiveTreeNodeChain } from "../core/effective-chain.ts";
 import type { SessionEntry } from "../core/session-file.ts";
 import { formatSessionTree, type TreeFormatOptions } from "./tree.ts";
 
@@ -170,6 +175,45 @@ test("with a duplicated uuid, only the viaBoundary-matching occurrence is the le
       "│     * 00000002 assistant: relinked occurrence\n" +
       "└─ 00000002 assistant: raw occurrence\n" +
       `[cursor: ${duplicated}]\n`,
+  );
+});
+
+// End-to-end over buildTree + effectiveTreeNodeChain (the get-tree handler's
+// composition): the boundary substructure renders, the `*` lands on the
+// relinked node — distinguished from its raw duplicate — and the layout's
+// unique-id precondition holds.
+test("a buildTree-produced compacted session renders with the leaf on the relinked node", () => {
+  const start = { ...userEntry(uuid(1), "Start"), parentUuid: null };
+  const reply = { ...assistantEntry(uuid(2), "Reply"), parentUuid: uuid(1) };
+  const boundary: SessionEntry = {
+    uuid: uuid(3),
+    parentUuid: null,
+    logicalParentUuid: uuid(2),
+    type: "system",
+    subtype: "compact_boundary",
+    compactMetadata: {
+      preTokens: 2000,
+      preservedMessages: { anchorUuid: uuid(4), uuids: [uuid(2)] },
+    },
+  };
+  const summary: SessionEntry = {
+    ...userEntry(uuid(4), "Earlier: a reply"),
+    parentUuid: uuid(3),
+    isCompactSummary: true,
+  };
+  const entries = [start, reply, boundary, summary];
+  const input: SessionTree = {
+    tree: buildTree(entries),
+    leaf: effectiveTreeNodeChain(entries).at(-1) ?? null,
+  };
+  assert.equal(
+    render(input, { filter: "all" }),
+    "• 00000001 user: Start\n" +
+      "• 00000002 assistant: Reply\n" +
+      "• 00000003 [compaction: 2k tokens]\n" +
+      "• 00000004 compaction: Earlier: a reply\n" +
+      "* 00000002 assistant: Reply\n" +
+      `[cursor: ${uuid(2)}]\n`,
   );
 });
 

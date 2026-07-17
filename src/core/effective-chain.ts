@@ -63,52 +63,88 @@ export function summaryOf(
     );
 }
 
+/** Identifies one tree node: a raw node (viaBoundary absent) or a
+ *  boundary-substructure relinked node (viaBoundary = the boundary's
+ *  uuid). */
+export interface TreeNodeRef {
+  uuid: UUID;
+  viaBoundary?: UUID;
+}
+
+/** The validated relink of the boundary at entries[boundaryIndex];
+ *  undefined when preservedMessages is absent or the relink is invalid
+ *  (= behave as a no-relink boundary). Consumed by both the chain walk and
+ *  buildTree's substructure emission. */
+export interface BoundaryRelink {
+  /** Ordered uuids receiving @boundary relinked nodes: the preserved uuids,
+   *  plus the re-parented summary (from-shape). */
+  relinkedUuids: UUID[];
+  /** Effective-parent overrides (uuid → parent uuid). */
+  parentMap: Map<UUID, UUID>;
+}
+
 /**
- * The boundary's effective-parent map (spec "Concrete examples"): the
- * load-time relink as parent overrides. `uuids[i] → uuids[i-1]`,
- * `uuids[0] → anchorUuid`; in from-shape (anchor = the boundary's own uuid)
- * with a summary and non-empty uuids, the summary's effective parent is
+ * The boundary's relink, validated loader-style: `uuids` non-empty, no
+ * duplicates, every listed uuid names an entry earlier in the file. Anything
+ * else silently skips the relink (P1 d, P3 m4) — context = summary only.
+ *
+ * The parent map is the load-time relink as overrides: `uuids[i] →
+ * uuids[i-1]`, `uuids[0] → anchorUuid`; in from-shape (anchor = the
+ * boundary's own uuid) with a summary, the summary's effective parent is
  * `uuids[last]` — the raw chain there runs summary → boundary and would skip
  * the preserved uuids entirely, but the loader's from-shape context is
- * [uuids…, summary] (p2.b; see file comment). With empty uuids the summary
- * keeps its raw parent (the boundary) — the intended summary-only context.
+ * [uuids…, summary] (p2.b; see file comment).
  */
-function effectiveParentMap(
+export function validRelink(
   entries: SessionEntry[],
   boundaryIndex: number,
-): Map<UUID, UUID> {
+): BoundaryRelink | undefined {
   const boundary = entries[boundaryIndex]!;
-  const map = new Map<UUID, UUID>();
   const preserved = preservedMessagesOf(boundary);
-  if (preserved === undefined) {
-    return map;
+  if (preserved === undefined || preserved.uuids.length === 0) {
+    return undefined;
   }
   const { anchorUuid, uuids } = preserved;
+  const earlierUuids = new Set(
+    entries.slice(0, boundaryIndex).map((entry) => entry.uuid),
+  );
+  if (
+    new Set(uuids).size !== uuids.length ||
+    !uuids.every((preservedUuid) => earlierUuids.has(preservedUuid))
+  ) {
+    return undefined;
+  }
+
+  const relinkedUuids = [...uuids];
+  const parentMap = new Map<UUID, UUID>();
   for (let i = 1; i < uuids.length; i += 1) {
-    map.set(uuids[i]!, uuids[i - 1]!);
+    parentMap.set(uuids[i]!, uuids[i - 1]!);
   }
-  if (uuids.length > 0 && anchorUuid !== undefined) {
-    map.set(uuids[0]!, anchorUuid);
+  if (anchorUuid !== undefined) {
+    parentMap.set(uuids[0]!, anchorUuid);
   }
-  if (anchorUuid === boundary.uuid && uuids.length > 0) {
+  if (anchorUuid === boundary.uuid) {
     const summaryUuid = summaryOf(entries, boundaryIndex)?.uuid;
     if (summaryUuid !== undefined) {
-      map.set(summaryUuid, uuids[uuids.length - 1]!);
+      relinkedUuids.push(summaryUuid);
+      parentMap.set(summaryUuid, uuids[uuids.length - 1]!);
     }
   }
-  return map;
+  return { relinkedUuids, parentMap };
 }
 
 /**
  * The effective context chain (root → tip) the loader would produce for this
- * entries list — pass a truncated list for "the context when entry X first
- * appeared". Mirrors loader semantics: only the LAST boundary applies
- * (stacked boundaries: last wins entirely — P3 m5; see file comment); the
- * walk takes mapped parents first, raw `parentUuid` otherwise; any boundary
- * entry is transparent — reaching one (or an entry with no parent) ends the
- * walk.
+ * entries list, as tree-node references — pass a truncated list for "the
+ * context when entry X first appeared". Mirrors loader semantics: only the
+ * LAST boundary applies (stacked boundaries: last wins entirely — P3 m5; see
+ * file comment); the walk takes relink-mapped parents first, raw
+ * `parentUuid` otherwise; any boundary entry is transparent — reaching one
+ * (or an entry with no parent) ends the walk. An element carries
+ * `viaBoundary` iff its uuid is among the last boundary's relinked uuids —
+ * elements reached below the anchor via raw parents stay bare.
  */
-export function effectiveChain(entries: SessionEntry[]): UUID[] {
+export function effectiveTreeNodeChain(entries: SessionEntry[]): TreeNodeRef[] {
   const byUuid = new Map<UUID, SessionEntry>();
   for (const entry of entries) {
     if (entry.uuid !== undefined) {
@@ -120,37 +156,38 @@ export function effectiveChain(entries: SessionEntry[]): UUID[] {
     (entry) => entry.subtype === "compact_boundary",
   );
   let map = new Map<UUID, UUID>();
+  let relinkedUuids = new Set<UUID>();
+  let boundaryUuid: UUID | undefined;
   let tip: UUID | undefined;
   if (boundaryIndex === -1) {
     tip = entries.findLast((entry) => entry.uuid !== undefined)?.uuid;
   } else {
-    const boundary = entries[boundaryIndex]!;
-    map = effectiveParentMap(entries, boundaryIndex);
+    boundaryUuid = entries[boundaryIndex]!.uuid;
+    const relink = validRelink(entries, boundaryIndex);
     const summaryUuid = summaryOf(entries, boundaryIndex)?.uuid;
+    if (relink !== undefined) {
+      map = relink.parentMap;
+      if (boundaryUuid !== undefined) {
+        relinkedUuids = new Set(relink.relinkedUuids);
+      }
+    }
     // Entries written after the boundary (its own summary aside) chain on
     // top of the relinked context; with none, the tip is the relinked
     // skeleton's own tip: [summary, uuids…] (up_to), [uuids…, summary]
-    // (from), or [uuids…] (no summary).
+    // (from), or [uuids…] (no summary) — or the bare summary when the
+    // relink is absent or invalid.
     const post = entries
       .slice(boundaryIndex + 1)
       .filter(
         (entry) => entry.uuid !== undefined && entry.uuid !== summaryUuid,
       );
-    if (post.length > 0) {
-      tip = post.at(-1)!.uuid;
-    } else {
-      const preserved = preservedMessagesOf(boundary);
-      const fromShape = preserved?.anchorUuid === boundary.uuid;
-      tip =
-        (fromShape || preserved === undefined || preserved.uuids.length === 0
-          ? summaryUuid
-          : undefined) ??
-        preserved?.uuids.at(-1) ??
-        summaryUuid;
-    }
+    tip =
+      post.length > 0
+        ? post.at(-1)!.uuid
+        : (relink?.relinkedUuids.at(-1) ?? summaryUuid);
   }
 
-  const chain: UUID[] = [];
+  const chain: TreeNodeRef[] = [];
   const seen = new Set<UUID>();
   let current = tip;
   while (current !== undefined && !seen.has(current)) {
@@ -159,11 +196,20 @@ export function effectiveChain(entries: SessionEntry[]): UUID[] {
     if (entry === undefined || entry.subtype === "compact_boundary") {
       break;
     }
-    chain.push(current);
+    chain.push(
+      relinkedUuids.has(current)
+        ? { uuid: current, viaBoundary: boundaryUuid! }
+        : { uuid: current },
+    );
     current = map.get(current) ?? entry.parentUuid ?? undefined;
   }
   chain.reverse();
   return chain;
+}
+
+/** Uuid projection of effectiveTreeNodeChain. */
+export function effectiveChain(entries: SessionEntry[]): UUID[] {
+  return effectiveTreeNodeChain(entries).map((ref) => ref.uuid);
 }
 
 /** File-derived AgentState seed values (daemon startup). */

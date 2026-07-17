@@ -44,28 +44,27 @@ stays a single pretty-printed JSON document):
   `{ tree: TreeNode[]; leaf: { uuid: UUID; viaBoundary?: UUID } | null }`.
   `leaf` names the **current-leaf occurrence** — the position the next turn
   attaches to. `leaf.uuid` is the tip of the daemon's current effective
-  context: the last uuid of `effectiveChain(entries)`, minus a live
-  filterTail override's `droppedUuids` (so a no-write rewind moves the leaf
-  to the rewind target). The override is consulted with the same freshness
+  context: the last element of the effective chain, minus a live filterTail
+  override's `droppedUuids` (so a no-write rewind moves the leaf to the
+  rewind target). The override is consulted with the same freshness
   rule `get-messages` applies (stale once `lastTranscriptUuid` moves).
   `null` when the session file has no chain entries.
 - **Occurrence identity is the pair `(entry uuid, viaBoundary)`** (decided
-  2026-07-16). Once the boundary-substructure follow-up sets `viaBoundary`,
-  the same entry uuid can appear at multiple tree positions, so a bare uuid
-  cannot name "the" leaf — and the distinction matters: per the session-tree
-  spec's TUI mapping, a raw occurrence and a viaBoundary occurrence of the
-  same uuid map to _different_ set-context actions. The pair suffices
-  because duplicates only arise from relink edges and every relink-edge node
-  carries `viaBoundary` (raw placement is unique per uuid — each entry
-  appears once in the file), provided one boundary's rendered chain never
-  repeats a uuid: true for valid data (set-context rejects duplicate uuids;
-  the CLI loader silently skips a relink containing them). The substructure
-  follow-up's `buildTree` **must implement** the same skip for degenerate
-  hand-edited boundaries — the synced layout treats unique layout ids as a
-  checked precondition and throws on duplicates, so a violation crashes
-  `format tree` rather than merely rendering oddly. `leaf.viaBoundary`
-  mirrors the node field and is therefore always absent until the follow-up
-  lands.
+  2026-07-16). Once the boundary substructure sets `viaBoundary`
+  (`docs/specs/boundary-substructure.md`), the same entry uuid can appear at
+  multiple tree positions, so a bare uuid cannot name "the" leaf — and the
+  distinction matters: per the session-tree spec's TUI mapping, a raw
+  occurrence and a viaBoundary occurrence of the same uuid map to
+  _different_ set-context actions. The pair suffices because duplicates only
+  arise from relink edges and every relink-edge node carries `viaBoundary`
+  (raw placement is unique per uuid — each entry appears once in the file),
+  provided one boundary's rendered chain never repeats a uuid: true for
+  valid data (set-context rejects duplicate uuids; the CLI loader silently
+  skips a relink containing them). The substructure `buildTree` implements
+  the same skip for degenerate hand-edited boundaries — the synced layout
+  treats unique layout ids as a checked precondition and throws on
+  duplicates, so a violation would crash `format tree` rather than merely
+  rendering oddly. `leaf.viaBoundary` mirrors the node field.
 - `buildTree` returns the forest only (`TreeNode[]`); the get-tree handler
   composes the `SessionTree`.
 
@@ -220,16 +219,15 @@ TUI-side; nothing here renders differently to accommodate them.
 export interface TreeNode {
   entry: SessionEntry;   // was entryUuid; the SessionTree entries record is deleted
   children: TreeNode[];
-  viaBoundary?: UUID;    // unchanged; still never set (substructure follow-up)
+  viaBoundary?: UUID;    // unchanged; set by the boundary substructure
 }
 export interface SessionTree {
   tree: TreeNode[];
   /** The current-leaf occurrence — where the next turn attaches. uuid =
-   *  tip of the current effective context, daemon-computed (effectiveChain
-   *  minus a live filterTail override). viaBoundary mirrors the node field
-   *  and identifies the occurrence once duplicates exist (absent until the
-   *  substructure follow-up sets it). Null when the session has no chain
-   *  entries. */
+   *  tip of the current effective context, daemon-computed (the effective
+   *  chain minus a live filterTail override). viaBoundary mirrors the node
+   *  field and identifies the occurrence once duplicates exist. Null when
+   *  the session has no chain entries. */
   leaf: { uuid: UUID; viaBoundary?: UUID } | null;
 }
 export function buildTree(entries: SessionEntry[]): TreeNode[]; // forest only
@@ -327,8 +325,9 @@ the response reshape.
 
 ### Non-goals
 
-- Boundary-substructure rendering (duplicate nodes, `viaBoundary`) — waits
-  for the substructure follow-up spec.
+- Boundary-substructure rendering (duplicate nodes, `viaBoundary`) — the
+  follow-up spec, `docs/specs/boundary-substructure.md` (the composite-id
+  adapter here needed no changes when it landed).
 - TUI `/tree` (interactive navigation) — anticipated consumer, see the note
   in Type design; no TUI code in this spec.
 - Prefix-accepting `set-context` uuids — later spec (the cursor line prints
