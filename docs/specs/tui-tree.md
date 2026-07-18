@@ -40,28 +40,39 @@ on the path, their raw occurrences are off-path).
   `UserMessageComponent`, the rest → `handleSdkMessage`, tool results resolve
   into their tool components). `compact_boundary` nodes on the path render the
   existing "context compacted" banner.
-- `AgentState` gains `contextChangedSinceLastTranscript: boolean` — set when
-  a `contextChanged` event is folded, cleared whenever `lastTranscriptUuid`
-  updates. While set, `lastTranscriptUuid` may name an entry off the current
-  path, so it is not a usable replay cut. (Native compact boundaries don't
-  set it: the boundary entry itself updates `lastTranscriptUuid` and is on
-  the path, so the cut still lands.)
-- Attach and redraw share one load path, switched by that flag. Flag clear:
-  the replay stops at `lastTranscriptUuid` (`pathUpToBoundary`, the
-  path-based replacement for `historyUpToBoundary`, matching by entry uuid);
-  a missing boundary replays everything behind the existing warning banner —
-  the read raced a writer (file lags the stream, or a compaction replaced
-  the segment), so exactly-once replay is impossible. Flag set: that state
-  is *expected*, not an anomaly — the whole path renders, no cut, no
-  warning. This also fixes attaching after a rewind but before the next
-  turn, which would otherwise spuriously warn.
-- Double-render protection is dedupe on release, in both modes: buffered
-  user/assistant `sdkMessage` events whose uuid was already rendered from
-  the path are folded into `agentState` but not rendered again. This also
-  covers the post-contextChanged flush-lag race (a turn starting right
-  after the rewind streams entries before they hit the file). (A
-  dequeue-rendered prompt racing into the tree read has no uuid to dedupe
-  on — accepted, same class as the attach-time missing-boundary window.)
+- `AgentState.lastTranscriptUuid` becomes `leafTreeNodeRef?: TreeNodeRef` —
+  the current leaf *occurrence* of the session tree. Stream user/assistant
+  messages fold it as a raw ref (`{uuid}`, today's semantics); a
+  `contextChanged` event now carries the new leaf (`leaf: TreeNodeRef |
+  null`, the file-truth effective tip; `null` after an empty-context reset
+  unsets the field), so the folded leaf is correct immediately after a
+  set-context instead of naming a dropped entry. This is also the natural
+  cursor representation for later cursor work.
+- Every daemon read of the session file is flush-synced:
+  get-tree/get-entries already read via `readEntriesAfterStreamFlush`;
+  get-messages (`synthesizeMessages`) joins them. The wait key is
+  `leafTreeNodeRef.viaBoundary ?? leafTreeNodeRef.uuid` — a relinked leaf's
+  newest on-disk entry is its boundary; daemon-authored boundary appends are
+  synchronous, so an unset leaf (or `--empty`) has nothing to wait for. With
+  that, a subscribed client's fetch always contains its snapshot leaf: the
+  read-races-a-writer window is structurally closed, not warned about.
+- Attach and redraw share one load path, cut at the leaf occurrence
+  (`pathUpToBoundary(path, leaf)`, the path-based replacement for
+  `historyUpToBoundary`; exact uuid+viaBoundary match). Only *raw*
+  occurrences after the match are dropped — those are the entries that
+  arrive as live events; `viaBoundary` occurrences always replay (relinked
+  entries never stream), so attaching right after a native compaction does
+  not truncate the preserved substructure that follows the raw summary node
+  on the path. A missing leaf match still replays everything behind the
+  existing warning — now a should-never-fire invariant safeguard rather
+  than an expected race.
+- Double-render protection is dedupe on release: buffered user/assistant
+  `sdkMessage` events whose uuid was already rendered from the path are
+  folded into `agentState` but not rendered again — the flush-synced read
+  may include entries newer than the snapshot leaf, which are also in the
+  buffer. (A dequeue-rendered prompt racing into the tree read has no uuid
+  to dedupe on — accepted, same class as the attach-time missing-boundary
+  window.)
 - Attach race semantics otherwise unchanged: delivered-but-unconfirmed
   prompts append after the replayed path; buffered live events release
   afterwards.
@@ -105,7 +116,7 @@ on the path, their raw occurrences are off-path).
     the nearest assistant ancestor (for a boundary that's the pre-boundary
     leaf via `logicalParentUuid`) — picking a boundary undoes it;
   - no assistant ancestor (e.g. the first message of the session) →
-    `set-context {empty: true}` — a new root, empty context (P10-verified),
+    `set-context {uuids: []}` — a new root, empty context (P10-verified),
     `editorText` as above for a user pick.
 - **Busy gating**: the selector opens regardless of activity, but confirming
   while the assistant is busy (`isBusy`) sends nothing and sets the hint text
@@ -128,17 +139,24 @@ the compaction).
   truncated after that boundary's block (its summary entry if present, else
   the boundary itself) — i.e. a prefix of the context that boundary installed.
   Error if `uuid` is not on that chain.
-- How the chain reconnects on disk: subsequent messages never name the
-  boundary chain themselves — the relink is loader-side. The appended
-  boundary entry carries `parentUuid: null` (its tree anchor is
-  `logicalParentUuid`), and the CLI parents the first post-boundary write on
-  the tip of the boundary's effective chain (P7; empty chain → the boundary
-  itself, P10). For an up_to-shaped original boundary that chain *starts*
-  with its summary entry, so any non-empty prefix includes the old summary's
-  uuid as its first element — the new boundary's preserved list re-lists the
-  old summary entry (P9 b verified exactly this). The appended boundary
-  itself never carries a summary of its own: the rewind path always writes a
-  no-summary boundary.
+- File shape after a boundary: the boundary entry carries `parentUuid: null`
+  (tree anchor = `logicalParentUuid`), and the first post-boundary write's
+  `parentUuid` is the uuid of the FINAL message of the boundary's effective
+  chain (P7: the last preserved uuid for up_to/no-summary, the summary
+  entry's uuid for from-shape; empty chain → the boundary's own uuid, P10) —
+  an old entry deep in the file. So yes, a parentUuid-only "raw tree" would
+  look wrong: the new message would appear to continue the old branch as if
+  the boundary didn't exist. That is exactly what boundary substructure
+  fixes: the relink overwrites buildTree's uuid→node map, so the
+  post-boundary write attaches to the *relinked occurrence* under the
+  boundary, not the raw node ("post-boundary entries and later boundaries'
+  anchors land on relinked nodes").
+- For an up_to-shaped original boundary the effective chain *starts* with
+  its summary entry, so any non-empty prefix includes the old summary's
+  uuid as its first element — the new boundary's preserved list re-lists
+  the old summary entry (P9 b verified exactly this). The appended boundary
+  itself never carries a summary of its own: the rewind path always writes
+  a no-summary boundary.
 - Downstream is unchanged: desired-truncates-active → `resumeSessionAt(uuid)`
   with a filterTail override (P2 d, P9 c); otherwise a no-summary boundary
   listing the desired chain's user/assistant uuids (P9 a/b — a boundary may
@@ -154,19 +172,19 @@ the compaction).
 
 ### Empty context (`--empty`)
 
-- Clearing the context requires an explicit wire form: a new request variant
-  `set-context {empty: true}` appends a no-summary boundary with an empty
-  preserved list, which the loader honors as a context reset to nothing —
-  P10: resumed probe request contained only the new prompt, which parented
-  onto the boundary. Verification expects the empty chain.
-- `{uuids: []}` without summaryText stays REJECTED — accidentally clearing
-  an agent's context must not be one missing argument away. The error
-  message now points at the explicit form: "empty uuids without summaryText
-  — pass --empty to deliberately clear the context".
-- CLI: new `--empty` boolean flag on `set-context` → `{empty: true}`;
-  mutually exclusive with positional uuids, `--summary`, `--anchor`, and
-  `--rewind-to` (summary-only context is already expressible via `--summary`
-  alone). Bare `set-context` stays a usage error.
+- The daemon accepts `set-context {uuids: []}` (the "empty uuids without
+  summaryText" rejection is removed — an explicit empty array on the wire is
+  already a deliberate statement): it appends a no-summary boundary with an
+  empty preserved list, which the loader honors as a context reset to
+  nothing — P10: resumed probe request contained only the new prompt, which
+  parented onto the boundary. Verification expects the empty chain.
+- The fat-finger protection lives in the CLI, where accidental invocation
+  actually happens: `--empty` is the only way to send an empty list — bare
+  `set-context` stays a usage error, its message now listing `--empty`
+  ("expected message uuids, --summary, --rewind-to, or --empty").
+- CLI: new `--empty` boolean flag on `set-context` → `{uuids: []}`; mutually
+  exclusive with positional uuids, `--summary`, `--anchor`, and `--rewind-to`
+  (summary-only context is already expressible via `--summary` alone).
 
 ### Type design
 
@@ -197,27 +215,38 @@ export function isFinalAssistantEntry(node: TreeNode): boolean;
 `formatTreeNodeRef` — the layout id and the CLI presentation become the same
 function.
 
-**`src/core/agent-state.ts`** — `AgentState` gains
-`contextChangedSinceLastTranscript: boolean`: set when a `contextChanged`
-event is folded, cleared when `lastTranscriptUuid` updates. While set,
-`lastTranscriptUuid` may name an entry off the current path — not a usable
-replay cut.
+**`src/core/agent-state.ts`** — `lastTranscriptUuid?: string` becomes
+`leafTreeNodeRef?: TreeNodeRef`: stream user/assistant messages fold
+`{uuid: message.uuid}` (today's semantics, as a raw ref); a `contextChanged`
+event folds its `leaf` field (`null` unsets). Consumers update: the
+attach cut matches the occurrence; flush-wait keys on
+`viaBoundary ?? uuid`; get-messages-override freshness compares refs.
 
 **`src/core/sdk-socket.ts`**
 
 ```ts
 | { type: "set-context"; rewindTo: TreeNodeRef }   // rewind variant
-| { type: "set-context"; empty: true }             // explicit context clear
 ```
 
 `parseSetContextRequest`: `rewindTo` must be a record with uuid `uuid` and
-optional uuid `viaBoundary`; `empty` must be literally `true`.
+optional uuid `viaBoundary`; empty `uuids` arrays pass. The `contextChanged`
+event gains `leaf: TreeNodeRef | null` — the file-truth effective tip after
+the change (null for an empty context), computed via `effectiveTreeNodeChain`
+where each path already re-reads the file.
 
 **`src/core/daemon/set-context.ts`** — `handleRewind(rewindTo: TreeNodeRef,
 context)` computes `desired` per the occurrence rule above (calls
-`effectiveChain` on the truncated file either way). The empty-uuids guard
-stays, its message gaining the `--empty` hint; a new `empty` branch appends
-the empty no-summary boundary and verifies the empty chain.
+`effectiveChain` on the truncated file either way); the empty-uuids guard in
+the request handler is removed. Ordering constraint: the get-messages
+override is installed with `installedAtLeaf` = the POST-change leaf ref (the
+same ref the `contextChanged` event carries) — installing the pre-change ref
+would make the override look stale the moment the event folds.
+
+**`src/core/daemon/request-handlers.ts` / `get-messages.ts`** — every
+session-file read is flush-synced: get-messages switches from
+`readSessionEntries` to `readEntriesAfterStreamFlush` (get-tree/get-entries
+already are), keyed on `leafTreeNodeRef.viaBoundary ?? .uuid`; the
+`freshOverride` staleness check compares leaf refs.
 
 **`src/core/sdk-commands.ts`** — `--rewind-to` parsed with `parseTreeNodeRef`;
 new `--empty` boolean flag with the exclusivity rule above.
@@ -248,7 +277,7 @@ export type TreePickAction =
 /** Assistant pick → itself; user pick → nearest assistant ancestor +
  *  editorText = the user text; boundary pick → nearest assistant ancestor,
  *  no editorText (undoes the boundary); no assistant ancestor → newRoot
- *  (sent as {empty: true}). */
+ *  (sent as {uuids: []}). */
 export function resolveTreePick(tree: SessionTree, pick: TreeNodeRef): TreePickAction;
 
 export class TreeSelectorComponent extends Container implements Focusable {
@@ -263,11 +292,12 @@ by construction except in exotic interrupt shapes, which the daemon's
 final-entry validation rejects with a clear error.
 
 **`src/tui/sdk-render.ts`** — `historyUpToBoundary` is replaced (deleted) by
-the path-based equivalent with the same race semantics:
+the path-based equivalent (exact occurrence match; drops only raw
+occurrences after the match — `viaBoundary` occurrences always replay):
 
 ```ts
 export function pathUpToBoundary(
-  path: TreeNode[], boundaryUuid: string | undefined,
+  path: TreeNode[], leaf: TreeNodeRef | undefined,
 ): { nodes: TreeNode[]; boundaryMissing: boolean };
 ```
 
@@ -303,8 +333,7 @@ interception + `openTreeSelector()`; busy-gated confirm; `Editor.setText` for
 6. `clauctl set-context -t <agent> --rewind-to '<uuid>@<boundaryUuid>'` and
    `clauctl set-context -t <agent> --empty` work end-to-end; `--empty` conflicts
    with uuids/`--summary`/`--anchor`/`--rewind-to`. `set-context` with _no_
-   non-target flags is an error, and a wire `{uuids: []}` without summaryText
-   is rejected with a message pointing at `--empty`.
+   non-target flags is an error whose message lists `--empty`.
 7. Confirming a pick while the assistant is busy sends nothing and shows the
    hint; the selector stays open and usable.
 8. Unit tests cover: `parseTreeNodeRef`/`formatTreeNodeRef` round-trip and
@@ -312,14 +341,15 @@ interception + `openTreeSelector()`; busy-gated confirm; `Editor.setText` for
    occurrence selection); `isFinalAssistantEntry` (thinking→text chains, via
    occurrences); `resolveTreePick` (assistant, user, user-crossing-boundary,
    boundary pick → previous assistant without editorText, no-ancestor →
-   newRoot, editorText); `pathUpToBoundary`; the
-   `contextChangedSinceLastTranscript` fold (set on contextChanged, cleared
-   on transcript update); `entryToSessionMessage` (shared with
+   newRoot, editorText); `pathUpToBoundary` (occurrence match, raw-only
+   drop after the match, missing leaf); the `leafTreeNodeRef` fold (raw ref
+   from stream messages, contextChanged leaf, null unsets) and the
+   ref-based override freshness; `entryToSessionMessage` (shared with
    `synthesizeMessages`); handleRewind with viaBoundary (prefix-of-active →
    no-write, abandoned via-chain → prefix boundary, uuid not on the
-   boundary's chain → error); `{uuids: []}` rejected with the `--empty` hint
-   and `{empty: true}` accepted (boundary written, verification expects
-   `[]`); the `"picker"` filter mode; selector filter/search/navigation and
+   boundary's chain → error); empty-uuids set-context (boundary written,
+   verification expects `[]`, contextChanged carries `leaf: null`); the
+   `"picker"` filter mode; selector filter/search/navigation and
    the contextChanged-while-open banner; the contextChanged redraw and
    tree-based attach (interactive-mode level, as far as the existing TUI
    test seams allow).
@@ -464,3 +494,19 @@ encountered.
   (selector stays open, not refreshed); boundary rows are selectable —
   picking one rewinds to the nearest pre-boundary assistant, undoing the
   boundary.
+- 2026-07-18 (review round 2): Anton pushed back on three points, all
+  adopted. (1) The staleness boolean was a hack: `lastTranscriptUuid`
+  becomes `leafTreeNodeRef?: TreeNodeRef`, updated by set-context via a new
+  `leaf` field on `contextChanged`; the attach/redraw cut matches the leaf
+  occurrence, and all daemon session-file reads become flush-synced
+  (get-messages was the one raw reader), closing the read race structurally
+  — the warning becomes an invariant safeguard. Refinement found while
+  redesigning the cut: only raw occurrences after the match are dropped
+  (viaBoundary occurrences never arrive as live events), which fixes
+  attach-right-after-native-compaction truncating preserved substructure.
+  (2) Clarified the file shape: the first post-boundary write's parentUuid
+  is the final chain member's uuid, so a parentUuid-only tree WOULD look
+  wrong — boundary substructure's map overwrite is what fixes it. (3) The
+  `{empty: true}` wire variant is dropped: `{uuids: []}` already states the
+  intent; the guard moves to the CLI (`--empty` flag required, bare
+  set-context usage error lists it).
