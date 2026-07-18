@@ -73,6 +73,8 @@ Tables and bullet lists already match (see markdown scenario).
 | turn-duration | `· Brewed for 9m 11s` / `· Cogitated for 5m 53s` lines between long turns | absent | skip (proposed) |
 | compact-boundary | not observed (scrolled out of claude capture) | compaction summary rendered as full plain text | investigate |
 
+TDC: I think I want to keep the compaction summary in full (but with markdown rendering).
+
 Notes:
 
 - bash-passthrough has a genuine bug independent of parity: clauctl displays
@@ -92,6 +94,8 @@ Notes:
 | welcome-banner | boxed banner: logo, model/account, cwd, tips, what's-new | nothing | differ |
 | input-footer | input box `❯` between rules; mode line `⏸ manual mode on · ? for shortcuts · ← for agents` (+ effort indicator) | rules + status line `idle … default • model • agent-id` | differ |
 | scrollback-depth | — | — | n/a |
+
+TDC: For the input footer, I want to differ a bit, but be closer to both claude and pi. I want to show the permission mode on the left with the same coloring ask claude for the different modes. Like pi's default footer, I want to show the directory and git branch, as well as information about token use, context window use, and model and thinking level. (pi source is in /home/anton/git/earendil-works/pi; you can have a subagent figure out how the footer is generated. If it's extremely easy to do so, we can make the footer user-configurable, but this is totally fine to skip on this pass.)
 
 Notes:
 
