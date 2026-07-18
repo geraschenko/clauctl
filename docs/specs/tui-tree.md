@@ -40,21 +40,31 @@ on the path, their raw occurrences are off-path).
   `UserMessageComponent`, the rest → `handleSdkMessage`, tool results resolve
   into their tool components). `compact_boundary` nodes on the path render the
   existing "context compacted" banner.
-- **Attach** keeps the existing race semantics: the replay stops at the last
-  stream-reported transcript uuid (`pathUpToBoundary`, the path-based
-  replacement for `historyUpToBoundary`, matching by entry uuid); a missing
-  boundary replays everything behind the existing warning banner;
-  delivered-but-unconfirmed prompts append after the replayed path; buffered
-  live events release afterwards.
-- **Redraw** cannot reuse that cut: after a rewind the TUI's
-  `lastTranscriptUuid` names a dropped entry that is off the new path, so the
-  cut would spuriously warn on every redraw. Instead the redraw renders the
-  whole path and dedupes on release: buffered user/assistant `sdkMessage`
-  events whose uuid was already rendered from the path are folded into
-  `agentState` but not rendered again. (A dequeue-rendered prompt racing into
-  the tree read has no uuid to dedupe on — accepted, same class as the
-  attach-time missing-boundary window.)
-  TDC: I wonder if AgentState should be updated to have something roughly equivalent to the get-messages override. It might be as simple as a boolean (or maybe leaf TreeNodeRef?) which gets set when there's a boundary or contextChanged and cleared when lastTranscriptUuid is updated, and whose presence suppresses the warning. Remind me the purpose of the warning in the first place. What bad thing does it catch, and could that bad thing be happening after a contextChanged?
+- `AgentState` gains `contextChangedSinceLastTranscript: boolean` — set when
+  a `contextChanged` event is folded, cleared whenever `lastTranscriptUuid`
+  updates. While set, `lastTranscriptUuid` may name an entry off the current
+  path, so it is not a usable replay cut. (Native compact boundaries don't
+  set it: the boundary entry itself updates `lastTranscriptUuid` and is on
+  the path, so the cut still lands.)
+- Attach and redraw share one load path, switched by that flag. Flag clear:
+  the replay stops at `lastTranscriptUuid` (`pathUpToBoundary`, the
+  path-based replacement for `historyUpToBoundary`, matching by entry uuid);
+  a missing boundary replays everything behind the existing warning banner —
+  the read raced a writer (file lags the stream, or a compaction replaced
+  the segment), so exactly-once replay is impossible. Flag set: that state
+  is *expected*, not an anomaly — the whole path renders, no cut, no
+  warning. This also fixes attaching after a rewind but before the next
+  turn, which would otherwise spuriously warn.
+- Double-render protection is dedupe on release, in both modes: buffered
+  user/assistant `sdkMessage` events whose uuid was already rendered from
+  the path are folded into `agentState` but not rendered again. This also
+  covers the post-contextChanged flush-lag race (a turn starting right
+  after the rewind streams entries before they hit the file). (A
+  dequeue-rendered prompt racing into the tree read has no uuid to dedupe
+  on — accepted, same class as the attach-time missing-boundary window.)
+- Attach race semantics otherwise unchanged: delivered-but-unconfirmed
+  prompts append after the replayed path; buffered live events release
+  afterwards.
 - A `contextChanged` that arrives while a reload is in flight lands in the
   live-event buffer and triggers a follow-up reload when released.
 
@@ -64,17 +74,19 @@ on the path, their raw occurrences are off-path).
   and listed in the autocomplete `LOCAL_COMMANDS`.
 - Opens a `TreeSelectorComponent` over the `get-tree` response (statusContainer
   + focus, like the model selector; `get-tree` failure → error banner, no
-  selector). Modeled on pi's `TreeSelectorComponent`, with rows rendered
-  **exactly** as `clauctl format tree` renders them (`flattenVisibleTree` +
-  `formatTreeNodeLine`) plus a selection highlight — shared code, not a copy.
-  TDC: not **exactly** as `format tree`. We should omit the uuids, but otherwise be the same. The entry uuids are useful so that the user can copy-paste, but in an interactive setting they're just distracting.
+  selector). Modeled on pi's `TreeSelectorComponent`, with rows rendered as
+  `clauctl format tree` renders them (`flattenVisibleTree` +
+  `formatTreeNodeLine`) minus the entry uuids (useful for copy-paste in the
+  CLI, distracting in a picker; `formatTreeNodeLine` gains an `omitUuid`
+  option) plus a selection highlight — shared code, not a copy.
 - **Fixed visibility filter** (no filter cycling): user entries with text,
   final assistant entries (`isFinalAssistantEntry`) with text,
-  `compact_boundary` markers, and the current leaf unconditionally. Boundary
-  markers are visible but not selectable (enter on one does nothing).
-  Restricting assistants to final entries makes every selectable assistant row
-  a valid `rewindTo` target.
-  TDC: maybe we should add a --filter option to `format tree` for this?
+  `compact_boundary` markers, and the current leaf unconditionally.
+  Restricting assistants to final entries makes every assistant row a valid
+  `rewindTo` target. The predicate also becomes a new `format tree` filter
+  mode (`FILTER_MODES` gains `"picker"`), so the CLI can render exactly the
+  picker's rows (uuids included there) and the predicate has one shared,
+  testable home.
 - **Search**, pi's UX: printable characters append to a query shown below the
   tree, backspace edits it, tokens AND-match case-insensitively against the
   rendered summary line, matching re-runs the visible-structure recalculation.
@@ -89,9 +101,12 @@ on the path, their raw occurrences are off-path).
     node (tree-parent walk, skipping non-assistant nodes; the ancestor's own
     occurrence ref), with `editorText` = the picked user message's text,
     prefilled into the editor on success;
-  - user pick with no assistant ancestor (e.g. the first message of the
-    session) → `set-context {uuids: []}` — a new root, empty context
-    (P10-verified), `editorText` as above.
+  - boundary pick → the same ancestor walk without `editorText`: rewind to
+    the nearest assistant ancestor (for a boundary that's the pre-boundary
+    leaf via `logicalParentUuid`) — picking a boundary undoes it;
+  - no assistant ancestor (e.g. the first message of the session) →
+    `set-context {empty: true}` — a new root, empty context (P10-verified),
+    `editorText` as above for a user pick.
 - **Busy gating**: the selector opens regardless of activity, but confirming
   while the assistant is busy (`isBusy`) sends nothing and sets the hint text
   "cannot navigate tree while assistant is busy"; the selector stays open.
@@ -113,7 +128,17 @@ the compaction).
   truncated after that boundary's block (its summary entry if present, else
   the boundary itself) — i.e. a prefix of the context that boundary installed.
   Error if `uuid` is not on that chain.
-  TDC: Sorry, I always get confused by this. How do subsequent messages specify that they are supposed to be linked to the end of the boundary chain? What's the parentUuid for the first message after a boundary? In this situation we have to add the original boundary's summary to the start of the new boundary's chain if it was an "up to" type boundary, right? The new boundary should have no summary, correct?
+- How the chain reconnects on disk: subsequent messages never name the
+  boundary chain themselves — the relink is loader-side. The appended
+  boundary entry carries `parentUuid: null` (its tree anchor is
+  `logicalParentUuid`), and the CLI parents the first post-boundary write on
+  the tip of the boundary's effective chain (P7; empty chain → the boundary
+  itself, P10). For an up_to-shaped original boundary that chain *starts*
+  with its summary entry, so any non-empty prefix includes the old summary's
+  uuid as its first element — the new boundary's preserved list re-lists the
+  old summary entry (P9 b verified exactly this). The appended boundary
+  itself never carries a summary of its own: the rewind path always writes a
+  no-summary boundary.
 - Downstream is unchanged: desired-truncates-active → `resumeSessionAt(uuid)`
   with a filterTail override (P2 d, P9 c); otherwise a no-summary boundary
   listing the desired chain's user/assistant uuids (P9 a/b — a boundary may
@@ -127,62 +152,75 @@ the compaction).
   assistant ancestor is on the far side of a boundary rewinds to the
   pre-compaction context — the compaction is undone.
 
-### Empty context (`--empty`, `uuids: []`)
+### Empty context (`--empty`)
 
-- The daemon accepts `set-context {uuids: []}` (the "empty uuids without
-  summaryText" rejection is removed): it appends a no-summary boundary with an
-  empty preserved list, which the loader honors as a context reset to nothing
-  — P10: resumed probe request contained only the new prompt, which parented
+- Clearing the context requires an explicit wire form: a new request variant
+  `set-context {empty: true}` appends a no-summary boundary with an empty
+  preserved list, which the loader honors as a context reset to nothing —
+  P10: resumed probe request contained only the new prompt, which parented
   onto the boundary. Verification expects the empty chain.
-- CLI: new `--empty` boolean flag on `set-context` → `{uuids: []}`; mutually
-  exclusive with positional uuids, `--summary`, `--anchor`, and `--rewind-to`
-  (summary-only context is already expressible via `--summary` alone).
-TDC: this is currently the behavior of bare `set-context`, isn't it? That makes it easy to accidentally clear an agent's context, so let's make that error with usage suggestion, so --empty is _required_ to clear context.
+- `{uuids: []}` without summaryText stays REJECTED — accidentally clearing
+  an agent's context must not be one missing argument away. The error
+  message now points at the explicit form: "empty uuids without summaryText
+  — pass --empty to deliberately clear the context".
+- CLI: new `--empty` boolean flag on `set-context` → `{empty: true}`;
+  mutually exclusive with positional uuids, `--summary`, `--anchor`, and
+  `--rewind-to` (summary-only context is already expressible via `--summary`
+  alone). Bare `set-context` stays a usage error.
 
 ### Type design
 
-**`src/core/effective-chain.ts`**
+**`src/core/tree.ts`** (new — the tree vocabulary and pure tree operations.
+`TreeNodeRef` moves here from effective-chain.ts, `TreeNode`/`SessionTree`
+from build-tree.ts, importers updated. tree.ts imports only session-file
+types, so no cycle: effective-chain.ts and build-tree.ts both import from
+it. `buildTree` stays in build-tree.ts — construction needs the relink
+machinery.)
 
-TDC: should this TreeNodeRef stuff be moved out to its own file, or be moved to build-tree.ts? It feels a bit wrong for it to be in effective-chain.ts. We could move TreeNodeRef, TreeNode, and SessionTree into src/core/tree.ts or something.
 ```ts
-export interface TreeNodeRef { uuid: UUID; viaBoundary?: UUID } // existing
+export interface TreeNodeRef { uuid: UUID; viaBoundary?: UUID } // moved
+export interface TreeNode { /* moved verbatim */ }
+export interface SessionTree { /* moved verbatim */ }
 
 /** "<uuid>" or "<uuid>@<viaBoundary>" ("@" cannot appear in a uuid). */
 export function formatTreeNodeRef(ref: TreeNodeRef): string;
 /** Inverse of formatTreeNodeRef; throws on malformed input. */
 export function parseTreeNodeRef(text: string): TreeNodeRef;
-```
-
-`format/tree.ts`'s private `layoutId` is deleted in favor of
-`formatTreeNodeRef` — the layout id and the CLI presentation become the same
-function.
-
-**`src/core/sdk-socket.ts`**
-
-```ts
-| { type: "set-context"; rewindTo: TreeNodeRef }   // rewind variant
-```
-
-`parseSetContextRequest`: `rewindTo` must be a record with uuid `uuid` and
-optional uuid `viaBoundary`; empty `uuids` arrays pass.
-
-**`src/core/daemon/set-context.ts`** — `handleRewind(rewindTo: TreeNodeRef,
-context)` computes `desired` per the occurrence rule above (calls
-`effectiveChain` on the truncated file either way); the empty-uuids guard in
-the request handler is removed.
-
-**`src/core/sdk-commands.ts`** — `--rewind-to` parsed with `parseTreeNodeRef`;
-new `--empty` boolean flag with the exclusivity rule above.
-
-**`src/core/build-tree.ts`**
-
-```ts
 /** Root-first path to the leaf occurrence; [] when leaf is null or absent. */
 export function pathToLeaf(tree: TreeNode[], leaf: TreeNodeRef | null): TreeNode[];
 /** No child of this occurrence continues the same assistant API message
  *  (shares message.id) — the entry is a valid rewindTo target. */
 export function isFinalAssistantEntry(node: TreeNode): boolean;
 ```
+
+`format/tree.ts`'s private `layoutId` is deleted in favor of
+`formatTreeNodeRef` — the layout id and the CLI presentation become the same
+function.
+
+**`src/core/agent-state.ts`** — `AgentState` gains
+`contextChangedSinceLastTranscript: boolean`: set when a `contextChanged`
+event is folded, cleared when `lastTranscriptUuid` updates. While set,
+`lastTranscriptUuid` may name an entry off the current path — not a usable
+replay cut.
+
+**`src/core/sdk-socket.ts`**
+
+```ts
+| { type: "set-context"; rewindTo: TreeNodeRef }   // rewind variant
+| { type: "set-context"; empty: true }             // explicit context clear
+```
+
+`parseSetContextRequest`: `rewindTo` must be a record with uuid `uuid` and
+optional uuid `viaBoundary`; `empty` must be literally `true`.
+
+**`src/core/daemon/set-context.ts`** — `handleRewind(rewindTo: TreeNodeRef,
+context)` computes `desired` per the occurrence rule above (calls
+`effectiveChain` on the truncated file either way). The empty-uuids guard
+stays, its message gaining the `--empty` hint; a new `empty` branch appends
+the empty no-summary boundary and verifies the empty chain.
+
+**`src/core/sdk-commands.ts`** — `--rewind-to` parsed with `parseTreeNodeRef`;
+new `--empty` boolean flag with the exclusivity rule above.
 
 **`src/core/session-file.ts`** (moved from `daemon/get-messages.ts` with its
 wire type; `synthesizeMessages` keeps its chain loop and delegates the mapping)
@@ -195,8 +233,11 @@ export function entryToSessionMessage(entry: SessionEntry): SessionMessageOnWire
 ```
 
 **`src/format/tree.ts`** — export the existing `entrySummary`,
-`collectToolNames`, `toLayoutNode`, `formatTreeNodeLine` (signatures
-unchanged).
+`collectToolNames`, `toLayoutNode`, `passesFilter`, and `formatTreeNodeLine`.
+`formatTreeNodeLine` gains a trailing `omitUuid?: boolean`; `FILTER_MODES`
+gains `"picker"`, and `passesFilter` gains an `isFinal: boolean` input for
+the final-assistant restriction (computed by callers via
+`isFinalAssistantEntry` over the TreeNode tree, alongside `isCurrentLeaf`).
 
 **`src/tui/components/tree-selector.ts`**
 
@@ -204,8 +245,10 @@ unchanged).
 export type TreePickAction =
   | { kind: "rewind"; rewindTo: TreeNodeRef; editorText?: string }
   | { kind: "newRoot"; editorText?: string };
-/** Assistant pick → itself; user pick → nearest assistant ancestor on the
- *  path + editorText = the user text; no assistant ancestor → newRoot. */
+/** Assistant pick → itself; user pick → nearest assistant ancestor +
+ *  editorText = the user text; boundary pick → nearest assistant ancestor,
+ *  no editorText (undoes the boundary); no assistant ancestor → newRoot
+ *  (sent as {empty: true}). */
 export function resolveTreePick(tree: SessionTree, pick: TreeNodeRef): TreePickAction;
 
 export class TreeSelectorComponent extends Container implements Focusable {
@@ -243,34 +286,43 @@ interception + `openTreeSelector()`; busy-gated confirm; `Editor.setText` for
    history (today it shows only the tail). The attach race behavior
    (boundary cut, missing-boundary warning, delivered prompts, buffered
    events) is preserved.
-3. `/tree` opens a picker whose rows match `format tree` output for the same
-   session; the current leaf is pre-selected; typing filters rows by summary
-   text; escape clears the search, then cancels; boundary rows are visible
-   but unselectable.
+3. `/tree` opens a picker whose rows match `format tree --filter picker`
+   output for the same session, minus the entry uuids; the current leaf is
+   pre-selected; typing filters rows by summary text; escape clears the
+   search, then cancels.
 4. Picking an assistant row rewinds to it (both the resumeSessionAt path and
    the boundary-append path, chosen by the daemon as today) and the TUI
    redraws. Picking a user row rewinds to its previous assistant and
-   prefills the editor with the user text. Picking the session's first user
-   message produces an empty context (new root) and prefills.
+   prefills the editor with the user text. Picking a boundary row rewinds to
+   the nearest pre-boundary assistant, undoing the boundary. Picking the
+   session's first user message produces an empty context (new root) and
+   prefills.
 5. A pick inside a boundary's relinked context (`viaBoundary` occurrence)
    rewinds within that boundary's chain — the appended boundary's preserved
    list is a prefix of that chain — not to the raw pre-compaction position.
 6. `clauctl set-context -t <agent> --rewind-to '<uuid>@<boundaryUuid>'` and
    `clauctl set-context -t <agent> --empty` work end-to-end; `--empty` conflicts
-   with uuids/`--summary`/`--anchor`/`--rewind-to`. `set-context` with _no_ non-target flags is an error.
+   with uuids/`--summary`/`--anchor`/`--rewind-to`. `set-context` with _no_
+   non-target flags is an error, and a wire `{uuids: []}` without summaryText
+   is rejected with a message pointing at `--empty`.
 7. Confirming a pick while the assistant is busy sends nothing and shows the
    hint; the selector stays open and usable.
 8. Unit tests cover: `parseTreeNodeRef`/`formatTreeNodeRef` round-trip and
    malformed inputs; `pathToLeaf` (null leaf, missing leaf, viaBoundary
    occurrence selection); `isFinalAssistantEntry` (thinking→text chains, via
    occurrences); `resolveTreePick` (assistant, user, user-crossing-boundary,
-   no-ancestor → newRoot, editorText); `pathUpToBoundary`;
-   `entryToSessionMessage` (shared with `synthesizeMessages`); handleRewind
-   with viaBoundary (prefix-of-active → no-write, abandoned via-chain →
-   prefix boundary, uuid not on the boundary's chain → error); empty-uuids
-   set-context (boundary written, verification expects `[]`); selector
-   filter/search/navigation; the contextChanged redraw and tree-based attach
-   (interactive-mode level, as far as the existing TUI test seams allow).
+   boundary pick → previous assistant without editorText, no-ancestor →
+   newRoot, editorText); `pathUpToBoundary`; the
+   `contextChangedSinceLastTranscript` fold (set on contextChanged, cleared
+   on transcript update); `entryToSessionMessage` (shared with
+   `synthesizeMessages`); handleRewind with viaBoundary (prefix-of-active →
+   no-write, abandoned via-chain → prefix boundary, uuid not on the
+   boundary's chain → error); `{uuids: []}` rejected with the `--empty` hint
+   and `{empty: true}` accepted (boundary written, verification expects
+   `[]`); the `"picker"` filter mode; selector filter/search/navigation and
+   the contextChanged-while-open banner; the contextChanged redraw and
+   tree-based attach (interactive-mode level, as far as the existing TUI
+   test seams allow).
 
 ### Edge cases
 
@@ -279,16 +331,18 @@ interception + `openTreeSelector()`; busy-gated confirm; `Editor.setText` for
 - Empty session (`leaf: null`) → empty path, empty transcript; `/tree` shows
   only whatever roots pass the filter (possibly nothing) with nothing
   selectable.
-- The selector is NOT auto-refreshed or closed by a concurrent
-  `contextChanged`; a stale pick is validated by the daemon and surfaces as
-  an error banner. Accepted for now.
-  TDC: oh, this is an interesting edge case. I think we should show some kind of banner immediately on contextChanged if the selector is open. It's important that the TUI-attached user knows that some automated process is changing the context under their feet. Note that since the session file is append-only, I don't think a "stale pick" can be invalid, but the user may decide that they don't want to navigate the tree after all, or may make a different choice as a result of the automated navigation.
+- A `contextChanged` arriving while the selector is open immediately shows a
+  warning banner ("context changed while the tree selector is open") — the
+  attached user must know some other process is changing the context under
+  them. The selector stays open with its now-stale tree (not auto-refreshed
+  or closed); the transcript redraw proceeds underneath. A stale pick cannot
+  be *invalid* (the file is append-only) and the daemon re-validates anyway;
+  the banner lets the user cancel or pick differently in light of the
+  change.
 - `effectiveChain` of a file ending in a bare empty-uuids boundary is `[]`
   (pinned by a test) — set-context verification and the redraw (empty path
   from the boundary-rooted leafless tree) both rely on it.
-- A user pick whose text is empty (shouldn't pass the filter) or a pick of a
-  boundary row → no action.
-  TDC: shouldn't picking a boundary row navigate to the previous assistant message, undoing the boundary?
+- A user pick whose text is empty (shouldn't pass the filter) → no action.
 - The picked user message's own occurrence may be `viaBoundary`; only its
   ancestor walk matters — `editorText` comes from the entry either way.
 
@@ -302,9 +356,9 @@ interception + `openTreeSelector()`; busy-gated confirm; `Editor.setText` for
 - Prefix-accepting uuids in `--rewind-to` (full uuids only, as elsewhere).
 - Refining the boundary-crossing user-pick semantics (compaction undo is
   accepted for now).
-- Any change to `get-messages` (it remains in the protocol for other
-  clients; the TUI just stops using it).
-  TDC: correct. `get-messages` tells the caller exactly what messages are in the assistant's _current_ context, which is obviously still very important.
+- Any change to `get-messages`: it tells the caller exactly which messages
+  are in the assistant's _current_ context, which remains important; the TUI
+  just stops using it for transcript rendering.
 
 ## IMPLEMENTATION IDEAS (evolving)
 
@@ -395,3 +449,18 @@ encountered.
   the code that a trailing bare boundary yields `effectiveChain = []` /
   `leaf: null` (the walk's tip resolves undefined), which the empty-context
   verification and redraw rely on.
+- 2026-07-17 (TDC round, commit 4788617): Anton's review addressed.
+  `AgentState.contextChangedSinceLastTranscript` replaces the
+  redraw-specific no-cut special case — one load path for attach and
+  redraw, warning suppressed only when the cut is known stale (also fixes
+  the attach-after-rewind spurious warning the previous draft missed);
+  picker rows drop the uuid column (`formatTreeNodeLine` omitUuid); the
+  picker predicate becomes `format tree --filter picker`; explicit
+  `{empty: true}` wire variant — `{uuids: []}` stays rejected, its error
+  now suggesting `--empty`; TreeNodeRef/TreeNode/SessionTree + ref
+  format/parse + pathToLeaf + isFinalAssistantEntry move to a new
+  `src/core/tree.ts` (no import cycles: it depends only on session-file
+  types); contextChanged while the selector is open shows a warning banner
+  (selector stays open, not refreshed); boundary rows are selectable —
+  picking one rewinds to the nearest pre-boundary assistant, undoing the
+  boundary.
