@@ -36,7 +36,7 @@ Notes:
 
 - readonly-tool-folding implies a classification of tools (read-only vs
   mutating) and a summarizer per tool (`read 1 file`, `searched for 2
-  patterns`). The exact folding rules need enumeration during type design —
+patterns`). The exact folding rules need enumeration during type design —
   e.g. claude gave the failed `Write` its own `●` block but folded the
   following `Read` into the next `Thought for` line.
 - tool-result summaries are per-tool: Write → blank/error, Edit → added/
@@ -102,8 +102,14 @@ Notes:
     far: `⏵⏵ auto mode on` in 256-color 220 (gold), manual/default mode line
     all-grey 246. Colors for acceptEdits/plan/bypassPermissions/dontAsk not
     yet captured — grab them from targeted captures during implementation;
-  - pi-default-footer content: cwd (`~`-abbreviated) + git branch, token
-    usage, context-window usage, model + thinking level.
+  - pi-default-footer content: cwd (`~`-abbreviated) + git branch,
+    context-window usage, model + thinking level. Context usage comes from
+    the existing `AgentState.lastUsage` (decided, Anton). pi's cumulative
+    session counters (`↑input ↓output Rcache-read CH<hit-rate>% $cost`) and
+    cost are skipped — they'd require folding per-message usage sums into
+    AgentState, and cost is moot on subscription billing. The SDK's usage
+    messages carry the same per-request fields, so the counters stay addable
+    later.
 
   pi implementation facts (from a source read of
   `~/git/earendil-works/pi`, workspace 0.80.9): the footer is
@@ -111,12 +117,12 @@ Notes:
   (`FooterComponent`). It is entangled with pi's in-process `AgentSession`
   (token/context/model/thinking) plus a `FooterDataProvider`
   (`core/footer-data-provider.ts` — standalone-copyable git-branch watcher
-  reading `.git/HEAD`). Plan: copy the layout logic (`formatTokens`,
-  `formatCwdForFooter`, the stats-left/model-right line algorithm) and feed
-  it clauctl data; token/context usage must be folded into AgentState from
-  the SDK message usage fields (not currently tracked). User-configurable
-  footer: skipped this pass — pi's mechanism is an extension `setFooter`
-  factory, not a settings knob, so it doesn't meet the "extremely easy" bar.
+  reading `.git/HEAD`). Plan: copy the layout logic (`formatCwdForFooter`,
+  the stats-left/model-right line algorithm) and feed it clauctl data.
+  User-configurable footer: skipped this pass — pi's mechanism is an
+  extension `setFooter` factory, not a settings knob, so it doesn't meet the
+  "extremely easy" bar.
+
 - scrollback-depth is a harness artifact, not a rendering difference: claude
   collapses so much that its scrollback covers a longer time span than
   clauctl's for the same tmux history limit, which inflates the raw diff line
