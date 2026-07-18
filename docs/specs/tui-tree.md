@@ -1,6 +1,8 @@
 # Spec: TUI `/tree` and context-aware history
 
-> Status: **draft.** Follow-up to `docs/specs/session-tree-and-set-context.md`
+> Status: **approved for implementation** (Anton, 2026-07-18, after three
+> review rounds + fresh-context reviewer approval; see WORK LOG).
+> Follow-up to `docs/specs/session-tree-and-set-context.md`
 > (set-context + get-tree), `docs/specs/boundary-substructure.md` (viaBoundary
 > occurrences), and `docs/specs/format-tree.md` (tree rendering, which
 > anticipated this spec). Background: `docs/thoughts/rewind-and-tree.md`.
