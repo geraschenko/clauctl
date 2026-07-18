@@ -15,7 +15,7 @@ async function slashSuggestions(
 
 test("local /model is offered with no SDK commands", async () => {
   const provider = new TuiAutocompleteProvider(null, null, () => {});
-  assert.deepEqual(await slashSuggestions(provider, "/"), ["model"]);
+  assert.deepEqual(await slashSuggestions(provider, "/"), ["model", "tree"]);
 });
 
 test("setCommands merges SDK commands with the local ones", async () => {
@@ -25,7 +25,7 @@ test("setCommands merges SDK commands with the local ones", async () => {
     { name: "usage", description: "show usage" },
   ]);
   const values = await slashSuggestions(provider, "/");
-  assert.deepEqual(values.toSorted(), ["compact", "model", "usage"]);
+  assert.deepEqual(values.toSorted(), ["compact", "model", "tree", "usage"]);
 });
 
 test("a local command shadows a same-named SDK entry", async () => {
@@ -47,7 +47,7 @@ test("setCommands replaces the previous SDK list", async () => {
   provider.setCommands([{ name: "old" }]);
   provider.setCommands([{ name: "new" }]);
   const values = await slashSuggestions(provider, "/");
-  assert.deepEqual(values.toSorted(), ["model", "new"]);
+  assert.deepEqual(values.toSorted(), ["model", "new", "tree"]);
 });
 
 test("@ without fd fires the hint once and yields no suggestions", async () => {

@@ -1,14 +1,17 @@
 import assert from "node:assert/strict";
 import type { UUID } from "node:crypto";
 import { test } from "node:test";
-import {
-  buildTree,
-  type SessionTree,
-  type TreeNode,
-} from "../core/build-tree.ts";
+import { buildTree } from "../core/build-tree.ts";
+import type { SessionTree, TreeNode } from "../core/tree.ts";
 import { effectiveTreeNodeChain } from "../core/effective-chain.ts";
 import type { SessionEntry } from "../core/session-file.ts";
-import { formatSessionTree, type TreeFormatOptions } from "./tree.ts";
+import {
+  formatSessionTree,
+  formatTreeNodeLine,
+  toLayoutNode,
+  type TreeFormatOptions,
+} from "./tree.ts";
+import { flattenVisibleTree } from "./generated/tree-layout.ts";
 
 /** Deterministic uuids whose first 8 chars are readable: uuid(1) renders as
  *  "00000001". */
@@ -444,5 +447,71 @@ test("a leaf matching no node renders no markers but keeps the cursor", () => {
   assert.equal(
     render(input),
     "00000001 user: hello\n" + `[cursor: ${uuid(9)}]\n`,
+  );
+});
+
+// --- picker filter -----------------------------------------------------------
+
+test("picker keeps user text, final assistants with text, boundaries, and the leaf", () => {
+  const thinking: SessionEntry = {
+    uuid: uuid(2),
+    type: "assistant",
+    message: {
+      role: "assistant",
+      id: "msg_1",
+      content: [{ type: "text", text: "draft" }],
+    },
+  };
+  const final: SessionEntry = {
+    uuid: uuid(3),
+    type: "assistant",
+    message: {
+      role: "assistant",
+      id: "msg_1",
+      content: [{ type: "text", text: "answer" }],
+    },
+  };
+  const toolResult: SessionEntry = {
+    uuid: uuid(4),
+    type: "user",
+    message: {
+      role: "user",
+      content: [{ type: "tool_result", tool_use_id: "t1", content: "ok" }],
+    },
+  };
+  const boundary: SessionEntry = {
+    uuid: uuid(5),
+    type: "system",
+    subtype: "compact_boundary",
+  };
+  const tree: SessionTree = {
+    tree: [
+      node(userEntry(uuid(1), "ask"), [
+        node(thinking, [node(final, [node(toolResult, [node(boundary)])])]),
+      ]),
+    ],
+    leaf: { uuid: uuid(4) },
+  };
+  const output = render(tree, { filter: "picker" });
+  // The non-final same-message.id assistant is hidden; the tool_result-only
+  // user survives only through the current-leaf exemption.
+  assert.ok(!output.includes("00000002"));
+  assert.ok(output.includes("00000001"));
+  assert.ok(output.includes("00000003"));
+  assert.ok(output.includes("00000004"));
+  assert.ok(output.includes("00000005"));
+});
+
+test("formatTreeNodeLine omitUuid drops the uuid column", () => {
+  const tree = [node(userEntry(uuid(1), "hello there"))];
+  const flat = flattenVisibleTree(tree.map(toLayoutNode), uuid(1), () => true);
+  const toolNames = new Map<string, string>();
+  assert.equal(
+    formatTreeNodeLine(flat[0]!, toolNames, 80),
+    "* 00000001 user: hello there",
+  );
+  assert.equal(
+    formatTreeNodeLine(flat[0]!, toolNames, 80, true),
+    "* user: hello there",
   );
 });

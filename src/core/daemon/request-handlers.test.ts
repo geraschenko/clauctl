@@ -17,7 +17,7 @@ import {
   type SDKUserMessage,
 } from "@anthropic-ai/claude-agent-sdk";
 import { INITIAL_AGENT_STATE } from "../agent-state.ts";
-import type { SessionTree } from "../build-tree.ts";
+import type { SessionTree } from "../tree.ts";
 import type { PersistedOptions } from "../options.ts";
 import {
   readSessionEntries,
@@ -390,7 +390,11 @@ test("get-entries returns every entry verbatim; get-tree builds the forest plus 
 test("get-tree leaf reflects a no-write rewind's filterTail override", async () => {
   const f = fixture();
   const { a1 } = linearSession(f);
-  await f.handle({ type: "set-context", rewindTo: a1.uuid, id: "c1" });
+  await f.handle({
+    type: "set-context",
+    rewindTo: { uuid: a1.uuid },
+    id: "c1",
+  });
   const tree = (await f.handle({ type: "get-tree", id: "t1" })) as SessionTree;
   assert.deepEqual(tree.leaf, { uuid: a1.uuid });
 });
@@ -432,7 +436,7 @@ test("set-context rejects delivered-but-unconfirmed prompts as busy", async () =
   );
 });
 
-test("set-context rejects unknown, duplicate, and empty uuid lists", async () => {
+test("set-context rejects unknown and duplicate uuid lists", async () => {
   const f = fixture();
   const { u1 } = linearSession(f);
   const stranger = uuid();
@@ -443,10 +447,6 @@ test("set-context rejects unknown, duplicate, and empty uuid lists", async () =>
   await assert.rejects(
     f.handle({ type: "set-context", uuids: [u1.uuid, u1.uuid], id: "c2" }),
     /duplicate/,
-  );
-  await assert.rejects(
-    f.handle({ type: "set-context", uuids: [], id: "c3" }),
-    /nothing to load/,
   );
   await assert.rejects(
     f.handle(
@@ -548,7 +548,7 @@ test("rewind on the active chain uses resumeSessionAt and mutates nothing", asyn
   const { u1, a1, u2, a2 } = linearSession(f);
   const result = await f.handle({
     type: "set-context",
-    rewindTo: a1.uuid,
+    rewindTo: { uuid: a1.uuid },
     id: "c1",
   });
   assert.deepEqual(result, {});
@@ -587,7 +587,7 @@ test("rewind to an abandoned branch appends a no-summary boundary", async () => 
 
   const result = (await f.handle({
     type: "set-context",
-    rewindTo: a2a.uuid,
+    rewindTo: { uuid: a2a.uuid },
     id: "c1",
   })) as { boundaryUuid: UUID; summaryUuid?: UUID };
   assert.equal(result.summaryUuid, undefined);
@@ -614,6 +614,50 @@ test("rewind to an abandoned branch appends a no-summary boundary", async () => 
   });
 });
 
+// A no-write rewind's context truth lives only in its filterTail override —
+// a boundary appended while that override is fresh must anchor its
+// logicalParentUuid at the rewound leaf, not the file's un-rewound chain
+// tip, or the logical-history path re-introduces the dropped tail.
+test("boundary appended after a no-write rewind anchors at the rewound leaf", async () => {
+  const f = fixture();
+  const { u1, a1, a2 } = linearSession(f);
+  await f.handle({
+    type: "set-context",
+    rewindTo: { uuid: a1.uuid },
+    id: "c1",
+  });
+  await f.handle({ type: "set-context", uuids: [u1.uuid, a1.uuid], id: "c2" });
+  const boundary = readSessionEntries(f.file).at(-1)!;
+  assert.equal(boundary.subtype, "compact_boundary");
+  assert.equal(boundary.logicalParentUuid, a1.uuid);
+  assert.notEqual(boundary.logicalParentUuid, a2.uuid);
+});
+
+test("abandoned-branch rewind after a no-write rewind anchors at the rewound leaf", async () => {
+  const f = fixture();
+  const sid = f.sessionId;
+  const u1 = userEntry(null, sid);
+  const a1 = assistantEntry(u1.uuid, sid);
+  const u2a = userEntry(a1.uuid, sid, "abandoned");
+  const a2a = assistantEntry(u2a.uuid, sid);
+  const u2b = userEntry(a1.uuid, sid, "active");
+  const a2b = assistantEntry(u2b.uuid, sid);
+  f.writeEntries([u1, a1, u2a, a2a, u2b, a2b]);
+  await f.handle({
+    type: "set-context",
+    rewindTo: { uuid: a1.uuid },
+    id: "c1",
+  });
+  await f.handle({
+    type: "set-context",
+    rewindTo: { uuid: a2a.uuid },
+    id: "c2",
+  });
+  const boundary = readSessionEntries(f.file).at(-1)!;
+  assert.equal(boundary.subtype, "compact_boundary");
+  assert.equal(boundary.logicalParentUuid, a1.uuid);
+});
+
 // Pins a characterized SDK divergence (see the verification comment in
 // set-context.ts): getSessionMessages reports the WRONG chain for a boundary
 // whose preserved-uuids tip predates another dangling leaf in file order,
@@ -632,7 +676,11 @@ test("KNOWN DIVERGENCE: raw getSessionMessages ignores a branch-switch boundary;
   const u2b = userEntry(a1.uuid, sid, "active");
   const a2b = assistantEntry(u2b.uuid, sid);
   f.writeEntries([u1, a1, u2a, a2a, u2b, a2b]);
-  await f.handle({ type: "set-context", rewindTo: a2a.uuid, id: "c1" });
+  await f.handle({
+    type: "set-context",
+    rewindTo: { uuid: a2a.uuid },
+    id: "c1",
+  });
 
   const raw = await getSessionMessages(sid, { dir: "/work/fixture" });
   assert.deepEqual(
@@ -794,7 +842,11 @@ test("rewind to a member of a boundary's preserved uuids resurrects the summariz
   // u1..a2 — not the boundary's [summary, u2, a2] view. resumeSessionAt would
   // keep the boundary (P9 c; see file comment), so this must go the
   // no-summary-boundary route.
-  await f.handle({ type: "set-context", rewindTo: a2.uuid, id: "c1" });
+  await f.handle({
+    type: "set-context",
+    rewindTo: { uuid: a2.uuid },
+    id: "c1",
+  });
   const entries = readSessionEntries(f.file);
   assert.equal(entries.length, 7);
   const metadata = entries[6]!.compactMetadata as {
@@ -817,20 +869,28 @@ test("rewind validates the target: present, assistant, final API-message entry",
   f.writeEntries([u1, thinking, text]);
 
   await assert.rejects(
-    f.handle({ type: "set-context", rewindTo: uuid(), id: "c1" }),
+    f.handle({ type: "set-context", rewindTo: { uuid: uuid() }, id: "c1" }),
     /not in the session file/,
   );
   await assert.rejects(
-    f.handle({ type: "set-context", rewindTo: u1.uuid, id: "c2" }),
+    f.handle({ type: "set-context", rewindTo: { uuid: u1.uuid }, id: "c2" }),
     /must be an assistant entry/,
   );
   await assert.rejects(
-    f.handle({ type: "set-context", rewindTo: thinking.uuid, id: "c3" }),
+    f.handle({
+      type: "set-context",
+      rewindTo: { uuid: thinking.uuid },
+      id: "c3",
+    }),
     /FINAL transcript entry/,
   );
   assert.equal(f.teardowns, 0);
   // The final sibling is a valid target.
-  await f.handle({ type: "set-context", rewindTo: text.uuid, id: "c4" });
+  await f.handle({
+    type: "set-context",
+    rewindTo: { uuid: text.uuid },
+    id: "c4",
+  });
   assert.deepEqual(f.restarts, [{ resume: sid, at: text.uuid }]);
 });
 
@@ -845,7 +905,7 @@ test("while a context change is in flight, Query-bound requests error and reads 
   const { a1 } = linearSession(f);
   const setContext = f.handle({
     type: "set-context",
-    rewindTo: a1.uuid,
+    rewindTo: { uuid: a1.uuid },
     id: "c1",
   });
   await new Promise((resolve) => setImmediate(resolve));
@@ -856,7 +916,7 @@ test("while a context change is in flight, Query-bound requests error and reads 
     /context change in progress/,
   );
   await assert.rejects(
-    f.handle({ type: "set-context", rewindTo: a1.uuid, id: "c2" }),
+    f.handle({ type: "set-context", rewindTo: { uuid: a1.uuid }, id: "c2" }),
     /context change in progress/,
   );
   let entriesResolved = false;
@@ -886,7 +946,7 @@ test("set-context drains in-flight Query operations before teardown", async () =
   await new Promise((resolve) => setImmediate(resolve));
   const setContext = f.handle({
     type: "set-context",
-    rewindTo: a1.uuid,
+    rewindTo: { uuid: a1.uuid },
     id: "c1",
   });
   await new Promise((resolve) => setImmediate(resolve));
@@ -937,7 +997,11 @@ test("restart failure leaves the daemon query-unavailable until a set-context su
   );
   // A subsequent set-context reconstructs the Query.
   failRestart = false;
-  await f.handle({ type: "set-context", rewindTo: a1.uuid, id: "c2" });
+  await f.handle({
+    type: "set-context",
+    rewindTo: { uuid: a1.uuid },
+    id: "c2",
+  });
   await f.handle({ type: "query", content: "hi", id: "q2" });
   assert.equal(f.pushed.length, 1);
 });
@@ -945,7 +1009,11 @@ test("restart failure leaves the daemon query-unavailable until a set-context su
 test("a later durable boundary clears the superseded-tail filter", async () => {
   const f = fixture();
   const { u1, a1, u2, a2 } = linearSession(f);
-  await f.handle({ type: "set-context", rewindTo: a1.uuid, id: "c1" });
+  await f.handle({
+    type: "set-context",
+    rewindTo: { uuid: a1.uuid },
+    id: "c1",
+  });
   // Now a boundary listing the full chain: the file carries the truth again.
   await f.handle({
     type: "set-context",
@@ -962,4 +1030,168 @@ test("a later durable boundary clears the superseded-tail filter", async () => {
     messages.map((message) => message.uuid),
     [u1.uuid, a1.uuid, u2.uuid, a2.uuid],
   );
+});
+
+// The contextChanged.leaf invariant: the event carries exactly the leaf a
+// post-change get-tree reports (the empty and viaBoundary paths are pinned
+// in their own tests below).
+test("contextChanged.leaf equals the post-change get-tree leaf (append and no-write rewind)", async () => {
+  const lastContextChanged = (f: Fixture) =>
+    f.emitted.findLast(
+      (event): event is Extract<SdkEvent, { kind: "contextChanged" }> =>
+        event.kind === "contextChanged",
+    )!;
+
+  const appendFixture = fixture();
+  const { u2, a2 } = linearSession(appendFixture);
+  await appendFixture.handle({
+    type: "set-context",
+    uuids: [u2.uuid, a2.uuid],
+    id: "c1",
+  });
+  const appendTree = (await appendFixture.handle({
+    type: "get-tree",
+    id: "g1",
+  })) as SessionTree;
+  const appendEvent = lastContextChanged(appendFixture);
+  assert.notEqual(appendEvent.leaf, null);
+  assert.notEqual(appendEvent.leaf!.viaBoundary, undefined);
+  assert.deepEqual(appendEvent.leaf, appendTree.leaf);
+
+  const rewindFixture = fixture();
+  const { a1 } = linearSession(rewindFixture);
+  await rewindFixture.handle({
+    type: "set-context",
+    rewindTo: { uuid: a1.uuid },
+    id: "c1",
+  });
+  const rewindTree = (await rewindFixture.handle({
+    type: "get-tree",
+    id: "g1",
+  })) as SessionTree;
+  const rewindEvent = lastContextChanged(rewindFixture);
+  assert.deepEqual(rewindEvent.leaf, { uuid: a1.uuid });
+  assert.deepEqual(rewindEvent.leaf, rewindTree.leaf);
+});
+
+// --- occurrence-aware rewind (rewindTo.viaBoundary) --------------------------
+
+test("viaBoundary rewind to a prefix of the active chain takes the no-write path", async () => {
+  const f = fixture();
+  const { u1, a1 } = linearSession(f);
+  const boundary = boundaryEntry({
+    sessionId: f.sessionId,
+    uuids: [u1.uuid, a1.uuid],
+    anchor: "own",
+  });
+  const entries = [...readSessionEntries(f.file), boundary];
+  f.writeEntries(entries);
+
+  await f.handle({
+    type: "set-context",
+    rewindTo: { uuid: a1.uuid, viaBoundary: boundary.uuid },
+    id: "c1",
+  });
+  // No file mutation; resumeSessionAt into the preserved member (P9 c).
+  assert.equal(readSessionEntries(f.file).length, entries.length);
+  assert.deepEqual(f.restarts, [{ resume: f.sessionId, at: a1.uuid }]);
+  const event = f.emitted.findLast(
+    (candidate): candidate is Extract<SdkEvent, { kind: "contextChanged" }> =>
+      candidate.kind === "contextChanged",
+  )!;
+  assert.deepEqual(event.leaf, { uuid: a1.uuid, viaBoundary: boundary.uuid });
+  const tree = (await f.handle({ type: "get-tree", id: "g1" })) as SessionTree;
+  assert.deepEqual(tree.leaf, event.leaf);
+});
+
+test("viaBoundary rewind into a superseded boundary's chain appends a prefix boundary", async () => {
+  const f = fixture();
+  const { u1, a1, u2, a2 } = linearSession(f);
+  const first = boundaryEntry({
+    sessionId: f.sessionId,
+    uuids: [u1.uuid, a1.uuid],
+    anchor: "own",
+  });
+  const second = boundaryEntry({
+    sessionId: f.sessionId,
+    uuids: [u2.uuid, a2.uuid],
+    anchor: "own",
+  });
+  // Stacked boundaries: the second wins entirely, abandoning the first's
+  // chain (P3 m5) — a pick inside the first cannot resume, so it appends.
+  f.writeEntries([u1, a1, u2, a2, first, second]);
+
+  await f.handle({
+    type: "set-context",
+    rewindTo: { uuid: a1.uuid, viaBoundary: first.uuid },
+    id: "c1",
+  });
+  const entries = readSessionEntries(f.file);
+  const appended = entries.at(-1)!;
+  assert.equal(appended.subtype, "compact_boundary");
+  assert.deepEqual(
+    (appended.compactMetadata as { preservedMessages: { uuids: string[] } })
+      .preservedMessages.uuids,
+    [u1.uuid, a1.uuid],
+  );
+  const event = f.emitted.findLast(
+    (candidate): candidate is Extract<SdkEvent, { kind: "contextChanged" }> =>
+      candidate.kind === "contextChanged",
+  )!;
+  assert.deepEqual(event.leaf, { uuid: a1.uuid, viaBoundary: appended.uuid });
+  const tree = (await f.handle({ type: "get-tree", id: "g1" })) as SessionTree;
+  assert.deepEqual(tree.leaf, event.leaf);
+});
+
+test("viaBoundary rewind validates the boundary and the chain membership", async () => {
+  const f = fixture();
+  const { u1, a1, u2, a2 } = linearSession(f);
+  const boundary = boundaryEntry({
+    sessionId: f.sessionId,
+    uuids: [u2.uuid, a2.uuid],
+    anchor: "own",
+  });
+  f.writeEntries([u1, a1, u2, a2, boundary]);
+  await assert.rejects(
+    f.handle({
+      type: "set-context",
+      rewindTo: { uuid: a2.uuid, viaBoundary: u1.uuid },
+      id: "c1",
+    }),
+    /does not name a compact_boundary entry/,
+  );
+  await assert.rejects(
+    f.handle({
+      type: "set-context",
+      // a1 is in the file but not on the chain this boundary installed.
+      rewindTo: { uuid: a1.uuid, viaBoundary: boundary.uuid },
+      id: "c2",
+    }),
+    /not on the context chain installed by boundary/,
+  );
+  assert.equal(f.teardowns, 0);
+});
+
+// --- empty context (uuids: []) ----------------------------------------------
+
+test("empty-uuids set-context appends a keep-nothing boundary; contextChanged carries leaf null", async () => {
+  const f = fixture();
+  linearSession(f);
+  await f.handle({ type: "set-context", uuids: [], id: "c1" });
+  const appended = readSessionEntries(f.file).at(-1)!;
+  assert.equal(appended.subtype, "compact_boundary");
+  assert.deepEqual(
+    (appended.compactMetadata as { preservedMessages: { uuids: string[] } })
+      .preservedMessages.uuids,
+    [],
+  );
+  const event = f.emitted.findLast(
+    (candidate): candidate is Extract<SdkEvent, { kind: "contextChanged" }> =>
+      candidate.kind === "contextChanged",
+  )!;
+  assert.equal(event.leaf, null);
+  const tree = (await f.handle({ type: "get-tree", id: "g1" })) as SessionTree;
+  assert.equal(tree.leaf, null);
+  // The synthesize override serves the (empty) chain.
+  assert.deepEqual(await f.handle({ type: "get-messages", id: "g2" }), []);
 });

@@ -53,7 +53,7 @@ their own rows).
   the release-dedupe set below: it separates path-vs-buffer duplication
   (a bug) from path-internal duplication (the honest display).
 - `AgentState.lastTranscriptUuid` becomes `leafTreeNodeRef?: TreeNodeRef` —
-  the current leaf *occurrence* of the session tree. Stream user/assistant
+  the current leaf _occurrence_ of the session tree. Stream user/assistant
   messages fold it as a raw ref (`{uuid}`, today's semantics); a
   `contextChanged` event now carries the new leaf (`leaf: TreeNodeRef |
   null`, the file-truth effective tip; `null` after an empty-context reset
@@ -68,20 +68,22 @@ their own rows).
   synchronous, so an unset leaf (or `--empty`) has nothing to wait for. This
   closes the FILE-LAG race: the snapshot leaf's backing entry is always in
   the fetched tree. It does not guarantee the snapshot leaf is on the
-  fetched *path* — a context change between snapshot and read moves the
+  fetched _path_ — a context change between snapshot and read moves the
   leaf; that case resolves through the buffered `contextChanged` (next
   bullet's warning suppression + the follow-up reload it triggers).
 - Attach and redraw share one load path, cut at the leaf occurrence
   (`pathUpToBoundary(path, leaf)`, the path-based replacement for
-  `historyUpToBoundary`; exact uuid+viaBoundary match). Only *raw*
-  occurrences after the match are dropped — those are the entries that
-  arrive as live events; `viaBoundary` occurrences always replay (relinked
-  entries never stream), so attaching right after a native compaction does
-  not truncate the preserved substructure that follows the raw summary node
-  on the path — with one carve-out: a post-cut boundary (and its summary)
-  whose `viaBoundary` descendants are retained replays too, as a complete
-  structural segment in path order (boundary, summary, relinked nodes), so
-  the banner always precedes its installed-context segment; the buffered
+  `historyUpToBoundary`; exact uuid+viaBoundary match). Only _ordinary raw_
+  occurrences after the match are dropped — those are the entries whose
+  live events render them; `viaBoundary` occurrences always replay
+  (relinked entries never stream), so attaching right after a native
+  compaction does not truncate the preserved substructure that follows the
+  raw summary node on the path. Post-cut boundaries and their raw summaries
+  always replay too, as a complete structural segment in path order
+  (boundary, summary, relinked nodes), so the banner always precedes its
+  installed-context segment — and because a summary's live `user` event
+  renders no text (the sdkMessage user case only resolves tool results),
+  replay is the only way its text appears; the buffered
   `compact_boundary`/summary events for it release-dedupe by uuid like any
   other replayed entry. A missing leaf match replays everything; the warning is
   emitted only when NO buffered `contextChanged` is pending — a pending one
@@ -97,7 +99,13 @@ their own rows).
   deduped uuid). The flush-synced read may include entries newer than the
   snapshot leaf, which are also in the buffer. (A dequeue-rendered prompt
   racing into the tree read has no uuid to dedupe on — accepted, same class
-  as the attach-time missing-boundary window.)
+  as the attach-time missing-boundary window.) Replayed boundary BANNERS
+  additionally dedupe one-shot beyond the release loop: stream-before-file
+  ordering is the codebase's working assumption but unproven for native
+  compaction events, so a banner event arriving after release consumes a
+  persistent per-uuid entry instead of rendering a second banner (only
+  banners need this — post-cut ordinary raw entries never replay, and a
+  replayed summary's live user event renders nothing).
 - Attach race semantics otherwise unchanged: delivered-but-unconfirmed
   prompts append after the replayed path; buffered live events release
   afterwards.
@@ -109,12 +117,12 @@ their own rows).
 - Intercepted locally like `/model` (exact first token `/tree`, no argument)
   and listed in the autocomplete `LOCAL_COMMANDS`.
 - Opens a `TreeSelectorComponent` over the `get-tree` response (statusContainer
-  + focus, like the model selector; `get-tree` failure → error banner, no
-  selector). Modeled on pi's `TreeSelectorComponent`, with rows rendered as
-  `clauctl format tree` renders them (`flattenVisibleTree` +
-  `formatTreeNodeLine`) minus the entry uuids (useful for copy-paste in the
-  CLI, distracting in a picker; `formatTreeNodeLine` gains an `omitUuid`
-  option) plus a selection highlight — shared code, not a copy.
+  - focus, like the model selector; `get-tree` failure → error banner, no
+    selector). Modeled on pi's `TreeSelectorComponent`, with rows rendered as
+    `clauctl format tree` renders them (`flattenVisibleTree` +
+    `formatTreeNodeLine`) minus the entry uuids (useful for copy-paste in the
+    CLI, distracting in a picker; `formatTreeNodeLine` gains an `omitUuid`
+    option) plus a selection highlight — shared code, not a copy.
 - **Fixed visibility filter** (no filter cycling): user entries with text,
   final assistant entries (`isFinalAssistantEntry`) with text,
   `compact_boundary` markers, and the current leaf unconditionally.
@@ -161,7 +169,7 @@ their own rows).
 ### Occurrence-aware rewind (`rewindTo: TreeNodeRef`)
 
 The set-context rewind target becomes a `TreeNodeRef` (`{uuid, viaBoundary?}`)
-— picking a message *within* a boundary's relinked context must rewind within
+— picking a message _within_ a boundary's relinked context must rewind within
 that boundary's chain, not to the raw file position (which would silently undo
 the compaction).
 
@@ -181,10 +189,10 @@ the compaction).
   look wrong: the new message would appear to continue the old branch as if
   the boundary didn't exist. That is exactly what boundary substructure
   fixes: the relink overwrites buildTree's uuid→node map, so the
-  post-boundary write attaches to the *relinked occurrence* under the
+  post-boundary write attaches to the _relinked occurrence_ under the
   boundary, not the raw node ("post-boundary entries and later boundaries'
   anchors land on relinked nodes").
-- For an up_to-shaped original boundary the effective chain *starts* with
+- For an up_to-shaped original boundary the effective chain _starts_ with
   its summary entry, so any non-empty prefix includes the old summary's
   uuid as its first element — the new boundary's preserved list re-lists
   the old summary entry (P9 b verified exactly this). The appended boundary
@@ -275,6 +283,7 @@ optional uuid `viaBoundary`; empty `uuids` arrays pass. The `contextChanged`
 event gains `leaf: TreeNodeRef | null`, defined per path as the value
 get-tree's leaf computation reports after the change (that equality is the
 invariant a test pins):
+
 - boundary append (and restart/verification failure after a durable
   append): the tip of `effectiveTreeNodeChain` over the re-read file;
 - empty boundary: `null`;
@@ -437,7 +446,7 @@ interception + `openTreeSelector()`; busy-gated confirm; `Editor.setText` for
   which the concurrent redraw clears) and persists until the selector
   closes. The selector stays open with its now-stale tree (not
   auto-refreshed or closed); the transcript redraw proceeds underneath. A
-  stale pick cannot *dangle* (the file is append-only) and the daemon
+  stale pick cannot _dangle_ (the file is append-only) and the daemon
   re-validates it regardless; the warning lets the user cancel or pick
   differently in light of the change.
 - `effectiveChain` of a file ending in a bare empty-uuids boundary is `[]`
@@ -462,7 +471,7 @@ interception + `openTreeSelector()`; busy-gated confirm; `Editor.setText` for
 - Prefix-accepting uuids in `--rewind-to` (full uuids only, as elsewhere).
 - Refining the boundary-crossing user-pick semantics (compaction undo is
   accepted for now).
-- Any change to `get-messages` *response semantics*: it tells the caller
+- Any change to `get-messages` _response semantics_: it tells the caller
   exactly which messages are in the assistant's _current_ context, which
   remains important; the TUI just stops using it for transcript rendering.
   (This spec does flush-gate its read and move the per-entry mapping — the
@@ -634,3 +643,169 @@ encountered.
   path order and release-deduping the buffered boundary event by uuid.
   Reviewer confirmed path-internal duplication otherwise introduces no
   streaming-component or dedupe problem.
+- 2026-07-18 (implementation, session 1): increments 1–5 of 7 done, all
+  green (`npm run check` + 293 tests) after each increment; presubmit/lint
+  not yet run. Completed:
+  1. `src/core/tree.ts` — TreeNodeRef/TreeNode/SessionTree moved (importers
+     updated incl. tests), formatTreeNodeRef/parseTreeNodeRef/
+     treeNodeRefsEqual/pathToLeaf/isFinalAssistantEntry + tree.test.ts;
+     format/tree.ts layoutId deleted in favor of formatTreeNodeRef.
+  2. leafTreeNodeRef migration: AgentState field + fold (raw refs from
+     stream messages, contextChanged leaf, null unsets, conversation_reset
+     clears); contextChanged event carries `leaf: TreeNodeRef | null`;
+     set-context computes it per path (`changedLeaf` set before restart;
+     handleRewind gets a `setChangedLeaf` context callback);
+     GetMessagesOverride.installedAtLeaf: TreeNodeRef pinned to the
+     POST-change leaf; freshOverride uses treeNodeRefsEqual; seedFromEntries
+     derives the last user/assistant chain REF (viaBoundary preserved);
+     get-entries/get-tree/set-context flush waits key on viaBoundary ?? uuid.
+     Tests: fold cases, leaf-invariant vs get-tree (append + no-write),
+     trailing-system-entry seed, viaBoundary seed occurrence.
+  3. get-messages flush gate (waitForEntryOnDisk before BOTH response
+     paths); entryToSessionMessage + SessionMessageOnWire moved to
+     session-file.ts; synthesizeMessages(entries, chain) takes pre-read
+     entries. entryToSessionMessage unit test.
+  4. Occurrence-aware rewind + empty context: wire rewindTo is a
+     {uuid, viaBoundary?} object (parse validates; old string form
+     rejected); handleRewind computes desired per flavor (viaBoundary:
+     truncate after the boundary's block — summary if present — one
+     effectiveChain call; errors for non-boundary viaBoundary and
+     off-chain uuid); empty-uuids daemon guard removed; CLI --rewind-to
+     parses `<uuid>[@<via>]`, new --empty flag with exclusivity, bare
+     usage error lists --empty. Tests: viaBoundary no-write/prefix-boundary/
+     validation, empty context (leaf null, get-tree null, get-messages []),
+     bare-empty-boundary chain = [] pin, parse cases. format events
+     contextChanged test now expects the JSON fallback (truncated at 80).
+  5. format/tree.ts: exports entrySummary/collectToolNames/toLayoutNode/
+     passesFilter/formatTreeNodeLine; passesFilter(entry, isCurrentLeaf,
+     isFinal, filter); FILTER_MODES + "picker"; formatTreeNodeLine
+     omitUuid; NEW helper `collectFinalAssistantIds(tree): Set<string>`
+     (layout ids of final assistant occurrences — exported so the selector
+     reuses the same walk instead of duplicating it; extension beyond the
+     pinned export list). Picker + omitUuid tests.
+     Remaining: increment 6 (TUI history: pathUpToBoundary + carve-out,
+     reloadHistory, contextChanged redraw, release dedupe incl. stream_event —
+     verified SDKPartialAssistantMessage carries `uuid`), increment 7 (/tree
+     selector), then work-log/presubmit/review. Note: interactive-mode.ts
+     loadHistory currently passes `seedState.leafTreeNodeRef?.uuid` into the
+     old get-messages cut as a TRANSITIONAL shim — increment 6 replaces it.
+     Everything is uncommitted on `format` (Anton has not asked for commits).
+- 2026-07-18 (implementation, session 2): increments 6–7 done; presubmit
+  green (check + eslint + treefmt + 311 tests). Completed:
+  6. TUI history: `pathUpToBoundary(path, leaf)` in sdk-render.ts replaces
+  the deleted `historyUpToBoundary` AND `historyToSdkMessages` (its one
+  other caller was the deleted loadHistory; format/messages.ts's comment
+  reference updated). Occurrence-exact cut; raw-only drop after the
+  match; the carve-out keeps a post-cut boundary + its summary
+  (`isCompactSummary && parentUuid ∈ kept`) when relinked descendants
+  are retained, and drops a fully-raw post-cut compaction (arrives as
+  live events). interactive-mode: `reloadHistory()` (clears transcript
+  state, re-arms the buffer synchronously, get-tree → pathToLeaf → cut
+  at `agentState.leafTreeNodeRef`, renders via `renderPathNode` —
+  boundary banner or entryToSessionMessage → userText/handleSdkMessage —
+  then delivered prompts from `agentState.deliveredMessages`, warning
+  only if boundaryMissing with no buffered contextChanged, then release
+  with `replayedUuids` set and cleared in a finally); constructor and a
+  new `contextChanged` case both call it; the transitional shim is gone.
+  Release dedupe sits at the top of handleSdkMessage: user/assistant/
+  stream_event/system-compact_boundary messages whose uuid is in
+  `replayedUuids` fold but render nothing. sdk-render tests replaced
+  with 6 pathUpToBoundary tests (occurrence match, raw drop, carve-out
+  order, boundary-without-relinks drop, undefined leaf, missing leaf).
+  7. /tree: `src/tui/components/tree-selector.ts` — `resolveTreePick`
+  (pathToLeaf to the pick + backwards assistant walk; editorText from
+  extractTextContent, omitted when empty) and `TreeSelectorComponent`
+  (render(width) override: header, windowed rows via the shared
+  flattenVisibleTree + formatTreeNodeLine omitUuid, inverse-video
+  selection — theme gains an `inverse` helper — search line, persistent
+  setWarning line, "(no matching entries)"; handleInput: up/down wrap,
+  page keys, enter → parseTreeNodeRef(row id), escape clears search
+  then cancels, backspace, printable chars append; selection recovery
+  via nearest visible ancestor over a full-tree parent map).
+  interactive-mode: `/tree` first-token interception, openTreeSelector
+  (get-tree → selector in statusContainer + focus; pending guard like
+  /model), confirmTreePick (busy → hint "cannot navigate tree while
+  assistant is busy", selector stays open; else resolveTreePick →
+  set-context rewindTo / uuids: [] — close, prefill editorText on
+  success, error banner on rejection), contextChanged sets the
+  selector's warning, global-escape interrupt suppressed while open.
+  autocomplete LOCAL_COMMANDS + `/tree` (3 test expectations updated).
+  Tests: 6 resolveTreePick + 9 selector tests (row parity with the
+  picker filter incl. relinked occurrence rows, leaf pre-selection,
+  enter ref recovery, wrap navigation, search + ancestor selection
+  recovery, backspace, escape semantics, zero-row, warning
+  persistence).
+  Remaining: Anton's review; the manual E2E pass (criteria 1, 4, 6 —
+  scripted daemon + two attached TUIs + CLI set-context + /tree picks) has
+  NOT been run: it needs a live agent session. Everything remains
+  uncommitted on `format`.
+
+- 2026-07-18 (post-implementation reviewer round): the pictl reviewer read
+  the working tree against the spec. Adopted: (HC1) the carve-out's
+  "post-cut boundary with no retained relinks stays dropped" lost the
+  compaction summary — a summary's live `user` event renders no text (the
+  sdkMessage user case only resolves tool results), so the summary would
+  vanish until the next reload. Post-cut boundaries and raw summaries now
+  ALWAYS replay (SPEC bullet updated; buffered banner/summary events
+  release-dedupe by uuid; a pre-subscribe event is never delivered, so no
+  double render either way); pathUpToBoundary simplified accordingly, test
+  flipped. Also adopted: the release-dedupe predicate extracted as
+  `releaseDedupeUuid` in sdk-render.ts (pure, unit-tested — the cheap seam
+  for the otherwise untestable dedupe). Reviewer's verdict on the
+  untested TUI orchestration paths: acceptable with the extracted
+  predicate + the manual E2E before merge; a replay-buffer coordinator
+  refactor was explicitly not required. Speculative notes (not acted on):
+  contextChanged during a pending /tree fetch shows no warning when the
+  selector then opens; a system-entry current leaf is pickable via the
+  unconditional exemption (leaf eligibility makes this unreachable in
+  practice).
+- 2026-07-18 (reviewer round 2, both blockers adopted): (1) the always-
+  replay reasoning leaned on unproven stream-before-file ordering for
+  native compaction events — a banner event arriving AFTER release (once
+  replayedUuids is cleared) would render a second banner. Fixed with a
+  persistent one-shot `replayedBoundaryUuids` set in interactive-mode:
+  populated per replayed banner, consumed by a buffered dedupe hit or by a
+  late compact_boundary event (which then renders nothing once); cleared at
+  each reload; daemon boundaries emit no event so their entries just
+  linger, bounded by the current path. SPEC dedupe bullet updated. (2) HC2
+  reclassified from escalate-to-Anton to in-scope: the reviewer showed it
+  is reachable through /tree alone (rewind, then immediately rewind to an
+  abandoned branch, no turn between), a user-visible violation of this
+  spec's history semantics. Fixed narrowly: `SetContextShared` gains
+  `freshOverride()` (the request-handlers closure, reused), and both
+  boundary-append sites anchor `logicalParentUuid` at a fresh filterTail
+  override's `installedAtLeaf.uuid` when one is active, else the file
+  chain tip as before — trailing-system-entry anchoring is unchanged. Two
+  regression tests (uuids-mode and abandoned-branch-rewind after a
+  no-write rewind). Presubmit green, 314 tests. Anton: this daemon change
+  went beyond the spec's pinned type design on reviewer insistence —
+  please double-check the anchoring rule.
+
+### Implementation-Time Decisions
+
+- **`collectFinalAssistantIds` exported from format/tree.ts** (beyond the
+  pinned export list): the picker filter needs per-node `isFinal` and both
+  formatSessionTree and the selector need the same tree walk; exporting the
+  walk beats duplicating it. Alternative (computing it inside the selector)
+  rejected as a copy.
+- **`theme.inverse` helper**: the selection highlight needs inverse video;
+  the theme module already holds the bold/italic/underline SGR helpers, so
+  the highlight lives there rather than as a raw escape in the selector.
+- **Release-dedupe placement**: the uuid-skip sits at the top of
+  `handleSdkMessage` (not in the release loop) so replay and release share
+  one dispatch path; it is inert outside release because `replayedUuids` is
+  only nonempty during the release loop (set before, cleared in a finally).
+  A buffered `contextChanged` re-entering `reloadHistory` mid-release is
+  safe: its synchronous prefix re-arms the buffer, so the rest of the outer
+  release feeds the follow-up reload instead of rendering.
+- **`renderPathNode` records only rendered uuids**: nodes that
+  `entryToSessionMessage` drops (isMeta, sidechain, non-boundary system)
+  add nothing to `replayedUuids` — the dedupe predicate is narrowed to the
+  four renderable kinds instead, so an unreplayed system event (e.g.
+  local_command_output) can never be swallowed by a uuid collision.
+- **`/tree` interception matches the first token** (`/^\/tree(\s|$)/`) and
+  ignores any argument, mirroring the `/model` token rule; the command
+  takes no argument so there is nothing to parse.
+- **`resolveTreePick` on an unresolvable pick** (pathToLeaf returns []) falls
+  through to `newRoot` — unreachable from the selector (picks come from the
+  rendered tree) and total per the spec; no throw path.

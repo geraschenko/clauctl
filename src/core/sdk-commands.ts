@@ -40,6 +40,7 @@ import {
   type SdkRequest,
   type SetContextRequest,
 } from "./sdk-socket.ts";
+import { parseTreeNodeRef } from "./tree.ts";
 import { oneOf, UsageError } from "./generated/util.ts";
 
 const SOCKET_CONNECT_DEADLINE_MS = 5_000;
@@ -376,9 +377,10 @@ const setContextFlags = {
     ["summary", "boundary"] as const,
   ),
   rewindTo: stringFlag(
-    "Rewind to this assistant message uuid (mutually exclusive with uuids)",
-    "uuid",
+    "Rewind to this tree node — <uuid> or <uuid>@<boundary-uuid> for an occurrence inside that boundary's context (mutually exclusive with uuids)",
+    "node-ref",
   ),
+  empty: booleanFlag("Reset the context to empty (keep no messages)"),
 };
 
 type SetContextFlags = InferFlags<typeof setContextFlags>;
@@ -395,28 +397,45 @@ async function setContext(
     flags.rewindTo !== undefined &&
     (uuids.length > 0 ||
       flags.summary !== undefined ||
-      flags.anchor !== undefined)
+      flags.anchor !== undefined ||
+      flags.empty)
   ) {
     throw new UsageError(
-      "--rewind-to is mutually exclusive with uuids/--summary/--anchor",
+      "--rewind-to is mutually exclusive with uuids/--summary/--anchor/--empty",
     );
   }
   if (
+    flags.empty &&
+    (uuids.length > 0 ||
+      flags.summary !== undefined ||
+      flags.anchor !== undefined)
+  ) {
+    // Summary-only context is already expressible via --summary alone.
+    throw new UsageError(
+      "--empty is mutually exclusive with uuids/--summary/--anchor/--rewind-to",
+    );
+  }
+  if (
+    !flags.empty &&
     flags.rewindTo === undefined &&
     uuids.length === 0 &&
     flags.summary === undefined
   ) {
     // --summary alone is valid: empty uuids + a summary is the deliberate
-    // summary-only context (the boundary preserves nothing).
-    throw new UsageError("expected message uuids, --summary, or --rewind-to");
+    // summary-only context (the boundary preserves nothing). --empty is the
+    // only way to send an empty list with no summary — the wire accepts it,
+    // but a bare invocation is more likely a fat-finger than a reset.
+    throw new UsageError(
+      "expected message uuids, --summary, --rewind-to, or --empty",
+    );
   }
   let request: SetContextRequest;
   try {
     request = parseSetContextRequest(
       flags.rewindTo !== undefined
-        ? { rewindTo: flags.rewindTo }
+        ? { rewindTo: parseTreeNodeRef(flags.rewindTo) }
         : {
-            uuids,
+            uuids: flags.empty ? [] : uuids,
             ...(flags.summary !== undefined && { summaryText: flags.summary }),
             ...(flags.anchor !== undefined && { anchor: flags.anchor }),
           },

@@ -7,6 +7,7 @@ import { test } from "node:test";
 import {
   appendSessionEntries,
   buildBoundaryEntries,
+  entryToSessionMessage,
   projectKey,
   readSessionEntries,
   sessionFilePath,
@@ -185,4 +186,43 @@ test("waitForEntryOnDisk rejects on timeout", async () => {
   const file = join(mkdtempSync(join(tmpdir(), "clauctl-sf-")), "s.jsonl");
   writeFileSync(file, `${JSON.stringify({ uuid: uuid() })}\n`);
   await assert.rejects(waitForEntryOnDisk(file, uuid(), 50), /did not appear/);
+});
+
+test("entryToSessionMessage maps user/assistant entries and drops the rest", () => {
+  const entryUuid = uuid();
+  const sid = uuid();
+  const entry = {
+    uuid: entryUuid,
+    parentUuid: null,
+    type: "user",
+    sessionId: sid,
+    message: { role: "user", content: "hi" },
+    timestamp: "2026-07-18T00:00:00.000Z",
+  };
+  assert.deepEqual(entryToSessionMessage(entry), {
+    type: "user",
+    uuid: entryUuid,
+    session_id: sid,
+    message: { role: "user", content: "hi" },
+    parent_tool_use_id: null,
+    parent_agent_id: null,
+    timestamp: "2026-07-18T00:00:00.000Z",
+  });
+  assert.equal(
+    entryToSessionMessage({ uuid: uuid(), type: "system" }),
+    undefined,
+  );
+  assert.equal(
+    entryToSessionMessage({ uuid: uuid(), type: "user", isMeta: true }),
+    undefined,
+  );
+  assert.equal(
+    entryToSessionMessage({
+      uuid: uuid(),
+      type: "assistant",
+      isSidechain: true,
+    }),
+    undefined,
+  );
+  assert.equal(entryToSessionMessage({ type: "user" }), undefined);
 });

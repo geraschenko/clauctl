@@ -165,13 +165,16 @@ test("contextChanged renders a request one-liner", () => {
       kind: "contextChanged",
       request: {
         type: "set-context",
-        rewindTo: "28972c69-9dd5-4524-bb56-d8aaeb982094",
+        rewindTo: { uuid: "28972c69-9dd5-4524-bb56-d8aaeb982094" },
       },
+      leaf: null,
     }),
   ]);
+  // rewindTo is structured, so the annotation takes the JSON fallback (and
+  // the 80-char annotation truncation).
   assert.equal(
     output,
-    "[context changed: set-context 28972c69-9dd5-4524-bb56-d8aaeb982094]\n",
+    '[context changed: set-context {"rewindTo":{"uuid":"28972c69-9dd5-4524-bb56-d8aae…]\n',
   );
 });
 

@@ -10,31 +10,9 @@ import {
   validRelink,
   type BoundaryRelink,
   type OnInvalid,
-  type TreeNodeRef,
 } from "./effective-chain.ts";
 import type { SessionEntry } from "./session-file.ts";
-
-export interface TreeNode {
-  /** The entry, embedded verbatim. Entries lacking a uuid
-   *  (file-history-snapshot, queue-operation) get no tree node and are
-   *  visible via get-entries only. Relinked nodes (boundary substructure)
-   *  serialize their payload once per node — accepted for a self-contained
-   *  format input. */
-  entry: SessionEntry;
-  children: TreeNode[];
-  /** Set when the edge to this node's parent comes from a boundary relink
-   *  rather than the entry's raw parentUuid. */
-  viaBoundary?: UUID;
-}
-
-export interface SessionTree {
-  tree: TreeNode[];
-  /** The current-leaf tree node — where the next turn attaches. The tip of
-   *  the current effective context, daemon-computed (effectiveTreeNodeChain
-   *  minus a live filterTail override). Null when the session has no chain
-   *  entries. */
-  leaf: TreeNodeRef | null;
-}
+import type { TreeNode } from "./tree.ts";
 
 /**
  * Raw parentUuid edges give the base forest; each boundary node is attached

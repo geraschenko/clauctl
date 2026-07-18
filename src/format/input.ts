@@ -4,7 +4,7 @@
  * output, so a swapped pipe is a one-line fix instead of silence.
  */
 
-import type { SessionTree } from "../core/build-tree.ts";
+import type { SessionTree } from "../core/tree.ts";
 import { parseJsonlInput } from "../core/generated/read-input.ts";
 import { UsageError } from "../core/generated/util.ts";
 import type { SessionEntry } from "../core/session-file.ts";

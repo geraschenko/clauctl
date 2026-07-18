@@ -272,7 +272,7 @@ test("conversation_reset switches history state and preserves queued work", () =
     activity: "working",
     sessionId: "old-session",
     lastUsage: oldUsage,
-    lastTranscriptUuid: "old-leaf",
+    leafTreeNodeRef: { uuid: "00000000-0000-0000-0000-00000000000a" },
     deliveredMessages: [userMessage()],
     queuedMessages: [{ id: 2, message: userMessage({ priority: "later" }) }],
   };
@@ -284,7 +284,7 @@ test("conversation_reset switches history state and preserves queued work", () =
   );
   assert.equal(state.sessionId, undefined);
   assert.equal(state.lastUsage, undefined);
-  assert.equal(state.lastTranscriptUuid, undefined);
+  assert.equal(state.leafTreeNodeRef, undefined);
   assert.deepEqual(state.deliveredMessages, []);
   assert.deepEqual(queuedIds(state), [2]);
   assert.equal(state.activity, "working");
@@ -405,14 +405,14 @@ test("uuid-carrying message advances the boundary and clears deliveredMessages i
     delivered,
     sdkMessage("assistant", { uuid: "uuid-1" }),
   );
-  assert.equal(confirmed.lastTranscriptUuid, "uuid-1");
+  assert.deepEqual(confirmed.leafTreeNodeRef, { uuid: "uuid-1" });
   assert.deepEqual(confirmed.deliveredMessages, []);
   const userUuid = "00000000-0000-0000-0000-000000000002";
   const user = nextAgentState(confirmed, {
     kind: "sdkMessage",
     message: userMessage({ uuid: userUuid }) as SDKMessage,
   });
-  assert.equal(user.lastTranscriptUuid, userUuid);
+  assert.deepEqual(user.leafTreeNodeRef, { uuid: userUuid });
 });
 
 test("messages without a uuid neither advance the boundary nor clear deliveredMessages", () => {
@@ -421,7 +421,7 @@ test("messages without a uuid neither advance the boundary nor clear deliveredMe
     [sdkMessage("system"), sdkMessage("stream_event"), sdkMessage("assistant")],
     delivered,
   );
-  assert.equal(state.lastTranscriptUuid, undefined);
+  assert.equal(state.leafTreeNodeRef, undefined);
   assert.equal(state.deliveredMessages.length, 1);
 });
 
@@ -439,5 +439,25 @@ test("exactly-one-place property across an accept→deliver→confirm cycle", ()
   state = nextAgentState(state, sdkMessage("assistant", { uuid: "uuid-1" }));
   assert.equal(state.queuedMessages.length, 0);
   assert.equal(state.deliveredMessages.length, 0);
-  assert.equal(state.lastTranscriptUuid, "uuid-1");
+  assert.deepEqual(state.leafTreeNodeRef, { uuid: "uuid-1" });
+});
+
+test("contextChanged folds its post-change leaf; null unsets", () => {
+  const request = { type: "set-context" as const, uuids: [] };
+  const leaf = {
+    uuid: "00000000-0000-0000-0000-000000000001" as const,
+    viaBoundary: "00000000-0000-0000-0000-000000000002" as const,
+  };
+  let state = nextAgentState(INITIAL_AGENT_STATE, {
+    kind: "contextChanged",
+    request,
+    leaf,
+  });
+  assert.deepEqual(state.leafTreeNodeRef, leaf);
+  state = nextAgentState(state, {
+    kind: "contextChanged",
+    request,
+    leaf: null,
+  });
+  assert.equal(state.leafTreeNodeRef, undefined);
 });

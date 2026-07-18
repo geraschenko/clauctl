@@ -75,8 +75,9 @@ export function formatSessionEntries(
     ) {
       continue; // unknown session-entry types (attachment, …) are skipped
     }
-    // The same narrowing historyToSdkMessages performs: a SessionMessage
-    // carries every field its SDKMessage variant requires.
+    // A SessionMessage carries every field its SDKMessage variant requires
+    // (`type`, `message`, `uuid`, `session_id`, `parent_tool_use_id`), so
+    // the cast is a narrowing of `message: unknown`, not a fabrication.
     const message = entry as unknown as SDKMessage;
     if (message.type === "assistant") {
       const change = modelChangeLine(message, formatState);

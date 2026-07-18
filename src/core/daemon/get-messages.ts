@@ -10,13 +10,17 @@
  */
 
 import type { UUID } from "node:crypto";
-import type { SessionMessage } from "@anthropic-ai/claude-agent-sdk";
 import {
   effectiveChain,
   summaryOf,
   type OnInvalid,
 } from "../effective-chain.ts";
-import { readSessionEntries, type SessionEntry } from "../session-file.ts";
+import {
+  entryToSessionMessage,
+  type SessionEntry,
+  type SessionMessageOnWire,
+} from "../session-file.ts";
+import type { TreeNodeRef } from "../tree.ts";
 
 /**
  * One override slot for get-messages, replaced by each successful
@@ -29,18 +33,20 @@ import { readSessionEntries, type SessionEntry } from "../session-file.ts";
  *   chain for any boundary whose preserved-uuids tip predates another
  *   dangling leaf (spec criterion 3 mechanism note); serve the chain straight
  *   from the session file instead.
- * Both variants are pinned to the transcript leaf they were installed at:
- * the next transcript write closes the synthesis window (getSessionMessages
- * agrees with the loader again) and makes the tail filter inert, so the slot
- * is dropped lazily when `lastTranscriptUuid` moves. Every transcript write
- * moves `lastTranscriptUuid`: the CLI echoes each appended user/assistant
- * entry on the stream with its transcript uuid, including host-pushed input
- * — the same echo that clears deliveredMessages (agent-state.ts fold).
+ * Both variants are pinned to the leaf occurrence they were installed at —
+ * the POST-change leaf, the same value the contextChanged event carries, so
+ * the override stays fresh once the event folds. The next transcript write
+ * closes the synthesis window (getSessionMessages agrees with the loader
+ * again) and makes the tail filter inert, so the slot is dropped lazily when
+ * `leafTreeNodeRef` moves. Every transcript write moves `leafTreeNodeRef`:
+ * the CLI echoes each appended user/assistant entry on the stream with its
+ * transcript uuid, including host-pushed input — the same echo that clears
+ * deliveredMessages (agent-state.ts fold).
  */
 export type GetMessagesOverride = (
   | { kind: "filterTail"; droppedUuids: Set<string> }
   | { kind: "synthesize"; chain: UUID[] }
-) & { installedAtLeafUuid: string | undefined };
+) & { installedAtLeaf: TreeNodeRef | undefined };
 
 /**
  * The synthesis window: the file's last boundary has no post-boundary
@@ -70,21 +76,16 @@ function synthesizeWindowChain(
   return windowClosed ? undefined : effectiveChain(entries, onInvalid);
 }
 
-/** getSessionMessages' runtime objects also carry `timestamp`, absent from
- *  the SDK's declared SessionMessage type; synthesized output matches the
- *  wire shape. */
-type SessionMessageOnWire = SessionMessage & { timestamp?: string };
-
 /** The get-messages response for a synthesize override: the chain's entries
- *  mapped to SessionMessage shape, mirroring the SDK's own mapping and
- *  filters (user/assistant only, isMeta/isSidechain excluded,
- *  parent_tool_use_id always null in getSessionMessages output). */
+ *  mapped to SessionMessage shape via entryToSessionMessage
+ *  (session-file.ts). Takes pre-read entries — the handler's one
+ *  flush-synced read serves the flush gate and the synthesis. */
 export function synthesizeMessages(
-  filePath: string,
+  entries: SessionEntry[],
   chain: UUID[],
 ): SessionMessageOnWire[] {
   const byUuid = new Map<UUID, SessionEntry>();
-  for (const entry of readSessionEntries(filePath)) {
+  for (const entry of entries) {
     if (entry.uuid !== undefined) {
       byUuid.set(entry.uuid, entry);
     }
@@ -92,27 +93,11 @@ export function synthesizeMessages(
   const messages: SessionMessageOnWire[] = [];
   for (const uuid of chain) {
     const entry = byUuid.get(uuid);
-    if (
-      entry === undefined ||
-      (entry.type !== "user" && entry.type !== "assistant") ||
-      entry.isMeta === true ||
-      entry.isSidechain === true
-    ) {
-      continue;
+    const message =
+      entry === undefined ? undefined : entryToSessionMessage(entry);
+    if (message !== undefined) {
+      messages.push(message);
     }
-    messages.push({
-      type: entry.type,
-      uuid,
-      session_id: entry.sessionId as string,
-      message: entry.message,
-      parent_tool_use_id: null,
-      // Synthesized messages are from the main transcript. SDK 0.3.211 made
-      // this runtime field part of the declared SessionMessage contract.
-      parent_agent_id: null,
-      ...(typeof entry.timestamp === "string" && {
-        timestamp: entry.timestamp,
-      }),
-    });
   }
   return messages;
 }
@@ -122,7 +107,7 @@ export function synthesizeMessages(
  *  session file does not exist yet). */
 export function startupOverride(
   startupEntries: SessionEntry[] | undefined,
-  installedAtLeafUuid: string | undefined,
+  installedAtLeaf: TreeNodeRef | undefined,
   onInvalid: OnInvalid,
 ): GetMessagesOverride | undefined {
   if (startupEntries === undefined) {
@@ -132,5 +117,5 @@ export function startupOverride(
   if (chain === undefined) {
     return undefined;
   }
-  return { kind: "synthesize", chain, installedAtLeafUuid };
+  return { kind: "synthesize", chain, installedAtLeaf };
 }

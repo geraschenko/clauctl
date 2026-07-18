@@ -19,6 +19,7 @@ import type {
 } from "@anthropic-ai/claude-agent-sdk";
 import { toNonNullableUsage } from "./agent-state.ts";
 import type { SessionEntry } from "./session-file.ts";
+import type { TreeNodeRef } from "./tree.ts";
 
 interface PreservedMessages {
   anchorUuid?: UUID;
@@ -61,14 +62,6 @@ export function summaryOf(
       (entry) =>
         entry.parentUuid === boundaryUuid && entry.isCompactSummary === true,
     );
-}
-
-/** Identifies one tree node: a raw node (viaBoundary absent) or a
- *  boundary-substructure relinked node (viaBoundary = the boundary's
- *  uuid). */
-export interface TreeNodeRef {
-  uuid: UUID;
-  viaBoundary?: UUID;
 }
 
 /** Sink for corrupt-session-file diagnostics (a relink that fails
@@ -258,7 +251,7 @@ export interface SessionFileSeed {
   claudeCodeVersion?: string;
   model?: string;
   permissionMode?: PermissionMode;
-  lastTranscriptUuid?: UUID;
+  leafTreeNodeRef?: TreeNodeRef;
 }
 
 /**
@@ -268,9 +261,11 @@ export interface SessionFileSeed {
  * not describe the context a resume would load); claudeCodeVersion from the
  * last version stamp and permissionMode from the last permission-mode entry,
  * both in plain file order (latest observation wins regardless of branch);
- * lastTranscriptUuid is the chain's last user/assistant entry under the same
- * meta/sidechain filter the stream applies — the value the fold would have
- * arrived at had this daemon watched the session live.
+ * leafTreeNodeRef is the chain's last user/assistant occurrence (viaBoundary
+ * preserved) under the same meta/sidechain filter the stream applies — the
+ * same eligibility the live fold uses, so a chain ending in e.g. a
+ * turn_duration system entry does not seed a leaf the fold would never have
+ * produced.
  */
 export function seedFromEntries(
   entries: SessionEntry[],
@@ -282,8 +277,9 @@ export function seedFromEntries(
       byUuid.set(entry.uuid, entry);
     }
   }
-  const chainEntries = effectiveChain(entries, onInvalid)
-    .map((uuid) => byUuid.get(uuid))
+  const chainRefs = effectiveTreeNodeChain(entries, onInvalid);
+  const chainEntries = chainRefs
+    .map((ref) => byUuid.get(ref.uuid))
     .filter((entry) => entry !== undefined);
 
   const lastAssistantMessage = chainEntries.findLast(
@@ -295,12 +291,15 @@ export function seedFromEntries(
   const permissionMode = entries.findLast(
     (entry) => entry.type === "permission-mode",
   )?.permissionMode as PermissionMode | undefined;
-  const lastTranscriptUuid = chainEntries.findLast(
-    (entry) =>
+  const leafTreeNodeRef = chainRefs.findLast((ref) => {
+    const entry = byUuid.get(ref.uuid);
+    return (
+      entry !== undefined &&
       (entry.type === "user" || entry.type === "assistant") &&
       entry.isMeta !== true &&
-      entry.isSidechain !== true,
-  )?.uuid;
+      entry.isSidechain !== true
+    );
+  });
 
   return {
     ...(lastAssistantMessage?.usage !== undefined && {
@@ -311,6 +310,6 @@ export function seedFromEntries(
     }),
     ...(claudeCodeVersion !== undefined && { claudeCodeVersion }),
     ...(permissionMode !== undefined && { permissionMode }),
-    ...(lastTranscriptUuid !== undefined && { lastTranscriptUuid }),
+    ...(leafTreeNodeRef !== undefined && { leafTreeNodeRef }),
   };
 }

@@ -10,6 +10,7 @@
 import { randomUUID, type UUID } from "node:crypto";
 import { appendFileSync, existsSync, readFileSync, watch } from "node:fs";
 import { join } from "node:path";
+import type { SessionMessage } from "@anthropic-ai/claude-agent-sdk";
 import type { SetContextResult } from "./sdk-socket.ts";
 
 /** One parsed jsonl line, verbatim. Known fields typed, everything else kept. */
@@ -20,6 +21,42 @@ export interface SessionEntry {
   type?: string;
   subtype?: string;
   [key: string]: unknown;
+}
+
+/** getSessionMessages' runtime objects also carry `timestamp`, absent from
+ *  the SDK's declared SessionMessage type; entry-derived output matches the
+ *  wire shape. */
+export type SessionMessageOnWire = SessionMessage & { timestamp?: string };
+
+/** The SDK's entry→SessionMessage mapping (user/assistant only;
+ *  isMeta/isSidechain excluded, and so is the uuid-less shape a real
+ *  transcript entry never takes; parent_tool_use_id always null in
+ *  getSessionMessages output, parent_agent_id null for the main
+ *  transcript). */
+export function entryToSessionMessage(
+  entry: SessionEntry,
+): SessionMessageOnWire | undefined {
+  if (
+    (entry.type !== "user" && entry.type !== "assistant") ||
+    entry.uuid === undefined ||
+    entry.isMeta === true ||
+    entry.isSidechain === true
+  ) {
+    return undefined;
+  }
+  return {
+    type: entry.type,
+    uuid: entry.uuid,
+    session_id: entry.sessionId as string,
+    message: entry.message,
+    parent_tool_use_id: null,
+    // SDK 0.3.211 made this runtime field part of the declared
+    // SessionMessage contract.
+    parent_agent_id: null,
+    ...(typeof entry.timestamp === "string" && {
+      timestamp: entry.timestamp,
+    }),
+  };
 }
 
 /** The CLI's project-directory encoding: cwd with [^a-zA-Z0-9] → "-". */

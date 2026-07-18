@@ -20,7 +20,7 @@
  * Prompt-visibility invariant: every accepted turn/append prompt appears in
  * exactly one place — `queuedMessages` (accepted, not yet consumed by the
  * CLI), `deliveredMessages` (consumed, not yet confirmed by a later stream
- * emission), or the transcript at/before `lastTranscriptUuid` (confirmed; a
+ * emission), or the transcript at/before `leafTreeNodeRef` (confirmed; a
  * history read covers it). Each transition is one fold step, so no state can
  * catch a prompt in two places or in none. An attaching observer therefore
  * renders each prompt exactly once: history replay up to the boundary, then
@@ -32,6 +32,7 @@
  * before it. Background: docs/user-message-tracking.md.
  */
 
+import type { UUID } from "node:crypto";
 import type {
   NonNullableUsage,
   PermissionMode,
@@ -39,6 +40,7 @@ import type {
   SDKUserMessage,
 } from "@anthropic-ai/claude-agent-sdk";
 import type { SdkEvent } from "./sdk-socket.ts";
+import type { TreeNodeRef } from "./tree.ts";
 
 export type AgentActivity = "idle" | "pending" | "working" | "compacting";
 
@@ -69,8 +71,11 @@ export interface AgentState {
   readonly queuedMessages: readonly { id: number; message: SDKUserMessage }[];
   /** Consumed as turn/append, not yet confirmed by a later stream emission. */
   readonly deliveredMessages: readonly SDKUserMessage[];
-  /** The attach boundary: uuid of the last user/assistant message emitted. */
-  readonly lastTranscriptUuid?: string;
+  /** The attach boundary: the current leaf occurrence of the session tree.
+   *  Stream user/assistant messages fold it as a raw ref; a contextChanged
+   *  event folds its post-change `leaf` (possibly a viaBoundary occurrence,
+   *  null unsets). */
+  readonly leafTreeNodeRef?: TreeNodeRef;
 }
 
 export const INITIAL_AGENT_STATE: AgentState = {
@@ -180,10 +185,15 @@ export function nextAgentState(state: AgentState, event: SdkEvent): AgentState {
     // interrupt — the interruptSent event on the stream is the record).
     case "interruptSent":
       return state;
-    // The effective context lives in the session file; nothing in AgentState
-    // tracks it, so the fold only forwards the event to observers.
-    case "contextChanged":
-      return state;
+    // The effective context lives in the session file; the fold tracks only
+    // its tip, which the event carries.
+    case "contextChanged": {
+      if (event.leaf === null) {
+        const { leafTreeNodeRef: _leafTreeNodeRef, ...withoutLeaf } = state;
+        return withoutLeaf;
+      }
+      return { ...state, leafTreeNodeRef: event.leaf };
+    }
     case "controlApplied": {
       const request = event.request;
       if (request.type === "set-model") {
@@ -207,7 +217,7 @@ export function nextAgentState(state: AgentState, event: SdkEvent): AgentState {
         // optional uuid on SDKUserMessage is for host-pushed input). Boundary
         // advance and deliveredMessages clear happen in the same fold step —
         // that is the prompt-visibility bookkeeping (header comment).
-        next = { ...next, lastTranscriptUuid: message.uuid };
+        next = { ...next, leafTreeNodeRef: { uuid: message.uuid as UUID } };
         if (next.deliveredMessages.length > 0) {
           next = { ...next, deliveredMessages: [] };
         }
@@ -220,7 +230,7 @@ export function nextAgentState(state: AgentState, event: SdkEvent): AgentState {
         // Queued future turns still belong to the running process.
         const {
           sessionId: _sessionId,
-          lastTranscriptUuid: _lastTranscriptUuid,
+          leafTreeNodeRef: _leafTreeNodeRef,
           lastUsage: _lastUsage,
           ...withoutOldContext
         } = next;

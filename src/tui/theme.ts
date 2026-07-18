@@ -60,6 +60,9 @@ export const theme = {
   bold(text: string): string {
     return `\x1b[1m${text}\x1b[22m`;
   },
+  inverse(text: string): string {
+    return `\x1b[7m${text}\x1b[27m`;
+  },
   italic(text: string): string {
     return `\x1b[3m${text}\x1b[23m`;
   },

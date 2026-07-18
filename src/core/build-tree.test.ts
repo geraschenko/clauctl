@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { randomUUID, type UUID } from "node:crypto";
 import { test } from "node:test";
-import { buildTree, type TreeNode } from "./build-tree.ts";
+import { buildTree } from "./build-tree.ts";
+import type { TreeNode } from "./tree.ts";
 import type { SessionEntry } from "./session-file.ts";
 
 const uuid = (): UUID => randomUUID();

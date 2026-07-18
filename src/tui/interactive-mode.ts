@@ -21,7 +21,6 @@ import type {
   PermissionMode,
   SDKControlInitializeResponse,
   SDKMessage,
-  SDKUserMessage,
   SessionMessage,
 } from "@anthropic-ai/claude-agent-sdk";
 import {
@@ -36,6 +35,13 @@ import {
   nextAgentState,
   type AgentState,
 } from "../core/agent-state.ts";
+import { entryToSessionMessage } from "../core/session-file.ts";
+import {
+  pathToLeaf,
+  type SessionTree,
+  type TreeNode,
+  type TreeNodeRef,
+} from "../core/tree.ts";
 import { SdkSocketClient, type SdkEvent } from "../core/sdk-socket.ts";
 import { findFd, TuiAutocompleteProvider } from "./autocomplete.ts";
 import { AssistantMessageComponent } from "./components/assistant-message.ts";
@@ -43,12 +49,16 @@ import { FooterComponent } from "./components/footer.ts";
 import { ModelSelectorComponent } from "./components/model-selector.ts";
 import { PendingMessagesComponent } from "./components/pending-messages.ts";
 import { ToolExecutionComponent } from "./components/tool-execution.ts";
+import {
+  resolveTreePick,
+  TreeSelectorComponent,
+} from "./components/tree-selector.ts";
 import { UserMessageComponent } from "./components/user-message.ts";
 import {
   beginMessage,
   foldStreamEvent,
-  historyToSdkMessages,
-  historyUpToBoundary,
+  pathUpToBoundary,
+  releaseDedupeUuid,
   renderAssistant,
   toolResultsOf,
   userText,
@@ -177,10 +187,35 @@ class InteractiveMode {
    */
   private liveEventsDuringReplay: SdkEvent[] | undefined = [];
 
+  /**
+   * Release dedupe (nonempty only during reloadHistory's release loop):
+   * uuids rendered from the replayed path. A buffered event carrying one of
+   * them folds into agentState but renders nothing — the flush-synced tree
+   * read can include entries newer than the snapshot leaf, which are also
+   * in the buffer.
+   */
+  private replayedUuids = new Set<string>();
+
+  /**
+   * One-shot banner dedupe that OUTLIVES the release loop: replayed boundary
+   * banners whose live compact_boundary event may not have arrived yet.
+   * Stream-before-file ordering is the codebase's working assumption (the
+   * flush-wait machinery exists because the file lags the stream) but is
+   * unproven for native compaction events, so a late arrival consumes its
+   * entry here instead of rendering a second banner. Only banners need this:
+   * post-cut ordinary raw entries never replay, and a replayed summary's
+   * live `user` event renders nothing. Daemon-authored boundaries emit no
+   * compact_boundary event, so their entries are simply never consumed.
+   */
+  private readonly replayedBoundaryUuids = new Set<string>();
+
   private readonly autocomplete: TuiAutocompleteProvider;
   private modelSelector?: ModelSelectorComponent;
   /** True from `/model` submit until the supported-models read settles. */
   private modelSelectorPending = false;
+  private treeSelector?: TreeSelectorComponent;
+  /** True from `/tree` submit until the get-tree read settles. */
+  private treeSelectorPending = false;
 
   constructor(
     ui: TUI,
@@ -215,14 +250,11 @@ class InteractiveMode {
 
     // The seed state fills the pending area (the footer reads it via
     // syncActivity below); the transcript fills asynchronously via
-    // loadHistory.
+    // reloadHistory.
     for (const entry of seedState.queuedMessages) {
       this.pendingMessages.add(entry.id, userText(entry.message));
     }
-    void this.loadHistory(
-      seedState.lastTranscriptUuid,
-      seedState.deliveredMessages,
-    );
+    void this.reloadHistory();
 
     this.autocomplete = new TuiAutocompleteProvider(
       seedState.cwd ?? null,
@@ -252,55 +284,61 @@ class InteractiveMode {
   }
 
   /**
-   * Fetch and render the transcript up to the attach boundary, then the
-   * seed state's delivered-but-unconfirmed prompts, then release the buffered
-   * live events. The subscribe response and the transcript read are not
-   * atomic: entries past the boundary may appear in both the read and the
-   * buffered events, so replay stops at the boundary and the live stream
-   * renders the rest — each message renders exactly once by construction
-   * (the prompt-visibility invariant, agent-state.ts), no dedupe needed. When the
-   * boundary is missing from the read (it raced a writer — see
-   * historyUpToBoundary), exactly-once is unachievable: the whole segment
-   * replays behind a warning banner rather than rendering nothing.
+   * (Re)build the transcript from the session tree: fetch get-tree, render
+   * the root-to-leaf path cut at the state fold's leaf occurrence
+   * (pathUpToBoundary — the entries after it arrive as live events), then
+   * the delivered-but-unconfirmed prompts, then release the buffered live
+   * events. Called on attach (constructor) and on every contextChanged
+   * (redraw). Path nodes render unconditionally, duplicates included — a
+   * boundary's preserved messages appear both in the raw pre-boundary
+   * history and below the banner, which is the honest display of the
+   * logical history; only path-vs-buffer duplication is deduped
+   * (replayedUuids, during the release loop).
+   *
+   * When the leaf is missing from the path, exactly-once is unachievable:
+   * the whole path replays behind a warning banner — unless a buffered
+   * contextChanged is pending, which means this reload is already
+   * superseded (the context change moved the leaf between snapshot and
+   * read; releasing it reloads with the new leaf), so warning would be
+   * spurious.
    */
-  private async loadHistory(
-    boundaryUuid: string | undefined,
-    deliveredMessages: readonly SDKUserMessage[],
-  ): Promise<void> {
+  private async reloadHistory(): Promise<void> {
+    this.chatContainer.clear();
+    this.streaming.clear();
+    this.toolComponents.clear();
+    this.replayedBoundaryUuids.clear();
+    this.liveEventsDuringReplay = [];
+    const replayed = new Set<string>();
     try {
-      const data = await this.client.request({ type: "get-messages" });
-      const history = data as SessionMessage[];
-      const { messages: replayable, boundaryMissing } = historyUpToBoundary(
-        history,
-        boundaryUuid,
+      const data = await this.client.request({ type: "get-tree" });
+      const sessionTree = data as SessionTree;
+      const path = pathToLeaf(sessionTree.tree, sessionTree.leaf);
+      const { nodes, boundaryMissing } = pathUpToBoundary(
+        path,
+        this.agentState.leafTreeNodeRef,
       );
-      if (boundaryMissing) {
+      for (const node of nodes) {
+        this.renderPathNode(node, replayed);
+      }
+      if (
+        boundaryMissing &&
+        !this.liveEventsDuringReplay.some(
+          (event) => event.kind === "contextChanged",
+        )
+      ) {
         this.addBanner(
           "history attach point not found; recent messages may be missing or duplicated",
         );
-      }
-      for (const message of historyToSdkMessages(replayable)) {
-        // Live user prompts render at userMessageDequeued, never via
-        // sdkMessage (whose user case only resolves tool results), so history
-        // renders them here through the same userText + UserMessageComponent
-        // pair the dequeue path uses.
-        if (message.type === "user") {
-          const text = userText(message);
-          if (text !== "") {
-            this.chatContainer.addChild(new UserMessageComponent(text));
-          }
-        }
-        this.handleSdkMessage(message);
       }
     } catch (error) {
       this.addBanner(`history fetch failed: ${String(error)}`);
     }
     // Delivered-but-unconfirmed prompts (the prompt-visibility invariant,
-    // agent-state.ts): dequeued before the seed state was taken with the
-    // transcript echo still pending, so they are in neither the boundary-cut
-    // history nor the buffered events. Chronologically they follow the
+    // agent-state.ts): dequeued before the state snapshot was taken with the
+    // transcript echo still pending, so they are in neither the leaf-cut
+    // path nor the buffered events. Chronologically they follow the
     // replayed transcript.
-    for (const message of deliveredMessages) {
+    for (const message of this.agentState.deliveredMessages) {
       const text = userText(message);
       if (text !== "") {
         this.chatContainer.addChild(new UserMessageComponent(text));
@@ -308,10 +346,51 @@ class InteractiveMode {
     }
     const buffered = this.liveEventsDuringReplay ?? [];
     this.liveEventsDuringReplay = undefined;
-    for (const event of buffered) {
-      this.handleEvent(event);
+    this.replayedUuids = replayed;
+    try {
+      // A buffered contextChanged re-enters reloadHistory here; its
+      // synchronous prefix re-arms the buffer, so the rest of this loop
+      // feeds the follow-up reload instead of rendering.
+      for (const event of buffered) {
+        this.handleEvent(event);
+      }
+    } finally {
+      this.replayedUuids = new Set();
     }
     this.ui.requestRender();
+  }
+
+  /**
+   * One path node through the exact live pipeline: boundary nodes render
+   * the banner their live compact_boundary event would; user prompts render
+   * through the same userText + UserMessageComponent pair the dequeue path
+   * uses (the sdkMessage user case only resolves tool results); everything
+   * else dispatches through handleSdkMessage. A SessionMessage carries
+   * every field its SDKMessage variant requires, so the cast is a narrowing
+   * of `message: unknown`, not a fabrication.
+   */
+  private renderPathNode(node: TreeNode, replayed: Set<string>): void {
+    if (node.entry.subtype === "compact_boundary") {
+      if (node.entry.uuid !== undefined) {
+        replayed.add(node.entry.uuid);
+        this.replayedBoundaryUuids.add(node.entry.uuid);
+      }
+      this.addBanner("context compacted");
+      return;
+    }
+    const message = entryToSessionMessage(node.entry);
+    if (message === undefined) {
+      return;
+    }
+    replayed.add(message.uuid);
+    const sdkMessage = message as SessionMessage & SDKMessage;
+    if (sdkMessage.type === "user") {
+      const text = userText(sdkMessage);
+      if (text !== "") {
+        this.chatContainer.addChild(new UserMessageComponent(text));
+      }
+    }
+    this.handleSdkMessage(sdkMessage);
   }
 
   handleEvent(event: SdkEvent): void {
@@ -339,6 +418,16 @@ class InteractiveMode {
         break;
       case "controlApplied":
         break;
+      case "contextChanged":
+        // An open selector keeps its now-stale tree; the warning tells the
+        // attached user some other process changed the context under them.
+        this.treeSelector?.setWarning(
+          "context changed while the tree selector is open",
+        );
+        // The fold above already holds the new leaf, so the reload cuts the
+        // fresh path at the right occurrence.
+        void this.reloadHistory();
+        break;
       case "sdkMessage":
         this.handleSdkMessage(event.message);
         break;
@@ -348,6 +437,17 @@ class InteractiveMode {
   }
 
   private handleSdkMessage(message: SDKMessage): void {
+    // Release dedupe: a buffered event whose transcript entry already
+    // rendered from the replayed path folds into agentState (handleEvent,
+    // before dispatch) but renders nothing — no second banner, no streaming
+    // component, no tool-result re-resolution.
+    const dedupeUuid = releaseDedupeUuid(message);
+    if (dedupeUuid !== undefined && this.replayedUuids.has(dedupeUuid)) {
+      // A buffered banner event consumed here won't arrive again — release
+      // its one-shot entry.
+      this.replayedBoundaryUuids.delete(dedupeUuid);
+      return;
+    }
     switch (message.type) {
       case "stream_event": {
         const key = message.parent_tool_use_id ?? "";
@@ -414,7 +514,12 @@ class InteractiveMode {
           // The CLI's own rendering; plain Text so embedded ANSI passes through.
           this.chatContainer.addChild(new Text(message.content, 1, 1));
         } else if (message.subtype === "compact_boundary") {
-          this.addBanner("context compacted");
+          if (
+            message.uuid === undefined ||
+            !this.replayedBoundaryUuids.delete(message.uuid)
+          ) {
+            this.addBanner("context compacted");
+          }
         } else if (message.subtype === "notification") {
           this.addBanner(message.text);
         } else if (message.subtype === "informational") {
@@ -479,6 +584,10 @@ class InteractiveMode {
       }
       return;
     }
+    if (/^\/tree(\s|$)/.test(text.trim())) {
+      this.openTreeSelector();
+      return;
+    }
     // The queued echo comes back as a userMessageQueued event; nothing is
     // rendered here.
     void this.client
@@ -538,6 +647,74 @@ class InteractiveMode {
     this.ui.requestRender();
   }
 
+  private openTreeSelector(): void {
+    if (this.treeSelector !== undefined || this.treeSelectorPending) {
+      return;
+    }
+    this.treeSelectorPending = true;
+    void this.client.request({ type: "get-tree" }).then(
+      (data) => {
+        this.treeSelectorPending = false;
+        const tree = data as SessionTree;
+        const selector = new TreeSelectorComponent(
+          tree,
+          (pick) => this.confirmTreePick(tree, pick),
+          () => this.closeTreeSelector(),
+        );
+        this.treeSelector = selector;
+        this.statusContainer.addChild(selector);
+        this.ui.setFocus(selector);
+        this.ui.requestRender();
+      },
+      (error: unknown) => {
+        this.treeSelectorPending = false;
+        this.addBanner(`get-tree failed: ${String(error)}`, "error");
+        this.ui.requestRender();
+      },
+    );
+  }
+
+  /** The selector stays dumb; the busy gate and the request live here. */
+  private confirmTreePick(tree: SessionTree, pick: TreeNodeRef): void {
+    if (isBusy(this.agentState)) {
+      this.hintText.setText(
+        theme.fg("dim", "cannot navigate tree while assistant is busy"),
+      );
+      this.ui.requestRender();
+      return;
+    }
+    const action = resolveTreePick(tree, pick);
+    this.closeTreeSelector();
+    const request =
+      action.kind === "rewind"
+        ? { type: "set-context" as const, rewindTo: action.rewindTo }
+        : { type: "set-context" as const, uuids: [] };
+    // The redraw follows from the contextChanged event; only the pick's
+    // editorText is applied here (only the initiating TUI prefills).
+    void this.client.request(request).then(
+      () => {
+        if (action.editorText !== undefined) {
+          this.editor.setText(action.editorText);
+        }
+        this.ui.requestRender();
+      },
+      (error: unknown) => {
+        this.addBanner(`set-context failed: ${String(error)}`, "error");
+        this.ui.requestRender();
+      },
+    );
+  }
+
+  private closeTreeSelector(): void {
+    if (this.treeSelector === undefined) {
+      return;
+    }
+    this.statusContainer.removeChild(this.treeSelector);
+    this.treeSelector = undefined;
+    this.ui.setFocus(this.editor);
+    this.ui.requestRender();
+  }
+
   /**
    * Registered as a TUI input listener, which pi-tui runs before the focused
    * component sees the key: `{consume: true}` stops dispatch there (keeping
@@ -549,7 +726,9 @@ class InteractiveMode {
     if (
       matchesKey(data, "escape") &&
       isBusy(this.agentState) &&
-      this.modelSelector === undefined // an open menu owns escape (cancel)
+      // An open menu owns escape (cancel / clear search).
+      this.modelSelector === undefined &&
+      this.treeSelector === undefined
     ) {
       void this.client.request({ type: "interrupt" }).catch(() => {});
       return { consume: true };

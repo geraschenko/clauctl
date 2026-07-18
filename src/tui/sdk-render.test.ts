@@ -1,16 +1,19 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { BetaRawMessageStreamEvent } from "@anthropic-ai/sdk/resources/beta/messages/messages.mjs";
+import type { UUID } from "node:crypto";
 import type {
   SDKAssistantMessage,
+  SDKMessage,
   SDKUserMessage,
-  SessionMessage,
 } from "@anthropic-ai/claude-agent-sdk";
+import type { SessionEntry } from "../core/session-file.ts";
+import type { TreeNode } from "../core/tree.ts";
 import {
   beginMessage,
   foldStreamEvent,
-  historyToSdkMessages,
-  historyUpToBoundary,
+  pathUpToBoundary,
+  releaseDedupeUuid,
   renderAssistant,
   toolResultsOf,
   userText,
@@ -246,66 +249,140 @@ test("toolResultsOf is empty for plain user turns", () => {
   );
 });
 
-function sessionMessage(
-  type: SessionMessage["type"],
-  uuid: string,
-): SessionMessage {
+function uuid(n: number): UUID {
+  return `00000000-0000-0000-0000-${String(n).padStart(12, "0")}`;
+}
+
+function pathNode(
+  type: string,
+  entryUuid: UUID,
+  extra: Partial<SessionEntry> = {},
+  viaBoundary?: UUID,
+): TreeNode {
   return {
-    type,
-    uuid,
-    session_id: "s1",
-    message: { role: type, content: "x" },
-    parent_tool_use_id: null,
-    parent_agent_id: null,
+    entry: { type, uuid: entryUuid, ...extra },
+    children: [],
+    ...(viaBoundary !== undefined && { viaBoundary }),
   };
 }
 
-test("historyToSdkMessages keeps user/assistant order and drops system entries", () => {
-  const adapted = historyToSdkMessages([
-    sessionMessage("user", "u1"),
-    sessionMessage("system", "sys1"),
-    sessionMessage("assistant", "a1"),
-    sessionMessage("user", "u2"),
-  ]);
-  assert.deepEqual(
-    adapted.map((m) => [m.type, (m as { uuid: string }).uuid]),
-    [
-      ["user", "u1"],
-      ["assistant", "a1"],
-      ["user", "u2"],
-    ],
-  );
-});
+function pathUuids(nodes: TreeNode[]): (UUID | undefined)[] {
+  return nodes.map((node) => node.entry.uuid);
+}
 
-test("historyUpToBoundary cuts after the boundary entry", () => {
-  const history = [
-    sessionMessage("user", "u1"),
-    sessionMessage("assistant", "a1"),
-    sessionMessage("user", "u2"),
-    sessionMessage("assistant", "a2"),
+test("pathUpToBoundary drops raw occurrences after the leaf occurrence", () => {
+  const path = [
+    pathNode("user", uuid(1)),
+    pathNode("assistant", uuid(2)),
+    pathNode("user", uuid(3)),
+    pathNode("assistant", uuid(4)),
   ];
-  const result = historyUpToBoundary(history, "u2");
-  assert.deepEqual(
-    result.messages.map((entry) => entry.uuid),
-    ["u1", "a1", "u2"],
-  );
+  const result = pathUpToBoundary(path, { uuid: uuid(2) });
+  assert.deepEqual(pathUuids(result.nodes), [uuid(1), uuid(2)]);
   assert.equal(result.boundaryMissing, false);
 });
 
-test("historyUpToBoundary without a boundary returns the whole segment", () => {
-  const history = [sessionMessage("user", "u1")];
-  assert.deepEqual(historyUpToBoundary(history, undefined), {
-    messages: history,
+test("pathUpToBoundary matches the exact occurrence, not the first uuid hit", () => {
+  const boundary = uuid(9);
+  const path = [
+    pathNode("user", uuid(1)),
+    pathNode("system", boundary, { subtype: "compact_boundary" }),
+    pathNode("user", uuid(8), { isCompactSummary: true, parentUuid: boundary }),
+    pathNode("user", uuid(1), {}, boundary),
+    pathNode("assistant", uuid(4)),
+  ];
+  const result = pathUpToBoundary(path, {
+    uuid: uuid(1),
+    viaBoundary: boundary,
+  });
+  assert.deepEqual(pathUuids(result.nodes), [
+    uuid(1),
+    boundary,
+    uuid(8),
+    uuid(1),
+  ]);
+  assert.equal(result.boundaryMissing, false);
+});
+
+test("pathUpToBoundary keeps a post-cut boundary segment with retained relinks", () => {
+  // A native compaction landed between the state snapshot and the tree
+  // read: the leaf is the raw pre-compaction assistant, and the path
+  // continues boundary → summary → relinked preserved entries. The whole
+  // segment replays, in path order, so the banner precedes its context.
+  const boundary = uuid(9);
+  const path = [
+    pathNode("user", uuid(1)),
+    pathNode("assistant", uuid(2)),
+    pathNode("system", boundary, { subtype: "compact_boundary" }),
+    pathNode("user", uuid(8), { isCompactSummary: true, parentUuid: boundary }),
+    pathNode("user", uuid(1), {}, boundary),
+    pathNode("assistant", uuid(2), {}, boundary),
+  ];
+  const result = pathUpToBoundary(path, { uuid: uuid(2) });
+  assert.deepEqual(pathUuids(result.nodes), [
+    uuid(1),
+    uuid(2),
+    boundary,
+    uuid(8),
+    uuid(1),
+    uuid(2),
+  ]);
+  assert.equal(result.boundaryMissing, false);
+});
+
+test("pathUpToBoundary keeps a post-cut boundary and summary even without relinks", () => {
+  // The banner's live event dedupes by uuid, and the summary's live user
+  // event renders no text — replay is the only way the summary appears.
+  // The ordinary raw entry after them still drops (its live events render).
+  const boundary = uuid(9);
+  const path = [
+    pathNode("user", uuid(1)),
+    pathNode("system", boundary, { subtype: "compact_boundary" }),
+    pathNode("user", uuid(8), { isCompactSummary: true, parentUuid: boundary }),
+    pathNode("assistant", uuid(4)),
+  ];
+  const result = pathUpToBoundary(path, { uuid: uuid(1) });
+  assert.deepEqual(pathUuids(result.nodes), [uuid(1), boundary, uuid(8)]);
+  assert.equal(result.boundaryMissing, false);
+});
+
+test("pathUpToBoundary without a leaf returns the whole path", () => {
+  const path = [pathNode("user", uuid(1))];
+  assert.deepEqual(pathUpToBoundary(path, undefined), {
+    nodes: path,
     boundaryMissing: false,
   });
 });
 
-test("historyUpToBoundary with an absent boundary returns everything, flagged", () => {
-  const history = [sessionMessage("user", "u1")];
-  assert.deepEqual(historyUpToBoundary(history, "not-there"), {
-    messages: history,
+test("pathUpToBoundary with an absent leaf returns everything, flagged", () => {
+  const path = [pathNode("user", uuid(1))];
+  assert.deepEqual(pathUpToBoundary(path, { uuid: uuid(7) }), {
+    nodes: path,
     boundaryMissing: true,
   });
+});
+
+test("releaseDedupeUuid covers exactly the kinds a path replay renders", () => {
+  const withUuid = (shape: Record<string, unknown>): SDKMessage =>
+    ({ ...shape, uuid: uuid(1) }) as unknown as SDKMessage;
+  assert.equal(releaseDedupeUuid(withUuid({ type: "user" })), uuid(1));
+  assert.equal(releaseDedupeUuid(withUuid({ type: "assistant" })), uuid(1));
+  assert.equal(releaseDedupeUuid(withUuid({ type: "stream_event" })), uuid(1));
+  assert.equal(
+    releaseDedupeUuid(
+      withUuid({ type: "system", subtype: "compact_boundary" }),
+    ),
+    uuid(1),
+  );
+  // Other system subtypes render content no replay produces — a uuid
+  // collision must not swallow them.
+  assert.equal(
+    releaseDedupeUuid(
+      withUuid({ type: "system", subtype: "local_command_output" }),
+    ),
+    undefined,
+  );
+  assert.equal(releaseDedupeUuid(withUuid({ type: "result" })), undefined);
 });
 
 test("userText handles string and block content", () => {

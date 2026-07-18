@@ -21,8 +21,8 @@ import type {
   SDKAssistantMessage,
   SDKMessage,
   SDKUserMessage,
-  SessionMessage,
 } from "@anthropic-ai/claude-agent-sdk";
+import type { TreeNode, TreeNodeRef } from "../core/tree.ts";
 import type {
   RenderAssistant,
   RenderBlock,
@@ -215,49 +215,74 @@ export function toolResultsOf(message: SDKUserMessage): RenderToolResult[] {
 }
 
 /**
- * History entries adapted to the live-message shape so replay reuses the
- * exact rendering path; system entries are dropped. A SessionMessage carries
- * every field the corresponding SDKMessage variant requires (`type`,
- * `message`, `uuid`, `session_id`, `parent_tool_use_id`), so the cast is a
- * narrowing of `message: unknown`, not a fabrication.
+ * The replayable portion of a root-to-leaf tree path: everything at/before
+ * the leaf occurrence (the state fold's current leaf — the last transcript
+ * entry reflected on the event stream before the subscriber's snapshot).
+ * An undefined leaf means nothing was emitted this daemon lifetime → the
+ * whole path replays.
+ *
+ * After the match, only *ordinary raw* occurrences are dropped — those are
+ * the entries whose live events render them. `viaBoundary` occurrences
+ * always replay (relinked entries never stream), so attaching right after a
+ * native compaction does not truncate the preserved substructure that
+ * follows the raw summary node. Post-cut boundaries and their raw summaries
+ * also always replay: it keeps a compaction segment structurally complete
+ * (banner before its installed context), and a summary's live `user` event
+ * renders no text (the sdkMessage user case only resolves tool results), so
+ * replay is the only way its text appears. Their buffered events
+ * release-dedupe by uuid like any other replayed entry.
+ *
+ * A leaf missing from the path means the read raced a writer: either a
+ * context change moved the leaf between snapshot and read (resolved by the
+ * buffered contextChanged's reload), or a genuine invariant violation. The
+ * cut is impossible either way, so the whole path replays with
+ * `boundaryMissing` set; the caller decides whether to warn.
  */
-export function historyToSdkMessages(messages: SessionMessage[]): SDKMessage[] {
-  return messages.filter(
-    (entry): entry is SessionMessage & SDKMessage =>
-      entry.type === "user" || entry.type === "assistant",
+export function pathUpToBoundary(
+  path: TreeNode[],
+  leaf: TreeNodeRef | undefined,
+): { nodes: TreeNode[]; boundaryMissing: boolean } {
+  if (leaf === undefined) {
+    return { nodes: path, boundaryMissing: false };
+  }
+  const matchIndex = path.findIndex(
+    (node) =>
+      node.entry.uuid === leaf.uuid && node.viaBoundary === leaf.viaBoundary,
   );
+  if (matchIndex === -1) {
+    return { nodes: path, boundaryMissing: true };
+  }
+  return {
+    nodes: [
+      ...path.slice(0, matchIndex + 1),
+      ...path
+        .slice(matchIndex + 1)
+        .filter(
+          (node) =>
+            node.viaBoundary !== undefined ||
+            node.entry.subtype === "compact_boundary" ||
+            node.entry.isCompactSummary === true,
+        ),
+    ],
+    boundaryMissing: false,
+  };
 }
 
 /**
- * The replayable prefix of a history segment: entries at/before the attach
- * boundary (the last uuid emitted on the stream before the subscriber's
- * snapshot). Everything after the boundary reaches the subscriber as live
- * events, so replaying it would render twice. An undefined boundary means
- * nothing was emitted this daemon lifetime → the whole segment replays.
- *
- * A boundary missing from the segment means the read raced a writer — the
- * session file lags the stream (the boundary entry is not flushed yet), or a
- * compaction replaced the segment. The prefix cut is impossible, so the whole
- * segment replays with `boundaryMissing` set; the caller warns that the
- * transcript may be missing entries (lag) or duplicate live ones (compaction).
+ * The uuid on which a live message deduplicates against a replayed path, or
+ * undefined when the message kind never renders replayed content: only
+ * user/assistant messages, stream events (their partial-message wrapper
+ * carries the transcript uuid), and compact_boundary banners can double-
+ * render; other system subtypes render content no path replay produces, so
+ * a uuid collision must not swallow them.
  */
-export function historyUpToBoundary(
-  messages: SessionMessage[],
-  boundaryUuid: string | undefined,
-): { messages: SessionMessage[]; boundaryMissing: boolean } {
-  if (boundaryUuid === undefined) {
-    return { messages, boundaryMissing: false };
-  }
-  const boundaryIndex = messages.findIndex(
-    (entry) => entry.uuid === boundaryUuid,
-  );
-  if (boundaryIndex === -1) {
-    return { messages, boundaryMissing: true };
-  }
-  return {
-    messages: messages.slice(0, boundaryIndex + 1),
-    boundaryMissing: false,
-  };
+export function releaseDedupeUuid(message: SDKMessage): string | undefined {
+  return message.type === "user" ||
+    message.type === "assistant" ||
+    message.type === "stream_event" ||
+    (message.type === "system" && message.subtype === "compact_boundary")
+    ? message.uuid
+    : undefined;
 }
 
 /** The displayable text of a user turn (image/document blocks are dropped). */

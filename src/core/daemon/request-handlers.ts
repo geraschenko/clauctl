@@ -17,11 +17,14 @@ import {
   type Query,
   type SDKUserMessage,
 } from "@anthropic-ai/claude-agent-sdk";
-import { buildTree, type SessionTree } from "../build-tree.ts";
+import { buildTree } from "../build-tree.ts";
+import { treeNodeRefsEqual, type SessionTree } from "../tree.ts";
 import { effectiveTreeNodeChain } from "../effective-chain.ts";
 import type { PersistedOptions } from "../options.ts";
 import {
   readEntriesAfterStreamFlush,
+  readSessionEntries,
+  waitForEntryOnDisk,
   type SessionEntry,
 } from "../session-file.ts";
 import {
@@ -101,17 +104,20 @@ export function createRequestHandler(
   // if the daemon exits first, a later resume sees the un-rewound chain.
   let override: GetMessagesOverride | undefined = startupOverride(
     deps.startupEntries,
-    events.agentState.lastTranscriptUuid,
+    events.agentState.leafTreeNodeRef,
     deps.log,
   );
 
   /** The get-messages override, dropped lazily once stale: the next transcript
-   * write moves lastTranscriptUuid, closing the window it corrected for. Shared
+   * write moves leafTreeNodeRef, closing the window it corrected for. Shared
    * by get-messages and get-tree so both report the same context tip. */
   const freshOverride = (): GetMessagesOverride | undefined => {
     if (
       override !== undefined &&
-      override.installedAtLeafUuid !== events.agentState.lastTranscriptUuid
+      !treeNodeRefsEqual(
+        override.installedAtLeaf,
+        events.agentState.leafTreeNodeRef,
+      )
     ) {
       override = undefined;
     }
@@ -120,6 +126,7 @@ export function createRequestHandler(
 
   const handleSetContext = createSetContextHandler(deps, {
     gate,
+    freshOverride,
     installOverride: (next) => {
       override = next;
     },
@@ -237,10 +244,19 @@ export function createRequestHandler(
           if (sessionId === undefined) {
             return [];
           }
+          // The leaf flush gate covers BOTH response paths: getSessionMessages
+          // reads the same file, with the same lag. A relinked leaf's newest
+          // on-disk entry is its boundary, so the wait keys on
+          // viaBoundary ?? uuid; an unset leaf has nothing to wait for.
+          const filePath = deps.sessionFilePath(sessionId);
+          const leaf = events.agentState.leafTreeNodeRef;
+          if (leaf !== undefined) {
+            await waitForEntryOnDisk(filePath, leaf.viaBoundary ?? leaf.uuid);
+          }
           const active = freshOverride();
           if (active?.kind === "synthesize") {
             return synthesizeMessages(
-              deps.sessionFilePath(sessionId),
+              readSessionEntries(filePath),
               active.chain,
             );
           }
@@ -265,11 +281,14 @@ export function createRequestHandler(
             throw new Error(`${request.type}: no session yet`);
           }
           // Waiting on the last stream-reported leaf gives read consistency
-          // across the CLI's flush lag; the leaf uuid is unset when no turn
-          // has run this daemon lifetime — the file is quiescent then.
+          // across the CLI's flush lag; a relinked leaf's newest on-disk
+          // entry is its boundary, so the wait keys on viaBoundary ?? uuid.
+          // The leaf is unset when no turn has run this daemon lifetime —
+          // the file is quiescent then.
+          const leaf = events.agentState.leafTreeNodeRef;
           const entries = await readEntriesAfterStreamFlush(
             deps.sessionFilePath(sessionId),
-            events.agentState.lastTranscriptUuid as UUID | undefined,
+            leaf === undefined ? undefined : (leaf.viaBoundary ?? leaf.uuid),
           );
           if (request.type === "get-entries") {
             return entries;

@@ -7,8 +7,13 @@
  * versions, so unrecognized shapes render generically rather than rejecting.
  */
 
-import type { SessionTree, TreeNode } from "../core/build-tree.ts";
 import type { SessionEntry } from "../core/session-file.ts";
+import {
+  formatTreeNodeRef,
+  isFinalAssistantEntry,
+  type SessionTree,
+  type TreeNode,
+} from "../core/tree.ts";
 import { extractTextContent, oneLine, truncateText } from "./generated/text.ts";
 import {
   flattenVisibleTree,
@@ -22,6 +27,7 @@ export const FILTER_MODES = [
   "no-tools",
   "user-only",
   "all",
+  "picker",
 ] as const;
 export type FilterMode = (typeof FILTER_MODES)[number];
 
@@ -72,9 +78,13 @@ function userWithText(entry: SessionEntry): boolean {
   return entry.type === "user" && entry.isMeta !== true && hasText(entry);
 }
 
-function passesFilter(
+/** `isFinal` is isFinalAssistantEntry over the occurrence's tree node,
+ *  computed by callers (collectFinalAssistantIds below); only "picker"
+ *  reads it. */
+export function passesFilter(
   entry: SessionEntry,
   isCurrentLeaf: boolean,
+  isFinal: boolean,
   filter: FilterMode,
 ): boolean {
   switch (filter) {
@@ -108,12 +118,24 @@ function passesFilter(
           abnormalStopReason(entry) !== undefined ||
           isCurrentLeaf)
       );
+    // The /tree selector's fixed filter: every row is a valid pick target.
+    // Restricting assistants to final entries makes assistant rows valid
+    // rewindTo targets in ordinary session shapes; the daemon's file-order
+    // validation remains the authority.
+    case "picker":
+      if (isCurrentLeaf || entry.subtype === "compact_boundary") {
+        return true;
+      }
+      if (entry.type === "user") {
+        return userWithText(entry);
+      }
+      return entry.type === "assistant" && isFinal && hasText(entry);
   }
 }
 
 /** tool_use id → name over ALL entries (visible or not), so tool_result
  *  lines can name their tool after filtering hides the call. */
-function collectToolNames(tree: TreeNode[]): Map<string, string> {
+export function collectToolNames(tree: TreeNode[]): Map<string, string> {
   const toolNames = new Map<string, string>();
   const visit = (node: TreeNode): void => {
     for (const block of contentBlocks(node.entry)) {
@@ -131,7 +153,7 @@ function collectToolNames(tree: TreeNode[]): Map<string, string> {
   return toolNames;
 }
 
-function entrySummary(
+export function entrySummary(
   entry: SessionEntry,
   toolNames: ReadonlyMap<string, string>,
 ): string {
@@ -191,30 +213,54 @@ function entrySummary(
   return entry.subtype === undefined ? type : `${type}: ${entry.subtype}`;
 }
 
-function layoutId(uuid: string, viaBoundary: string | undefined): string {
-  return viaBoundary === undefined ? uuid : `${uuid}@${viaBoundary}`;
+/** The layout id doubles as the node's TreeNodeRef presentation, so a
+ *  consumer recovers the picked occurrence with parseTreeNodeRef(id). */
+function nodeLayoutId(node: TreeNode): string {
+  return formatTreeNodeRef({
+    uuid: node.entry.uuid!,
+    ...(node.viaBoundary !== undefined && { viaBoundary: node.viaBoundary }),
+  });
 }
 
-function toLayoutNode(node: TreeNode): LayoutNode<SessionEntry> {
+export function toLayoutNode(node: TreeNode): LayoutNode<SessionEntry> {
   return {
-    id: layoutId(String(node.entry.uuid), node.viaBoundary),
+    id: nodeLayoutId(node),
     children: node.children.map(toLayoutNode),
     payload: node.entry,
   };
 }
 
-function formatTreeNodeLine(
+/** Layout ids of the occurrences that are final assistant entries — the
+ *  per-tree input `passesFilter`'s "picker" mode needs. */
+export function collectFinalAssistantIds(tree: TreeNode[]): Set<string> {
+  const finalIds = new Set<string>();
+  const visit = (node: TreeNode): void => {
+    if (isFinalAssistantEntry(node)) {
+      finalIds.add(nodeLayoutId(node));
+    }
+    node.children.forEach(visit);
+  };
+  tree.forEach(visit);
+  return finalIds;
+}
+
+/** `omitUuid` drops the uuid column — the /tree selector's rows (uuids are
+ *  for CLI copy-paste, noise in an interactive picker). */
+export function formatTreeNodeLine(
   flatNode: FlatLayoutNode<SessionEntry>,
   toolNames: ReadonlyMap<string, string>,
   width: number,
+  omitUuid?: boolean,
 ): string {
   const marker = flatNode.isCurrentLeaf
     ? "* "
     : flatNode.isOnActivePath
       ? "• "
       : "";
-  const uuid8 = String(flatNode.node.payload.uuid).slice(0, 8);
-  const prefix = `${treePrefix(flatNode)}${marker}${uuid8} `;
+  const uuid8 = omitUuid
+    ? ""
+    : `${String(flatNode.node.payload.uuid).slice(0, 8)} `;
+  const prefix = `${treePrefix(flatNode)}${marker}${uuid8}`;
   const availableSummary = Math.max(0, width - [...prefix].length);
   const summary = entrySummary(flatNode.node.payload, toolNames);
   return `${prefix}${truncateText(summary, availableSummary)}`.trimEnd();
@@ -233,15 +279,19 @@ export function formatSessionTree(
   options: TreeFormatOptions,
 ): string {
   const toolNames = collectToolNames(input.tree);
+  const finalIds = collectFinalAssistantIds(input.tree);
   const currentLeafId =
-    input.leaf === null
-      ? null
-      : layoutId(input.leaf.uuid, input.leaf.viaBoundary);
+    input.leaf === null ? null : formatTreeNodeRef(input.leaf);
   const lines = flattenVisibleTree(
     input.tree.map(toLayoutNode),
     currentLeafId,
     (node) =>
-      passesFilter(node.payload, node.id === currentLeafId, options.filter),
+      passesFilter(
+        node.payload,
+        node.id === currentLeafId,
+        finalIds.has(node.id),
+        options.filter,
+      ),
   ).map((flatNode) => formatTreeNodeLine(flatNode, toolNames, options.width));
   lines.push(`[cursor: ${input.leaf?.uuid ?? "null"}]`);
   return `${lines.join("\n")}\n`;

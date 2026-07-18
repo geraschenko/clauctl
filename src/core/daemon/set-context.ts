@@ -12,8 +12,13 @@
 
 import type { UUID } from "node:crypto";
 import type { NonNullableUsage } from "@anthropic-ai/claude-agent-sdk";
-import { effectiveChain } from "../effective-chain.ts";
+import {
+  effectiveChain,
+  effectiveTreeNodeChain,
+  summaryOf,
+} from "../effective-chain.ts";
 import type { SetContextRequest, SetContextResult } from "../sdk-socket.ts";
+import type { TreeNodeRef } from "../tree.ts";
 import {
   appendSessionEntries,
   buildBoundaryEntries,
@@ -46,6 +51,10 @@ const preTokensOf = (usage: NonNullableUsage | undefined): number =>
  *  site — it wraps this handler, not the other way around. */
 export interface SetContextShared {
   gate: RwGate;
+  /** The still-fresh get-messages override, if any — needed because a
+   *  no-write rewind's context truth lives only in its filterTail override,
+   *  not the file. */
+  freshOverride(): GetMessagesOverride | undefined;
   installOverride(override: GetMessagesOverride): void;
   setQueryAvailable(available: boolean): void;
 }
@@ -57,20 +66,26 @@ export function createSetContextHandler(
   const { events } = deps;
 
   const handleRewind = async (
-    rewindTo: UUID,
+    rewindTo: TreeNodeRef,
     context: {
       filePath: string;
       entries: SessionEntry[];
       sessionId: string;
       restartAndVerify: (expected: UUID[]) => Promise<void>;
       markMutated: () => void;
+      setChangedLeaf: (leaf: TreeNodeRef) => void;
+      /** Overrides the boundary's logicalParentUuid when set — the logical
+       *  tip diverges from the file chain tip after a no-write rewind. */
+      logicalTipOverride: UUID | undefined;
     },
   ): Promise<SetContextResult> => {
     const { filePath, entries, sessionId } = context;
-    const targetIndex = entries.findIndex((entry) => entry.uuid === rewindTo);
+    const targetIndex = entries.findIndex(
+      (entry) => entry.uuid === rewindTo.uuid,
+    );
     if (targetIndex === -1) {
       throw new Error(
-        `set-context: rewindTo ${rewindTo} is not in the session file`,
+        `set-context: rewindTo ${rewindTo.uuid} is not in the session file`,
       );
     }
     const target = entries[targetIndex]!;
@@ -98,11 +113,48 @@ export function createSetContextHandler(
       );
     }
 
-    // "Context as it was when the target first appeared": loader semantics on
-    // the file truncated just after the target.
-    const desired = effectiveChain(entries.slice(0, targetIndex + 1), deps.log);
-    const active = effectiveChain(entries, deps.log);
-    const targetPosition = active.indexOf(rewindTo);
+    // The desired context per occurrence flavor, one effectiveChain call
+    // either way. viaBoundary absent — "context as it was when the target
+    // first appeared": loader semantics on the file truncated just after
+    // the target. viaBoundary present — a prefix of the context that
+    // boundary installed: the chain of the file truncated after the
+    // boundary's block (its summary entry if present, else the boundary
+    // itself), cut at the target uuid.
+    let desired: UUID[];
+    if (rewindTo.viaBoundary === undefined) {
+      desired = effectiveChain(entries.slice(0, targetIndex + 1), deps.log);
+    } else {
+      const boundaryIndex = entries.findIndex(
+        (entry) => entry.uuid === rewindTo.viaBoundary,
+      );
+      if (
+        boundaryIndex === -1 ||
+        entries[boundaryIndex]!.subtype !== "compact_boundary"
+      ) {
+        throw new Error(
+          `set-context: rewindTo.viaBoundary ${rewindTo.viaBoundary} does not name a compact_boundary entry`,
+        );
+      }
+      const summaryUuid = summaryOf(entries, boundaryIndex)?.uuid;
+      const blockEnd =
+        summaryUuid === undefined
+          ? boundaryIndex
+          : entries.findIndex((entry) => entry.uuid === summaryUuid);
+      const installedChain = effectiveChain(
+        entries.slice(0, blockEnd + 1),
+        deps.log,
+      );
+      const targetPosition = installedChain.indexOf(rewindTo.uuid);
+      if (targetPosition === -1) {
+        throw new Error(
+          `set-context: rewindTo ${rewindTo.uuid} is not on the context chain installed by boundary ${rewindTo.viaBoundary}`,
+        );
+      }
+      desired = installedChain.slice(0, targetPosition + 1);
+    }
+    const activeRefs = effectiveTreeNodeChain(entries, deps.log);
+    const active = activeRefs.map((ref) => ref.uuid);
+    const targetPosition = active.indexOf(rewindTo.uuid);
 
     if (
       targetPosition !== -1 &&
@@ -110,10 +162,13 @@ export function createSetContextHandler(
     ) {
       // The desired chain truncates the active chain: resumeSessionAt gives
       // exactly these semantics (P2 d, P9 c; see file comment) with no file
-      // mutation.
+      // mutation. There is no file truth for this state (the file's chain
+      // tip is the un-rewound leaf), so the post-change leaf is the rewind
+      // target's occurrence on the active chain.
+      const leaf = activeRefs[targetPosition]!;
       await deps.teardownQuery();
       try {
-        await deps.restartQuery(sessionId, rewindTo);
+        await deps.restartQuery(sessionId, rewindTo.uuid);
       } catch (error) {
         shared.setQueryAvailable(false);
         throw new Error(
@@ -124,8 +179,9 @@ export function createSetContextHandler(
       shared.installOverride({
         kind: "filterTail",
         droppedUuids: new Set(active.slice(targetPosition + 1)),
-        installedAtLeafUuid: events.agentState.lastTranscriptUuid,
+        installedAtLeaf: leaf,
       });
+      context.setChangedLeaf(leaf);
       return {};
     }
 
@@ -143,7 +199,7 @@ export function createSetContextHandler(
       cwd: deps.cwd,
       uuids: messageUuids,
       anchor: "boundary",
-      logicalParentUuid: active.at(-1) ?? null,
+      logicalParentUuid: context.logicalTipOverride ?? active.at(-1) ?? null,
       version: events.agentState.claudeCodeVersion,
       preTokens: preTokensOf(events.agentState.lastUsage),
     });
@@ -156,11 +212,9 @@ export function createSetContextHandler(
 
   return async (parsed: SetContextRequest): Promise<SetContextResult> => {
     if ("uuids" in parsed) {
-      if (parsed.uuids.length === 0 && parsed.summaryText === undefined) {
-        throw new Error(
-          "set-context: empty uuids without summaryText — nothing to load",
-        );
-      }
+      // Empty uuids without a summary is a deliberate context reset (P10):
+      // the appended boundary preserves nothing and the loader honors it as
+      // an empty context.
       if (parsed.anchor === "summary" && parsed.summaryText === undefined) {
         throw new Error(
           'set-context: anchor "summary" requires summaryText — nothing to anchor on',
@@ -180,6 +234,11 @@ export function createSetContextHandler(
     const releaseGate = await shared.gate.awaitExclusive();
     let fileMutated = false;
     let succeeded = false;
+    // The post-change context tip carried by contextChanged: the value
+    // get-tree's leaf computation reports after the change. Set by every
+    // path before its restart (so a durable append broadcasts the right
+    // leaf even when the restart then fails).
+    let changedLeaf: TreeNodeRef | null = null;
     try {
       // Eligibility, checked under the gate: nothing running, nothing queued,
       // nothing delivered-but-unconfirmed. No implicit waiting — callers can
@@ -195,10 +254,26 @@ export function createSetContextHandler(
         );
       }
       const filePath = deps.sessionFilePath(sessionId);
+      // A relinked leaf's newest on-disk entry is its boundary, so the flush
+      // wait keys on viaBoundary ?? uuid.
+      const stateLeaf = events.agentState.leafTreeNodeRef;
       const entries = await readEntriesAfterStreamFlush(
         filePath,
-        events.agentState.lastTranscriptUuid as UUID | undefined,
+        stateLeaf === undefined
+          ? undefined
+          : (stateLeaf.viaBoundary ?? stateLeaf.uuid),
       );
+      // Boundary anchoring: a fresh no-write rewind's context truth lives
+      // only in its filterTail override — the file still carries the
+      // un-rewound tail, and anchoring a new boundary there would
+      // re-introduce that tail on the logical-history path
+      // (root-to-leaf via logicalParentUuid, what the TUI renders). The
+      // synthesize variant needs no adjustment: its chain IS file truth.
+      const activeOverride = shared.freshOverride();
+      const logicalTipOverride =
+        activeOverride?.kind === "filterTail"
+          ? activeOverride.installedAtLeaf?.uuid
+          : undefined;
 
       // Restart + verification shared by every file-mutating path. The
       // append is already durable, so contextChanged is broadcast (via
@@ -206,19 +281,22 @@ export function createSetContextHandler(
       // even when the restart or verification then fails: the file carries
       // the truth, and any later resume picks the boundary up.
       const restartAndVerify = async (expected: UUID[]): Promise<void> => {
-        // One re-read serves the override and the verification below; the
-        // file is quiescent between the append and the restarted Query's
-        // first turn. The override carries the file's effective chain, not
-        // `expected` — identical on success, and on a verification failure
-        // get-messages still reflects the loader's actual view.
-        const effective = effectiveChain(
+        // One re-read serves the override, the contextChanged leaf, and the
+        // verification below; the file is quiescent between the append and
+        // the restarted Query's first turn. The override carries the file's
+        // effective chain, not `expected` — identical on success, and on a
+        // verification failure get-messages still reflects the loader's
+        // actual view.
+        const effectiveRefs = effectiveTreeNodeChain(
           readSessionEntries(filePath),
           deps.log,
         );
+        const effective = effectiveRefs.map((ref) => ref.uuid);
+        changedLeaf = effectiveRefs.at(-1) ?? null;
         shared.installOverride({
           kind: "synthesize",
           chain: effective,
-          installedAtLeafUuid: events.agentState.lastTranscriptUuid,
+          installedAtLeaf: changedLeaf ?? undefined,
         });
         try {
           await deps.restartQuery(sessionId);
@@ -275,7 +353,10 @@ export function createSetContextHandler(
             summaryText: parsed.summaryText,
           }),
           anchor,
-          logicalParentUuid: effectiveChain(entries, deps.log).at(-1) ?? null,
+          logicalParentUuid:
+            logicalTipOverride ??
+            effectiveChain(entries, deps.log).at(-1) ??
+            null,
           version: events.agentState.claudeCodeVersion,
           preTokens: preTokensOf(events.agentState.lastUsage),
         });
@@ -300,6 +381,10 @@ export function createSetContextHandler(
           markMutated: () => {
             fileMutated = true;
           },
+          setChangedLeaf: (leaf) => {
+            changedLeaf = leaf;
+          },
+          logicalTipOverride,
         });
       }
       succeeded = true;
@@ -309,7 +394,11 @@ export function createSetContextHandler(
       // even if the restart then failed; the RPC itself still returns the
       // error (criterion 7).
       if (succeeded || fileMutated) {
-        events.emit({ kind: "contextChanged", request: parsed });
+        events.emit({
+          kind: "contextChanged",
+          request: parsed,
+          leaf: changedLeaf,
+        });
       }
       releaseGate();
     }

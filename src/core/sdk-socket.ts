@@ -17,6 +17,7 @@ import type {
   Settings,
 } from "@anthropic-ai/claude-agent-sdk";
 import type { AgentState } from "./agent-state.ts";
+import type { TreeNodeRef } from "./tree.ts";
 
 export const SDK_SOCKET_PROTOCOL = "clauctl-sdk-socket";
 export const SDK_SOCKET_VERSION = 1;
@@ -50,7 +51,14 @@ export type SdkEvent =
   // subsequent Query restart failed — watchers track file truth. Deliberately
   // NOT an SdkControlMutation: that type is reserved for controls the real
   // SDK supports, while set-context is a method we wish the SDK had.
-  | { kind: "contextChanged"; request: SetContextRequest }
+  // `leaf` is the post-change context tip — the value get-tree's leaf
+  // computation reports after the change (null after an empty-context
+  // reset); observers fold it into leafTreeNodeRef (agent-state.ts).
+  | {
+      kind: "contextChanged";
+      request: SetContextRequest;
+      leaf: TreeNodeRef | null;
+    }
   | { kind: "sdkMessage"; message: SDKMessage };
 
 export type TurnPriority = "now" | "next" | "later";
@@ -120,12 +128,15 @@ export type SetContextRequest =
        *  "boundary": uuids first, then summary (from shape). */
       anchor?: "summary" | "boundary";
     }
-  // Rewind mode: the final transcript entry of an assistant API message;
-  // context = what it was when that message first appeared (the loader's view
-  // of the file truncated just after the target). Uses resumeSessionAt when
-  // the desired chain truncates the active chain, a no-summary boundary
-  // otherwise.
-  | { type: "set-context"; rewindTo: UUID };
+  // Rewind mode: the target is a tree-node occurrence whose entry is the
+  // final transcript entry of an assistant API message. viaBoundary absent:
+  // context = what it was when that message first appeared (the loader's
+  // view of the file truncated just after the target). viaBoundary present
+  // (a pick inside that boundary's relinked context): context = the prefix,
+  // ending at uuid, of the chain that boundary installed. Uses
+  // resumeSessionAt when the desired chain truncates the active chain, a
+  // no-summary boundary otherwise.
+  | { type: "set-context"; rewindTo: TreeNodeRef };
 
 /** Response data for set-context. boundaryUuid absent when a rewind needed no
  *  boundary; summaryUuid absent whenever no summary entry was written. */
@@ -147,7 +158,10 @@ function assertUuid(value: unknown, label: string): UUID {
 /** The socket casts untrusted JSON, so the one destructive command is parsed
  *  explicitly before any teardown. Throws with a descriptive message on:
  *  both or neither of uuids/rewindTo, non-array or non-uuid-string uuids,
- *  unknown anchor, non-string or empty summaryText. */
+ *  a rewindTo that is not a {uuid, viaBoundary?} record of uuids, unknown
+ *  anchor, non-string or empty summaryText. An empty uuids array passes —
+ *  an explicit empty list on the wire is a deliberate context reset; the
+ *  fat-finger guard lives in the CLI (--empty). */
 export function parseSetContextRequest(
   raw: Record<string, unknown>,
 ): SetContextRequest {
@@ -162,9 +176,24 @@ export function parseSetContextRequest(
         "set-context: rewindTo is mutually exclusive with uuids/summaryText/anchor",
       );
     }
+    if (
+      typeof rewindTo !== "object" ||
+      rewindTo === null ||
+      Array.isArray(rewindTo)
+    ) {
+      throw new Error(
+        "set-context: rewindTo must be a {uuid, viaBoundary?} object",
+      );
+    }
+    const ref = rewindTo as { uuid?: unknown; viaBoundary?: unknown };
     return {
       type: "set-context",
-      rewindTo: assertUuid(rewindTo, "rewindTo"),
+      rewindTo: {
+        uuid: assertUuid(ref.uuid, "rewindTo.uuid"),
+        ...(ref.viaBoundary !== undefined && {
+          viaBoundary: assertUuid(ref.viaBoundary, "rewindTo.viaBoundary"),
+        }),
+      },
     };
   }
   if (uuids === undefined) {
