@@ -455,6 +455,7 @@ async function captureSubject(
   // or without it (verified during bring-up), so no snapshot restore is
   // needed here — out/sessions/ remains a manual-recovery point if a
   // session is ever mutated for real (e.g. a prompt typed during triage).
+  // TDC: Huh? If we're using --direct, why are we also capturing regular claude in tmux? The point of --direct is to allow fast iteration when we're working on clauctl rendering. claude rendering doesn't change over those iterations, so there's no reason to keep re-capturing it. It just slows things down because we're waiting for the tmux pane to stabilize. I think the interface here is getting confusing. Maybe we should have separate captureClaude and captureClauctl functions, with the later taking `direct` as an argument. We should also add some clear flag to the script to make it clear if one or both are being captured. Is there any reason not to use --direct by default, so change the flag to --clauctl-in-tmux?
   const claude = await captureInTmux(
     {
       command: [resolveBundledClaude(), "--resume", subject.sessionId],

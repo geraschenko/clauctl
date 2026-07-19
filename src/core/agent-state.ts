@@ -65,6 +65,7 @@ export interface AgentState {
   /** The reasoning effort the next query will use (the `Settings.effortLevel`
    *  union; a spawn `--effort max` is not representable and leaves this
    *  unset). Seeded by the daemon, folded from apply-flag-settings. */
+  // TDC: why is `--effort max` not representable? Why are we not using the EffortLevel type from the sdk?
   readonly effortLevel?: "low" | "medium" | "high" | "xhigh";
   /** The CLI version announced by the session's claude child. */
   readonly claudeCodeVersion?: string;
@@ -213,6 +214,7 @@ export function nextAgentState(state: AgentState, event: SdkEvent): AgentState {
           return state;
         }
         if (effortLevel === null) {
+          // TDC: My understanding is that setting effort level to null resets to the user's default. If that's correct, shouldn't we resolveSettings to figure out what the correct effort level is? Nulling out effort level is not meaningful ... the effort levels _is something_, and our agent state should reflect that.
           const { effortLevel: _effortLevel, ...withoutEffort } = state;
           return withoutEffort;
         }

@@ -3,7 +3,7 @@
 #
 # Usage: scripts/update-ports.sh <old-tag> <new-tag>
 #   old-tag: the pi tag the ports currently track (the "@ <version>" in each
-#            file header, with a leading "v", e.g. v0.80.2-fork.2)
+#            file header, with a leading "v", e.g. v0.80.10)
 #   new-tag: the pi tag to migrate to
 #
 # For each ported file this copies the upstream file at both tags into a temp

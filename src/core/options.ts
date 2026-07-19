@@ -181,7 +181,7 @@ export async function settingsSeed(
 export function effortLevelOf(
   effort: Options["effort"],
 ): AgentState["effortLevel"] {
-  return effort === "max" ? undefined : effort;
+  return effort === "max" ? undefined : effort; // TDC: why?
 }
 
 /** parseClaudeFlags result; `spawn` folds it into the SpawnOptions handoff. */

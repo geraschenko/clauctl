@@ -1,17 +1,16 @@
 /**
- * Ours, claude-inspired (parity spec, phase 6): a two-line footer rendered
- * straight from the folded AgentState plus the FooterDataProvider port —
+ * Ours, claude-inspired (tui-rendering-parity spec, phase 6): a two-line footer
+ * rendered straight from the folded AgentState plus the FooterDataProvider port
+ * —
  *
  *   ~/repo (main)
  *   ⏸ manual mode on              86k (43%) • claude-opus-4-8 • high
  *
- * Line 1 is the ~-abbreviated cwd with the current git branch. Line 2 shows
- * the permission mode with claude 2.1.211's per-mode labels and colors
- * (captured 2026-07-19; bypassPermissions is never spawned by the harness,
- * so its label/error color come from the binary's mode table), and
- * right-aligns context usage • model • effort level. Display conventions
- * (the "default" fallback for an unobserved model/mode) live here, not in
- * the event dispatch.
+ * Line 1 is the ~-abbreviated cwd with the current git branch. Line 2 shows the
+ * permission mode with claude 2.1.211's per-mode labels and colors, and
+ * right-aligns context usage • model • effort level. Display conventions (the
+ * "default" fallback for an unobserved model/mode) live here, not in the event
+ * dispatch.
  */
 
 import { isAbsolute, relative, resolve, sep } from "node:path";
@@ -58,21 +57,19 @@ export function formatCwdForFooter(
   return relativeToHome === "" ? "~" : `~${sep}${relativeToHome}`;
 }
 
-/** claude's mode indicators, colored per mode (captures: default 246,
- *  plan 73, acceptEdits 147, dontAsk 211, auto 220; bypassPermissions
- *  derived from the binary's mode table, which pairs it with `error`). */
+/** claude's mode indicators, colored per mode */
 const MODE_INDICATORS: Record<
   PermissionMode,
   { label: string; color: (text: string) => string }
 > = {
-  default: { label: "⏸ manual mode on", color: claudeStyle.grey },
+  default: { label: "⏸ manual mode on", color: claudeStyle.manualMode },
+  acceptEdits: { label: "⏵⏵ accept edits on", color: claudeStyle.acceptEdits },
   plan: { label: "⏸ plan mode on", color: claudeStyle.planMode },
-  acceptEdits: { label: "⏵⏵ accept edits on", color: claudeStyle.autoAccept },
-  dontAsk: { label: "⏵⏵ don't ask on", color: claudeStyle.error },
-  auto: { label: "⏵⏵ auto mode on", color: claudeStyle.warning },
+  auto: { label: "⏵⏵ auto mode on", color: claudeStyle.autoMode },
+  dontAsk: { label: "⏵⏵ don't ask on", color: claudeStyle.dontAsk },
   bypassPermissions: {
     label: "⏵⏵ bypass permissions on",
-    color: claudeStyle.error,
+    color: claudeStyle.bypassPermissions,
   },
 };
 
@@ -110,19 +107,16 @@ export class FooterComponent implements Component {
     if (branch !== undefined && branch !== null) {
       pwd = `${pwd} (${branch})`;
     }
-    return truncateToWidth(
-      claudeStyle.grey(pwd),
-      width,
-      claudeStyle.grey("..."),
-    );
+    return truncateToWidth(claudeStyle.grey(pwd), width, claudeStyle.grey("…"));
   }
 
   private statusLine(width: number): string {
+    // TDC: If permissionMode is null, let's use `{ label: "? unset mode", color: claudeStyle.warning }`
     const mode = MODE_INDICATORS[this.state.permissionMode ?? "default"];
     let left = mode.color(mode.label);
     let leftWidth = visibleWidth(left);
     if (leftWidth > width) {
-      left = truncateToWidth(left, width, "...");
+      left = truncateToWidth(left, width, "…");
       leftWidth = visibleWidth(left);
     }
 
@@ -137,6 +131,7 @@ export class FooterComponent implements Component {
       );
       rightParts.push(`${formatTokens(tokens)} (${percent}%)`);
     }
+    // TDC: If model is null, let's use "unset model"
     rightParts.push(this.state.model ?? "default");
     if (this.state.effortLevel !== undefined) {
       rightParts.push(this.state.effortLevel);

@@ -235,6 +235,6 @@ test("--mcp-config with invalid JSON is a UsageError", () => {
 test("effortLevelOf: settings-level names pass, max is unrepresentable", () => {
   assert.equal(effortLevelOf("high"), "high");
   assert.equal(effortLevelOf("xhigh"), "xhigh");
-  assert.equal(effortLevelOf("max"), undefined);
+  assert.equal(effortLevelOf("max"), undefined); // TDC: why?
   assert.equal(effortLevelOf(undefined), undefined);
 });

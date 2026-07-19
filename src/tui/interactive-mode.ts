@@ -404,9 +404,9 @@ class InteractiveMode {
         this.pendingMessages.add(event.id, userText(event.message));
         break;
       case "userMessageDequeued":
-        // The dequeue's stream position is the correct transcript position
-        // (phase-2 queue model); the retained message renders through the
-        // same appendUserTurn the replay path uses.
+        // The dequeue's stream position is the correct transcript position;
+        // the retained message renders through the same appendUserTurn the
+        // replay path uses.
         this.pendingMessages.take(event.ids);
         for (const id of event.ids) {
           const message = this.queuedById.get(id);

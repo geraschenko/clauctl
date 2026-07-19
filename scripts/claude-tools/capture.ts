@@ -1,7 +1,7 @@
 /**
  * Captures the bundled claude's tool schemas by running it through an
  * mitmdump forward proxy (capture-addon.py) and recording the `tools` array
- * of its /messages requests. Two-phase flow (from muninn's codegen):
+ * of its /messages requests. Two-phase flow:
  *
  *  1. A trivial prompt captures the immediately-loaded tools plus the
  *     deferred-tool roster from the system-reminder in the request.
@@ -27,7 +27,7 @@ import { execFile, spawn, type ChildProcess } from "node:child_process";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { createConnection } from "node:net";
 import { join, dirname } from "node:path";
-import { setTimeout as delay } from "node:timers/promises";
+import { setTimeout as delay } from "node:timers/promises"; // TDC: why not just call it setTimeout? Changing the name of imports for no reason is confusing.
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 import {

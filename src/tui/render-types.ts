@@ -26,5 +26,7 @@ export interface RenderToolResult {
   isError: boolean;
   /** The SDK's structured per-tool output (`tool_use_result`), attached when
    *  the carrying user message has exactly one tool_result block. */
+  // TDC: why not call this "tool_use_result"?
+  // TDC: How did you determing the tool-specific outuput types? In sdk.d.ts, it just says "see the *Output types in toolTypes", but I don't see those output types anywhere.
   structured?: unknown;
 }

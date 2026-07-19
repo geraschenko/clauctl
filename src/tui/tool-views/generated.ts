@@ -81,7 +81,7 @@ export interface CronCreateInput {
    */
   recurring?: boolean;
   /**
-   * true = persist to .claude/scheduled_tasks.json and survive restarts. false (default) = in-memory only, dies when this Claude session ends. Use true only when the user asks the task to survive across sessions.
+   * Has no effect — durable persistence is not available. All jobs are session-only (in-memory, gone when this Claude session ends).
    */
   durable?: boolean;
 }
@@ -96,6 +96,123 @@ export interface CronDeleteInput {
 export interface CronListInput {}
 
 export interface DeferredToolPlaceholderInput {}
+
+export interface DesignSyncInput {
+  method:
+    | "list_projects"
+    | "get_project"
+    | "list_files"
+    | "get_file"
+    | "finalize_plan"
+    | "write_files"
+    | "delete_files"
+    | "register_assets"
+    | "unregister_assets"
+    | "create_project"
+    | "report_validate";
+  /**
+   * Required for all methods except list_projects and create_project
+   */
+  projectId?: string;
+  /**
+   * get_file: file path to read
+   */
+  path?: string;
+  /**
+   * finalize_plan: exact paths or glob patterns that will be written. `*` matches within a single segment, `**` matches any depth (e.g. `ui_kits/acme/** /*.html`). Max 3 `*`/`**` wildcards per pattern and max 256 entries — use broader globs to cover more files rather than enumerating paths.
+   *
+   * @maxItems 256
+   */
+  writes?: string[];
+  /**
+   * finalize_plan: exact paths or glob patterns that will be deleted (same syntax and limits as writes).
+   *
+   * @maxItems 256
+   */
+  deletes?: string[];
+  /**
+   * write_files/delete_files/register_assets/unregister_assets: token from a prior finalize_plan call
+   */
+  planId?: string;
+  /**
+   * write_files: file contents to write (max 256 per call — split larger bundles across multiple write_files calls under the same planId).
+   *
+   * @maxItems 256
+   */
+  files?: {
+    /**
+     * Path within the project, e.g. components/button/index.html
+     */
+    path: string;
+    /**
+     * Path on disk to read file contents from, relative to the localDir approved at finalize_plan. Preferred for anything you have on disk: the tool reads, encodes, and uploads directly so the contents never enter the model context. Mutually exclusive with data.
+     */
+    localPath?: string;
+    /**
+     * Inline file contents (UTF-8 text, or base64 when encoding is "base64"). For small dynamic content only — anything you have on disk should use localPath instead.
+     */
+    data?: string;
+    /**
+     * Set to "base64" for binary inline data
+     */
+    encoding?: "base64";
+    mimeType?: string;
+  }[];
+  /**
+   * delete_files: paths to delete. unregister_assets: paths whose Design System pane card should be removed. Max 256 per call — split larger batches across multiple calls under the same planId.
+   *
+   * @maxItems 256
+   */
+  paths?: string[];
+  /**
+   * create_project: name for the new design-system project
+   */
+  name?: string;
+  /**
+   * register_assets: cards to register in the Design System pane. Each path must be in the finalized plan. Run after write_files succeeds. Max 256 per call.
+   *
+   * @maxItems 256
+   */
+  assets?: {
+    /**
+     * Short human-readable label ("Primary buttons"), not a path
+     */
+    name: string;
+    /**
+     * Project-relative path to the preview/spec file this card renders
+     */
+    path: string;
+    /**
+     * Variants shown ("Primary / secondary / ghost, 3 sizes")
+     */
+    subtitle?: string;
+    /**
+     * Card dimensions in the Design System pane
+     */
+    viewport?: {
+      width: number;
+      height?: number;
+    };
+    /**
+     * Free-form section label for the Design System pane (max 64 chars). Use the source design system's own categorization if it has one — e.g. Material has Buttons/Cards/Forms/etc., a corporate kit might have Actions/Forms/Navigation. Common foundational labels: "Type", "Colors", "Spacing", "Components", "Brand". The pane groups by the value you send.
+     */
+    group?: string;
+  }[];
+  /**
+   * finalize_plan: directory the bundle was built into. write_files with localPath may only read files inside this directory. Defaults to the current working directory. Resolved to an absolute path and shown in the permission prompt.
+   */
+  localDir?: string;
+  /**
+   * report_validate: aggregate from the final .render-check.json — counts only, no component names or paths.
+   */
+  counts?: {
+    total: number;
+    bad: number;
+    thin: number;
+    variantsIdentical: number;
+    iterations: number;
+  };
+}
 
 export interface EditInput {
   /**
@@ -138,6 +255,32 @@ export interface ExitWorktreeInput {
   discard_changes?: boolean;
 }
 
+export interface MonitorInput {
+  /**
+   * Short human-readable description of what you are monitoring (shown in notifications).
+   */
+  description: string;
+  /**
+   * Kill the monitor after this deadline. Default 300000ms, max 3600000ms. Ignored when persistent is true.
+   */
+  timeout_ms: number;
+  /**
+   * Run for the lifetime of the session (no timeout). Use for session-length watches like PR monitoring or log tails. Stop with TaskStop.
+   */
+  persistent: boolean;
+  /**
+   * Shell command or script. Each stdout line is an event; exit ends the watch.
+   */
+  command?: string;
+  /**
+   * WebSocket to open. Each text frame is an event; binary frames are reported as a placeholder line. Socket close ends the watch. Cannot be combined with command.
+   */
+  ws?: {
+    url: string;
+    protocols?: string[];
+  };
+}
+
 export interface NotebookEditInput {
   /**
    * The absolute path to the Jupyter notebook file to edit (must be absolute, not relative)
@@ -161,6 +304,14 @@ export interface NotebookEditInput {
   edit_mode?: "replace" | "insert" | "delete";
 }
 
+export interface PushNotificationInput {
+  /**
+   * The notification body. Keep it under 200 characters; mobile OSes truncate.
+   */
+  message: string;
+  status: "proactive";
+}
+
 export interface ReadInput {
   /**
    * The absolute path to the file to read
@@ -178,6 +329,20 @@ export interface ReadInput {
    * Page range for PDF files (e.g., "1-5", "3", "10-20"). Only applicable to PDF files. Maximum 20 pages per request.
    */
   pages?: string;
+}
+
+export interface RemoteTriggerInput {
+  action: "list" | "get" | "create" | "update" | "run";
+  /**
+   * Required for get, update, and run
+   */
+  trigger_id?: string;
+  /**
+   * Required for create and update; optional for run
+   */
+  body?: {
+    [k: string]: unknown;
+  };
 }
 
 export interface ReportFindingsInput {
@@ -452,11 +617,15 @@ export type ToolName =
   | "CronDelete"
   | "CronList"
   | "DeferredToolPlaceholder"
+  | "DesignSync"
   | "Edit"
   | "EnterWorktree"
   | "ExitWorktree"
+  | "Monitor"
   | "NotebookEdit"
+  | "PushNotification"
   | "Read"
+  | "RemoteTrigger"
   | "ReportFindings"
   | "ScheduleWakeup"
   | "SendMessage"
@@ -480,11 +649,15 @@ export const TOOL_NAMES: readonly ToolName[] = [
   "CronDelete",
   "CronList",
   "DeferredToolPlaceholder",
+  "DesignSync",
   "Edit",
   "EnterWorktree",
   "ExitWorktree",
+  "Monitor",
   "NotebookEdit",
+  "PushNotification",
   "Read",
+  "RemoteTrigger",
   "ReportFindings",
   "ScheduleWakeup",
   "SendMessage",
@@ -509,11 +682,15 @@ export interface ToolInputMap {
   CronDelete: CronDeleteInput;
   CronList: CronListInput;
   DeferredToolPlaceholder: DeferredToolPlaceholderInput;
+  DesignSync: DesignSyncInput;
   Edit: EditInput;
   EnterWorktree: EnterWorktreeInput;
   ExitWorktree: ExitWorktreeInput;
+  Monitor: MonitorInput;
   NotebookEdit: NotebookEditInput;
+  PushNotification: PushNotificationInput;
   Read: ReadInput;
+  RemoteTrigger: RemoteTriggerInput;
   ReportFindings: ReportFindingsInput;
   ScheduleWakeup: ScheduleWakeupInput;
   SendMessage: SendMessageInput;

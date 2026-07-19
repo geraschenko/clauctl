@@ -1,7 +1,5 @@
 """mitmdump addon that captures claude's tool schemas from /messages requests.
 
-Adapted from muninn's capture_tool_schemas.py (ccc/codegen/scripts/).
-
 Accumulates a union of tool schemas by exact tool name across every /messages
 POST, and parses the deferred-tool roster from <system-reminder> blocks in
 user message content. If a later request carries a different schema for an

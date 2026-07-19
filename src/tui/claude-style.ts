@@ -19,13 +19,15 @@ export const claudeStyle = {
   userGutter: (text: string): string => `\x1b[38;5;239m${text}\x1b[39m`,
   /** Background band behind user-prompt content cells. */
   userBg: (text: string): string => `\x1b[48;5;237m${text}\x1b[49m`,
-  /** Footer plan-mode indicator. */
-  planMode: (text: string): string => `\x1b[38;5;73m${text}\x1b[39m`,
-  /** Footer accept-edits indicator. */
-  autoAccept: (text: string): string => `\x1b[38;5;147m${text}\x1b[39m`,
-  /** Footer auto-mode indicator. */
   warning: (text: string): string => `\x1b[38;5;220m${text}\x1b[39m`,
   bold: (text: string): string => `\x1b[1m${text}\x1b[22m`,
   /** The generic `… +N lines (ctrl+o to expand)` truncation line. */
   dim: (text: string): string => `\x1b[2m${text}\x1b[22m`,
+  /** Footer indicators for permission modes. */
+  manualMode: (text: string): string => `\x1b[38;5;246m${text}\x1b[39m`,
+  planMode: (text: string): string => `\x1b[38;5;73m${text}\x1b[39m`,
+  acceptEdits: (text: string): string => `\x1b[38;5;147m${text}\x1b[39m`,
+  autoMode: (text: string): string => `\x1b[38;5;220m${text}\x1b[39m`,
+  dontAsk: (text: string): string => `\x1b[38;5;211${text}\x1b[39m`,
+  bypassPermissions: (text: string): string => `\x1b[38;5;211${text}\x1b[39m`,
 };

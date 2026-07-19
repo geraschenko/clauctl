@@ -213,6 +213,7 @@ export class TranscriptRenderer {
             }
           }
         }
+        // TDC: Whoa, we clear and rebuild the whole visible conversation on every user or assistant message? Isn't that wasteful? It seems like we should only have to update the current run/item.
         this.rebuild();
         break;
       }
@@ -259,6 +260,7 @@ export class TranscriptRenderer {
           message.subtype === "model_refusal_fallback" ||
           message.subtype === "model_refusal_no_fallback"
         ) {
+          // TDC: let's include more information in the banner. The user will want to know the refusal category and explanation, and the fallback model (if any).
           this.addBanner(message.content, "error");
         }
         // Other system subtypes (session_state_changed, hook and task
@@ -357,6 +359,7 @@ export class TranscriptRenderer {
 
   /** The full compaction summary, markdown-rendered (decided divergence:
    *  claude shows only "Compacted (ctrl+o to see full summary)"). */
+  // TDC: Actually, let's take the same approach as claude, only showing full compaction summary if ctrl+o. Still render markdown. Add another boolean for this, `compactSummaryExpanded`, and have a setter for it; make ctrl+o set both toolsExpanded and compactSummaryExpanded.
   private addCompactSummary(text: string): void {
     const container = new Container();
     container.addChild(new Spacer(1));
