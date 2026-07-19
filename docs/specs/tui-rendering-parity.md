@@ -59,10 +59,10 @@ Two enabling deliverables precede the rendering work:
   lines (footer entries test `FooterComponent.render` directly;
   environment-dependent behavior like OSC 8 is asserted per capability
   mode).
-- `capture.ts --direct` produces the clauctl side without spawning a
-  daemon, and its output matches the transcript region of what attach
-  renders for the same session (verified once against a tmux capture,
-  then relied upon).
+- `capture.ts` produces the clauctl side directly (its default; no
+  daemon spawned), and its output matches the transcript region of what
+  attach renders for the same session (verified once against a tmux
+  capture via `--clauctl-in-tmux`, then relied upon).
 - `scripts/claude-tools/generate.ts --check` (wired into presubmit)
   fails when `src/tui/tool-views/generated.ts` is stale relative to the
   checked-in `tool-schemas.json`.
@@ -174,12 +174,13 @@ chain's `onInvalid` callback → stderr warning. `pathUpToBoundary` does
 not apply (there is no live stream; the whole path renders).
 
 The output is the transcript container only — no footer, editor, status
-or pending area — rendered at `width`. `capture.ts --direct` writes the
-same pair as the tmux path: `.ansi` (raw styled component output) and
-`.txt` (ANSI codes stripped, harness-normalized plain text);
-attach-match validation compares the transcript region of a tmux attach
-capture (footer/editor lines excluded) against it. The claude side is
-unchanged (tmux).
+or pending area — rendered at `width`. `capture.ts` (direct by
+default) writes the same pair as the tmux path: `.ansi` (raw styled
+component output) and `.txt` (ANSI codes stripped, harness-normalized
+plain text); attach-match validation compares the transcript region of
+a tmux attach capture (footer/editor lines excluded) against it. The
+claude side stays tmux, cached across runs by session-content hash
+(`--recapture-claude` forces a fresh capture).
 
 ### Phase 2 — tool schema capture + generated types
 
@@ -930,3 +931,87 @@ headerLink + phase 6 changes. Outcomes:
       hunks closed, update `diff-catalog.md` statuses (2026-07-19: all
       remaining diff lines are Group E chrome, the recorded fence and
       Bash-fold divergences, and the `--direct` sidechain artifact)
+
+2026-07-19: Anton's review round (TDC comments in ec2f4e1). Implemented:
+
+- `RenderToolResult.structured` renamed `toolUseResult` (camelCase of
+  the wire's `tool_use_result`); its doc now points at the per-tool
+  *Output types in the SDK's sdk-tools.d.ts
+  (`@anthropic-ai/claude-agent-sdk/sdk-tools.js`, types-only subpath).
+- `AgentState.effortLevel` is now the SDK's `EffortLevel` union, so a
+  spawn `--effort max` is representable; `effortLevelOf` deleted and
+  the daemon seed reduced to
+  `record.persistedOptions.effort ?? settings.effortLevel`. The
+  null-unset fold question (resolve the post-clear effective value
+  instead of unsetting) is answered in review discussion but NOT
+  implemented — it needs the daemon to resolve settings at
+  controlApplied emission (an event-contract design change), Anton's
+  call; his TDC stays in agent-state.ts until decided.
+- Footer fallbacks: unobserved permissionMode → "? unset mode" in
+  warning color; unobserved model → "unset model" (was "default").
+- Refusal banners now append the refusal category, explanation, and
+  (fallback case) the fallback model to the CLI's content line.
+- Compact summary now matches claude: collapsed
+  "Compacted (ctrl+o to see full summary)" line, markdown summary when
+  expanded; `TranscriptRenderer.setCompactSummaryExpanded` added and
+  ctrl+o sets it together with toolsExpanded (compact-boundary catalog
+  entry flipped from decided-differ to match).
+- Parity capture harness reworked per TDC: `captureClaude` /
+  `captureClauctl` split; the clauctl side renders direct by default
+  (`--clauctl-in-tmux` for the full end-to-end path, replacing
+  `--direct`); the claude side is cached in out/ keyed by a
+  session-content hash sidecar (`<name>.claude.meta.json`) and only
+  recaptured on content change or `--recapture-claude`; per-subject
+  logging names which side was tmux/cached/direct. Iterating on clauctl
+  rendering now skips every tmux settle (~0.5s per subject vs tens of
+  seconds).
+- Fixed a bug from the review commit itself: claude-style.ts's
+  rewritten `dontAsk`/`bypassPermissions` colors were missing the SGR
+  terminator (`38;5;211` without the trailing `m`), leaking the escape
+  prefix into the footer text.
+- claude-tools capture.ts header now documents that the built-in tool
+  roster is server-gated (statsig `tengu_*` gates consulted by per-tool
+  `isEnabled()`), so recaptures on the same pinned binary can add or
+  drop tools — the cause of the 26→30 tool growth Anton observed.
+
+2026-07-19 (later): Anton's four follow-up decisions from the review round,
+all implemented:
+
+- capture.ts gating doc: the header now says explicitly that gate state
+  depends on the capturing account's experiment-group membership — some
+  tools exist in the binary but are enabled only for accounts in the
+  right group, so a recapture can change tool-schemas.json even when the
+  claude version has not changed. Forcing all gates on was investigated
+  and dropped: the gates are server-evaluated per account and the binary
+  exposes no override mechanism, so the capture tracks the account's
+  real tool surface (Anton: acceptable).
+- Typed tool outputs: the tool-view narrowing helpers now cast
+  `toolUseResult` to the SDK's own output types from the types-only
+  subpath `@anthropic-ai/claude-agent-sdk/sdk-tools.js` —
+  `FileReadOutput` ("text" variant) in read.ts, `FileEditOutput` in
+  edit.ts, `AgentOutput` ("completed" variant) in agent.ts. The casts
+  are `Partial<...>` and every field read stays runtime-checked: the
+  wire payload is untrusted, so the SDK types name the shape without
+  asserting it.
+- EffortLevel unification: options.ts's settingsSeed return type uses
+  the SDK `EffortLevel` directly (was `AgentState["effortLevel"]`,
+  itself already EffortLevel), and EFFORT_LEVELS gained
+  `satisfies readonly EffortLevel[]` as a tripwire against SDK union
+  drift. Noted: the SDK's own `Settings.effortLevel` is
+  'low'|'medium'|'high'|'xhigh' — settings files cannot express "max";
+  only the spawn `--effort` flag can.
+- Null-unset resolution (the last open TDC): the daemon now resolves an
+  apply-flag-settings `effortLevel: null` at controlApplied emission —
+  `appliedRequest` in request-handlers.ts emits the concrete post-clear
+  level with the same precedence as the AgentState seed (spawn
+  `--effort` wins, else the settings cascade), and null survives only
+  when neither tier specifies a level. New wire type
+  `SdkControlApplied` in sdk-socket.ts (the mutation as broadcast;
+  effortLevel widened to full EffortLevel because the flag admits
+  "max"); the pure client fold keeps its simple null→unset branch, now
+  documented as the "no tier specifies one" case. Two new
+  request-handlers tests cover both resolution outcomes (362 total).
+  The related restart gap stands (recorded in settingsSeed's doc): a
+  live apply-flag-settings persists into `Options.settings`, which
+  settingsSeed does not read, so a flag-tier effortLevel is not
+  re-seeded after daemon restart.

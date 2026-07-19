@@ -525,7 +525,7 @@ test("bash passthrough: \u276f ! command with unescaped collapsed output", () =>
   assert.match(lines[1]!, /\u23bf\s+Author: A <a@b\.c>/u);
 });
 
-test("compact summary path node renders the full text, markdown-rendered", () => {
+test("compact summary: collapsed one-liner, full markdown when expanded", () => {
   const { renderer, container } = makeRenderer();
   renderer.appendPathNode(
     pathNode({
@@ -535,10 +535,18 @@ test("compact summary path node renders the full text, markdown-rendered", () =>
       message: { role: "user", content: "## Summary\n\nAll the context." },
     }),
   );
+  assert.match(
+    renderedText(container),
+    /Compacted \(ctrl\+o to see full summary\)/,
+  );
+  assert.doesNotMatch(renderedText(container), /All the context\./);
+  renderer.setCompactSummaryExpanded(true);
   const text = renderedText(container);
   assert.match(text, /Summary/);
   assert.match(text, /All the context\./);
   // Markdown-rendered (heading marker stripped), not a \u276f prompt block.
   assert.doesNotMatch(text, /##/);
   assert.doesNotMatch(text, /\u276f/u);
+  renderer.setCompactSummaryExpanded(false);
+  assert.doesNotMatch(renderedText(container), /All the context\./);
 });

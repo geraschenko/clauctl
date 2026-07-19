@@ -4,21 +4,28 @@
  * tmux, capture both panes, normalize, and diff.
  *
  * Entry point: node scripts/tui-parity/capture.ts [scenario…]
- *   [--session <id-or-jsonl-path>]… [--direct]
+ *   [--session <id-or-jsonl-path>]… [--clauctl-in-tmux] [--recapture-claude]
  *
  * `--session` imports a copy of a real session (from the real ~/.claude)
  * into the isolated config dir and captures both views of it — for turning
  * unexpected rendering in day-to-day sessions into comparison cases.
  *
- * `--direct` renders the clauctl side straight from the session file
- * (render-session.ts) instead of spawning an agent and capturing a tmux
- * attach — fast iteration on transcript rendering. The claude side is
- * unchanged (tmux). Direct output is the transcript only, so footer/editor
- * chrome shows up in the diff by construction.
+ * The claude side (tmux resume of the native TUI) is captured once per
+ * subject and cached in out/: it only changes when the session content or
+ * the pinned claude version changes, not while iterating on clauctl
+ * rendering. A cached capture is reused when the session file's hash still
+ * matches (`<name>.claude.meta.json`); `--recapture-claude` forces a fresh
+ * one (e.g. after a claude version bump or a normalize() change).
+ *
+ * The clauctl side renders directly from the session file by default
+ * (render-session.ts, no tmux) — fast iteration on transcript rendering;
+ * direct output is the transcript only, so footer/editor chrome shows up in
+ * the diff by construction. `--clauctl-in-tmux` spawns a real agent and
+ * captures a tmux attach instead — the full-chrome end-to-end path.
  */
 
 import { execFile } from "node:child_process";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import {
   copyFile,
@@ -356,7 +363,7 @@ async function importSession(idOrPath: string): Promise<CaptureSubject> {
   return { name: `session-${sessionId.slice(0, 8)}`, sessionId, cwd };
 }
 
-async function captureClauctl(
+async function captureClauctlInTmux(
   subject: CaptureSubject,
 ): Promise<{ plain: string; ansi: string }> {
   const agentId = randomUUID();
@@ -445,17 +452,58 @@ async function diffFiles(fileA: string, fileB: string): Promise<string> {
   }
 }
 
-async function captureSubject(
+/** Cache-invalidation record for a claude-side capture: the exact session
+ *  content it rendered. */
+interface ClaudeCaptureMeta {
+  sessionId: string;
+  sessionSha256: string;
+}
+
+async function sessionSha256(subject: CaptureSubject): Promise<string> {
+  const sessionPath = sessionFilePathFor(
+    claudeConfigDir,
+    subject.cwd,
+    subject.sessionId,
+  );
+  return createHash("sha256")
+    .update(await readFile(sessionPath))
+    .digest("hex");
+}
+
+/**
+ * The claude side, cached across runs: the native TUI's rendering of a
+ * session only changes when the session content (hash in the meta sidecar)
+ * or the pinned claude version changes — not while iterating on clauctl —
+ * so a matching cached capture is reused instead of waiting out a tmux
+ * settle. `recapture` (or a hash mismatch) forces a fresh capture.
+ * Returns whether the cache was used.
+ */
+async function captureClaude(
   subject: CaptureSubject,
-  direct: boolean,
+  base: string,
+  recapture: boolean,
 ): Promise<boolean> {
-  // Both sides render the LIVE session file. Interactive resume appends
-  // convergent metadata (ai-title/agent-name, then mode/permission-mode) on
-  // the first two opens and nothing after; captures are deterministic with
-  // or without it (verified during bring-up), so no snapshot restore is
-  // needed here — out/sessions/ remains a manual-recovery point if a
-  // session is ever mutated for real (e.g. a prompt typed during triage).
-  // TDC: Huh? If we're using --direct, why are we also capturing regular claude in tmux? The point of --direct is to allow fast iteration when we're working on clauctl rendering. claude rendering doesn't change over those iterations, so there's no reason to keep re-capturing it. It just slows things down because we're waiting for the tmux pane to stabilize. I think the interface here is getting confusing. Maybe we should have separate captureClaude and captureClauctl functions, with the later taking `direct` as an argument. We should also add some clear flag to the script to make it clear if one or both are being captured. Is there any reason not to use --direct by default, so change the flag to --clauctl-in-tmux?
+  const metaPath = `${base}.claude.meta.json`;
+  const meta: ClaudeCaptureMeta = {
+    sessionId: subject.sessionId,
+    sessionSha256: await sessionSha256(subject),
+  };
+  if (
+    !recapture &&
+    existsSync(metaPath) &&
+    existsSync(`${base}.claude.txt`) &&
+    existsSync(`${base}.claude.ansi`)
+  ) {
+    const cached = JSON.parse(
+      await readFile(metaPath, "utf8"),
+    ) as ClaudeCaptureMeta;
+    if (
+      cached.sessionId === meta.sessionId &&
+      cached.sessionSha256 === meta.sessionSha256
+    ) {
+      return true;
+    }
+  }
   const claude = await captureInTmux(
     {
       command: [resolveBundledClaude(), "--resume", subject.sessionId],
@@ -464,23 +512,62 @@ async function captureSubject(
     },
     CAPTURE_COLS,
   );
-  const clauctl = direct
-    ? renderDirect(subject)
-    : await captureClauctl(subject);
-  const base = join(outDir, subject.name);
   await writeFile(`${base}.claude.txt`, normalize(claude.plain));
-  await writeFile(`${base}.clauctl.txt`, normalize(clauctl.plain));
   await writeFile(`${base}.claude.ansi`, claude.ansi);
+  // The resume can append convergent metadata (ai-title/agent-name, then
+  // mode/permission-mode) on the first two opens and nothing after;
+  // captures are deterministic with or without it (verified during
+  // bring-up). Hash AFTER the capture so that append does not immediately
+  // invalidate the cache it just filled.
+  await writeFile(
+    metaPath,
+    JSON.stringify(
+      { ...meta, sessionSha256: await sessionSha256(subject) },
+      null,
+      2,
+    ) + "\n",
+  );
+  return false;
+}
+
+async function captureClauctl(
+  subject: CaptureSubject,
+  base: string,
+  inTmux: boolean,
+): Promise<void> {
+  const clauctl = inTmux
+    ? await captureClauctlInTmux(subject)
+    : renderDirect(subject);
+  await writeFile(`${base}.clauctl.txt`, normalize(clauctl.plain));
   await writeFile(`${base}.clauctl.ansi`, clauctl.ansi);
+}
+
+async function captureSubject(
+  subject: CaptureSubject,
+  options: { clauctlInTmux: boolean; recaptureClaude: boolean },
+): Promise<boolean> {
+  // Both sides render the LIVE session file; out/sessions/ remains a
+  // manual-recovery point if a session is ever mutated for real (e.g. a
+  // prompt typed during triage).
+  const base = join(outDir, subject.name);
+  const claudeCached = await captureClaude(
+    subject,
+    base,
+    options.recaptureClaude,
+  );
+  await captureClauctl(subject, base, options.clauctlInTmux);
   const diff = await diffFiles(`${base}.claude.txt`, `${base}.clauctl.txt`);
   await writeFile(`${base}.diff`, diff);
   const differingLines = diff
     .split("\n")
     .filter((line) => /^[+-][^+-]/.test(line)).length;
+  const sides =
+    `claude ${claudeCached ? "cached" : "tmux"}, ` +
+    `clauctl ${options.clauctlInTmux ? "tmux" : "direct"}`;
   console.log(
     diff === ""
-      ? `${subject.name}: identical`
-      : `${subject.name}: ${differingLines} differing lines (${base}.diff)`,
+      ? `${subject.name} (${sides}): identical`
+      : `${subject.name} (${sides}): ${differingLines} differing lines (${base}.diff)`,
   );
   return diff === "";
 }
@@ -490,10 +577,13 @@ async function main(): Promise<void> {
   const args = process.argv.slice(2);
   const subjects: CaptureSubject[] = [];
   const requested: string[] = [];
-  let direct = false;
+  let clauctlInTmux = false;
+  let recaptureClaude = false;
   for (let i = 0; i < args.length; i++) {
-    if (args[i] === "--direct") {
-      direct = true;
+    if (args[i] === "--clauctl-in-tmux") {
+      clauctlInTmux = true;
+    } else if (args[i] === "--recapture-claude") {
+      recaptureClaude = true;
     } else if (args[i] === "--session") {
       const value = args[++i];
       if (value === undefined) {
@@ -532,7 +622,7 @@ async function main(): Promise<void> {
   }
   let identical = 0;
   for (const subject of subjects) {
-    if (await captureSubject(subject, direct)) {
+    if (await captureSubject(subject, { clauctlInTmux, recaptureClaude })) {
       identical += 1;
     }
   }

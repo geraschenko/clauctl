@@ -20,7 +20,7 @@ import {
 import { buildTree } from "../build-tree.ts";
 import { treeNodeRefsEqual, type SessionTree } from "../tree.ts";
 import { effectiveTreeNodeChain } from "../effective-chain.ts";
-import type { PersistedOptions } from "../options.ts";
+import { settingsSeed, type PersistedOptions } from "../options.ts";
 import {
   readEntriesAfterStreamFlush,
   readSessionEntries,
@@ -35,6 +35,7 @@ import {
 } from "../sdk-passthrough.ts";
 import {
   parseSetContextRequest,
+  type SdkControlApplied,
   type SdkControlMutation,
   type SdkRequestRecord,
   type SdkResponse,
@@ -75,6 +76,35 @@ export interface RequestHandlerDeps {
   /** Builds a fresh TurnQueue + Query resuming the session and rewires the
    *  daemon's reader loop onto it. */
   restartQuery(resumeSessionId: string, resumeSessionAt?: UUID): Promise<void>;
+}
+
+/**
+ * The controlApplied payload for a mutation (see SdkControlApplied): an
+ * apply-flag-settings `effortLevel: null` clears the flag tier, so the
+ * concrete post-clear level is resolved here — the same precedence as the
+ * daemon's AgentState seed: an explicit spawn `--effort` wins, else the
+ * settings cascade. Null survives only when neither specifies a level (the
+ * CLI then uses its model-dependent default, which clauctl does not model).
+ */
+async function appliedRequest(
+  request: SdkControlMutation,
+  persisted: PersistedOptions,
+  cwd: string,
+): Promise<SdkControlApplied> {
+  if (
+    request.type !== "apply-flag-settings" ||
+    request.settings.effortLevel !== null
+  ) {
+    return request;
+  }
+  const settings = await settingsSeed(persisted, cwd);
+  return {
+    ...request,
+    settings: {
+      ...request.settings,
+      effortLevel: persisted.effort ?? settings.effortLevel ?? null,
+    },
+  };
 }
 
 export function createRequestHandler(
@@ -149,7 +179,7 @@ export function createRequestHandler(
     return gate.tryShared();
   };
 
-  const controlApplied = (record: SdkRequestRecord): void => {
+  const controlApplied = async (record: SdkRequestRecord): Promise<void> => {
     // The rest-over-a-union needs the cast; the payload is the request as
     // received, minus the transport id.
     const { id: _id, ...request } = record as SdkControlMutation & {
@@ -157,7 +187,11 @@ export function createRequestHandler(
     };
     events.emit({
       kind: "controlApplied",
-      request: request as SdkControlMutation,
+      request: await appliedRequest(
+        request as SdkControlMutation,
+        deps.getPersistedOptions(),
+        deps.cwd,
+      ),
     });
   };
 
@@ -354,7 +388,7 @@ export function createRequestHandler(
       const releaseQuery = acquireQuery();
       const run = async (): Promise<unknown> => {
         const data = await applyMutation(deps.getQuery(), request);
-        controlApplied(request);
+        await controlApplied(request);
         const persisted = await persistedOptionsAfter(
           request,
           deps.getPersistedOptions(),

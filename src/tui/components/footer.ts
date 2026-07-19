@@ -9,8 +9,8 @@
  * Line 1 is the ~-abbreviated cwd with the current git branch. Line 2 shows the
  * permission mode with claude 2.1.211's per-mode labels and colors, and
  * right-aligns context usage • model • effort level. Display conventions (the
- * "default" fallback for an unobserved model/mode) live here, not in the event
- * dispatch.
+ * "? unset mode" / "unset model" fallbacks for a not-yet-observed mode/model)
+ * live here, not in the event dispatch.
  */
 
 import { isAbsolute, relative, resolve, sep } from "node:path";
@@ -111,8 +111,10 @@ export class FooterComponent implements Component {
   }
 
   private statusLine(width: number): string {
-    // TDC: If permissionMode is null, let's use `{ label: "? unset mode", color: claudeStyle.warning }`
-    const mode = MODE_INDICATORS[this.state.permissionMode ?? "default"];
+    const mode =
+      this.state.permissionMode === undefined
+        ? { label: "? unset mode", color: claudeStyle.warning }
+        : MODE_INDICATORS[this.state.permissionMode];
     let left = mode.color(mode.label);
     let leftWidth = visibleWidth(left);
     if (leftWidth > width) {
@@ -131,8 +133,7 @@ export class FooterComponent implements Component {
       );
       rightParts.push(`${formatTokens(tokens)} (${percent}%)`);
     }
-    // TDC: If model is null, let's use "unset model"
-    rightParts.push(this.state.model ?? "default");
+    rightParts.push(this.state.model ?? "unset model");
     if (this.state.effortLevel !== undefined) {
       rightParts.push(this.state.effortLevel);
     }

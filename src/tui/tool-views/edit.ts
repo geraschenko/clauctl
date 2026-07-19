@@ -7,28 +7,28 @@ import {
   generateDiffString,
   renderDiff,
 } from "@earendil-works/pi-coding-agent";
+import type { FileEditOutput } from "@anthropic-ai/claude-agent-sdk/sdk-tools.js";
 import { claudeStyle } from "../claude-style.ts";
 import type { EditInput } from "./generated.ts";
 import { abbreviatePath, stringArg } from "./args.ts";
 import type { ToolView } from "./tool-view.ts";
 
-/** +/- line counts from the structured result's structuredPatch (unified
+/** +/- line counts from the SDK's FileEditOutput structuredPatch (unified
  *  hunks: {lines: [" ctx", "-old", "+new"]}); undefined on any unexpected
- *  shape. */
+ *  shape — the cast is Partial and the fields read are runtime-checked
+ *  because the wire payload is untrusted. */
 function structuredPatchCounts(
   structured: unknown,
 ): { added: number; removed: number } | undefined {
-  if (typeof structured !== "object" || structured === null) {
-    return undefined;
-  }
-  const patch = (structured as { structuredPatch?: unknown }).structuredPatch;
+  const patch = (structured as Partial<FileEditOutput> | null | undefined)
+    ?.structuredPatch;
   if (!Array.isArray(patch)) {
     return undefined;
   }
   let added = 0;
   let removed = 0;
   for (const hunk of patch) {
-    const lines = (hunk as { lines?: unknown } | null)?.lines;
+    const lines = hunk?.lines;
     if (!Array.isArray(lines)) {
       return undefined;
     }
@@ -64,7 +64,7 @@ export const editView: ToolView<EditInput> = {
     if (result.isError) {
       return undefined;
     }
-    const counts = structuredPatchCounts(result.structured);
+    const counts = structuredPatchCounts(result.toolUseResult);
     if (counts === undefined || (counts.added === 0 && counts.removed === 0)) {
       return undefined;
     }

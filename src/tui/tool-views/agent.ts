@@ -3,6 +3,7 @@
 // structured result's totals. The minute-range duration format is
 // unobserved in captures; "Nm Ss" is our reading of it.
 
+import type { AgentOutput } from "@anthropic-ai/claude-agent-sdk/sdk-tools.js";
 import type { AgentInput } from "./generated.ts";
 import { stringArg } from "./args.ts";
 import type { ToolView } from "./tool-view.ts";
@@ -13,15 +14,15 @@ interface AgentTotals {
   durationMs: number;
 }
 
+/** Totals from the SDK's AgentOutput (its "completed" variant). The cast is
+ *  Partial and the fields read are runtime-checked — the wire payload is
+ *  untrusted. */
 function agentTotals(structured: unknown): AgentTotals | undefined {
-  if (typeof structured !== "object" || structured === null) {
-    return undefined;
-  }
-  const { totalToolUseCount, totalTokens, totalDurationMs } = structured as {
-    totalToolUseCount?: unknown;
-    totalTokens?: unknown;
-    totalDurationMs?: unknown;
-  };
+  const output = structured as
+    Partial<Extract<AgentOutput, { status: "completed" }>> | null | undefined;
+  const totalToolUseCount = output?.totalToolUseCount;
+  const totalTokens = output?.totalTokens;
+  const totalDurationMs = output?.totalDurationMs;
   if (
     typeof totalToolUseCount !== "number" ||
     typeof totalTokens !== "number" ||
@@ -63,7 +64,7 @@ export const agentView: ToolView<AgentInput> = {
     if (result.isError) {
       return undefined;
     }
-    const totals = agentTotals(result.structured);
+    const totals = agentTotals(result.toolUseResult);
     if (totals === undefined) {
       return undefined;
     }

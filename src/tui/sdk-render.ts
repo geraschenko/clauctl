@@ -214,7 +214,7 @@ export function toolResultsOf(message: SDKUserMessage): RenderToolResult[] {
   // The message-level tool_use_result is attributable to a specific result
   // only when the message carries exactly one tool_result block.
   if (results.length === 1 && message.tool_use_result !== undefined) {
-    results[0]!.structured = message.tool_use_result;
+    results[0]!.toolUseResult = message.tool_use_result;
   }
   return results;
 }

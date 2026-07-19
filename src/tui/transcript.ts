@@ -124,7 +124,9 @@ export class TranscriptRenderer {
   /** For headerArg path abbreviation (per-tool views). */
   private cwd: string | undefined;
   private toolsExpanded = false;
+  private compactSummaryExpanded = false;
   private showThinking = false;
+  private readonly compactSummaries: CompactSummaryComponent[] = [];
   /** Previous top-level entry's timestamp (thinking-duration rule). */
   private lastEntryAtMs: number | undefined;
 
@@ -213,7 +215,6 @@ export class TranscriptRenderer {
             }
           }
         }
-        // TDC: Whoa, we clear and rebuild the whole visible conversation on every user or assistant message? Isn't that wasteful? It seems like we should only have to update the current run/item.
         this.rebuild();
         break;
       }
@@ -238,6 +239,7 @@ export class TranscriptRenderer {
         this.toolComponents.clear();
         this.toolItems.clear();
         this.assistantComponents.length = 0;
+        this.compactSummaries.length = 0;
         this.lastEntryAtMs = undefined;
         this.addBanner("conversation reset");
         break;
@@ -260,8 +262,23 @@ export class TranscriptRenderer {
           message.subtype === "model_refusal_fallback" ||
           message.subtype === "model_refusal_no_fallback"
         ) {
-          // TDC: let's include more information in the banner. The user will want to know the refusal category and explanation, and the fallback model (if any).
-          this.addBanner(message.content, "error");
+          const parts = [message.content];
+          if (
+            message.api_refusal_category !== undefined &&
+            message.api_refusal_category !== null
+          ) {
+            parts.push(`category: ${message.api_refusal_category}`);
+          }
+          if (
+            message.api_refusal_explanation !== undefined &&
+            message.api_refusal_explanation !== null
+          ) {
+            parts.push(message.api_refusal_explanation);
+          }
+          if (message.subtype === "model_refusal_fallback") {
+            parts.push(`falling back to ${message.fallback_model}`);
+          }
+          this.addBanner(parts.join(" — "), "error");
         }
         // Other system subtypes (session_state_changed, hook and task
         // lifecycle, …) are operational chatter with no transcript content.
@@ -357,14 +374,11 @@ export class TranscriptRenderer {
     this.rebuild();
   }
 
-  /** The full compaction summary, markdown-rendered (decided divergence:
-   *  claude shows only "Compacted (ctrl+o to see full summary)"). */
-  // TDC: Actually, let's take the same approach as claude, only showing full compaction summary if ctrl+o. Still render markdown. Add another boolean for this, `compactSummaryExpanded`, and have a setter for it; make ctrl+o set both toolsExpanded and compactSummaryExpanded.
   private addCompactSummary(text: string): void {
-    const container = new Container();
-    container.addChild(new Spacer(1));
-    container.addChild(new Markdown(text, 2, 0, getMarkdownTheme()));
-    this.addPlain(container);
+    const component = new CompactSummaryComponent(text);
+    component.setExpanded(this.compactSummaryExpanded);
+    this.compactSummaries.push(component);
+    this.addPlain(component);
   }
 
   /**
@@ -432,6 +446,14 @@ export class TranscriptRenderer {
       if (item.kind === "command") {
         item.component.setExpanded(expanded);
       }
+    }
+    this.rebuild();
+  }
+
+  setCompactSummaryExpanded(expanded: boolean): void {
+    this.compactSummaryExpanded = expanded;
+    for (const component of this.compactSummaries) {
+      component.setExpanded(expanded);
     }
     this.rebuild();
   }
@@ -545,6 +567,39 @@ export class TranscriptRenderer {
       item.thinkingSeconds === undefined
         ? "Thinking… (ctrl+t to show)"
         : `Thought for ${Math.floor(item.thinkingSeconds)}s (ctrl+t to show)`,
+    );
+  }
+}
+
+/** A compaction summary as claude 2.1.211 shows it: a dim "Compacted
+ *  (ctrl+o to see full summary)" line while collapsed, the markdown-rendered
+ *  summary when expanded. */
+class CompactSummaryComponent implements Component {
+  private readonly collapsedView: Component;
+  private readonly expandedView: Component;
+  private expanded = false;
+
+  constructor(text: string) {
+    this.collapsedView = new Text(
+      theme.fg("dim", "Compacted (ctrl+o to see full summary)"),
+      1,
+      1,
+    );
+    const container = new Container();
+    container.addChild(new Spacer(1));
+    container.addChild(new Markdown(text, 2, 0, getMarkdownTheme()));
+    this.expandedView = container;
+  }
+
+  setExpanded(expanded: boolean): void {
+    this.expanded = expanded;
+  }
+
+  invalidate(): void {}
+
+  render(width: number): string[] {
+    return (this.expanded ? this.expandedView : this.collapsedView).render(
+      width,
     );
   }
 }

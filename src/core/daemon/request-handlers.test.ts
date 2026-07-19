@@ -130,6 +130,8 @@ interface Fixture {
 
 interface FixtureOptions {
   claudeQuery?: Partial<Query>;
+  /** Initial persisted options (default {}). */
+  persistedOptions?: PersistedOptions;
   withSession?: boolean;
   teardownQuery?: () => Promise<void>;
   restartQuery?: () => Promise<void>;
@@ -141,7 +143,7 @@ interface FixtureOptions {
 function fixture(options: FixtureOptions = {}): Fixture {
   const pushed: SDKUserMessage[] = [];
   const persisted: PersistedOptions[] = [];
-  let persistedOptions: PersistedOptions = {};
+  let persistedOptions: PersistedOptions = options.persistedOptions ?? {};
   const sessionId = uuid();
   const cwd = "/work/fixture";
   const configDir = mkdtempSync(join(tmpdir(), "clauctl-rh-"));
@@ -364,6 +366,41 @@ test("a failed mutation rejects its requester without poisoning the chain", asyn
     f.persisted.map((options) => options.model),
     ["b"],
   );
+});
+
+test("apply-flag-settings effortLevel null emits the resolved post-clear level", async () => {
+  const claudeQuery: Partial<Query> = {
+    applyFlagSettings: async () => undefined,
+  };
+  // The spawn --effort flag wins the post-clear resolution.
+  const f = fixture({ claudeQuery, persistedOptions: { effort: "max" } });
+  await f.handle({
+    type: "apply-flag-settings",
+    settings: { effortLevel: null },
+    id: "f1",
+  });
+  const applied = f.emitted.find((event) => event.kind === "controlApplied");
+  assert.ok(applied !== undefined && applied.kind === "controlApplied");
+  assert.ok(applied.request.type === "apply-flag-settings");
+  assert.equal(applied.request.settings.effortLevel, "max");
+});
+
+test("apply-flag-settings effortLevel null stays null when no tier specifies one", async () => {
+  const claudeQuery: Partial<Query> = {
+    applyFlagSettings: async () => undefined,
+  };
+  // No --effort flag; the fixture's isolated CLAUDE_CONFIG_DIR has no
+  // settings, so the cascade yields nothing.
+  const f = fixture({ claudeQuery });
+  await f.handle({
+    type: "apply-flag-settings",
+    settings: { effortLevel: null },
+    id: "f1",
+  });
+  const applied = f.emitted.find((event) => event.kind === "controlApplied");
+  assert.ok(applied !== undefined && applied.kind === "controlApplied");
+  assert.ok(applied.request.type === "apply-flag-settings");
+  assert.equal(applied.request.settings.effortLevel, null);
 });
 
 // --- get-entries / get-tree ----------------------------------------------------

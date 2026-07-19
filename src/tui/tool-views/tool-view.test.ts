@@ -19,11 +19,11 @@ const readView = toolViewFor("Read")!;
 const writeView = toolViewFor("Write")!;
 
 function result(
-  structured: unknown,
+  toolUseResult: unknown,
   isError = false,
   content = "",
 ): RenderToolResult {
-  return { toolCallId: "t", content, isError, structured };
+  return { toolCallId: "t", content, isError, toolUseResult };
 }
 
 /** Summaries carry SGR bold around counts; strip escapes for assertions. */
@@ -77,11 +77,21 @@ test("editView expandedBody renders a diff from old/new strings", () => {
 
 test("readView: Read N lines from structured numLines; readOnly folds", () => {
   assert.equal(
-    plain(readView.resultSummary({}, result({ file: { numLines: 42 } }))),
+    plain(
+      readView.resultSummary(
+        {},
+        result({ type: "text", file: { numLines: 42 } }),
+      ),
+    ),
     "Read 42 lines",
   );
   assert.equal(
-    plain(readView.resultSummary({}, result({ file: { numLines: 1 } }))),
+    plain(
+      readView.resultSummary(
+        {},
+        result({ type: "text", file: { numLines: 1 } }),
+      ),
+    ),
     "Read 1 line",
   );
   assert.equal(readView.resultSummary({}, result({})), undefined);

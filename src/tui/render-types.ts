@@ -24,9 +24,12 @@ export interface RenderToolResult {
   toolCallId: string;
   content: string;
   isError: boolean;
-  /** The SDK's structured per-tool output (`tool_use_result`), attached when
-   *  the carrying user message has exactly one tool_result block. */
-  // TDC: why not call this "tool_use_result"?
-  // TDC: How did you determing the tool-specific outuput types? In sdk.d.ts, it just says "see the *Output types in toolTypes", but I don't see those output types anywhere.
-  structured?: unknown;
+  /** The SDK's structured per-tool output (the wire's `tool_use_result`),
+   *  attached when the carrying user message has exactly one tool_result
+   *  block. The per-tool shapes are the *Output types in the SDK's
+   *  sdk-tools.d.ts (`@anthropic-ai/claude-agent-sdk/sdk-tools.js`, a
+   *  types-only subpath export); consumers cast to those types but
+   *  runtime-check the fields they read because the wire payload is
+   *  untrusted. */
+  toolUseResult?: unknown;
 }

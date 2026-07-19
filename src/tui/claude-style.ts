@@ -28,6 +28,6 @@ export const claudeStyle = {
   planMode: (text: string): string => `\x1b[38;5;73m${text}\x1b[39m`,
   acceptEdits: (text: string): string => `\x1b[38;5;147m${text}\x1b[39m`,
   autoMode: (text: string): string => `\x1b[38;5;220m${text}\x1b[39m`,
-  dontAsk: (text: string): string => `\x1b[38;5;211${text}\x1b[39m`,
-  bypassPermissions: (text: string): string => `\x1b[38;5;211${text}\x1b[39m`,
+  dontAsk: (text: string): string => `\x1b[38;5;211m${text}\x1b[39m`,
+  bypassPermissions: (text: string): string => `\x1b[38;5;211m${text}\x1b[39m`,
 };

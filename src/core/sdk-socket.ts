@@ -10,6 +10,7 @@ import type { UUID } from "node:crypto";
 import { connect, type Socket } from "node:net";
 import type { ContentBlockParam } from "@anthropic-ai/sdk/resources";
 import type {
+  EffortLevel,
   McpServerConfig,
   PermissionMode,
   SDKMessage,
@@ -45,7 +46,7 @@ export type SdkEvent =
   | { kind: "userMessageDequeued"; delivery: MessageDelivery; ids: number[] }
   | { kind: "compactSent"; message: SDKUserMessage } // /compact issued while Idle
   | { kind: "interruptSent" }
-  | { kind: "controlApplied"; request: SdkControlMutation }
+  | { kind: "controlApplied"; request: SdkControlApplied }
   // Broadcast after every successful set-context (both modes, including
   // no-write rewinds), and also when the session file was mutated but the
   // subsequent Query restart failed — watchers track file truth. Deliberately
@@ -62,6 +63,10 @@ export type SdkEvent =
   | { kind: "sdkMessage"; message: SDKMessage };
 
 export type TurnPriority = "now" | "next" | "later";
+
+/** The `applyFlagSettings` payload: `null` clears a key, a value replaces it
+ *  (the SDK method's own parameter shape). */
+export type FlagSettings = { [K in keyof Settings]?: Settings[K] | null };
 
 /**
  * Query mutations except interrupt; each maps 1:1 to a Query method and emits
@@ -82,10 +87,7 @@ export type SdkControlMutation =
       maxThinkingTokens: number | null;
       thinkingDisplay?: "summarized" | "omitted" | null;
     }
-  | {
-      type: "apply-flag-settings";
-      settings: { [K in keyof Settings]?: Settings[K] | null };
-    }
+  | { type: "apply-flag-settings"; settings: FlagSettings }
   | { type: "set-mcp-servers"; servers: Record<string, McpServerConfig> }
   | { type: "toggle-mcp-server"; serverName: string; enabled: boolean }
   | { type: "reconnect-mcp-server"; serverName: string }
@@ -95,6 +97,26 @@ export type SdkControlMutation =
   | { type: "seed-read-state"; path: string; mtime: number }
   | { type: "reload-plugins" }
   | { type: "reload-skills" };
+
+/**
+ * The mutation as broadcast on `controlApplied`: the request as received,
+ * except an apply-flag-settings `effortLevel: null`. That null clears the
+ * flag-tier value, but the level the next query will use is still something
+ * concrete, and the client-side fold (agent-state.ts) is pure and cannot run
+ * the settings cascade — so the daemon resolves the post-clear level at
+ * emission (spawn `--effort`, else the settings cascade) and emits it in
+ * place of the null; null survives only when neither tier specifies a level.
+ * The range widens to the full EffortLevel because the spawn flag admits
+ * "max", which the Settings file schema does not.
+ */
+export type SdkControlApplied =
+  | Exclude<SdkControlMutation, { type: "apply-flag-settings" }>
+  | {
+      type: "apply-flag-settings";
+      settings: Omit<FlagSettings, "effortLevel"> & {
+        effortLevel?: EffortLevel | null;
+      };
+    };
 
 /** Query reads; the response `data` is the method's return value. */
 export type SdkControlRead =

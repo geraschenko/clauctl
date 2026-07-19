@@ -24,9 +24,9 @@ export interface ToolView<A> {
   /** Header arg, e.g. "~/notes.txt" for Write; undefined → bare name. */
   headerArg(args: A, cwd: string | undefined): string | undefined;
   /** Absolute path the header arg refers to; rendered as an OSC 8 file
-   *  link when the terminal supports hyperlinks (and the arg fits on a
-   *  single header line). Undefined/absent → plain text. */
-  // TDC: How do I test out header link functionality? I've tried cosmic terminal and alacritty terminal. Neither of them seem to have links of any sort. I want to understand what this is actually doing.
+   *  link when pi-tui's capability detection positively identifies a
+   *  hyperlink-capable terminal (and the arg fits on a single header
+   *  line). Undefined/absent → plain text. */
   headerLink?(args: A): string | undefined;
   /** Collapsed ⎿ summary; undefined → generic first-lines + "… +N lines". */
   resultSummary(args: A, result: RenderToolResult): string | undefined;

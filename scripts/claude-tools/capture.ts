@@ -19,6 +19,15 @@
  * capturing account — stamped with the claude/SDK versions for
  * `generate.ts --check`.
  *
+ * The built-in roster is NOT a pure function of the binary version: tools
+ * carry `isEnabled()` predicates that consult server-fetched feature gates
+ * (statsig `tengu_*` gates), and gate state depends on the capturing
+ * account's experiment-group membership. Some tools exist in the binary but
+ * are only enabled for accounts in the right experiment group, so rerunning
+ * capture can change the results — gaining or losing tools — even when the
+ * claude version has not changed. A diff in tool-schemas.json without an
+ * SDK bump means the gate state changed, not the pin.
+ *
  * Entry point: node scripts/claude-tools/capture.ts
  * Requires mitmdump on PATH (or $MITMDUMP).
  */
@@ -27,7 +36,9 @@ import { execFile, spawn, type ChildProcess } from "node:child_process";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { createConnection } from "node:net";
 import { join, dirname } from "node:path";
-import { setTimeout as delay } from "node:timers/promises"; // TDC: why not just call it setTimeout? Changing the name of imports for no reason is confusing.
+// Aliased because promises-flavored setTimeout(ms, value) would otherwise
+// shadow the global setTimeout(cb, ms) under the same name.
+import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 import {

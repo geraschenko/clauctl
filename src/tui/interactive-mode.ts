@@ -315,6 +315,7 @@ class InteractiveMode {
     this.transcript = new TranscriptRenderer(this.chatContainer);
     this.transcript.setCwd(this.agentState.cwd);
     this.transcript.setToolsExpanded(this.toolsExpanded);
+    this.transcript.setCompactSummaryExpanded(this.toolsExpanded);
     this.transcript.setShowThinking(this.showThinking);
     this.replayedBoundaryUuids.clear();
     this.liveEventsDuringReplay = [];
@@ -648,6 +649,7 @@ class InteractiveMode {
     if (matchesKey(data, "ctrl+o")) {
       this.toolsExpanded = !this.toolsExpanded;
       this.transcript.setToolsExpanded(this.toolsExpanded);
+      this.transcript.setCompactSummaryExpanded(this.toolsExpanded);
       this.ui.requestRender();
       return { consume: true };
     }

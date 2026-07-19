@@ -70,9 +70,12 @@ test("per-mode indicators use claude's captured labels and colors", () => {
   assert.ok(modeLine("dontAsk").includes("\u001b[38;5;211m⏵⏵ don't ask on"));
 });
 
-test("unresolved segments: no usage/effort omitted, unobserved model shows default", () => {
-  const text = plain(footerLines(INITIAL_AGENT_STATE)[1]!);
-  assert.ok(text.endsWith("  default"));
+test("unresolved segments: usage/effort omitted, unset mode/model called out", () => {
+  const line = footerLines(INITIAL_AGENT_STATE)[1]!;
+  const text = plain(line);
+  assert.ok(text.startsWith("? unset mode"));
+  assert.ok(line.includes("[38;5;220m? unset mode"));
+  assert.ok(text.endsWith("  unset model"));
   assert.ok(!text.includes("•"));
 });
 

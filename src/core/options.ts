@@ -14,12 +14,12 @@ import { readFileSync } from "node:fs";
 import {
   filterEscalatingDefaultMode,
   resolveSettings,
+  type EffortLevel,
   type McpServerConfig,
   type Options,
   type PermissionMode,
   type ThinkingConfig,
 } from "@anthropic-ai/claude-agent-sdk";
-import type { AgentState } from "./agent-state.ts";
 import { oneOf, UsageError } from "./generated/util.ts";
 
 export type OptionBucket = "persist" | "code" | "invariant" | "respawn";
@@ -148,7 +148,7 @@ export async function settingsSeed(
 ): Promise<{
   model?: string;
   permissionMode?: PermissionMode;
-  effortLevel?: AgentState["effortLevel"];
+  effortLevel?: EffortLevel;
 }> {
   const resolved = await resolveSettings({
     cwd,
@@ -170,18 +170,6 @@ export async function settingsSeed(
     ...(permissionMode !== undefined && { permissionMode }),
     ...(effortLevel !== undefined && { effortLevel }),
   };
-}
-
-/**
- * A spawn `--effort` value as an AgentState effort level: the four
- * `Settings.effortLevel` names pass through; `max` has no settings-tier
- * representation and yields undefined (the footer omits the segment rather
- * than showing a settings value the spawn flag overrides).
- */
-export function effortLevelOf(
-  effort: Options["effort"],
-): AgentState["effortLevel"] {
-  return effort === "max" ? undefined : effort; // TDC: why?
 }
 
 /** parseClaudeFlags result; `spawn` folds it into the SpawnOptions handoff. */
@@ -225,7 +213,13 @@ const PERMISSION_MODES = [
   "auto",
 ] as const;
 
-const EFFORT_LEVELS = ["low", "medium", "high", "xhigh", "max"] as const;
+const EFFORT_LEVELS = [
+  "low",
+  "medium",
+  "high",
+  "xhigh",
+  "max",
+] as const satisfies readonly EffortLevel[];
 
 const THINKING_DISPLAYS = ["summarized", "omitted"] as const;
 

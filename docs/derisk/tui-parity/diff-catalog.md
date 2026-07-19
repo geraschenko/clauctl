@@ -28,12 +28,12 @@ thinking and slash-command scenarios' transcript bodies are
 byte-identical to claude in the normalized diff. The phase-6 footer
 (claude-style two-line cwd/mode/context footer with the captured
 per-mode colors) is implemented but outside these diffs by construction:
-`--direct` renders the transcript only, and the remaining Group E chrome
+the default direct render is the transcript only, and the remaining Group E chrome
 (welcome banner, input box, claude's shortcut hints) is decided-differ.
 Remaining scenario diff lines are exactly: that Group E chrome, the kept
 code fences (Group C, recorded divergence below), the decided
 Bash-never-folds divergence (tools scenario), and one harness artifact:
-`--direct` renders the main chain only, so sidechain (subagent) children
+the direct render covers the main chain only, so sidechain (subagent) children
 are absent and the Agent tool's `(ctrl+o to expand)` hint line — shown
 only when hidden children exist — does not appear; live attach shows it.
 Tool-header file paths additionally render as OSC 8 links when the
@@ -114,7 +114,7 @@ Notes:
 | bash-passthrough | `! cmd` turns absent from resumed scrollback (verify)                                                    | raw `<bash-input>`/`<bash-stdout>` tags, with HTML entities double-escaped (`&lt;` shown literally) and stdout mangled by markdown rendering | match live look + fix escaping bug (see note) |
 | ide-selection    | `<ide_selection>` context rendered as its own `❯` block, blank line before the real question's `❯` block | ide_selection and question text run together in one block                                                                                    | match                                         |
 | turn-duration    | `· Brewed for 9m 11s` / `· Cogitated for 5m 53s` lines between long turns                                | absent                                                                                                                                       | skip (proposed)                               |
-| compact-boundary | not observed (scrolled out of claude capture)                                                            | compaction summary rendered as full plain text                                                                                               | differ (decided)                              |
+| compact-boundary | not observed (scrolled out of claude capture)                                                            | collapsed "Compacted (ctrl+o to see full summary)" line; full markdown summary on ctrl+o                                                     | match (2026-07-19)                            |
 
 Notes:
 
@@ -127,11 +127,11 @@ Notes:
 - turn-duration: the whimsical timer lines only carry information live; on a
   resumed transcript they're noise. Proposed skip, revisit if we do live
   parity.
-- compact-boundary (decided, Anton): keep the compaction summary in full,
-  markdown-rendered — regardless of how claude renders it. Capturing claude's
-  boundary marker (rework the slash-command scenario so /compact actually
-  compacts) stays a low-priority WORK LOG item, now only to see whether a
-  boundary divider is worth adding around our full summary.
+- compact-boundary (decided, Anton, revised 2026-07-19): match claude —
+  a collapsed "Compacted (ctrl+o to see full summary)" line by default, the
+  full markdown-rendered summary when expanded (ctrl+o toggles it together
+  with tools). Capturing claude's boundary marker (rework the slash-command
+  scenario so /compact actually compacts) stays a low-priority WORK LOG item.
 
 ## Group E — session chrome (proposed intentional differences)
 

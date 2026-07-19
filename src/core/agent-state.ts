@@ -34,6 +34,7 @@
 
 import type { UUID } from "node:crypto";
 import type {
+  EffortLevel,
   NonNullableUsage,
   PermissionMode,
   SDKAssistantMessage,
@@ -62,11 +63,10 @@ export interface AgentState {
   /** API usage of the last assistant message (per-message, not cumulative);
    *  its token counters approximate the current context size. */
   readonly lastUsage?: NonNullableUsage;
-  /** The reasoning effort the next query will use (the `Settings.effortLevel`
-   *  union; a spawn `--effort max` is not representable and leaves this
-   *  unset). Seeded by the daemon, folded from apply-flag-settings. */
-  // TDC: why is `--effort max` not representable? Why are we not using the EffortLevel type from the sdk?
-  readonly effortLevel?: "low" | "medium" | "high" | "xhigh";
+  /** The reasoning effort the next query will use. Seeded by the daemon
+   *  (spawn `--effort` flag, else resolved settings), folded from
+   *  apply-flag-settings. */
+  readonly effortLevel?: EffortLevel;
   /** The CLI version announced by the session's claude child. */
   readonly claudeCodeVersion?: string;
   /** Every mode observed this daemon lifetime, in first-observed order. */
@@ -214,7 +214,11 @@ export function nextAgentState(state: AgentState, event: SdkEvent): AgentState {
           return state;
         }
         if (effortLevel === null) {
-          // TDC: My understanding is that setting effort level to null resets to the user's default. If that's correct, shouldn't we resolveSettings to figure out what the correct effort level is? Nulling out effort level is not meaningful ... the effort levels _is something_, and our agent state should reflect that.
+          // The daemon resolves a flag-tier clear to a concrete level before
+          // emitting (SdkControlApplied); null survives only when neither
+          // the spawn --effort flag nor the settings cascade specifies one,
+          // so the next query uses the CLI's model-dependent default —
+          // unknown here, tracked as unset.
           const { effortLevel: _effortLevel, ...withoutEffort } = state;
           return withoutEffort;
         }
