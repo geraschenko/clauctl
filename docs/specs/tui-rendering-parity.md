@@ -94,9 +94,8 @@ replacing today's bare tool name + raw JSON args + raw
 
 ## Type design
 
-Approved 2026-07-18; amended in the 2026-07-18 critique round (amendments
-pending re-approval, see WORK LOG). New/changed symbols only; phases are
-ordered.
+Approved 2026-07-18, including the critique-round and TDC-round
+amendments (see WORK LOG). New/changed symbols only; phases are ordered.
 
 ### Phase 0 — pi version alignment (approved 2026-07-18)
 
@@ -347,22 +346,25 @@ moves into the `append` dispatch with the same rendering as
 ```ts
 // src/tui/components/footer.ts becomes pi-layout-shaped:
 export class FooterComponent {
-  constructor(branchWatcher: GitBranchWatcher | undefined);
+  constructor(dataProvider: ReadonlyFooterDataProvider | undefined);
   setState(state: AgentState): void;
   render(width: number): string[];
   // line 1: cwd (branch)
   // line 2: permission mode left (claude's per-mode colors) …
   //         context usage • model • thinking level right
 }
-
-// src/tui/git-branch.ts (new, pi FooterDataProvider subset, ported):
-export class GitBranchWatcher {
-  constructor(cwd: string);
-  getBranch(): string | null;
-  onChange(callback: () => void): void;
-  dispose(): void;
-}
 ```
+
+Git branch data: pi's `FooterDataProvider` class is not importable (the
+entrypoint exports only the `ReadonlyFooterDataProvider` type, and the
+`exports` map blocks deep imports), so `core/footer-data-provider.ts`
+(388 lines, almost entirely git-branch watching: HEAD/reftable watchers,
+WSL polling) is verbatim-ported to `src/tui/footer-data-provider.ts`
+together with its sole internal dependency `utils/fs-watch.ts` →
+`src/tui/fs-watch.ts` (~30 lines); both registered in `PORTS`. The
+footer types against the _imported_ `ReadonlyFooterDataProvider`
+(exact pi call-site shape: `getGitBranch`, `onBranchChange`). The
+extension-status surface goes unused.
 
 Context usage from the existing `AgentState.lastUsage`
 (`input_tokens + cache_read_input_tokens + cache_creation_input_tokens`
@@ -373,13 +375,15 @@ comes from a small model→window map, with unknown models assuming 200k
 
 Thinking level (decided, Anton, 2026-07-18: make it observable via
 `AgentState`): new field `AgentState.effortLevel?: "low" | "medium" |
-"high" | "xhigh"`, folded from the existing
-`controlApplied { type: "apply-flag-settings" }` event when its settings
-carry `effortLevel` (null clears the field). The SDK reports no initial
-value (`initializationResult` and the stream omit it, and `Query` has no
-getSettings method), so the field stays unset — and the footer omits the
-segment — until effort is set through clauctl.
-TDC: It should be set initially based on how claude is launched. We use resolve-settings when no effort level is explicitly set. Use that.
+"high" | "xhigh"`. Initial value comes from the AgentState seed the same
+way model/permissionMode already do: `settingsSeed` (src/core/
+options.ts) runs the SDK's `resolveSettings` cascade — extend its return
+with `resolved.effective.effortLevel`, with explicitly-set spawn
+settings taking precedence over the settings tier (the seed's existing
+"what will the NEXT query use" precedence). Live changes fold from the
+existing `controlApplied { type: "apply-flag-settings" }` event when its
+settings carry `effortLevel` (null reverts to unset). The footer omits
+the segment only when genuinely unresolved.
 
 Permission mode: the footer maps every SDK `PermissionMode` value
 (`default`/`acceptEdits`/`plan`/`bypassPermissions`/`dontAsk`/`auto`)
@@ -388,9 +392,9 @@ to a label + color. Captured so far: `auto` = 256-color 220 (gold),
 captured during implementation. Narrow widths follow pi's
 `FooterComponent` truncation behavior.
 
-Lifecycle: `InteractiveMode` owns the `GitBranchWatcher` — creates it
+Lifecycle: `InteractiveMode` owns the `FooterDataProvider` — creates it
 from `AgentState.cwd`, recreates it when cwd changes, subscribes
-`onChange` to request a rerender, and disposes it on detach.
+`onBranchChange` to request a rerender, and disposes it on detach.
 
 ### Phase order
 
@@ -398,8 +402,10 @@ from `AgentState.cwd`, recreates it when cwd changes, subscribes
 
 Port maintenance is an explicit deliverable of every phase that touches
 a ported file: intentional-differences headers updated, and new verbatim
-ports (`git-branch.ts`) registered in `scripts/update-ports.sh` `PORTS`.
-TDC: can we import something from pi-coding-agent instead of doing a verbatim port?
+ports (`footer-data-provider.ts`, `fs-watch.ts`) registered in
+`scripts/update-ports.sh` `PORTS`. (Importing was checked first per
+AGENTS.md — pi-coding-agent exports neither implementation, only the
+`ReadonlyFooterDataProvider` type.)
 
 ## Edge cases
 
@@ -561,11 +567,21 @@ context %% always shown (unknown models assume 200k);
 `json-schema-to-typescript` named a dev dependency; `.txt`/`.ansi`
 terminology fixed.
 
+TDC round (Anton, c499693): initial `effortLevel` now seeded via
+`settingsSeed`'s `resolveSettings` cascade (like model/permissionMode),
+not left unset until a clauctl control. Git branch: pi exports only the
+`ReadonlyFooterDataProvider` type, not the class, so no import is
+possible — replaced the bespoke `GitBranchWatcher` subset with verbatim
+ports of `footer-data-provider.ts` + `fs-watch.ts` (both in `PORTS`),
+footer typed against the imported `ReadonlyFooterDataProvider`.
+
 Reviewer round 3: two final contradictions fixed (replayed user nodes
 run appendUserTurn THEN append so historical tool results resolve;
 fold runs end at _visible_ user turns, not tool-result carrier
 messages). Reviewer approved for implementation — no remaining blocker.
-Awaiting Anton's review of the amended type design.
+
+2026-07-18: Anton approved the amended type design (critique + TDC
+rounds). Spec final; implementation may begin.
 
 - [ ] Phase 0: version alignment + port update + `initTheme`
 - [ ] Phase 1: `TranscriptRenderer` extraction + `render-session.ts` +
@@ -577,6 +593,7 @@ Awaiting Anton's review of the amended type design.
       markdown empirical checks
 - [ ] Phase 5: `userTurnViews` + special-message components + escaping
       bugfix + compact summary markdown
-- [ ] Phase 6: footer + `GitBranchWatcher` + mode colors capture
+- [ ] Phase 6: footer + `FooterDataProvider`/`fs-watch` ports +
+      `effortLevel` seed/fold + mode colors capture
 - [ ] Close the loop: rerun harness captures, verify catalog entries'
       hunks closed, update `diff-catalog.md` statuses
