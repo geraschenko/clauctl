@@ -39,8 +39,8 @@
 <p>Rendering differences between native claude (v2.1.211, left) and clauctl attach
 (right), distilled from <code>scripts/tui-parity/out/</code> captures on 2026-07-17.
 All excerpts are verbatim from the plain-text captures; where the difference is
-color/styling, the styling is reproduced approximately with HTML. Each triage
-badge is a <em>proposal</em> pending review. Companion triage table:
+color/styling, the styling is reproduced approximately with HTML. Triage badges show the
+decided values (reviewed by Anton, 2026-07-17/18). Companion triage table:
 <code>diff-catalog.md</code>.</p>
 
 <h2>Group B — collapsing &amp; tool rendering</h2>
@@ -119,7 +119,7 @@ header with <code>…)</code>.</p>
 </pre><div class="src">tools.clauctl.txt</div></div>
 </div>
 
-<h3>readonly-tool-folding <span class="badge match">match</span></h3>
+<h3>readonly-tool-folding <span class="badge match">match (own folding rule; Bash never folds)</span></h3>
 <p class="note">claude folds consecutive thinking + read-only tool uses into a
 single collapsed line (<code>searched for 2 patterns</code>, <code>read 1
 file</code>); clauctl renders each call individually. The same turn, both sides
@@ -342,7 +342,7 @@ block.</p>
 </pre><div class="src">slash-command.clauctl.txt</div></div>
 </div>
 
-<h3>bash-passthrough <span class="badge match">match</span> <span class="badge differ">+ escaping bug</span></h3>
+<h3>bash-passthrough <span class="badge match">match live look (also on resume)</span> <span class="badge differ">+ escaping bug</span></h3>
 <p class="note"><code>! cmd</code> turns don't appear in claude's resumed
 scrollback at all (needs verification — possibly omitted on resume). clauctl shows
 raw <code>&lt;bash-input&gt;</code>/<code>&lt;bash-stdout&gt;</code> tags,
@@ -396,7 +396,7 @@ together in one block.</p>
 </pre><div class="src">session-723ff026.clauctl.txt</div></div>
 </div>
 
-<h3>turn-duration <span class="badge skip">skip (proposed)</span></h3>
+<h3>turn-duration <span class="badge skip">skip (decided)</span></h3>
 <p class="note">claude inserts whimsical duration lines between long turns; only
 informative live, noise on a resumed transcript.</p>
 <div class="pair">
@@ -410,7 +410,7 @@ informative live, noise on a resumed transcript.</p>
 </pre></div>
 </div>
 
-<h3>compact-boundary <span class="badge investigate">investigate</span></h3>
+<h3>compact-boundary <span class="badge differ">differ (decided: full summary, markdown-rendered)</span></h3>
 <p class="note">clauctl renders a compaction summary as full plain text; claude's
 rendering of the boundary wasn't captured (scrolled out of the tmux history in the
 big session, and the scenario's /compact was a no-op). Existing WORK LOG item:
@@ -431,7 +431,7 @@ rework the slash-command scenario so /compact actually compacts.</p>
 
 <h2>Group E — session chrome</h2>
 
-<h3>welcome-banner <span class="badge differ">differ (proposed)</span></h3>
+<h3>welcome-banner <span class="badge differ">differ (decided)</span></h3>
 <p class="note">claude opens with the boxed welcome banner; clauctl attach shows
 nothing. Proposed intentional difference.</p>
 <div class="pair">
@@ -453,7 +453,7 @@ nothing. Proposed intentional difference.</p>
 </pre></div>
 </div>
 
-<h3>input-footer <span class="badge differ">differ (proposed)</span></h3>
+<h3>input-footer <span class="badge differ">differ (decided)</span></h3>
 <p class="note">claude shows an input prompt between rules plus a mode line;
 clauctl shows its status line (state, permission mode, model, agent id) — which is
 deliberate attach UX. Once message rendering matches, revisit whether to adopt the

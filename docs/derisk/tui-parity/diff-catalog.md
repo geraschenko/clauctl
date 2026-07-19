@@ -18,7 +18,9 @@ Triage values:
 - **skip** — not worth doing now
 - **investigate** — behavior not yet fully observed; needs a targeted capture
 
-All triage entries below are PROPOSED, pending Anton's review.
+Triage reviewed and approved by Anton (2026-07-17/18); the "proposed"
+columns below are the decided values. Implementation spec:
+`docs/specs/tui-rendering-parity.md`.
 
 ## Group B — collapsing & tool rendering (highest visual impact)
 
@@ -38,7 +40,14 @@ Notes:
   mutating) and a summarizer per tool (`read 1 file`, `searched for 2
 patterns`). The exact folding rules need enumeration during type design —
   e.g. claude gave the failed `Write` its own `●` block but folded the
-  following `Read` into the next `Thought for` line.
+  following `Read` into the next `Thought for` line. Decided divergence:
+  we use our own folding rule (spec phase 3), not claude's classifier; in
+  particular Bash never folds, though claude sometimes folds
+  read-only-looking bash commands.
+- Keybinding divergence (decided, Anton): claude's `ctrl+o` expands both
+  tools and thinking; we split — `ctrl+o` toggles tool output, `ctrl+t`
+  toggles thinking — so collapsed-thinking hint text reads
+  `(ctrl+t to show)` where claude's reads `(ctrl+o to expand)`.
 - tool-result summaries are per-tool: Write → blank/error, Edit → added/
   removed counts, Bash → first output line + `… +N lines`, Agent → Done
   stats. This is the largest single work item in the catalog.
@@ -65,19 +74,22 @@ Tables and bullet lists already match (see markdown scenario).
 
 ## Group D — special message types
 
-| id               | claude                                                                                                   | clauctl                                                                                                                                      | proposed                 |
-| ---------------- | -------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------ |
-| slash-command    | `❯ /login` + `⎿  Login successful`; bare `❯ /compact` when no output                                     | raw `<command-name>`/`<command-message>`/`<command-args>` tags + separate "No response requested" block                                      | match                    |
-| bash-passthrough | `! cmd` turns absent from resumed scrollback (verify)                                                    | raw `<bash-input>`/`<bash-stdout>` tags, with HTML entities double-escaped (`&lt;` shown literally) and stdout mangled by markdown rendering | match + fix escaping bug |
-| ide-selection    | `<ide_selection>` context rendered as its own `❯` block, blank line before the real question's `❯` block | ide_selection and question text run together in one block                                                                                    | match                    |
-| turn-duration    | `· Brewed for 9m 11s` / `· Cogitated for 5m 53s` lines between long turns                                | absent                                                                                                                                       | skip (proposed)          |
-| compact-boundary | not observed (scrolled out of claude capture)                                                            | compaction summary rendered as full plain text                                                                                               | differ (decided)         |
+| id               | claude                                                                                                   | clauctl                                                                                                                                      | proposed                                      |
+| ---------------- | -------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------- |
+| slash-command    | `❯ /login` + `⎿  Login successful`; bare `❯ /compact` when no output                                     | raw `<command-name>`/`<command-message>`/`<command-args>` tags + separate "No response requested" block                                      | match                                         |
+| bash-passthrough | `! cmd` turns absent from resumed scrollback (verify)                                                    | raw `<bash-input>`/`<bash-stdout>` tags, with HTML entities double-escaped (`&lt;` shown literally) and stdout mangled by markdown rendering | match live look + fix escaping bug (see note) |
+| ide-selection    | `<ide_selection>` context rendered as its own `❯` block, blank line before the real question's `❯` block | ide_selection and question text run together in one block                                                                                    | match                                         |
+| turn-duration    | `· Brewed for 9m 11s` / `· Cogitated for 5m 53s` lines between long turns                                | absent                                                                                                                                       | skip (proposed)                               |
+| compact-boundary | not observed (scrolled out of claude capture)                                                            | compaction summary rendered as full plain text                                                                                               | differ (decided)                              |
 
 Notes:
 
 - bash-passthrough has a genuine bug independent of parity: clauctl displays
   `&lt;`/`&gt;` literally (double-escaping) and renders stdout as markdown
-  (git output with a ``` line derails it).
+  (git output with a ``` line derails it). Decided (Anton, 2026-07-18):
+  render `❯ ! cmd` + collapsed output on resume — claude's _live_ rendering —
+  regardless of whether claude's resumed scrollback drops such turns
+  (unverified; decided divergence if it does).
 - turn-duration: the whimsical timer lines only carry information live; on a
   resumed transcript they're noise. Proposed skip, revisit if we do live
   parity.
