@@ -16,6 +16,7 @@ import {
   Text,
   TUI,
 } from "@earendil-works/pi-tui";
+import { initTheme } from "@earendil-works/pi-coding-agent";
 import type {
   ModelInfo,
   PermissionMode,
@@ -130,6 +131,7 @@ export async function runInteractive(
   client: SdkSocketClient,
   managed: boolean,
 ): Promise<void> {
+  initTheme("dark");
   const buffered: SdkEvent[] = [];
   let handleEvent = (event: SdkEvent): void => {
     buffered.push(event);

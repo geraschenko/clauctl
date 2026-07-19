@@ -583,7 +583,17 @@ messages). Reviewer approved for implementation — no remaining blocker.
 2026-07-18: Anton approved the amended type design (critique + TDC
 rounds). Spec final; implementation may begin.
 
-- [ ] Phase 0: version alignment + port update + `initTheme`
+2026-07-18: Phase 0 implemented: pi-tui 0.80.10 + pi-coding-agent
+0.80.10, engines.node >=22.19, `update-ports.sh v0.80.2-fork.2 v0.80.10`
+(user-message updated clean; assistant-message had one `.rej` — the
+`outputPad` field declaration, rejected only because our port's context
+line differs (`RenderAssistant` vs `AssistantMessage`), applied by hand;
+tool-execution unchanged upstream). `initTheme("dark")` wired at the top
+of `runInteractive`; the render-session.ts/test-setup call sites land
+with phases 1/3 when theme-reading pi code first appears there.
+Presubmit green.
+
+- [x] Phase 0: version alignment + port update + `initTheme`
 - [ ] Phase 1: `TranscriptRenderer` extraction + `render-session.ts` +
       `capture.ts --direct` + first unit-test fixtures
 - [ ] Phase 2: mitm capture + addon + `generate.ts` + presubmit `--check`
