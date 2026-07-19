@@ -336,6 +336,22 @@ test("controlApplied set-model updates model; undefined means SDK default", () =
   assert.equal(reset.model, undefined);
 });
 
+test("controlApplied apply-flag-settings folds effortLevel; null unsets", () => {
+  const applied = (settings: {
+    effortLevel?: "low" | "medium" | "high" | "xhigh" | null;
+  }): SdkEvent => ({
+    kind: "controlApplied",
+    request: { type: "apply-flag-settings", settings },
+  });
+  const state = run([applied({ effortLevel: "xhigh" })]);
+  assert.equal(state.effortLevel, "xhigh");
+  // Settings without the key leave the level alone.
+  assert.equal(nextAgentState(state, applied({})).effortLevel, "xhigh");
+  const unset = nextAgentState(state, applied({ effortLevel: null }));
+  assert.equal(unset.effortLevel, undefined);
+  assert.equal("effortLevel" in unset, false);
+});
+
 test("controlApplied set-permission-mode observes the mode", () => {
   const state = run([
     {

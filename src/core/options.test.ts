@@ -3,7 +3,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, before, test } from "node:test";
-import { parseClaudeFlags } from "./options.ts";
+import { effortLevelOf, parseClaudeFlags } from "./options.ts";
 import { UsageError } from "./generated/util.ts";
 
 test("no flags → empty options", () => {
@@ -230,4 +230,11 @@ test("--mcp-config with invalid JSON is a UsageError", () => {
     () => parseClaudeFlags(["--mcp-config", "{nope"]),
     /--mcp-config is not valid JSON/,
   );
+});
+
+test("effortLevelOf: settings-level names pass, max is unrepresentable", () => {
+  assert.equal(effortLevelOf("high"), "high");
+  assert.equal(effortLevelOf("xhigh"), "xhigh");
+  assert.equal(effortLevelOf("max"), undefined);
+  assert.equal(effortLevelOf(undefined), undefined);
 });

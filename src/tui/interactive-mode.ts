@@ -22,7 +22,7 @@ import type {
   PermissionMode,
   SDKControlInitializeResponse,
   SDKMessage,
-  SessionMessage,
+  SDKUserMessage,
 } from "@anthropic-ai/claude-agent-sdk";
 import {
   booleanFlag,
@@ -45,26 +45,16 @@ import {
 } from "../core/tree.ts";
 import { SdkSocketClient, type SdkEvent } from "../core/sdk-socket.ts";
 import { findFd, TuiAutocompleteProvider } from "./autocomplete.ts";
-import { AssistantMessageComponent } from "./components/assistant-message.ts";
 import { FooterComponent } from "./components/footer.ts";
+import { FooterDataProvider } from "./footer-data-provider.ts";
 import { ModelSelectorComponent } from "./components/model-selector.ts";
 import { PendingMessagesComponent } from "./components/pending-messages.ts";
-import { ToolExecutionComponent } from "./components/tool-execution.ts";
 import {
   resolveTreePick,
   TreeSelectorComponent,
 } from "./components/tree-selector.ts";
-import { UserMessageComponent } from "./components/user-message.ts";
-import {
-  beginMessage,
-  foldStreamEvent,
-  pathUpToBoundary,
-  releaseDedupeUuid,
-  renderAssistant,
-  toolResultsOf,
-  userText,
-  type StreamingMessage,
-} from "./sdk-render.ts";
+import { pathUpToBoundary, releaseDedupeUuid, userText } from "./sdk-render.ts";
+import { TranscriptRenderer } from "./transcript.ts";
 import { getEditorTheme, theme, type ThemeColor } from "./theme.ts";
 
 const CTRL_C_EXIT_WINDOW_MS = 2_000;
@@ -92,11 +82,6 @@ export const tuiRoute = {
     },
   }),
 } as const;
-
-interface StreamingComponent {
-  component: AssistantMessageComponent;
-  state: StreamingMessage;
-}
 
 /**
  * Parse the locally intercepted `/model` command: the first
@@ -148,6 +133,7 @@ export async function runInteractive(
     await Promise.race([interactiveMode.done, client.waitClosed()]);
   } finally {
     ui.stop();
+    interactiveMode.dispose();
     client.close();
   }
 }
@@ -175,12 +161,24 @@ class InteractiveMode {
   private readonly hintText = new Text("", 1, 0);
   private readonly loader: Loader;
   private readonly editor: Editor;
-  private readonly footer = new FooterComponent();
+  /** Git-branch data for the footer. The daemon always seeds cwd, so this
+   *  is only undefined for a (theoretical) unseeded subscribe response —
+   *  the footer then simply never shows a branch. */
+  private readonly footerData: FooterDataProvider | undefined;
+  private readonly footer: FooterComponent;
 
-  /** Live streaming component per parent_tool_use_id ("" = top level). */
-  private readonly streaming = new Map<string, StreamingComponent>();
-  private readonly toolComponents = new Map<string, ToolExecutionComponent>();
+  /** All transcript content renders through this (recreated on reload). */
+  private transcript: TranscriptRenderer;
+  /**
+   * Queued prompts retained by queue id so the dequeue echo can render the
+   * full SDKUserMessage through appendUserTurn (the pending area shows only
+   * the preview text).
+   */
+  private readonly queuedById = new Map<number, SDKUserMessage>();
   private lastCtrlCAt = 0;
+  /** ctrl+o / ctrl+t toggles, reapplied to recreated renderers. */
+  private toolsExpanded = false;
+  private showThinking = false;
 
   /**
    * Live events held back until history replay finishes (undefined
@@ -229,6 +227,7 @@ class InteractiveMode {
     this.client = client;
     this.managed = managed;
     this.agentState = seedState;
+    this.transcript = new TranscriptRenderer(this.chatContainer);
     this.done = new Promise((resolve) => {
       this.finish = resolve;
     });
@@ -240,6 +239,12 @@ class InteractiveMode {
     );
     this.editor = new Editor(ui, getEditorTheme());
     this.editor.onSubmit = (text: string) => this.submit(text);
+
+    if (seedState.cwd !== undefined) {
+      this.footerData = new FooterDataProvider(seedState.cwd);
+      this.footerData.onBranchChange(() => this.ui.requestRender());
+    }
+    this.footer = new FooterComponent(this.footerData);
 
     ui.addChild(this.chatContainer);
     ui.addChild(this.statusContainer);
@@ -254,6 +259,7 @@ class InteractiveMode {
     // syncActivity below); the transcript fills asynchronously via
     // reloadHistory.
     for (const entry of seedState.queuedMessages) {
+      this.queuedById.set(entry.id, entry.message);
       this.pendingMessages.add(entry.id, userText(entry.message));
     }
     void this.reloadHistory();
@@ -306,8 +312,10 @@ class InteractiveMode {
    */
   private async reloadHistory(): Promise<void> {
     this.chatContainer.clear();
-    this.streaming.clear();
-    this.toolComponents.clear();
+    this.transcript = new TranscriptRenderer(this.chatContainer);
+    this.transcript.setCwd(this.agentState.cwd);
+    this.transcript.setToolsExpanded(this.toolsExpanded);
+    this.transcript.setShowThinking(this.showThinking);
     this.replayedBoundaryUuids.clear();
     this.liveEventsDuringReplay = [];
     const replayed = new Set<string>();
@@ -341,10 +349,7 @@ class InteractiveMode {
     // path nor the buffered events. Chronologically they follow the
     // replayed transcript.
     for (const message of this.agentState.deliveredMessages) {
-      const text = userText(message);
-      if (text !== "") {
-        this.chatContainer.addChild(new UserMessageComponent(text));
-      }
+      this.transcript.appendUserTurn(message);
     }
     const buffered = this.liveEventsDuringReplay ?? [];
     this.liveEventsDuringReplay = undefined;
@@ -363,13 +368,12 @@ class InteractiveMode {
   }
 
   /**
-   * One path node through the exact live pipeline: boundary nodes render
-   * the banner their live compact_boundary event would; user prompts render
-   * through the same userText + UserMessageComponent pair the dequeue path
-   * uses (the sdkMessage user case only resolves tool results); everything
-   * else dispatches through handleSdkMessage. A SessionMessage carries
-   * every field its SDKMessage variant requires, so the cast is a narrowing
-   * of `message: unknown`, not a fabrication.
+   * One path node: the rendering itself lives in
+   * TranscriptRenderer.appendPathNode; this wrapper keeps only the replay
+   * dedupe bookkeeping (which uuids rendered, so their buffered live events
+   * fold without re-rendering). It re-derives the rendered uuid with the
+   * same entryToSessionMessage the renderer uses — a pure conversion, run
+   * twice so the renderer stays free of attach-only dedupe state.
    */
   private renderPathNode(node: TreeNode, replayed: Set<string>): void {
     if (node.entry.subtype === "compact_boundary") {
@@ -377,22 +381,13 @@ class InteractiveMode {
         replayed.add(node.entry.uuid);
         this.replayedBoundaryUuids.add(node.entry.uuid);
       }
-      this.addBanner("context compacted");
-      return;
-    }
-    const message = entryToSessionMessage(node.entry);
-    if (message === undefined) {
-      return;
-    }
-    replayed.add(message.uuid);
-    const sdkMessage = message as SessionMessage & SDKMessage;
-    if (sdkMessage.type === "user") {
-      const text = userText(sdkMessage);
-      if (text !== "") {
-        this.chatContainer.addChild(new UserMessageComponent(text));
+    } else {
+      const message = entryToSessionMessage(node.entry);
+      if (message !== undefined) {
+        replayed.add(message.uuid);
       }
     }
-    this.handleSdkMessage(sdkMessage);
+    this.transcript.appendPathNode(node);
   }
 
   handleEvent(event: SdkEvent): void {
@@ -405,11 +400,20 @@ class InteractiveMode {
     // fields, mode cycle, activity) come from the fold above.
     switch (event.kind) {
       case "userMessageQueued":
+        this.queuedById.set(event.id, event.message);
         this.pendingMessages.add(event.id, userText(event.message));
         break;
       case "userMessageDequeued":
-        for (const text of this.pendingMessages.take(event.ids)) {
-          this.chatContainer.addChild(new UserMessageComponent(text));
+        // The dequeue's stream position is the correct transcript position
+        // (phase-2 queue model); the retained message renders through the
+        // same appendUserTurn the replay path uses.
+        this.pendingMessages.take(event.ids);
+        for (const id of event.ids) {
+          const message = this.queuedById.get(id);
+          this.queuedById.delete(id);
+          if (message !== undefined) {
+            this.transcript.appendUserTurn(message);
+          }
         }
         break;
       case "compactSent":
@@ -450,126 +454,28 @@ class InteractiveMode {
       this.replayedBoundaryUuids.delete(dedupeUuid);
       return;
     }
-    switch (message.type) {
-      case "stream_event": {
-        const key = message.parent_tool_use_id ?? "";
-        if (message.event.type === "message_start") {
-          const component = new AssistantMessageComponent();
-          this.streaming.set(key, { component, state: beginMessage() });
-          this.attach(component, message.parent_tool_use_id);
-          break;
-        }
-        const live = this.streaming.get(key);
-        if (live !== undefined) {
-          live.state = foldStreamEvent(live.state, message.event);
-          live.component.updateContent(live.state.partial);
-        }
-        break;
+    if (message.type === "system") {
+      // The two attach-only system effects; everything else renders (or
+      // deliberately doesn't) in TranscriptRenderer.append.
+      if (message.subtype === "commands_changed") {
+        this.autocomplete.setCommands(message.commands);
+        return;
       }
-      case "assistant": {
-        const key = message.parent_tool_use_id ?? "";
-        const rendered = renderAssistant(message);
-        const live = this.streaming.get(key);
-        if (live !== undefined) {
-          live.component.updateContent(rendered);
-          this.streaming.delete(key);
-        } else {
-          // No partials seen (e.g. subscribed mid-message): render whole.
-          this.attach(
-            new AssistantMessageComponent(rendered),
-            message.parent_tool_use_id,
-          );
-        }
-        for (const block of rendered.content) {
-          if (block.type === "toolCall") {
-            const tool = new ToolExecutionComponent(
-              block.name,
-              block.arguments,
-            );
-            this.toolComponents.set(block.id, tool);
-            this.attach(tool, message.parent_tool_use_id);
-          }
-        }
-        break;
+      if (
+        message.subtype === "compact_boundary" &&
+        message.uuid !== undefined &&
+        this.replayedBoundaryUuids.delete(message.uuid)
+      ) {
+        return;
       }
-      case "user": {
-        for (const result of toolResultsOf(message)) {
-          this.toolComponents.get(result.toolCallId)?.updateResult(result);
-        }
-        break;
-      }
-      case "conversation_reset":
-        // The old conversation is no longer this surface's transcript. New
-        // queued prompts remain in pendingMessages; the fold has cleared the
-        // old history identity until the new session's init arrives.
-        this.chatContainer.clear();
-        this.streaming.clear();
-        this.toolComponents.clear();
-        this.addBanner("conversation reset");
-        break;
-      case "system": {
-        // init and status carry only state (model/mode/session), which the
-        // fold already covers; they render nothing.
-        if (message.subtype === "commands_changed") {
-          this.autocomplete.setCommands(message.commands);
-        } else if (message.subtype === "local_command_output") {
-          // The CLI's own rendering; plain Text so embedded ANSI passes through.
-          this.chatContainer.addChild(new Text(message.content, 1, 1));
-        } else if (message.subtype === "compact_boundary") {
-          if (
-            message.uuid === undefined ||
-            !this.replayedBoundaryUuids.delete(message.uuid)
-          ) {
-            this.addBanner("context compacted");
-          }
-        } else if (message.subtype === "notification") {
-          this.addBanner(message.text);
-        } else if (message.subtype === "informational") {
-          if (message.level !== "info") {
-            this.addBanner(message.content);
-          }
-        } else if (
-          message.subtype === "model_refusal_fallback" ||
-          message.subtype === "model_refusal_no_fallback"
-        ) {
-          this.addBanner(message.content, "error");
-        }
-        // Other system subtypes (session_state_changed, hook and task
-        // lifecycle, …) are operational chatter with no transcript content.
-        break;
-      }
-      case "result": {
-        if (message.is_error) {
-          this.addBanner(`turn failed: ${message.subtype}`);
-        }
-        break;
-      }
-      default:
-        // The remaining top-level variants (rate-limit and tool-progress
-        // bookkeeping, user-message replays, …) carry no transcript content;
-        // user-facing text arrives as one of the messages handled above.
-        break;
     }
-  }
-
-  /** Add to the transcript, nested under the owning tool for subagents. */
-  private attach(
-    component: AssistantMessageComponent | ToolExecutionComponent,
-    parentToolUseId: string | null,
-  ): void {
-    const parent =
-      parentToolUseId === null
-        ? undefined
-        : this.toolComponents.get(parentToolUseId);
-    if (parent === undefined) {
-      this.chatContainer.addChild(component);
-    } else {
-      parent.addSubagentChild(component);
-    }
+    this.transcript.append(message);
   }
 
   private addBanner(text: string, color: ThemeColor = "dim"): void {
-    this.chatContainer.addChild(new Text(theme.fg(color, text), 1, 1));
+    // Through the renderer so banners keep their transcript position across
+    // its fold-state rebuilds.
+    this.transcript.addBanner(text, color);
   }
 
   private submit(text: string): void {
@@ -739,6 +645,18 @@ class InteractiveMode {
       this.cyclePermissionMode();
       return { consume: true };
     }
+    if (matchesKey(data, "ctrl+o")) {
+      this.toolsExpanded = !this.toolsExpanded;
+      this.transcript.setToolsExpanded(this.toolsExpanded);
+      this.ui.requestRender();
+      return { consume: true };
+    }
+    if (matchesKey(data, "ctrl+t")) {
+      this.showThinking = !this.showThinking;
+      this.transcript.setShowThinking(this.showThinking);
+      this.ui.requestRender();
+      return { consume: true };
+    }
     if (matchesKey(data, "ctrl+c")) {
       if (this.managed) {
         this.hintText.setText(theme.fg("dim", "detach: ctrl+]"));
@@ -787,8 +705,17 @@ class InteractiveMode {
       });
   }
 
+  /** Release the footer's git watchers; the TUI is done rendering. */
+  dispose(): void {
+    this.footerData?.dispose();
+  }
+
   private syncActivity(): void {
     this.footer.setState(this.agentState);
+    this.transcript.setCwd(this.agentState.cwd);
+    if (this.agentState.cwd !== undefined) {
+      this.footerData?.setCwd(this.agentState.cwd);
+    }
     if (this.agentState.activity === "idle") {
       this.loader.stop();
       this.statusContainer.removeChild(this.loader);

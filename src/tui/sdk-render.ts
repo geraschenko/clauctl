@@ -211,6 +211,11 @@ export function toolResultsOf(message: SDKUserMessage): RenderToolResult[] {
       });
     }
   }
+  // The message-level tool_use_result is attributable to a specific result
+  // only when the message carries exactly one tool_result block.
+  if (results.length === 1 && message.tool_use_result !== undefined) {
+    results[0]!.structured = message.tool_use_result;
+  }
   return results;
 }
 
@@ -295,4 +300,202 @@ export function userText(message: SDKUserMessage): string {
     .filter((block) => block.type === "text")
     .map((block) => block.text)
     .join("\n");
+}
+
+/**
+ * The visible pieces of a user turn, claude-style: plain prompts, the CLI's
+ * local-command tags (`<command-name>`, `<local-command-stdout>`,
+ * `<bash-input>`/`<bash-stdout>`/`<bash-stderr>`), and context tags like
+ * `<ide_selection>`. Tag shapes are empirical, from captured 2.1.211
+ * sessions (see the parity spec WORK LOG).
+ */
+export type UserTurnView =
+  | { kind: "prompt"; text: string }
+  | { kind: "slashCommand"; command: string; args: string }
+  | { kind: "commandOutput"; text: string }
+  | { kind: "bashInput"; command: string }
+  | { kind: "bashOutput"; stdout: string; stderr: string }
+  | { kind: "contextTag"; tag: string; text: string };
+
+/** The CLI escapes exactly `<` and `>` inside its local-command tags
+ *  (empirical: raw `&` appears unescaped in captured sessions), so one
+ *  unescaping pass over extracted tag contents restores the text. */
+function unescapeTagContent(text: string): string {
+  return text.replaceAll("&lt;", "<").replaceAll("&gt;", ">");
+}
+
+const CONTEXT_TAGS = ["ide_selection"];
+
+/** `<tag>inner</tag>` at the start of `source` (undefined when the opening
+ *  tag is absent or unclosed — the caller treats that as malformed). */
+function extractTag(
+  source: string,
+  tag: string,
+): { inner: string; rest: string } | undefined {
+  const open = `<${tag}>`;
+  if (!source.startsWith(open)) {
+    return undefined;
+  }
+  const close = `</${tag}>`;
+  const end = source.indexOf(close, open.length);
+  if (end === -1) {
+    return undefined;
+  }
+  return {
+    inner: source.slice(open.length, end),
+    rest: source.slice(end + close.length),
+  };
+}
+
+const COMMAND_TAGS = ["command-name", "command-message", "command-args"];
+
+/**
+ * Parse one user turn's text into views. Command tags appear in any order
+ * (both name-first and message-first occur in real sessions), whitespace-
+ * separated; `<local-command-caveat>` renders nothing (its entries are
+ * normally isMeta-filtered anyway); text outside known tags is a prompt.
+ * A malformed known tag (unclosed) falls back to one verbatim prompt view.
+ */
+export function userTurnViewsFromText(text: string): UserTurnView[] {
+  const views: UserTurnView[] = [];
+  let rest = text;
+  let plain = "";
+  const flushPlain = (): void => {
+    if (plain.trim() !== "") {
+      views.push({ kind: "prompt", text: plain.trim() });
+    }
+    plain = "";
+  };
+  while (rest !== "") {
+    if (COMMAND_TAGS.some((tag) => rest.startsWith(`<${tag}>`))) {
+      let command: string | undefined;
+      let args = "";
+      let matched = extractCommandTag(rest);
+      while (matched !== undefined) {
+        if (matched.tag === "command-name") {
+          command = unescapeTagContent(matched.inner);
+        } else if (matched.tag === "command-args") {
+          args = unescapeTagContent(matched.inner);
+        }
+        rest = matched.rest.replace(/^\s+/, "");
+        matched = extractCommandTag(rest);
+      }
+      if (command === undefined) {
+        return [{ kind: "prompt", text }];
+      }
+      flushPlain();
+      views.push({ kind: "slashCommand", command, args });
+      continue;
+    }
+    const stdout = extractTag(rest, "local-command-stdout");
+    if (stdout !== undefined) {
+      flushPlain();
+      views.push({
+        kind: "commandOutput",
+        text: unescapeTagContent(stdout.inner),
+      });
+      rest = stdout.rest.replace(/^\s+/, "");
+      continue;
+    }
+    const caveat = extractTag(rest, "local-command-caveat");
+    if (caveat !== undefined) {
+      rest = caveat.rest.replace(/^\s+/, "");
+      continue;
+    }
+    const bashInput = extractTag(rest, "bash-input");
+    if (bashInput !== undefined) {
+      flushPlain();
+      views.push({
+        kind: "bashInput",
+        command: unescapeTagContent(bashInput.inner),
+      });
+      rest = bashInput.rest.replace(/^\s+/, "");
+      continue;
+    }
+    if (rest.startsWith("<bash-stdout>") || rest.startsWith("<bash-stderr>")) {
+      const bashStdout = extractTag(rest, "bash-stdout");
+      const afterStdout = bashStdout?.rest.replace(/^\s+/, "") ?? rest;
+      const bashStderr = extractTag(afterStdout, "bash-stderr");
+      if (bashStdout === undefined && bashStderr === undefined) {
+        return [{ kind: "prompt", text }];
+      }
+      flushPlain();
+      views.push({
+        kind: "bashOutput",
+        stdout: unescapeTagContent(bashStdout?.inner ?? ""),
+        stderr: unescapeTagContent(bashStderr?.inner ?? ""),
+      });
+      rest = (bashStderr?.rest ?? afterStdout).replace(/^\s+/, "");
+      continue;
+    }
+    const contextTag = CONTEXT_TAGS.find((tag) => rest.startsWith(`<${tag}>`));
+    if (contextTag !== undefined) {
+      const extracted = extractTag(rest, contextTag);
+      if (extracted === undefined) {
+        return [{ kind: "prompt", text }];
+      }
+      flushPlain();
+      views.push({
+        kind: "contextTag",
+        tag: contextTag,
+        text: extracted.inner,
+      });
+      rest = extracted.rest.replace(/^\s+/, "");
+      continue;
+    }
+    // An unclosed known tag start would loop forever; any known opener
+    // reaching here is malformed → verbatim fallback.
+    if (knownTagAt(rest)) {
+      return [{ kind: "prompt", text }];
+    }
+    const next = nextKnownTagIndex(rest);
+    plain += rest.slice(0, next);
+    rest = rest.slice(next);
+  }
+  flushPlain();
+  return views;
+}
+
+function extractCommandTag(
+  source: string,
+): { tag: string; inner: string; rest: string } | undefined {
+  for (const tag of COMMAND_TAGS) {
+    const extracted = extractTag(source, tag);
+    if (extracted !== undefined) {
+      return { tag, ...extracted };
+    }
+  }
+  return undefined;
+}
+
+const KNOWN_TAGS = [
+  ...COMMAND_TAGS,
+  "local-command-stdout",
+  "local-command-caveat",
+  "bash-input",
+  "bash-stdout",
+  "bash-stderr",
+  ...CONTEXT_TAGS,
+];
+
+function knownTagAt(source: string): boolean {
+  return KNOWN_TAGS.some((tag) => source.startsWith(`<${tag}>`));
+}
+
+/** Offset of the next known tag opener (source length when none). */
+function nextKnownTagIndex(source: string): number {
+  let index = source.indexOf("<", 1);
+  while (index !== -1) {
+    if (knownTagAt(source.slice(index))) {
+      return index;
+    }
+    index = source.indexOf("<", index + 1);
+  }
+  return source.length;
+}
+
+/** The claude-style views of a user turn (empty for tool-result carriers). */
+export function userTurnViews(message: SDKUserMessage): UserTurnView[] {
+  const text = userText(message);
+  return text === "" ? [] : userTurnViewsFromText(text);
 }

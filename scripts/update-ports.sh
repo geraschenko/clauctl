@@ -24,8 +24,8 @@ PRETTIER="$REPO_ROOT/node_modules/.bin/prettier"
 UPSTREAM_COMPONENTS="packages/coding-agent/src/modes/interactive/components"
 PORTS=(
   "src/tui/components/assistant-message.ts:$UPSTREAM_COMPONENTS/assistant-message.ts"
-  "src/tui/components/user-message.ts:$UPSTREAM_COMPONENTS/user-message.ts"
-  "src/tui/components/tool-execution.ts:$UPSTREAM_COMPONENTS/tool-execution.ts"
+  "src/tui/footer-data-provider.ts:packages/coding-agent/src/core/footer-data-provider.ts"
+  "src/tui/fs-watch.ts:packages/coding-agent/src/utils/fs-watch.ts"
 )
 
 if [[ $# -ne 2 ]]; then
@@ -53,15 +53,13 @@ for port in "${PORTS[@]}"; do
 
   if diff -u "$WORKDIR/old/$name" "$WORKDIR/new/$name" > "$WORKDIR/$name.patch"; then
     echo "$ours: no upstream change"
-    continue
-  fi
-
-  if patch --no-backup-if-mismatch "$REPO_ROOT/$ours" "$WORKDIR/$name.patch"; then
+  elif patch --no-backup-if-mismatch "$REPO_ROOT/$ours" "$WORKDIR/$name.patch"; then
     echo "$ours: updated"
   else
     echo "$ours: CONFLICTS — resolve $ours.rej by hand" >&2
     status=1
   fi
+  # Always, so an unchanged port's header still tracks the new tag.
   sed -i "s/@ $OLD_VERSION/@ $NEW_VERSION/" "$REPO_ROOT/$ours"
 done
 

@@ -5,15 +5,21 @@
 // - consumes RenderAssistant (render-types.ts) instead of pi-ai's
 //   AssistantMessage — same block/field shapes, minus the request-metadata
 //   fields (usage, provider, …) that only exist in-process in pi;
-// - theme comes from ../theme.ts (fixed palette, same API).
+// - theme comes from ../theme.ts (fixed palette, same API);
+// - claude-style layout (parity spec): text blocks carry a `●` gutter
+//   overlaid on their first line, markdown wraps with no right margin
+//   (withClaudeLayout, bottom of file), and outputPad defaults to 2 so
+//   continuation/thinking/error lines sit at claude's 2-space indent.
 
 import {
+  type Component,
   Container,
   Markdown,
   type MarkdownTheme,
   Spacer,
   Text,
 } from "@earendil-works/pi-tui";
+import { claudeStyle } from "../claude-style.ts";
 import { getMarkdownTheme, theme } from "../theme.ts";
 import type { RenderAssistant } from "../render-types.ts";
 
@@ -38,7 +44,7 @@ export class AssistantMessageComponent extends Container {
     hideThinkingBlock = false,
     markdownTheme: MarkdownTheme = getMarkdownTheme(),
     hiddenThinkingLabel = "Thinking...",
-    outputPad = 1,
+    outputPad = 2,
   ) {
     super();
 
@@ -119,11 +125,14 @@ export class AssistantMessageComponent extends Container {
         // Assistant text messages with no background - trim the text
         // Set paddingY=0 to avoid extra spacing before tool executions
         this.contentContainer.addChild(
-          new Markdown(
-            content.text.trim(),
-            this.outputPad,
-            0,
-            this.markdownTheme,
+          withClaudeLayout(
+            new Markdown(
+              content.text.trim(),
+              this.outputPad,
+              0,
+              this.markdownTheme,
+            ),
+            true,
           ),
         );
       } else if (content.type === "thinking") {
@@ -166,15 +175,18 @@ export class AssistantMessageComponent extends Container {
         } else {
           // Render each run of thinking blocks as one Markdown section.
           this.contentContainer.addChild(
-            new Markdown(
-              thinkingBlocks.join("\n\n"),
-              this.outputPad,
-              0,
-              this.markdownTheme,
-              {
-                color: (text: string) => theme.fg("thinkingText", text),
-                italic: true,
-              },
+            withClaudeLayout(
+              new Markdown(
+                thinkingBlocks.join("\n\n"),
+                this.outputPad,
+                0,
+                this.markdownTheme,
+                {
+                  color: (text: string) => theme.fg("thinkingText", text),
+                  italic: true,
+                },
+              ),
+              false,
             ),
           );
         }
@@ -220,4 +232,29 @@ export class AssistantMessageComponent extends Container {
       }
     }
   }
+}
+
+/**
+ * claude's markdown layout: a 2-column left gutter and NO right margin,
+ * where pi's Markdown reserves paddingX on both sides. Rendering 2 wider
+ * and stripping the trailing pad (always plain spaces appended after the
+ * styled content) wraps content at claude's width while keeping visible
+ * width ≤ width. With `gutter`, `● ` overlays the first line's two literal
+ * padding spaces (outputPad = 2).
+ */
+function withClaudeLayout(markdown: Markdown, gutter: boolean): Component {
+  return {
+    render(width: number): string[] {
+      const lines = markdown
+        .render(width + 2)
+        .map((line) => line.replace(/ +$/u, ""));
+      if (gutter && lines.length > 0) {
+        lines[0] = `${claudeStyle.white("●")} ${lines[0]!.slice(2)}`;
+      }
+      return lines;
+    },
+    invalidate(): void {
+      markdown.invalidate();
+    },
+  };
 }

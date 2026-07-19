@@ -32,7 +32,7 @@ import {
 } from "../generated/cli.ts";
 import { INITIAL_AGENT_STATE } from "../agent-state.ts";
 import { seedFromEntries } from "../effective-chain.ts";
-import { invariantOptions, settingsSeed } from "../options.ts";
+import { effortLevelOf, invariantOptions, settingsSeed } from "../options.ts";
 import {
   agentDirPath,
   daemonLogPath,
@@ -242,6 +242,13 @@ async function daemon(this: CommandContext, flags: DaemonFlags): Promise<void> {
         record.persistedOptions.permissionMode ??
         settings.permissionMode ??
         "default",
+      // Same precedence for effort: an explicit spawn --effort wins even
+      // when it is unrepresentable (effortLevelOf yields undefined then, so
+      // the settings tier must not show through it).
+      effortLevel:
+        record.persistedOptions.effort !== undefined
+          ? effortLevelOf(record.persistedOptions.effort)
+          : settings.effortLevel,
       cwd: record.cwd,
       sessionId: seedSessionId,
     },

@@ -86,6 +86,9 @@ export function getMarkdownTheme(): MarkdownTheme {
     quoteBorder: (text: string) => theme.fg("mdQuoteBorder", text),
     hr: (text: string) => theme.fg("mdHr", text),
     listBullet: (text: string) => theme.fg("mdListBullet", text),
+    // claude indents code-block content at the block indent, not deeper
+    // (parity spec; the kept fences are a recorded divergence).
+    codeBlockIndent: "",
     bold: (text: string) => theme.bold(text),
     italic: (text: string) => theme.italic(text),
     underline: (text: string) => theme.underline(text),

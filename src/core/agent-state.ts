@@ -62,6 +62,10 @@ export interface AgentState {
   /** API usage of the last assistant message (per-message, not cumulative);
    *  its token counters approximate the current context size. */
   readonly lastUsage?: NonNullableUsage;
+  /** The reasoning effort the next query will use (the `Settings.effortLevel`
+   *  union; a spawn `--effort max` is not representable and leaves this
+   *  unset). Seeded by the daemon, folded from apply-flag-settings. */
+  readonly effortLevel?: "low" | "medium" | "high" | "xhigh";
   /** The CLI version announced by the session's claude child. */
   readonly claudeCodeVersion?: string;
   /** Every mode observed this daemon lifetime, in first-observed order. */
@@ -202,6 +206,17 @@ export function nextAgentState(state: AgentState, event: SdkEvent): AgentState {
       }
       if (request.type === "set-permission-mode") {
         return withObservedPermissionMode(state, request.mode);
+      }
+      if (request.type === "apply-flag-settings") {
+        const effortLevel = request.settings.effortLevel;
+        if (effortLevel === undefined) {
+          return state;
+        }
+        if (effortLevel === null) {
+          const { effortLevel: _effortLevel, ...withoutEffort } = state;
+          return withoutEffort;
+        }
+        return { ...state, effortLevel };
       }
       return state;
     }

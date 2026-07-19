@@ -24,4 +24,7 @@ export interface RenderToolResult {
   toolCallId: string;
   content: string;
   isError: boolean;
+  /** The SDK's structured per-tool output (`tool_use_result`), attached when
+   *  the carrying user message has exactly one tool_result block. */
+  structured?: unknown;
 }

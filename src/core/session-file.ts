@@ -25,8 +25,14 @@ export interface SessionEntry {
 
 /** getSessionMessages' runtime objects also carry `timestamp`, absent from
  *  the SDK's declared SessionMessage type; entry-derived output matches the
- *  wire shape. */
-export type SessionMessageOnWire = SessionMessage & { timestamp?: string };
+ *  wire shape. `tool_use_result` (the entry's camelCase `toolUseResult`) is
+ *  declared on SDKUserMessage but not on SessionMessage; replayed user
+ *  messages carry it so tool views see the same structured results live and
+ *  replayed. */
+export type SessionMessageOnWire = SessionMessage & {
+  timestamp?: string;
+  tool_use_result?: unknown;
+};
 
 /** The SDK's entry→SessionMessage mapping (user/assistant only;
  *  isMeta/isSidechain excluded, and so is the uuid-less shape a real
@@ -55,6 +61,9 @@ export function entryToSessionMessage(
     parent_agent_id: null,
     ...(typeof entry.timestamp === "string" && {
       timestamp: entry.timestamp,
+    }),
+    ...(entry.toolUseResult !== undefined && {
+      tool_use_result: entry.toolUseResult,
     }),
   };
 }

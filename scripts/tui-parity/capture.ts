@@ -4,11 +4,17 @@
  * tmux, capture both panes, normalize, and diff.
  *
  * Entry point: node scripts/tui-parity/capture.ts [scenario…]
- *   [--session <id-or-jsonl-path>]…
+ *   [--session <id-or-jsonl-path>]… [--direct]
  *
  * `--session` imports a copy of a real session (from the real ~/.claude)
  * into the isolated config dir and captures both views of it — for turning
  * unexpected rendering in day-to-day sessions into comparison cases.
+ *
+ * `--direct` renders the clauctl side straight from the session file
+ * (render-session.ts) instead of spawning an agent and capturing a tmux
+ * attach — fast iteration on transcript rendering. The claude side is
+ * unchanged (tmux). Direct output is the transcript only, so footer/editor
+ * chrome shows up in the diff by construction.
  */
 
 import { execFile } from "node:child_process";
@@ -27,6 +33,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 import type { GeneratedSession } from "./generate.ts";
+import { renderSessionFile } from "./render-session.ts";
 
 const execFileAsync = promisify(execFile);
 
@@ -389,6 +396,29 @@ async function captureClauctl(
   }
 }
 
+/** CSI sequences and OSC …BEL sequences (the components' OSC 133 markers). */
+function stripAnsi(text: string): string {
+  // eslint-disable-next-line no-control-regex
+  return text.replaceAll(
+    /\u001b\][^\u0007]*\u0007|\u001b\[[0-9;?]*[A-Za-z]/g,
+    "",
+  );
+}
+
+/** The clauctl side rendered directly from the session file (no tmux). */
+function renderDirect(subject: CaptureSubject): {
+  plain: string;
+  ansi: string;
+} {
+  const sessionPath = sessionFilePathFor(
+    claudeConfigDir,
+    subject.cwd,
+    subject.sessionId,
+  );
+  const ansi = renderSessionFile(sessionPath, CAPTURE_COLS).join("\n") + "\n";
+  return { plain: stripAnsi(ansi), ansi };
+}
+
 /**
  * Unified diff of the two normalized captures; empty string if identical.
  * --label drops the default mtime headers so diff files are byte-identical
@@ -415,7 +445,10 @@ async function diffFiles(fileA: string, fileB: string): Promise<string> {
   }
 }
 
-async function captureSubject(subject: CaptureSubject): Promise<boolean> {
+async function captureSubject(
+  subject: CaptureSubject,
+  direct: boolean,
+): Promise<boolean> {
   // Both sides render the LIVE session file. Interactive resume appends
   // convergent metadata (ai-title/agent-name, then mode/permission-mode) on
   // the first two opens and nothing after; captures are deterministic with
@@ -430,7 +463,9 @@ async function captureSubject(subject: CaptureSubject): Promise<boolean> {
     },
     CAPTURE_COLS,
   );
-  const clauctl = await captureClauctl(subject);
+  const clauctl = direct
+    ? renderDirect(subject)
+    : await captureClauctl(subject);
   const base = join(outDir, subject.name);
   await writeFile(`${base}.claude.txt`, normalize(claude.plain));
   await writeFile(`${base}.clauctl.txt`, normalize(clauctl.plain));
@@ -454,8 +489,11 @@ async function main(): Promise<void> {
   const args = process.argv.slice(2);
   const subjects: CaptureSubject[] = [];
   const requested: string[] = [];
+  let direct = false;
   for (let i = 0; i < args.length; i++) {
-    if (args[i] === "--session") {
+    if (args[i] === "--direct") {
+      direct = true;
+    } else if (args[i] === "--session") {
       const value = args[++i];
       if (value === undefined) {
         throw new Error("--session requires a session id or jsonl path");
@@ -493,7 +531,7 @@ async function main(): Promise<void> {
   }
   let identical = 0;
   for (const subject of subjects) {
-    if (await captureSubject(subject)) {
+    if (await captureSubject(subject, direct)) {
       identical += 1;
     }
   }

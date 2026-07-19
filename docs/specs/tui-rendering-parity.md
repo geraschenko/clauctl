@@ -219,12 +219,27 @@ export interface ToolView<A> {
   displayName?: string;
   /** Header arg, e.g. "~/notes.txt" for Write; undefined → bare name. */
   headerArg(args: A, cwd: string | undefined): string | undefined;
+  /** Absolute path the header arg refers to (Edit/Read/Write:
+   *  file_path); rendered as an OSC 8 file:// link when the terminal
+   *  supports hyperlinks AND the arg fits untouched, escape-free, on a
+   *  single header line (the header wrap/truncation math assumes no
+   *  escape bytes). Absent/undefined/non-absolute → plain text.
+   *  (Approved 2026-07-18, amending the original type design, which
+   *  had no link target — headerArg returns the abbreviated display
+   *  string.) */
+  headerLink?(args: A): string | undefined;
   /** Collapsed ⎿ summary; undefined → generic first-line + "… +N lines". */
   resultSummary(args: A, result: RenderToolResult): string | undefined;
   /** Folds into the "Thought for Ns, read 1 file" line. */
   readOnly: boolean;
   /** Fold-line contribution, e.g. (2) => "read 2 files". */
   foldLabel(count: number): string;
+  /** Expanded rendering override; undefined → the generic expanded form
+   *  (pretty-printed args + full result text). Exists specifically for
+   *  the Edit view, whose expanded form is the rendered diff — no other
+   *  view implements it. (Approved 2026-07-18, amending the original
+   *  type design, which had no way to express Edit's expanded diff.) */
+  expandedBody?(args: A, result: RenderToolResult): string | undefined;
 }
 export const toolViews: { [K in ToolName]?: ToolView<ToolInputMap[K]> };
 export function toolViewFor(name: string): ToolView<unknown> | undefined;
@@ -593,17 +608,325 @@ of `runInteractive`; the render-session.ts/test-setup call sites land
 with phases 1/3 when theme-reading pi code first appears there.
 Presubmit green.
 
+2026-07-18: Phase 1 implemented. `src/tui/transcript.ts` extracted per
+the approved API; `InteractiveMode` keeps dedupe bookkeeping (its
+`renderPathNode` wrapper re-derives the rendered uuid via
+`entryToSessionMessage` — pure, run twice — so the renderer stays free
+of attach-only state), retains queued `SDKUserMessage`s by id
+(`queuedById`) for the dequeue echo, recreates the renderer on
+`reloadHistory`, and feeds `setCwd` from the fold in `syncActivity`.
+The two attach-only system effects (`commands_changed` → autocomplete,
+one-shot boundary-banner dedupe) stay in `handleSdkMessage`; everything
+else dispatches to `append`. `render-session.ts` + `capture.ts
+--direct` render the clauctl side from the session file (validated on
+the markdown scenario); direct output is transcript-only, so
+footer/editor chrome shows in `--direct` diffs until phase 6.
+`transcript.test.ts` added (11 tests, carved minimal fixtures).
+Phase-1 defaults preserve current behavior (thinking shown); phase 3
+flips defaults to collapsed. Also: `update-ports.sh` now updates a
+port's `@ version` header even when upstream content is unchanged
+(tool-execution.ts's header had been left stale).
+
+2026-07-18: Phase 2 implemented. Empirical check first: OAuth
+credentials DO survive `HTTPS_PROXY`+mitmdump (token refresh, profile,
+MCP, and `/v1/messages` all intercepted with `Bearer sk-ant-oat01-…`,
+all 200) — no API-key fallback needed. Two findings vs muninn's recipe,
+both absorbed into `capture-addon.py`:
+
+- claude 2.1.211 delivers the deferred roster as a `role:"system"`
+  message (intro line ending in ":", one name per line, blank-line
+  terminated) with no `<system-reminder>` wrapper — the parser targets
+  this format.
+- The addon records the raw capture faithfully (including a
+  `drift_detected` flag it always writes, so a mid-run drift can't leave
+  a stale-but-clean file); validation and post-processing live in
+  `capture.ts`.
+
+Implementation-time decisions:
+
+- Account-level `mcp__*` tools are filtered from `tool-schemas.json`
+  (and from the ToolSearch loading + roster-completeness check): they
+  vary with the capturing account's connectors, and the provenance check
+  requires the file to be a function of the claude version alone. Phase
+  3 renders MCP tools via the generic fallback anyway.
+- Provenance records both `claudeVersion` (binary, human-facing) and
+  `sdkVersion`; `--check` compares `sdkVersion` against the installed
+  `@anthropic-ai/claude-agent-sdk` package.json (pure file read — no
+  claude spawn in presubmit).
+- `generate.ts` formats its output with the repo's prettier so treefmt
+  is a no-op on `generated.ts` and `--check` can compare bytes.
+- In 2.1.211 the subagent tool is named `Agent`, not `Task` (the spec's
+  Task view maps to it in phase 3); the surface also includes a
+  `DeferredToolPlaceholder` no-op tool, kept as captured.
+
+Capture run: 26 built-in tools (10 immediate + 16 deferred), roster
+completeness validated. `generate.ts --check` wired into presubmit;
+presubmit green.
+
+2026-07-18: Phase 3 groundwork (empirical checks + format extraction;
+code not started beyond `RenderToolResult.structured`):
+
+- Thinking-duration check PASSED on the tools scenario: a thinking
+  entry's duration = its timestamp minus the previous entry's (1.884→
+  "1s", 3.63→"3s", 1.906→"1s"), and a fold line sums the run's thinking
+  durations before flooring (2.21+2.67→"4s"). Rule adopted.
+- Claude 2.1.211 collapsed formats (from the captures): Edit →
+  `● Update(path)` + `⎿  Added N lines[, removed M lines]`, NO diff when
+  collapsed (the catalog's line-numbered diff is the expanded form);
+  Write success → bare `⎿`, error → `⎿  Error writing file`; Agent →
+  `⎿  Done (N tool uses · X.Xk tokens · Ns)` (fields = toolUseResult's
+  totalToolUseCount/totalTokens/totalDurationMs); Bash → generic
+  first-3-VISUAL-lines + `… +N lines (ctrl+o to expand)` (use pi's
+  importable `truncateToVisualLines`); Bash header wraps to max 2 lines
+  ending `…)`. Fold lines: 2-space indent, grey 246, bold numbers,
+  capitalized when thinking-less (`Read 1 file (ctrl+o to expand)`).
+  ANSI: tool `●` = 256-color 114 success / 211 error; assistant text `●`
+  231; `⎿` grey 246 + nbsp; error summaries 211; header name bold,
+  paths as OSC 8 file links (phase 4).
+- The 2.1.211 surface has NO Glob/Grep/TodoWrite (verified: scenario
+  sessions use only Agent/Bash/Edit/Read/Skill/ToolSearch/Write); legacy
+  sessions containing Grep etc. fall back to the generic view (claude
+  still renders them specially — accepted gap, revisit if diffs demand).
+- `tool_use_result` replay path: session entries carry it as
+  `toolUseResult`; `entryToSessionMessage`/`SessionMessageOnWire` must
+  pass it through (`tool_use_result`) for `toolResultsOf` to attach
+  `structured` on replay.
+- RESOLVED (Anton, 2026-07-18): the approved `ToolView` interface could
+  not express the spec's "Edit's expanded form is the diff" (no
+  expanded-rendering hook). Approved amendment: optional
+  `expandedBody?(args, result): string | undefined` on `ToolView` —
+  generic expanded rendering when absent; implemented ONLY by the Edit
+  view. Folded into the type design above.
+
+2026-07-18 (later): Phase 3 implemented — presubmit green (337 tests).
+Pieces landed:
+
+- `structured` plumbing: `SessionMessageOnWire` gained
+  `tool_use_result?: unknown`, `entryToSessionMessage` passes the entry's
+  `toolUseResult` through, and `toolResultsOf` attaches it when the
+  message carries exactly one tool_result block.
+- `src/tui/tool-views/`: `tool-view.ts` (approved interface + registry +
+  `toolViewFor` erasure point) and views agent/bash/edit/read/write;
+  `args.ts` holds the shared `stringArg`/`abbreviatePath` helpers —
+  split out of tool-view.ts so views need no runtime import from the
+  registry that imports them (the cycle made module evaluation
+  order-dependent; type-only imports are erased and safe).
+- `src/tui/claude-style.ts`: claude's exact 256-color SGR palette
+  (114/211/246, bold, dim) for the claude-layout pieces, separate from
+  the pi-shaped theme.ts.
+- `ToolExecutionComponent` rewritten pi-inspired (removed from
+  `update-ports.sh` PORTS): `● Name(arg)` header word-wrapped to ≤2
+  lines ending `…)` (6-space continuation), `⎿`+nbsp summary block
+  (5-space continuation), generic first-3-visual-lines +
+  `… +N lines (ctrl+o to expand)` via pi's `truncateToVisualLines`,
+  error summaries colored 211, expanded = pretty args + full result (or
+  `expandedBody`). Subagent children hide behind a grey
+  `(ctrl+o to expand)` hint line while collapsed (matches claude's Agent
+  rendering) and render indented when expanded.
+- Folding in `TranscriptRenderer`: top-level content is an ordered item
+  list; container children are rebuilt from it on every change, folding
+  maximal runs per the spec rule while both toggles are collapsed.
+  Durations use the validated timestamp rule; live messages carry no
+  timestamp, so arrival time (same wall clock the CLI stamps entries
+  with) stands in — durations are therefore available live and replayed.
+  A run whose thinking has no usable duration renders "Thought" without
+  one; a run of only empty (toolCall-only) assistant messages renders
+  nothing. InteractiveMode banners now route through
+  `TranscriptRenderer.addBanner` so they keep their position across
+  rebuilds.
+- Keybindings: `ctrl+o` (tools) / `ctrl+t` (thinking) global toggles in
+  InteractiveMode, reapplied to renderers recreated by reloadHistory;
+  defaults flipped to collapsed/collapsed everywhere (render-session.ts
+  inherits them, so parity captures render the claude-default state).
+- The unfolded collapsed-thinking line reuses the ported component's
+  hidden-label slot (`Thought for Ns (ctrl+t to show)`), which renders
+  italic at 1-space indent — a minor styling divergence from claude's
+  grey line, only visible in the tools-expanded/thinking-collapsed
+  state (not captured by the harness). Revisit if diffs demand.
+- Not yet done (next session): theme-adoption empirical check (import
+  pi's theme + getMarkdownTheme, delete the theme.ts shim), harness
+  rerun + catalog status updates (part of "close the loop").
+
+2026-07-18 (later still): Phase 4 implemented — presubmit green (338
+tests). Harness recaptured before and after (catalog Status section
+updated); after phase 4, the thinking scenario's transcript body matches
+claude byte-for-byte in the normalized diff, markdown differs only by
+the kept fence lines, tools only by the decided Bash-never-folds
+divergence, subagent by the `--direct` sidechain gap, slash-command by
+phase 5's tag rendering. Pieces landed:
+
+- `UserMessageComponent` rewritten custom (removed from `update-ports.sh`
+  PORTS): verbatim text (no Markdown), `❯` gutter fg 239, text fg 231,
+  bg 237 band over content cells only, 2-space continuation indent,
+  word-wrap via the exported `wrapHeaderArg`, one leading blank line
+  (every transcript block leads with one — closes block-spacing's
+  double-blank after user messages). OSC 133 zone markers kept.
+- `AssistantMessageComponent` port: documented intentional diffs —
+  `withClaudeLayout` (bottom of file) overlays a fg-231 `●` gutter on
+  text blocks' first line AND renders markdown 2 wider with the trailing
+  pad stripped, because pi's `Markdown` reserves paddingX on both sides
+  while claude wraps to the right edge (content width 98 at width 100,
+  verified against the thinking capture); `outputPad` default 1 → 2
+  (claude's continuation/thinking/error indent).
+- theme.ts: `codeBlockIndent: ""` — claude keeps code-block content at
+  the block indent.
+- Empirical check RESULT (fence-stripping): pi-tui `Markdown` pushes
+  fence lines unconditionally; an empty `codeBlockBorder` leaves blank
+  lines, so eliding fences would mean forking `Markdown`. Per the spec
+  instruction the entry is now a recorded divergence in the catalog
+  (fences kept).
+- Empirical check RESULT (OSC 8, markdown links): pi-tui already emits
+  claude-style OSC 8 (text only, URL hidden) when
+  `getCapabilities().hyperlinks` — auto-detected, tmux
+  client_termfeatures-aware. Nothing to implement; the harness tmux has
+  no hyperlink termfeature, so captures show our `text (url)` fallback.
+- Empirical check RESULT (theme adoption): pi's `getMarkdownTheme` IS
+  importable and byte-identical to our shim's palette after
+  `initTheme("dark")`, but the `theme` singleton the ported components
+  call (`theme.fg/bg/...`) is NOT re-exported through the package
+  entrypoint (same trap as `formatTokens`; deep imports blocked). The
+  theme.ts shim stays.
+- RESOLVED (Anton approved 2026-07-18, implemented 2026-07-19): claude
+  renders tool-header paths as OSC 8 `file://` links (visible in
+  tools.claude.ansi). Type amendment: optional
+  `headerLink?(args): string | undefined` on `ToolView` returning the
+  absolute path; Edit/Read/Write implement it via
+  `stringArg(args, "file_path")`. `ToolExecutionComponent.headerLines`
+  wraps the header arg in pi-tui's `hyperlink` (URL via `pathToFileURL`)
+  only when `getCapabilities().hyperlinks` is on AND the arg fits
+  untouched on a single line — `wrapHeaderArg`'s width math and the
+  `…)` truncation slice assume no escape bytes. Capability-mode tests
+  in `tool-execution.test.ts` via pi-tui `setCapabilities`.
+
+2026-07-18 (later still): Phase 5 implemented — presubmit green (348
+tests). After recapture, the slash-command scenario's transcript body
+matches claude byte-for-byte. Pieces landed:
+
+- `sdk-render.ts`: `UserTurnView` + `userTurnViews` per the approved
+  design, plus one implementation-time amendment (flag for review):
+  exported `userTurnViewsFromText(text)` — the same parser on a bare
+  string — because slash commands and their stdout ALSO live in
+  `system`/`local_command` session entries (empirical: /login and
+  /context are system entries; /spec, /keybindings, /compact are user
+  messages), which `entryToSessionMessage` drops; `appendPathNode`
+  parses those entries' `content` directly. `userTurnViews(message)` =
+  the parser over `userText(message)`.
+- Empirical tag findings (fixtures in the tests): command tags appear in
+  BOTH orders (name-first and message-first) with whitespace between;
+  bash output is one message `<bash-stdout>…</bash-stdout>
+  <bash-stderr>…</bash-stderr>`; the CLI escapes exactly `<` and `>`
+  (raw `&` appears unescaped in captured output), so unescaping is the
+  single pass `&lt;`/`&gt;` on extracted tag contents;
+  `<local-command-caveat>` renders nothing; context tags: only
+  `ide_selection` observed → the known-tag list. Malformed known tags
+  fall back to one verbatim prompt view.
+- `UserCommandComponent` (new, custom): `❯ /name args` / `❯ ! cmd`
+  command line on the user band, output as a `⎿` block sharing the tool
+  components' collapse/expand formatting (helpers `collapsedOutputLines`
+  / `resultBlockLines` extracted from tool-execution.ts); participates
+  in ctrl+o. Standalone outputs render as bare `⎿` blocks.
+- Renderer mapping in `TranscriptRenderer`: prompt/contextTag → `❯`
+  blocks; slashCommand/bashInput → command items; commandOutput/
+  bashOutput attach to the immediately preceding command item (else
+  standalone). `system/local_command_output` (steered `!` output) now
+  routes through the same attach path instead of a plain Text.
+- Two observed suppressions, both claude behavior on the captures:
+  /compact's transient stdout ("Not enough messages to compact.") is
+  hidden — the success path renders our boundary banner + full summary
+  instead; and the CLI-synthesized assistant "No response requested." is
+  normalized to an empty message (renders nothing). The spec placed the
+  latter in commandOutput, but empirically it is an assistant message.
+- Compact summaries: `appendPathNode` renders `entry.isCompactSummary`
+  entries as a full markdown block (decided divergence) instead of a `❯`
+  prompt; live summaries carry no flag (accepted, replay-only).
+
 - [x] Phase 0: version alignment + port update + `initTheme`
-- [ ] Phase 1: `TranscriptRenderer` extraction + `render-session.ts` +
+- [x] Phase 1: `TranscriptRenderer` extraction + `render-session.ts` +
       `capture.ts --direct` + first unit-test fixtures
-- [ ] Phase 2: mitm capture + addon + `generate.ts` + presubmit `--check`
-- [ ] Phase 3: tool views + diff ports + `ToolExecutionComponent` rework +
-      folding + keybindings
-- [ ] Phase 4: user/assistant gutters, verbatim user text, spacing,
-      markdown empirical checks
-- [ ] Phase 5: `userTurnViews` + special-message components + escaping
+- [x] Phase 2: mitm capture + addon + `generate.ts` + presubmit `--check`
+- [x] Phase 3: tool views + diff ports + `ToolExecutionComponent` rework +
+      folding + keybindings (theme-adoption check deferred to phase 4's
+      markdown work)
+- [x] Phase 4: user/assistant gutters, verbatim user text, spacing,
+      markdown empirical checks (header-path OSC 8 links landed
+      2026-07-19 via the approved `ToolView.headerLink` amendment)
+      2026-07-19: Phase 6 implemented — presubmit green (360 tests). Pieces:
+
+- Ports: `core/footer-data-provider.ts` → `src/tui/footer-data-provider.ts`
+  and `utils/fs-watch.ts` → `src/tui/fs-watch.ts` @ 0.80.10, both in
+  `PORTS`. Intentional diffs (headers): fs-watch none;
+  footer-data-provider imports the co-ported fs-watch, node:-prefixed
+  builtins, and drops the trailing `ReadonlyFooterDataProvider` alias
+  (that type IS exported by pi's entrypoint; consumers import it).
+- `FooterComponent` rewritten to the approved shape
+  (`constructor(dataProvider | undefined)`, `setState`, `render`); pi's
+  `formatTokens`/`formatCwdForFooter` copied in (attributed). Context =
+  lastUsage input+cache_read+cache_creation as `NNk (P%)`; window map is
+  just the `[1m]` model-id suffix → 1M, else 200k. Right side keeps the
+  old footer's `model ?? "default"` convention; context/effort segments
+  are omitted when unresolved. The previous footer's activity/queued/
+  session segments are gone (activity shows via the Loader; per the
+  spec's decided format).
+- Mode indicators captured 2026-07-19 via targeted tmux captures on the
+  isolated harness config (throwaway script; one claude launch per mode,
+  no prompts sent): default `⏸ manual mode on` 246, plan
+  `⏸ plan mode on` 73, acceptEdits `⏵⏵ accept edits on` 147, dontAsk
+  `⏵⏵ don't ask on` 211, auto `⏵⏵ auto mode on` 220. bypassPermissions
+  was NOT spawned (standing constraint); its label and `error` color
+  pairing come from the mode table embedded in the claude binary
+  (strings dump), and error is already 211 in our captured palette.
+  New `claudeStyle` entries: planMode 73, autoAccept 147, warning 220.
+- `AgentState.effortLevel` per the approved design: seeded via
+  `settingsSeed` (returns `resolved.effective.effortLevel`) with
+  spawn-settings precedence applied in the daemon
+  (`effortLevelOf(persisted.effort)` — `Options.effort` is the SDK's
+  `EffortLevel`, whose `max` has no Settings representation, so an
+  explicit `--effort max` leaves the field unset rather than letting
+  the settings tier show through); folded from
+  `controlApplied apply-flag-settings` (null unsets, absent key keeps).
+- Lifecycle amendment (flag for review): the spec said InteractiveMode
+  "recreates" the provider on cwd change; the port's own `setCwd()`
+  re-runs findGitPaths + watcher setup, so InteractiveMode calls that
+  instead of recreating. Provider is created in the constructor from the
+  seed cwd (daemon always seeds it; a theoretical cwd-less seed just
+  never shows a branch), branch changes request a rerender, and a new
+  `InteractiveMode.dispose()` (called from runInteractive's finally)
+  disposes it on detach.
+
+2026-07-19 (review round): pictl reviewer 52a4be43 re-reviewed the
+headerLink + phase 6 changes. Outcomes:
+
+- headerLink hardened per review (implemented): linking now also
+  requires an absolute `headerLink` path and no control bytes
+  (`[\u0000-\u001f\u007f-\u009f]`) in the displayed arg — the wire payload is
+  untrusted, and an escape-carrying path would otherwise pass the
+  single-line equality guard and land inside the OSC 8 link text. A
+  second round extended the range to C1 controls (U+0080-U+009F: raw
+  CSI/OSC forms terminals may interpret).
+  Adversarial tests added (control-byte path, relative path). The
+  reviewer's wide-Unicode width point is real but pre-existing: the
+  whole header wrap uses char counts (ported claude behavior), and
+  linking does not widen anything — not link-specific, left as is.
+- Spec type design updated (implemented): `headerLink?` added to the
+  Phase 3 `ToolView` interface with its eligibility contract.
+- effortLevel fidelity gaps (recorded, NOT implemented — flagged for
+  Anton): the reviewer notes two consequences of the spec's accepted
+  settingsSeed gap ("the `Options.settings` flag tier has no
+  resolveSettings input"): (a) a live `apply-flag-settings` effortLevel
+  persists into `PersistedOptions.settings`, which the seed does not
+  read, so a daemon restart drops it from AgentState (the query still
+  uses it); (b) the approved "null reverts to unset" fold differs from
+  the CLI, where clearing the flag tier falls back to lower-tier
+  settings. Both follow from the approved design; fixing them means
+  parsing `Options.settings` ourselves (a design change). The footer
+  shows nothing rather than something wrong in case (a), and case (b)
+  self-corrects at the next daemon restart's reseed.
+
+- [x] Phase 5: `userTurnViews` + special-message components + escaping
       bugfix + compact summary markdown
-- [ ] Phase 6: footer + `FooterDataProvider`/`fs-watch` ports +
+- [x] Phase 6: footer + `FooterDataProvider`/`fs-watch` ports +
       `effortLevel` seed/fold + mode colors capture
-- [ ] Close the loop: rerun harness captures, verify catalog entries'
-      hunks closed, update `diff-catalog.md` statuses
+- [x] Close the loop: rerun harness captures, verify catalog entries'
+      hunks closed, update `diff-catalog.md` statuses (2026-07-19: all
+      remaining diff lines are Group E chrome, the recorded fence and
+      Bash-fold divergences, and the `--direct` sidechain artifact)

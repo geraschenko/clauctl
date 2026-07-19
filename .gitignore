@@ -3,3 +3,4 @@ dist
 .worktrees
 .fallow
 scripts/tui-parity/out
+__pycache__/

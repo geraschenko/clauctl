@@ -17,6 +17,8 @@ import {
   renderAssistant,
   toolResultsOf,
   userText,
+  userTurnViews,
+  userTurnViewsFromText,
   type StreamingMessage,
 } from "./sdk-render.ts";
 
@@ -396,4 +398,90 @@ test("userText handles string and block content", () => {
     ),
     "with image",
   );
+});
+
+// userTurnViews fixtures are verbatim tag shapes from captured 2.1.211
+// sessions (parity spec WORK LOG).
+
+test("userTurnViews: plain prompt and tool-result carrier", () => {
+  assert.deepEqual(userTurnViews(sdkUserMessage("just a question")), [
+    { kind: "prompt", text: "just a question" },
+  ]);
+  assert.deepEqual(
+    userTurnViews(
+      sdkUserMessage([{ type: "tool_result", tool_use_id: "t", content: [] }]),
+    ),
+    [],
+  );
+});
+
+test("userTurnViews: command tags in either order, args captured", () => {
+  assert.deepEqual(
+    userTurnViewsFromText(
+      "<command-name>/compact</command-name>\n            <command-message>compact</command-message>\n            <command-args></command-args>",
+    ),
+    [{ kind: "slashCommand", command: "/compact", args: "" }],
+  );
+  assert.deepEqual(
+    userTurnViewsFromText(
+      "<command-message>spec</command-message>\n<command-name>/spec</command-name>\n<command-args>do the thing</command-args>",
+    ),
+    [{ kind: "slashCommand", command: "/spec", args: "do the thing" }],
+  );
+});
+
+test("userTurnViews: local-command stdout and caveat", () => {
+  assert.deepEqual(
+    userTurnViewsFromText(
+      "<local-command-stdout>Login successful</local-command-stdout>",
+    ),
+    [{ kind: "commandOutput", text: "Login successful" }],
+  );
+  assert.deepEqual(
+    userTurnViewsFromText(
+      "<local-command-caveat>Caveat: local commands.</local-command-caveat>",
+    ),
+    [],
+  );
+});
+
+test("userTurnViews: bash passthrough with <>-only entity unescaping", () => {
+  assert.deepEqual(
+    userTurnViewsFromText("<bash-input>git show HEAD</bash-input>"),
+    [{ kind: "bashInput", command: "git show HEAD" }],
+  );
+  assert.deepEqual(
+    userTurnViewsFromText(
+      "<bash-stdout>Author: A &lt;a@b.c&gt; & more</bash-stdout><bash-stderr></bash-stderr>",
+    ),
+    // & stays: the CLI escapes exactly < and > (empirical).
+    [{ kind: "bashOutput", stdout: "Author: A <a@b.c> & more", stderr: "" }],
+  );
+});
+
+test("userTurnViews: ide_selection then the real prompt", () => {
+  assert.deepEqual(
+    userTurnViewsFromText(
+      "<ide_selection>The user selected lines 1 to 2.</ide_selection>\nWhat does it do?",
+    ),
+    [
+      {
+        kind: "contextTag",
+        tag: "ide_selection",
+        text: "The user selected lines 1 to 2.",
+      },
+      { kind: "prompt", text: "What does it do?" },
+    ],
+  );
+});
+
+test("userTurnViews: malformed known tag falls back to one verbatim prompt", () => {
+  const malformed = "<bash-input>unclosed";
+  assert.deepEqual(userTurnViewsFromText(malformed), [
+    { kind: "prompt", text: malformed },
+  ]);
+  const unknownTag = "see <not-a-real-tag> in the docs";
+  assert.deepEqual(userTurnViewsFromText(unknownTag), [
+    { kind: "prompt", text: unknownTag },
+  ]);
 });

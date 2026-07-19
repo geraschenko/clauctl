@@ -1,74 +1,60 @@
-// Ported from pi coding-agent src/modes/interactive/components/user-message.ts @ 0.80.10
+// Custom (formerly a verbatim port of pi coding-agent's user-message.ts;
+// taken out of scripts/update-ports.sh when it stopped tracking pi's
+// layout). Renders claude 2.1.211's user-prompt look —
 //
-// Only difference from the pi original: theme comes from ../theme.ts.
-// See scripts/update-ports.sh for the update procedure.
+//   ❯ verbatim prompt text, word-wrapped,
+//     continuation lines indented 2
+//
+// text shown verbatim (no Markdown), `❯ ` gutter in dark grey, white text,
+// all content cells on claude's background band; one leading blank line
+// (every transcript block leads with one, giving claude's exactly-one-blank
+// spacing). Colors/formats captured by scripts/tui-parity/ (claude-derived:
+// update against fresh captures on claude version bumps). pi lineage: the
+// Component shape and the OSC 133 zone markers.
 
-import {
-  Box,
-  Container,
-  Markdown,
-  type MarkdownTheme,
-} from "@earendil-works/pi-tui";
-import { getMarkdownTheme, theme } from "../theme.ts";
+import { type Component } from "@earendil-works/pi-tui";
+import { claudeStyle } from "../claude-style.ts";
+import { wrapHeaderArg } from "./tool-execution.ts";
 
 const OSC133_ZONE_START = "\x1b]133;A\x07";
 const OSC133_ZONE_END = "\x1b]133;B\x07";
 const OSC133_ZONE_FINAL = "\x1b]133;C\x07";
 
-/**
- * Component that renders a user message
- */
-export class UserMessageComponent extends Container {
-  private text: string;
-  private markdownTheme: MarkdownTheme;
-  private outputPad: number;
+/** Gutter width: `❯ ` on the first line, 2 spaces on continuations. */
+const GUTTER_WIDTH = 2;
 
-  constructor(
-    text: string,
-    markdownTheme: MarkdownTheme = getMarkdownTheme(),
-    outputPad = 1,
-  ) {
-    super();
+/** The `❯`-gutter band lines of one prompt: word-wrapped, first line
+ *  prefixed `❯ `, continuations indented 2, claude's colors throughout.
+ *  Shared with the local-command blocks (user-command.ts). */
+export function userPromptLines(text: string, width: number): string[] {
+  const capacity = Math.max(1, width - GUTTER_WIDTH);
+  const { lines } = wrapHeaderArg(
+    text,
+    capacity,
+    capacity,
+    Number.MAX_SAFE_INTEGER,
+  );
+  return lines.map((line, index) => {
+    const gutter =
+      index === 0 ? claudeStyle.userGutter("❯ ") : " ".repeat(GUTTER_WIDTH);
+    return claudeStyle.userBg(gutter + claudeStyle.white(line));
+  });
+}
+
+export class UserMessageComponent implements Component {
+  private readonly text: string;
+
+  constructor(text: string) {
     this.text = text;
-    this.markdownTheme = markdownTheme;
-    this.outputPad = outputPad;
-    this.rebuild();
   }
 
-  setOutputPad(padding: number): void {
-    this.outputPad = padding;
-    this.rebuild();
-  }
+  invalidate(): void {}
 
-  private rebuild(): void {
-    this.clear();
-    const contentBox = new Box(this.outputPad, 1, (content: string) =>
-      theme.bg("userMessageBg", content),
-    );
-    contentBox.addChild(
-      new Markdown(
-        this.text,
-        0,
-        0,
-        this.markdownTheme,
-        {
-          color: (content: string) => theme.fg("userMessageText", content),
-        },
-        { preserveOrderedListMarkers: true, preserveBackslashEscapes: true },
-      ),
-    );
-    this.addChild(contentBox);
-  }
-
-  override render(width: number): string[] {
-    const lines = super.render(width);
-    if (lines.length === 0) {
-      return lines;
-    }
-
-    lines[0] = OSC133_ZONE_START + lines[0];
-    lines[lines.length - 1] =
-      OSC133_ZONE_END + OSC133_ZONE_FINAL + lines[lines.length - 1];
-    return lines;
+  render(width: number): string[] {
+    const out = ["", ...userPromptLines(this.text, width)];
+    out[0] = OSC133_ZONE_START + out[0];
+    out[out.length - 1] =
+      OSC133_ZONE_END + OSC133_ZONE_FINAL + out[out.length - 1];
+    return out;
   }
 }

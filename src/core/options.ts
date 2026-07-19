@@ -19,6 +19,7 @@ import {
   type PermissionMode,
   type ThinkingConfig,
 } from "@anthropic-ai/claude-agent-sdk";
+import type { AgentState } from "./agent-state.ts";
 import { oneOf, UsageError } from "./generated/util.ts";
 
 export type OptionBucket = "persist" | "code" | "invariant" | "respawn";
@@ -133,18 +134,22 @@ export function invariantOptions(): Pick<
 }
 
 /**
- * The model and permission mode the settings cascade would give a `query()`
- * run with these persisted options — the settings tier of the AgentState
- * seed's "what will the NEXT query use" precedence (PersistedOptions win over
- * this; the daemon applies the fallbacks). Known fidelity gaps, accepted:
- * the `Options.settings` flag tier has no resolveSettings input; the
- * policy-tier policyHelper subprocess is not executed; the model may be an
- * alias the CLI would still resolve.
+ * The model, permission mode, and effort level the settings cascade would
+ * give a `query()` run with these persisted options — the settings tier of
+ * the AgentState seed's "what will the NEXT query use" precedence
+ * (PersistedOptions win over this; the daemon applies the fallbacks). Known
+ * fidelity gaps, accepted: the `Options.settings` flag tier has no
+ * resolveSettings input; the policy-tier policyHelper subprocess is not
+ * executed; the model may be an alias the CLI would still resolve.
  */
 export async function settingsSeed(
   persisted: PersistedOptions,
   cwd: string,
-): Promise<{ model?: string; permissionMode?: PermissionMode }> {
+): Promise<{
+  model?: string;
+  permissionMode?: PermissionMode;
+  effortLevel?: AgentState["effortLevel"];
+}> {
   const resolved = await resolveSettings({
     cwd,
     ...(persisted.settingSources !== undefined && {
@@ -159,10 +164,24 @@ export async function settingsSeed(
   // files are not honored, so they must not be predicted either.
   const permissionMode =
     filterEscalatingDefaultMode(resolved).permissions?.defaultMode;
+  const effortLevel = resolved.effective.effortLevel;
   return {
     ...(model !== undefined && { model }),
     ...(permissionMode !== undefined && { permissionMode }),
+    ...(effortLevel !== undefined && { effortLevel }),
   };
+}
+
+/**
+ * A spawn `--effort` value as an AgentState effort level: the four
+ * `Settings.effortLevel` names pass through; `max` has no settings-tier
+ * representation and yields undefined (the footer omits the segment rather
+ * than showing a settings value the spawn flag overrides).
+ */
+export function effortLevelOf(
+  effort: Options["effort"],
+): AgentState["effortLevel"] {
+  return effort === "max" ? undefined : effort;
 }
 
 /** parseClaudeFlags result; `spawn` folds it into the SpawnOptions handoff. */

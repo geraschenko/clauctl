@@ -22,6 +22,24 @@ Triage reviewed and approved by Anton (2026-07-17/18); the "proposed"
 columns below are the decided values. Implementation spec:
 `docs/specs/tui-rendering-parity.md`.
 
+Status (2026-07-19 recapture, all spec phases 0–6 complete): Groups B,
+A, and D are implemented and match in the scenario captures; the
+thinking and slash-command scenarios' transcript bodies are
+byte-identical to claude in the normalized diff. The phase-6 footer
+(claude-style two-line cwd/mode/context footer with the captured
+per-mode colors) is implemented but outside these diffs by construction:
+`--direct` renders the transcript only, and the remaining Group E chrome
+(welcome banner, input box, claude's shortcut hints) is decided-differ.
+Remaining scenario diff lines are exactly: that Group E chrome, the kept
+code fences (Group C, recorded divergence below), the decided
+Bash-never-folds divergence (tools scenario), and one harness artifact:
+`--direct` renders the main chain only, so sidechain (subagent) children
+are absent and the Agent tool's `(ctrl+o to expand)` hint line — shown
+only when hidden children exist — does not appear; live attach shows it.
+Tool-header file paths additionally render as OSC 8 links when the
+terminal supports hyperlinks (invisible in these captures: the harness
+tmux advertises no hyperlink termfeature).
+
 ## Group B — collapsing & tool rendering (highest visual impact)
 
 | id                    | claude                                                                                                                                 | clauctl                                                                     | proposed |
@@ -65,12 +83,28 @@ patterns`). The exact folding rules need enumeration during type design —
 
 | id                   | claude                                                             | clauctl                                                   | proposed                       |
 | -------------------- | ------------------------------------------------------------------ | --------------------------------------------------------- | ------------------------------ |
-| code-fence-stripping | fence markers stripped, content syntax-highlighted at block indent | `` ```ts `` fences kept, content extra-indented           | match                          |
+| code-fence-stripping | fence markers stripped, content syntax-highlighted at block indent | `` ```ts `` fences kept, content extra-indented           | differ (see note)              |
 | heading-style        | bold white, `##` stripped                                          | bold yellow, `##` stripped                                | match (color part → ANSI pass) |
 | link-render          | OSC 8 hyperlink: link text only, target invisible                  | `text (target)` with underline                            | match                          |
 | inline-style         | bold `[1m`, italic `[3m`, inline code 256-color 153, no background | bold/italic same; truecolor palette with background fills | ANSI pass                      |
 
 Tables and bullet lists already match (see markdown scenario).
+
+Notes:
+
+- code-fence-stripping (empirical check, phase 4): pi-tui `Markdown`
+  pushes the fence lines unconditionally — a `codeBlockBorder` that
+  returns `""` leaves blank lines where the fences were, and
+  `codeBlockIndent` only changes the content indent. Eliding fences
+  would mean forking `Markdown`, which the spec rules out; per its
+  instruction the entry becomes a recorded divergence (fences kept).
+- link-render (empirical check, phase 4): pi-tui `Markdown` already
+  emits claude-style OSC 8 (link text only, URL invisible) when
+  `getCapabilities().hyperlinks` is true — auto-detected per terminal,
+  with a tmux `client_termfeatures` probe — and falls back to
+  `text (url)` otherwise. No code needed; the harness tmux reports no
+  hyperlink support, so captures show the fallback on our side while
+  claude emits OSC 8 unconditionally (visible in the .ansi files).
 
 ## Group D — special message types
 
