@@ -167,13 +167,13 @@ Views co-located per tool under `src/tui/tool-views/` (write.ts, edit.ts,
 bash.ts, read.ts, task.ts, glob.ts, grep.ts, …). Unknown/MCP tools use
 the generic fallback (current rendering, claude does the same).
 
-Verbatim ports added to `scripts/update-ports.sh`:
-
-- `src/tui/components/diff.ts` ← pi
-  `modes/interactive/components/diff.ts` (`renderDiff`, word-level
-  intra-line highlights);
-- `src/tui/edit-diff.ts` ← pi `core/tools/edit-diff.ts`
-  (`generateDiffString`).
+Diff rendering is imported, not ported (decided 2026-07-18):
+`@earendil-works/pi-coding-agent` becomes a dependency (version-locked to
+`@earendil-works/pi-tui`), providing `renderDiff` and
+`generateDiffString` directly. `renderDiff` reads pi's global theme
+singleton, so the TUI entrypoint calls `initTheme("dark")` once at
+startup (built-in palette, no config lookup, no watcher; matches the
+palette `theme.ts` already mimics).
 
 The Edit view feeds `old_string`/`new_string` through
 `generateDiffString` → `renderDiff`.
@@ -307,6 +307,14 @@ remaining modes captured during implementation.
 - Empirical check (phase 3): thinking duration from session-entry
   timestamp deltas — validate against claude's displayed "Thought for
   Ns" on the tools scenario before adopting.
+- Empirical check (phase 3): with pi's theme singleton initialized
+  anyway, importing pi's `theme` + `getMarkdownTheme` everywhere and
+  deleting our `theme.ts` shim would remove the "theme comes from
+  ../theme.ts" intentional diff from every ported component. Verify
+  `EditorTheme` coverage and that pi's `Theme` doesn't drag in
+  interactive-mode machinery before adopting. Also newly importable from
+  pi-coding-agent for later phases: `truncateToVisualLines`, `keyHint`,
+  `formatTokens`, `formatCwdForFooter`.
 - Muninn gotchas to carry over: `HTTPS_PROXY` forward proxy (NOT
   `ANTHROPIC_BASE_URL` reverse proxy — different tool surface),
   `NODE_TLS_REJECT_UNAUTHORIZED=0`, `DISABLE_AUTOUPDATER=1`, schema
@@ -336,6 +344,12 @@ encountered.
 Derisk round (approved): phases and full type design as in SPEC; ctrl+o
 (tools) / ctrl+t (thinking) toggles; OAuth creds for capture; our own
 readonly-folding rule; render-from-file as phase 1.
+
+Decision (Anton): import `renderDiff`/`generateDiffString` from a new
+`@earendil-works/pi-coding-agent` dependency instead of verbatim-porting
+`diff.ts`/`edit-diff.ts`; pin pi's theme singleton with
+`initTheme("dark")` at TUI startup. Theme-adoption follow-on recorded as
+a phase-3 empirical check.
 
 - [ ] Phase 1: `TranscriptRenderer` extraction + `render-session.ts` +
       `capture.ts --direct` + first unit-test fixtures
