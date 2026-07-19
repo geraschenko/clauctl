@@ -379,6 +379,7 @@ carry `effortLevel` (null clears the field). The SDK reports no initial
 value (`initializationResult` and the stream omit it, and `Query` has no
 getSettings method), so the field stays unset — and the footer omits the
 segment — until effort is set through clauctl.
+TDC: It should be set initially based on how claude is launched. We use resolve-settings when no effort level is explicitly set. Use that.
 
 Permission mode: the footer maps every SDK `PermissionMode` value
 (`default`/`acceptEdits`/`plan`/`bypassPermissions`/`dontAsk`/`auto`)
@@ -398,6 +399,7 @@ from `AgentState.cwd`, recreates it when cwd changes, subscribes
 Port maintenance is an explicit deliverable of every phase that touches
 a ported file: intentional-differences headers updated, and new verbatim
 ports (`git-branch.ts`) registered in `scripts/update-ports.sh` `PORTS`.
+TDC: can we import something from pi-coding-agent instead of doing a verbatim port?
 
 ## Edge cases
 
