@@ -69,6 +69,7 @@ time.
   The cursor is the final folded state's `leafTreeNodeRef` via
   `formatTreeNodeRef`; `null` when unset. Always emitted on condition-met, so
   scripted consumers get a definite final line. No cursor on timeout or close.
+  TDC: actually, don't the messages themselves already have the cursor information in the form of the uuid of the last entry? pictl included the cursor just because the messages streamed through the RPC interface don't include the entry uuids, but clauctl doesn't have that problem. This means that we only need to show the cursor information when text formatting omits the uuid. So I think we can omit cursor from this spec.
 - With `--until`, the daemon closing the socket before the condition is met is
   an error (exit 1). `--timeout` expiring is exit 3.
 - `--timeout` requires `--until` (a bare timeout on an endless stream would be
@@ -230,6 +231,7 @@ Flag helpers (`parsedFlag`, `requiredParsedFlag`, `secondsFlag`,
   subscribe seed is atomically ordered before all pushed events, so
   seed-check + fold is race-free without daemon delegation. `wait-idle`
   remains for its existing consumers (archive's polite stop).
+  TDC: Should archive's polite stop be reimplemented with this new approach?
 - Condition met at seed: `wait` exits 0 without waiting for events; `tail
   --until` prints the snapshot and cursor with no event lines.
 - Socket events racing the subscribe response: `runStream` gates event
