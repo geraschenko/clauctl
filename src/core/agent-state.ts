@@ -20,7 +20,7 @@
  * Prompt-visibility invariant: every accepted turn/append prompt appears in
  * exactly one place — `queuedMessages` (accepted, not yet consumed by the
  * CLI), `deliveredMessages` (consumed, not yet confirmed by a later stream
- * emission), or the transcript at/before `leafTreeNodeRef` (confirmed; a
+ * emission), or the transcript at/before `leaf` (confirmed; a
  * history read covers it). Each transition is one fold step, so no state can
  * catch a prompt in two places or in none. An attaching observer therefore
  * renders each prompt exactly once: history replay up to the boundary, then
@@ -80,7 +80,7 @@ export interface AgentState {
    *  Stream user/assistant messages fold it as a raw ref; a contextChanged
    *  event folds its post-change `leaf` (possibly a viaBoundary occurrence,
    *  null unsets). */
-  readonly leafTreeNodeRef?: TreeNodeRef;
+  readonly leaf?: TreeNodeRef;
 }
 
 export const INITIAL_AGENT_STATE: AgentState = {
@@ -194,10 +194,10 @@ export function nextAgentState(state: AgentState, event: SdkEvent): AgentState {
     // its tip, which the event carries.
     case "contextChanged": {
       if (event.leaf === null) {
-        const { leafTreeNodeRef: _leafTreeNodeRef, ...withoutLeaf } = state;
+        const { leaf: _leaf, ...withoutLeaf } = state;
         return withoutLeaf;
       }
-      return { ...state, leafTreeNodeRef: event.leaf };
+      return { ...state, leaf: event.leaf };
     }
     case "controlApplied": {
       const request = event.request;
@@ -238,7 +238,7 @@ export function nextAgentState(state: AgentState, event: SdkEvent): AgentState {
         // optional uuid on SDKUserMessage is for host-pushed input). Boundary
         // advance and deliveredMessages clear happen in the same fold step —
         // that is the prompt-visibility bookkeeping (header comment).
-        next = { ...next, leafTreeNodeRef: { uuid: message.uuid as UUID } };
+        next = { ...next, leaf: { uuid: message.uuid as UUID } };
         if (next.deliveredMessages.length > 0) {
           next = { ...next, deliveredMessages: [] };
         }
@@ -251,7 +251,7 @@ export function nextAgentState(state: AgentState, event: SdkEvent): AgentState {
         // Queued future turns still belong to the running process.
         const {
           sessionId: _sessionId,
-          leafTreeNodeRef: _leafTreeNodeRef,
+          leaf: _leaf,
           lastUsage: _lastUsage,
           ...withoutOldContext
         } = next;
@@ -264,11 +264,8 @@ export function nextAgentState(state: AgentState, event: SdkEvent): AgentState {
         // the leaf seeded from the resumed file. Drop the leaf on an id
         // change; stream messages repopulate it. (conversation_reset enforces
         // the same coupling by clearing both.)
-        if (
-          next.leafTreeNodeRef !== undefined &&
-          next.sessionId !== message.session_id
-        ) {
-          const { leafTreeNodeRef: _leafTreeNodeRef, ...withoutLeaf } = next;
+        if (next.leaf !== undefined && next.sessionId !== message.session_id) {
+          const { leaf: _leaf, ...withoutLeaf } = next;
           next = withoutLeaf;
         }
         return withObservedPermissionMode(

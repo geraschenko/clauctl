@@ -6,7 +6,7 @@ import type {
   SDKMessage,
   SDKUserMessage,
 } from "@anthropic-ai/claude-agent-sdk";
-import type { TreeNode } from "../core/tree.ts";
+import type { PathNode } from "../core/tree.ts";
 import { TranscriptRenderer } from "./transcript.ts";
 
 // The Edit view's expanded diff reads pi's theme singleton; the TUI
@@ -54,8 +54,8 @@ function toolResultMessage(
   ]) as SDKMessage;
 }
 
-function pathNode(entry: Record<string, unknown>): TreeNode {
-  return { entry, children: [] } as unknown as TreeNode;
+function pathNode(entry: Record<string, unknown>): PathNode {
+  return { ref: { uuid: entry.uuid }, entry } as unknown as PathNode;
 }
 
 /** Rendered plain text: ANSI/OSC stripped, blank edges trimmed. */

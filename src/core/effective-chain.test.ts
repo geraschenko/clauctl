@@ -445,7 +445,7 @@ test("seedFromEntries derives every field from a linear session", () => {
   assert.equal(seed.model, "claude-new");
   assert.equal(seed.claudeCodeVersion, "2.1.211");
   assert.equal(seed.permissionMode, "plan");
-  assert.deepEqual(seed.leafTreeNodeRef, { uuid: a2.uuid });
+  assert.deepEqual(seed.leaf, { uuid: a2.uuid });
   // Null token counters are coerced to 0.
   assert.deepEqual(seed.lastUsage, {
     input_tokens: 10,
@@ -487,19 +487,19 @@ test("seedFromEntries reads usage/model from the effective chain, not abandoned 
   assert.equal(seed.model, "claude-kept");
   assert.equal(seed.lastUsage?.input_tokens, 1);
   // The chain tip is a1's relinked occurrence under the boundary.
-  assert.deepEqual(seed.leafTreeNodeRef, {
+  assert.deepEqual(seed.leaf, {
     uuid: a1.uuid,
     viaBoundary: boundary.uuid,
   });
 });
 
-test("seedFromEntries leafTreeNodeRef skips meta and sidechain entries", () => {
+test("seedFromEntries leaf skips meta and sidechain entries", () => {
   const sid = uuid();
   const u1 = userEntry(null, sid);
   const a1 = assistantEntry(u1.uuid, sid);
   const meta = { ...userEntry(a1.uuid, sid), isMeta: true };
   const seed = seedFromEntries([u1, a1, meta], failOnInvalid);
-  assert.deepEqual(seed.leafTreeNodeRef, { uuid: a1.uuid });
+  assert.deepEqual(seed.leaf, { uuid: a1.uuid });
 });
 
 test("seedFromEntries: a trailing system entry does not become the leaf", () => {
@@ -516,7 +516,7 @@ test("seedFromEntries: a trailing system entry does not become the leaf", () => 
     sessionId: sid,
   };
   const seed = seedFromEntries([u1, a1, duration], failOnInvalid);
-  assert.deepEqual(seed.leafTreeNodeRef, { uuid: a1.uuid });
+  assert.deepEqual(seed.leaf, { uuid: a1.uuid });
 });
 
 test("effectiveChain of a file ending in a bare empty-uuids boundary is []", () => {

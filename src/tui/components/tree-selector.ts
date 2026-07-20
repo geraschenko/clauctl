@@ -6,13 +6,15 @@
  * busy gate and the set-context request.
  */
 
+import type { UUID } from "node:crypto";
 import { Container, matchesKey, type Focusable } from "@earendil-works/pi-tui";
 import type { SessionEntry } from "../../core/session-file.ts";
 import {
+  forestChildren,
   formatTreeNodeRef,
   parseTreeNodeRef,
   pathToLeaf,
-  type SessionTree,
+  type Forest,
   type TreeNodeRef,
 } from "../../core/tree.ts";
 import { extractTextContent } from "../../format/generated/text.ts";
@@ -27,7 +29,7 @@ import {
   entrySummary,
   formatTreeNodeLine,
   passesFilter,
-  toLayoutNode,
+  toLayoutForest,
 } from "../../format/tree.ts";
 import { theme } from "../theme.ts";
 
@@ -48,10 +50,11 @@ export type TreePickAction =
  * (reachable via the current-leaf filter exemption) omits editorText.
  */
 export function resolveTreePick(
-  tree: SessionTree,
+  forest: Forest,
+  entryOf: ReadonlyMap<UUID, SessionEntry>,
   pick: TreeNodeRef,
 ): TreePickAction {
-  const path = pathToLeaf(tree.tree, pick);
+  const path = pathToLeaf(forest, entryOf, pick);
   const picked = path.at(-1);
   if (picked?.entry.type === "assistant") {
     return { kind: "rewind", rewindTo: pick };
@@ -68,16 +71,7 @@ export function resolveTreePick(
   for (let index = path.length - 2; index >= 0; index -= 1) {
     const ancestor = path[index]!;
     if (ancestor.entry.type === "assistant") {
-      return {
-        kind: "rewind",
-        rewindTo: {
-          uuid: ancestor.entry.uuid!,
-          ...(ancestor.viaBoundary !== undefined && {
-            viaBoundary: ancestor.viaBoundary,
-          }),
-        },
-        ...editorTextField,
-      };
+      return { kind: "rewind", rewindTo: ancestor.ref, ...editorTextField };
     }
   }
   return { kind: "newRoot", ...editorTextField };
@@ -114,26 +108,29 @@ export class TreeSelectorComponent extends Container implements Focusable {
   private warning: string | undefined;
 
   constructor(
-    tree: SessionTree,
+    leaf: TreeNodeRef | null,
+    forest: Forest,
+    entryOf: ReadonlyMap<UUID, SessionEntry>,
     onSelect: (pick: TreeNodeRef) => void,
     onCancel: () => void,
   ) {
     super();
-    this.roots = tree.tree.map(toLayoutNode);
-    this.currentLeafId =
-      tree.leaf === null ? null : formatTreeNodeRef(tree.leaf);
-    this.toolNames = collectToolNames(tree.tree);
-    this.finalIds = collectFinalAssistantIds(tree.tree);
+    this.roots = toLayoutForest(forest, entryOf);
+    this.currentLeafId = leaf === null ? null : formatTreeNodeRef(leaf);
+    this.toolNames = collectToolNames([...entryOf.values()]);
+    this.finalIds = collectFinalAssistantIds(
+      forest,
+      forestChildren(forest),
+      entryOf,
+    );
     this.onSelect = onSelect;
     this.onCancel = onCancel;
-    const visit = (
-      node: LayoutNode<SessionEntry>,
-      parentId: string | null,
-    ): void => {
-      this.parentById.set(node.id, parentId);
-      node.children.forEach((child) => visit(child, node.id));
-    };
-    this.roots.forEach((root) => visit(root, null));
+    for (const [key, node] of forest) {
+      this.parentById.set(
+        key,
+        node.parent === null ? null : formatTreeNodeRef(node.parent),
+      );
+    }
     this.lastSelectedId = this.currentLeafId;
     this.applyFilter();
   }

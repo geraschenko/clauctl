@@ -38,7 +38,7 @@ import type { TreeNodeRef } from "../tree.ts";
  * the override stays fresh once the event folds. The next transcript write
  * closes the synthesis window (getSessionMessages agrees with the loader
  * again) and makes the tail filter inert, so the slot is dropped lazily when
- * `leafTreeNodeRef` moves. Every transcript write moves `leafTreeNodeRef`:
+ * `leaf` moves. Every transcript write moves `leaf`:
  * the CLI echoes each appended user/assistant entry on the stream with its
  * transcript uuid, including host-pushed input — the same echo that clears
  * deliveredMessages (agent-state.ts fold).

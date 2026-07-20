@@ -4,7 +4,8 @@
  * output, so a swapped pipe is a one-line fix instead of silence.
  */
 
-import type { SessionTree } from "../core/tree.ts";
+import { seedFromEntries } from "../core/effective-chain.ts";
+import type { SessionSnapshot } from "../core/tree.ts";
 import { parseJsonlInput } from "../core/generated/read-input.ts";
 import { UsageError } from "../core/generated/util.ts";
 import type { SessionEntry } from "../core/session-file.ts";
@@ -14,7 +15,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
 
-/** get-tree output is one pretty-printed JSON document, so JSONL parsing
+/** get-entries output is one pretty-printed JSON document, so JSONL parsing
  *  would fail on its first line (`{`) with a generic error before any
  *  cross-pointing check could fire; the whole-document parse runs first. */
 function parseWholeDocument(input: string): unknown {
@@ -29,16 +30,16 @@ function parseWholeDocument(input: string): unknown {
   }
 }
 
-function isSessionTreeShaped(
+function isSessionSnapshotShaped(
   document: unknown,
-): document is Record<string, unknown> & { tree: unknown[] } {
-  return isRecord(document) && Array.isArray(document.tree);
+): document is Record<string, unknown> & { entries: unknown[] } {
+  return isRecord(document) && Array.isArray(document.entries);
 }
 
-function rejectSessionTreeInput(input: string): void {
-  if (isSessionTreeShaped(parseWholeDocument(input))) {
+function rejectSessionSnapshotInput(input: string): void {
+  if (isSessionSnapshotShaped(parseWholeDocument(input))) {
     throw new UsageError(
-      "input looks like get-tree output; use `clauctl format tree`",
+      "input looks like get-entries output; use `clauctl format tree`",
     );
   }
 }
@@ -52,7 +53,7 @@ function rejectSessionTreeInput(input: string): void {
  * nothing), but every real session line carries one — requiring it here is
  * what tells session entries apart from tail framing and garbage input. */
 export function parseSessionEntries(input: string): readonly SessionEntry[] {
-  rejectSessionTreeInput(input);
+  rejectSessionSnapshotInput(input);
   const lines = parseJsonlInput(input);
   return lines.map((line, index) => {
     if (isRecord(line) && typeof line.type === "string") {
@@ -73,7 +74,7 @@ export function parseSessionEntries(input: string): readonly SessionEntry[] {
 }
 
 export function parseTailRecords(input: string): readonly TailRecord[] {
-  rejectSessionTreeInput(input);
+  rejectSessionSnapshotInput(input);
   const lines = parseJsonlInput(input);
   return lines.map((line, index) => {
     if (isRecord(line) && typeof line.type === "string") {
@@ -93,13 +94,40 @@ export function parseTailRecords(input: string): readonly TailRecord[] {
   });
 }
 
-/** One JSON document with a `tree` array and a `leaf` that is null or an
- * object with a string `uuid` (and optional string `viaBoundary`).
- * Tail-shaped or session-entry JSONL input → UsageError pointing at the
- * other subcommands. */
-export function parseSessionTree(input: string): SessionTree {
+const NOT_A_SNAPSHOT =
+  'input is not a session snapshot (expected one JSON document with an "entries" array, or session-entry JSONL)';
+
+/**
+ * Accepts (1) get-entries output: one JSON document with an `entries` array
+ * (elements validated by the same rule parseSessionEntries uses — records
+ * with a string `type`; uuids are not syntax-checked) and a `leaf` that is
+ * null or an object with a string `uuid` (and optional string `viaBoundary`;
+ * a missing `leaf` property is a UsageError); or (2) raw session-entry
+ * JSONL, leaf derived via the seedFromEntries chain logic — deliberately the
+ * last user/assistant occurrence, which can differ from the daemon's
+ * chain-tip leaf when a chain ends in a non-conversational entry; for file
+ * rendering the conversational cursor is the useful one. Tail-shaped input →
+ * cross-pointing UsageError; anything else → generic NOT_A_SNAPSHOT.
+ * Forest-level corruption (duplicate occurrence keys) is not the parser's
+ * job: buildForest throws later, and format commands let that error surface
+ * loudly.
+ */
+export function parseSessionSnapshot(input: string): SessionSnapshot {
   const document = parseWholeDocument(input);
-  if (isSessionTreeShaped(document)) {
+  if (isSessionSnapshotShaped(document)) {
+    const entries = document.entries.map((element, index) => {
+      if (isRecord(element) && typeof element.type === "string") {
+        return element as SessionEntry;
+      }
+      throw new UsageError(
+        `entries[${index}] is not a session entry (expected a "type" field)`,
+      );
+    });
+    if (!("leaf" in document)) {
+      throw new UsageError(
+        'session snapshot is missing "leaf" (null or an object with a string "uuid")',
+      );
+    }
     const leaf = document.leaf;
     if (
       leaf === null ||
@@ -108,32 +136,33 @@ export function parseSessionTree(input: string): SessionTree {
         (leaf.viaBoundary === undefined ||
           typeof leaf.viaBoundary === "string"))
     ) {
-      return document as unknown as SessionTree;
+      return { entries, leaf: leaf as SessionSnapshot["leaf"] };
     }
     throw new UsageError(
-      'session tree "leaf" must be null or an object with a string "uuid"',
+      'session snapshot "leaf" must be null or an object with a string "uuid"',
     );
   }
   let lines: readonly unknown[];
   try {
     lines = parseJsonlInput(input);
   } catch {
-    throw new UsageError(
-      'input is not a session tree (expected one JSON document with a "tree" array)',
-    );
+    throw new UsageError(NOT_A_SNAPSHOT);
   }
   const first = lines[0];
   if (isRecord(first) && typeof first.type === "string") {
-    throw new UsageError(
-      "input looks like session-entry output; use `clauctl format messages`",
-    );
+    // Session-entry JSONL; per-record validation (and its error messages)
+    // comes from the shared entry parser. Relink diagnostics during the
+    // leaf derivation are declared-ignored — rendering proceeds either way.
+    const entries = [...parseSessionEntries(input)];
+    return {
+      entries,
+      leaf: seedFromEntries(entries, () => {}).leaf ?? null,
+    };
   }
   if (isRecord(first) && ("snapshot" in first || "event" in first)) {
     throw new UsageError(
       "input looks like tail output; use `clauctl format events`",
     );
   }
-  throw new UsageError(
-    'input is not a session tree (expected one JSON document with a "tree" array)',
-  );
+  throw new UsageError(NOT_A_SNAPSHOT);
 }

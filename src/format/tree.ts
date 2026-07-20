@@ -1,18 +1,22 @@
 /**
- * `format tree`: renders get-tree output as an indented forest, one line per
- * visible entry — behavioral parity with `pictl format tree`. The layout
+ * `format tree`: renders a session snapshot as an indented forest, one line
+ * per visible entry — behavioral parity with `pictl format tree`. The layout
  * geometry is the synced generated/tree-layout.ts; this file owns the
  * clauctl-specific parts: entry summaries, filters, and the adapter. Lenient
  * like `format messages` — verbatim entries drift with Anthropic CLI
  * versions, so unrecognized shapes render generically rather than rejecting.
  */
 
-import type { SessionEntry } from "../core/session-file.ts";
+import type { UUID } from "node:crypto";
+import { buildForest } from "../core/forest.ts";
+import { entriesByUuid, type SessionEntry } from "../core/session-file.ts";
 import {
+  forestChildren,
   formatTreeNodeRef,
   isFinalAssistantEntry,
-  type SessionTree,
-  type TreeNode,
+  type Forest,
+  type SessionSnapshot,
+  type TreeNodeRef,
 } from "../core/tree.ts";
 import { extractTextContent, oneLine, truncateText } from "./generated/text.ts";
 import {
@@ -78,9 +82,8 @@ function userWithText(entry: SessionEntry): boolean {
   return entry.type === "user" && entry.isMeta !== true && hasText(entry);
 }
 
-/** `isFinal` is isFinalAssistantEntry over the occurrence's tree node,
- *  computed by callers (collectFinalAssistantIds below); only "picker"
- *  reads it. */
+/** `isFinal` is isFinalAssistantEntry over the occurrence, computed by
+ *  callers (collectFinalAssistantIds below); only "picker" reads it. */
 export function passesFilter(
   entry: SessionEntry,
   isCurrentLeaf: boolean,
@@ -134,11 +137,14 @@ export function passesFilter(
 }
 
 /** tool_use id → name over ALL entries (visible or not), so tool_result
- *  lines can name their tool after filtering hides the call. */
-export function collectToolNames(tree: TreeNode[]): Map<string, string> {
+ *  lines can name their tool after filtering hides the call. A flat scan —
+ *  needs no forest. */
+export function collectToolNames(
+  entries: readonly SessionEntry[],
+): Map<string, string> {
   const toolNames = new Map<string, string>();
-  const visit = (node: TreeNode): void => {
-    for (const block of contentBlocks(node.entry)) {
+  for (const entry of entries) {
+    for (const block of contentBlocks(entry)) {
       if (
         block.type === "tool_use" &&
         typeof block.id === "string" &&
@@ -147,9 +153,7 @@ export function collectToolNames(tree: TreeNode[]): Map<string, string> {
         toolNames.set(block.id, block.name);
       }
     }
-    node.children.forEach(visit);
-  };
-  tree.forEach(visit);
+  }
   return toolNames;
 }
 
@@ -213,34 +217,58 @@ export function entrySummary(
   return entry.subtype === undefined ? type : `${type}: ${entry.subtype}`;
 }
 
-/** The layout id doubles as the node's TreeNodeRef presentation, so a
- *  consumer recovers the picked occurrence with parseTreeNodeRef(id). */
-function nodeLayoutId(node: TreeNode): string {
-  return formatTreeNodeRef({
-    uuid: node.entry.uuid!,
-    ...(node.viaBoundary !== undefined && { viaBoundary: node.viaBoundary }),
-  });
-}
-
-export function toLayoutNode(node: TreeNode): LayoutNode<SessionEntry> {
-  return {
-    id: nodeLayoutId(node),
-    children: node.children.map(toLayoutNode),
-    payload: node.entry,
-  };
+/**
+ * Iterative adapter to the layout's nested in-memory input. Layout ids ARE
+ * the forest keys (formatTreeNodeRef output), so a consumer recovers a
+ * picked occurrence with parseTreeNodeRef(id). Two passes over `forest` —
+ * create all shells, then link each into its parent's children array or the
+ * roots list — so the adapter needs no parent-precedes-child ordering
+ * assumption; forest iteration order keeps children in materialization
+ * order, matching the nested construction it replaces.
+ */
+export function toLayoutForest(
+  forest: Forest,
+  entryOf: ReadonlyMap<UUID, SessionEntry>,
+): LayoutNode<SessionEntry>[] {
+  interface MutableLayoutNode {
+    id: string;
+    children: MutableLayoutNode[];
+    payload: SessionEntry;
+  }
+  const shells = new Map<string, MutableLayoutNode>();
+  for (const [key, node] of forest) {
+    // buildForest over the same entries guarantees the entry exists.
+    shells.set(key, {
+      id: key,
+      children: [],
+      payload: entryOf.get(node.ref.uuid)!,
+    });
+  }
+  const roots: MutableLayoutNode[] = [];
+  for (const [key, node] of forest) {
+    const shell = shells.get(key)!;
+    if (node.parent === null) {
+      roots.push(shell);
+    } else {
+      shells.get(formatTreeNodeRef(node.parent))!.children.push(shell);
+    }
+  }
+  return roots;
 }
 
 /** Layout ids of the occurrences that are final assistant entries — the
- *  per-tree input `passesFilter`'s "picker" mode needs. */
-export function collectFinalAssistantIds(tree: TreeNode[]): Set<string> {
+ *  per-forest input `passesFilter`'s "picker" mode needs. */
+export function collectFinalAssistantIds(
+  forest: Forest,
+  children: ReadonlyMap<string | null, readonly TreeNodeRef[]>,
+  entryOf: ReadonlyMap<UUID, SessionEntry>,
+): Set<string> {
   const finalIds = new Set<string>();
-  const visit = (node: TreeNode): void => {
-    if (isFinalAssistantEntry(node)) {
-      finalIds.add(nodeLayoutId(node));
+  for (const [key, node] of forest) {
+    if (isFinalAssistantEntry(node.ref, children, entryOf)) {
+      finalIds.add(key);
     }
-    node.children.forEach(visit);
-  };
-  tree.forEach(visit);
+  }
   return finalIds;
 }
 
@@ -266,24 +294,31 @@ export function formatTreeNodeLine(
   return `${prefix}${truncateText(summary, availableSummary)}`.trimEnd();
 }
 
-/** Whole-input formatter for `format tree`: adapts TreeNode[] to
- * LayoutNode<SessionEntry>[], calls flattenVisibleTree, renders lines +
- * the cursor line. Layout ids are adapter-internal occurrence composites —
- * `uuid` when the node has no viaBoundary, else `${uuid}@${viaBoundary}`
- * ("@" cannot appear in a uuid) — and currentLeafId is the same composite
- * over `input.leaf`. Unique layout ids are a checked precondition of the
- * synced layout: `flattenVisibleTree` throws on duplicates, so an adapter
- * bug fails loudly. */
-export function formatSessionTree(
-  input: SessionTree,
+/** Whole-input formatter for `format tree`: builds the forest from the
+ * snapshot's entries, adapts it to LayoutNode<SessionEntry>[], calls
+ * flattenVisibleTree, renders lines + the cursor line. Layout ids are the
+ * forest keys, and currentLeafId is the same composite over
+ * `snapshot.leaf`. Unique layout ids are a checked precondition of the
+ * synced layout: `flattenVisibleTree` throws on duplicates as a backstop
+ * (buildForest throws first, with the clearer message). Relink diagnostics
+ * are declared-ignored: interleaving them with the rendered tree would
+ * corrupt the output, and invalid relinks still render (un-relinked). */
+export function formatSessionSnapshot(
+  snapshot: SessionSnapshot,
   options: TreeFormatOptions,
 ): string {
-  const toolNames = collectToolNames(input.tree);
-  const finalIds = collectFinalAssistantIds(input.tree);
+  const entryOf = entriesByUuid(snapshot.entries);
+  const forest = buildForest(snapshot.entries, () => {});
+  const toolNames = collectToolNames(snapshot.entries);
+  const finalIds = collectFinalAssistantIds(
+    forest,
+    forestChildren(forest),
+    entryOf,
+  );
   const currentLeafId =
-    input.leaf === null ? null : formatTreeNodeRef(input.leaf);
+    snapshot.leaf === null ? null : formatTreeNodeRef(snapshot.leaf);
   const lines = flattenVisibleTree(
-    input.tree.map(toLayoutNode),
+    toLayoutForest(forest, entryOf),
     currentLeafId,
     (node) =>
       passesFilter(
@@ -293,6 +328,6 @@ export function formatSessionTree(
         options.filter,
       ),
   ).map((flatNode) => formatTreeNodeLine(flatNode, toolNames, options.width));
-  lines.push(`[cursor: ${input.leaf?.uuid ?? "null"}]`);
+  lines.push(`[cursor: ${snapshot.leaf?.uuid ?? "null"}]`);
   return `${lines.join("\n")}\n`;
 }

@@ -12,11 +12,11 @@ import { UsageError } from "../core/generated/util.ts";
 import { formatTailRecords } from "./events.ts";
 import {
   parseSessionEntries,
-  parseSessionTree,
+  parseSessionSnapshot,
   parseTailRecords,
 } from "./input.ts";
 import { formatSessionEntries } from "./messages.ts";
-import { FILTER_MODES, formatSessionTree } from "./tree.ts";
+import { FILTER_MODES, formatSessionSnapshot } from "./tree.ts";
 import type { MessageFormatOptions } from "./types.ts";
 
 function parsePositiveInteger(input: string): number {
@@ -96,7 +96,7 @@ async function formatTree(
 ): Promise<void> {
   const input = await readInputFile(this, file);
   this.process.stdout.write(
-    formatSessionTree(parseSessionTree(input), {
+    formatSessionSnapshot(parseSessionSnapshot(input), {
       filter: flags.filter ?? "conversation",
       width: flags.width ?? 120,
     }),
@@ -110,7 +110,7 @@ export const formatRoute = {
         messages: commandNoTarget<FormatFlags, [string | undefined]>({
           common: true,
           docs: {
-            brief: "format get-messages/get-entries JSONL as plain text",
+            brief: "format get-messages or session-file JSONL as plain text",
           },
           parameters: { flags: formatFlags, positional: filePositional },
           func: formatMessages,
@@ -123,7 +123,10 @@ export const formatRoute = {
         }),
         tree: commandNoTarget<TreeFlags, [string | undefined]>({
           common: true,
-          docs: { brief: "format get-tree output as an indented tree" },
+          docs: {
+            brief:
+              "format get-entries output or session-file JSONL as an indented tree",
+          },
           parameters: { flags: treeFlags, positional: filePositional },
           func: formatTree,
         }),

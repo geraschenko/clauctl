@@ -1,14 +1,14 @@
 import assert from "node:assert/strict";
 import type { UUID } from "node:crypto";
 import { test } from "node:test";
-import { buildTree } from "../core/build-tree.ts";
-import type { SessionTree, TreeNode } from "../core/tree.ts";
+import { buildForest } from "../core/forest.ts";
+import type { SessionSnapshot } from "../core/tree.ts";
 import { effectiveTreeNodeChain } from "../core/effective-chain.ts";
-import type { SessionEntry } from "../core/session-file.ts";
+import { entriesByUuid, type SessionEntry } from "../core/session-file.ts";
 import {
-  formatSessionTree,
+  formatSessionSnapshot,
   formatTreeNodeLine,
-  toLayoutNode,
+  toLayoutForest,
   type TreeFormatOptions,
 } from "./tree.ts";
 import { flattenVisibleTree } from "./generated/tree-layout.ts";
@@ -18,29 +18,27 @@ import { flattenVisibleTree } from "./generated/tree-layout.ts";
 const uuid = (n: number): UUID =>
   `${String(n).padStart(8, "0")}-0000-4000-8000-000000000000` as UUID;
 
-function node(
-  entry: SessionEntry,
-  children: TreeNode[] = [],
-  viaBoundary?: UUID,
-): TreeNode {
-  return {
-    entry,
-    children,
-    ...(viaBoundary !== undefined && { viaBoundary }),
-  };
-}
-
-function userEntry(entryUuid: UUID, text: string): SessionEntry {
+function userEntry(
+  entryUuid: UUID,
+  text: string,
+  parentUuid: UUID | null = null,
+): SessionEntry {
   return {
     uuid: entryUuid,
+    parentUuid,
     type: "user",
     message: { role: "user", content: text },
   };
 }
 
-function assistantEntry(entryUuid: UUID, text: string): SessionEntry {
+function assistantEntry(
+  entryUuid: UUID,
+  text: string,
+  parentUuid: UUID | null = null,
+): SessionEntry {
   return {
     uuid: entryUuid,
+    parentUuid,
     type: "assistant",
     message: {
       role: "assistant",
@@ -51,10 +49,10 @@ function assistantEntry(entryUuid: UUID, text: string): SessionEntry {
 }
 
 function render(
-  input: SessionTree,
+  input: SessionSnapshot,
   options: Partial<TreeFormatOptions> = {},
 ): string {
-  return formatSessionTree(input, {
+  return formatSessionSnapshot(input, {
     filter: options.filter ?? "conversation",
     width: options.width ?? 120,
   });
@@ -63,13 +61,12 @@ function render(
 // --- markers, ordering, geometry ---------------------------------------------
 
 test("branches render with the active branch first and leaf/ancestor markers", () => {
-  const leaf = node(assistantEntry(uuid(4), "active leaf"));
-  const input: SessionTree = {
-    tree: [
-      node(userEntry(uuid(1), "Start"), [
-        node(assistantEntry(uuid(2), "First branch")),
-        node(userEntry(uuid(3), "Second branch"), [leaf]),
-      ]),
+  const input: SessionSnapshot = {
+    entries: [
+      userEntry(uuid(1), "Start"),
+      assistantEntry(uuid(2), "First branch", uuid(1)),
+      userEntry(uuid(3), "Second branch", uuid(1)),
+      assistantEntry(uuid(4), "active leaf", uuid(3)),
     ],
     leaf: { uuid: uuid(4) },
   };
@@ -88,11 +85,8 @@ test("branches render with the active branch first and leaf/ancestor markers", (
 // Known divergence from pi's TreeSelector, which shifts EVERY node's display
 // indent under multiple roots — see the format-tree.md work log.
 test("multiple roots render flush under the virtual root", () => {
-  const input: SessionTree = {
-    tree: [
-      node(userEntry(uuid(1), "root one")),
-      node(userEntry(uuid(2), "root two")),
-    ],
+  const input: SessionSnapshot = {
+    entries: [userEntry(uuid(1), "root one"), userEntry(uuid(2), "root two")],
     leaf: { uuid: uuid(2) },
   };
   assert.equal(
@@ -105,29 +99,24 @@ test("multiple roots render flush under the virtual root", () => {
 
 test("a boundary and its summary render off the active path", () => {
   const boundaryUuid = uuid(3);
-  const input: SessionTree = {
-    tree: [
-      node(userEntry(uuid(1), "Set up the build"), [
-        node(assistantEntry(uuid(2), "Build green"), [
-          node(userEntry(uuid(4), "Fix the first failure"), [
-            node(assistantEntry(uuid(5), "Fixed")),
-          ]),
-          node(
-            {
-              uuid: boundaryUuid,
-              type: "system",
-              subtype: "compact_boundary",
-              compactMetadata: { preTokens: 42_000 },
-            },
-            [
-              node({
-                ...userEntry(uuid(6), "Earlier we set up the build"),
-                isCompactSummary: true,
-              }),
-            ],
-          ),
-        ]),
-      ]),
+  const input: SessionSnapshot = {
+    entries: [
+      userEntry(uuid(1), "Set up the build"),
+      assistantEntry(uuid(2), "Build green", uuid(1)),
+      userEntry(uuid(4), "Fix the first failure", uuid(2)),
+      assistantEntry(uuid(5), "Fixed", uuid(4)),
+      {
+        uuid: boundaryUuid,
+        parentUuid: null,
+        logicalParentUuid: uuid(2),
+        type: "system",
+        subtype: "compact_boundary",
+        compactMetadata: { preTokens: 42_000 },
+      },
+      {
+        ...userEntry(uuid(6), "Earlier we set up the build", boundaryUuid),
+        isCompactSummary: true,
+      },
     ],
     leaf: { uuid: uuid(5) },
   };
@@ -145,49 +134,46 @@ test("a boundary and its summary render off the active path", () => {
 
 // --- occurrence identity -------------------------------------------------------
 
+// The relinked occurrence duplicates the raw entry's uuid; only the
+// viaBoundary-matching occurrence carries the leaf marker (both embed the
+// same entry, so both render the same summary).
 test("with a duplicated uuid, only the viaBoundary-matching occurrence is the leaf", () => {
-  const duplicated = uuid(2);
   const boundaryUuid = uuid(3);
-  const input: SessionTree = {
-    tree: [
-      node(userEntry(uuid(1), "Start"), [
-        node(assistantEntry(duplicated, "raw occurrence")),
-        node(
-          {
-            uuid: boundaryUuid,
-            type: "system",
-            subtype: "compact_boundary",
-            compactMetadata: { preTokens: 1000 },
-          },
-          [
-            node(
-              assistantEntry(duplicated, "relinked occurrence"),
-              [],
-              boundaryUuid,
-            ),
-          ],
-        ),
-      ]),
+  const input: SessionSnapshot = {
+    entries: [
+      userEntry(uuid(1), "Start"),
+      assistantEntry(uuid(2), "Reply", uuid(1)),
+      {
+        uuid: boundaryUuid,
+        parentUuid: null,
+        logicalParentUuid: uuid(1),
+        type: "system",
+        subtype: "compact_boundary",
+        compactMetadata: {
+          preTokens: 1000,
+          preservedMessages: { anchorUuid: boundaryUuid, uuids: [uuid(2)] },
+        },
+      },
     ],
-    leaf: { uuid: duplicated, viaBoundary: boundaryUuid },
+    leaf: { uuid: uuid(2), viaBoundary: boundaryUuid },
   };
   assert.equal(
     render(input),
     "• 00000001 user: Start\n" +
       "├─ • 00000003 [compaction: 1k tokens]\n" +
-      "│     * 00000002 assistant: relinked occurrence\n" +
-      "└─ 00000002 assistant: raw occurrence\n" +
-      `[cursor: ${duplicated}]\n`,
+      "│     * 00000002 assistant: Reply\n" +
+      "└─ 00000002 assistant: Reply\n" +
+      `[cursor: ${uuid(2)}]\n`,
   );
 });
 
-// End-to-end over buildTree + effectiveTreeNodeChain (the get-tree handler's
+// End-to-end over effectiveTreeNodeChain (the get-entries handler's leaf
 // composition): the boundary substructure renders, the `*` lands on the
 // relinked node — distinguished from its raw duplicate — and the layout's
 // unique-id precondition holds.
-test("a buildTree-produced compacted session renders with the leaf on the relinked node", () => {
-  const start = { ...userEntry(uuid(1), "Start"), parentUuid: null };
-  const reply = { ...assistantEntry(uuid(2), "Reply"), parentUuid: uuid(1) };
+test("a compacted session renders with the leaf on the relinked node", () => {
+  const start = userEntry(uuid(1), "Start");
+  const reply = assistantEntry(uuid(2), "Reply", uuid(1));
   const boundary: SessionEntry = {
     uuid: uuid(3),
     parentUuid: null,
@@ -200,16 +186,15 @@ test("a buildTree-produced compacted session renders with the leaf on the relink
     },
   };
   const summary: SessionEntry = {
-    ...userEntry(uuid(4), "Earlier: a reply"),
-    parentUuid: uuid(3),
+    ...userEntry(uuid(4), "Earlier: a reply", uuid(3)),
     isCompactSummary: true,
   };
   const failOnInvalid = (message: string): never => {
     throw new Error(`unexpected onInvalid: ${message}`);
   };
   const entries = [start, reply, boundary, summary];
-  const input: SessionTree = {
-    tree: buildTree(entries, failOnInvalid),
+  const input: SessionSnapshot = {
+    entries,
     leaf: effectiveTreeNodeChain(entries, failOnInvalid).at(-1) ?? null,
   };
   assert.equal(
@@ -225,9 +210,10 @@ test("a buildTree-produced compacted session renders with the leaf on the relink
 
 // --- filters --------------------------------------------------------------------
 
-function toolSession(): SessionTree {
+function toolSession(): SessionSnapshot {
   const toolUse: SessionEntry = {
     uuid: uuid(2),
+    parentUuid: uuid(1),
     type: "assistant",
     message: {
       role: "assistant",
@@ -237,6 +223,7 @@ function toolSession(): SessionTree {
   };
   const toolResult: SessionEntry = {
     uuid: uuid(3),
+    parentUuid: uuid(2),
     type: "user",
     message: {
       role: "user",
@@ -246,12 +233,11 @@ function toolSession(): SessionTree {
     },
   };
   return {
-    tree: [
-      node(userEntry(uuid(1), "Run a tool"), [
-        node(toolUse, [
-          node(toolResult, [node(assistantEntry(uuid(4), "Done"))]),
-        ]),
-      ]),
+    entries: [
+      userEntry(uuid(1), "Run a tool"),
+      toolUse,
+      toolResult,
+      assistantEntry(uuid(4), "Done", uuid(3)),
     ],
     leaf: { uuid: uuid(4) },
   };
@@ -315,11 +301,10 @@ test("all shows every node", () => {
 });
 
 test("conversation hides isMeta user entries", () => {
-  const input: SessionTree = {
-    tree: [
-      node({ ...userEntry(uuid(1), "meta text"), isMeta: true }, [
-        node(userEntry(uuid(2), "real text")),
-      ]),
+  const input: SessionSnapshot = {
+    entries: [
+      { ...userEntry(uuid(1), "meta text"), isMeta: true },
+      userEntry(uuid(2), "real text", uuid(1)),
     ],
     leaf: { uuid: uuid(2) },
   };
@@ -331,10 +316,10 @@ test("conversation hides isMeta user entries", () => {
 
 // --- summaries -------------------------------------------------------------------
 
-/** Renders a single-node tree under `all` and returns the summary part. */
+/** Renders a single-entry snapshot under `all` and returns the summary part. */
 function summaryOf(entry: SessionEntry): string {
   const output = render(
-    { tree: [node({ ...entry, uuid: uuid(1) })], leaf: null },
+    { entries: [{ ...entry, uuid: uuid(1) }], leaf: null },
     { filter: "all" },
   );
   return output.split("\n")[0]!.replace("00000001 ", "");
@@ -419,10 +404,8 @@ test("summary: boundary token count and generic types", () => {
 // --- width, edge cases ------------------------------------------------------------
 
 test("width truncates the whole rendered line", () => {
-  const input: SessionTree = {
-    tree: [
-      node(userEntry(uuid(1), "a question that runs well past the width")),
-    ],
+  const input: SessionSnapshot = {
+    entries: [userEntry(uuid(1), "a question that runs well past the width")],
     leaf: { uuid: uuid(1) },
   };
   const output = render(input, { width: 24 });
@@ -435,13 +418,13 @@ test("width truncates the whole rendered line", () => {
   );
 });
 
-test("an empty tree renders just the cursor line", () => {
-  assert.equal(render({ tree: [], leaf: null }), "[cursor: null]\n");
+test("an empty snapshot renders just the cursor line", () => {
+  assert.equal(render({ entries: [], leaf: null }), "[cursor: null]\n");
 });
 
-test("a leaf matching no node renders no markers but keeps the cursor", () => {
-  const input: SessionTree = {
-    tree: [node(userEntry(uuid(1), "hello"))],
+test("a leaf matching no occurrence renders no markers but keeps the cursor", () => {
+  const input: SessionSnapshot = {
+    entries: [userEntry(uuid(1), "hello")],
     leaf: { uuid: uuid(9) },
   };
   assert.equal(
@@ -450,11 +433,20 @@ test("a leaf matching no node renders no markers but keeps the cursor", () => {
   );
 });
 
+test("a duplicated raw uuid fails loudly", () => {
+  const entry = userEntry(uuid(1), "hello");
+  assert.throws(
+    () => render({ entries: [entry, { ...entry }], leaf: null }),
+    /duplicate occurrence .* corrupt/,
+  );
+});
+
 // --- picker filter -----------------------------------------------------------
 
 test("picker keeps user text, final assistants with text, boundaries, and the leaf", () => {
   const thinking: SessionEntry = {
     uuid: uuid(2),
+    parentUuid: uuid(1),
     type: "assistant",
     message: {
       role: "assistant",
@@ -464,6 +456,7 @@ test("picker keeps user text, final assistants with text, boundaries, and the le
   };
   const final: SessionEntry = {
     uuid: uuid(3),
+    parentUuid: uuid(2),
     type: "assistant",
     message: {
       role: "assistant",
@@ -473,6 +466,7 @@ test("picker keeps user text, final assistants with text, boundaries, and the le
   };
   const toolResult: SessionEntry = {
     uuid: uuid(4),
+    parentUuid: uuid(3),
     type: "user",
     message: {
       role: "user",
@@ -481,18 +475,15 @@ test("picker keeps user text, final assistants with text, boundaries, and the le
   };
   const boundary: SessionEntry = {
     uuid: uuid(5),
+    parentUuid: uuid(4),
     type: "system",
     subtype: "compact_boundary",
   };
-  const tree: SessionTree = {
-    tree: [
-      node(userEntry(uuid(1), "ask"), [
-        node(thinking, [node(final, [node(toolResult, [node(boundary)])])]),
-      ]),
-    ],
+  const input: SessionSnapshot = {
+    entries: [userEntry(uuid(1), "ask"), thinking, final, toolResult, boundary],
     leaf: { uuid: uuid(4) },
   };
-  const output = render(tree, { filter: "picker" });
+  const output = render(input, { filter: "picker" });
   // The non-final same-message.id assistant is hidden; the tool_result-only
   // user survives only through the current-leaf exemption.
   assert.ok(!output.includes("00000002"));
@@ -503,8 +494,12 @@ test("picker keeps user text, final assistants with text, boundaries, and the le
 });
 
 test("formatTreeNodeLine omitUuid drops the uuid column", () => {
-  const tree = [node(userEntry(uuid(1), "hello there"))];
-  const flat = flattenVisibleTree(tree.map(toLayoutNode), uuid(1), () => true);
+  const entries = [userEntry(uuid(1), "hello there")];
+  const roots = toLayoutForest(
+    buildForest(entries, () => {}),
+    entriesByUuid(entries),
+  );
+  const flat = flattenVisibleTree(roots, uuid(1), () => true);
   const toolNames = new Map<string, string>();
   assert.equal(
     formatTreeNodeLine(flat[0]!, toolNames, 80),

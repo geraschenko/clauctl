@@ -1,8 +1,12 @@
 import assert from "node:assert/strict";
 import type { UUID } from "node:crypto";
 import { test } from "node:test";
-import type { SessionEntry } from "../../core/session-file.ts";
-import type { SessionTree, TreeNode } from "../../core/tree.ts";
+import { entriesByUuid, type SessionEntry } from "../../core/session-file.ts";
+import {
+  formatTreeNodeRef,
+  type Forest,
+  type TreeNodeRef,
+} from "../../core/tree.ts";
 import { resolveTreePick, TreeSelectorComponent } from "./tree-selector.ts";
 
 function uuid(n: number): UUID {
@@ -44,52 +48,57 @@ function summaryEntry(n: number, text: string, boundary: UUID): SessionEntry {
   };
 }
 
-function node(
-  entry: SessionEntry,
-  children: TreeNode[] = [],
-  viaBoundary?: UUID,
-): TreeNode {
-  return { entry, children, ...(viaBoundary !== undefined && { viaBoundary }) };
+function ref(n: number, viaBoundary?: UUID): TreeNodeRef {
+  return {
+    uuid: uuid(n),
+    ...(viaBoundary !== undefined && { viaBoundary }),
+  };
 }
 
 /**
  * user(1) → assistant(2) → user(3) → assistant(4) → boundary(5) →
  * summary(6) → assistant(2)@5 → user(3)@5; leaf = the relinked user(3)@5.
- * A compaction that preserved the first exchange, mid-branch.
+ * A compaction that preserved the first exchange, mid-branch. Hand-built
+ * (buildForest's construction is covered by its own tests); insertion order
+ * is materialization order, which the rendered-row assertions rely on.
  */
 const BOUNDARY = uuid(5);
-const FIXTURE: SessionTree = {
-  tree: [
-    node(userEntry(1, "hello world"), [
-      node(assistantEntry(2, "hi there"), [
-        node(userEntry(3, "second question"), [
-          node(assistantEntry(4, "answer two"), [
-            node(boundaryEntry(5), [
-              node(summaryEntry(6, "summary text", BOUNDARY), [
-                node(
-                  assistantEntry(2, "hi there"),
-                  [node(userEntry(3, "second question"), [], BOUNDARY)],
-                  BOUNDARY,
-                ),
-              ]),
-            ]),
-          ]),
-        ]),
-      ]),
-    ]),
-  ],
-  leaf: { uuid: uuid(3), viaBoundary: BOUNDARY },
-};
+const ENTRY_OF = entriesByUuid([
+  userEntry(1, "hello world"),
+  assistantEntry(2, "hi there"),
+  userEntry(3, "second question"),
+  assistantEntry(4, "answer two"),
+  boundaryEntry(5),
+  summaryEntry(6, "summary text", BOUNDARY),
+]);
+const FOREST: Forest = new Map(
+  (
+    [
+      [ref(1), null],
+      [ref(2), ref(1)],
+      [ref(3), ref(2)],
+      [ref(4), ref(3)],
+      [ref(5), ref(4)],
+      [ref(6), ref(5)],
+      [ref(2, BOUNDARY), ref(6)],
+      [ref(3, BOUNDARY), ref(2, BOUNDARY)],
+    ] as [TreeNodeRef, TreeNodeRef | null][]
+  ).map(([nodeRef, parent]) => [
+    formatTreeNodeRef(nodeRef),
+    { ref: nodeRef, parent },
+  ]),
+);
+const LEAF: TreeNodeRef = { uuid: uuid(3), viaBoundary: BOUNDARY };
 
 test("resolveTreePick: assistant pick rewinds to itself", () => {
-  assert.deepEqual(resolveTreePick(FIXTURE, { uuid: uuid(4) }), {
+  assert.deepEqual(resolveTreePick(FOREST, ENTRY_OF, { uuid: uuid(4) }), {
     kind: "rewind",
     rewindTo: { uuid: uuid(4) },
   });
 });
 
 test("resolveTreePick: user pick rewinds to its assistant with editorText", () => {
-  assert.deepEqual(resolveTreePick(FIXTURE, { uuid: uuid(3) }), {
+  assert.deepEqual(resolveTreePick(FOREST, ENTRY_OF, { uuid: uuid(3) }), {
     kind: "rewind",
     rewindTo: { uuid: uuid(2) },
     editorText: "second question",
@@ -98,7 +107,7 @@ test("resolveTreePick: user pick rewinds to its assistant with editorText", () =
 
 test("resolveTreePick: a viaBoundary user pick's ancestor keeps its occurrence", () => {
   assert.deepEqual(
-    resolveTreePick(FIXTURE, { uuid: uuid(3), viaBoundary: BOUNDARY }),
+    resolveTreePick(FOREST, ENTRY_OF, { uuid: uuid(3), viaBoundary: BOUNDARY }),
     {
       kind: "rewind",
       rewindTo: { uuid: uuid(2), viaBoundary: BOUNDARY },
@@ -108,14 +117,14 @@ test("resolveTreePick: a viaBoundary user pick's ancestor keeps its occurrence",
 });
 
 test("resolveTreePick: boundary pick rewinds to the pre-boundary assistant, no editorText", () => {
-  assert.deepEqual(resolveTreePick(FIXTURE, { uuid: uuid(5) }), {
+  assert.deepEqual(resolveTreePick(FOREST, ENTRY_OF, { uuid: uuid(5) }), {
     kind: "rewind",
     rewindTo: { uuid: uuid(4) },
   });
 });
 
 test("resolveTreePick: a summary pick crosses its boundary to the assistant before it", () => {
-  assert.deepEqual(resolveTreePick(FIXTURE, { uuid: uuid(6) }), {
+  assert.deepEqual(resolveTreePick(FOREST, ENTRY_OF, { uuid: uuid(6) }), {
     kind: "rewind",
     rewindTo: { uuid: uuid(4) },
     editorText: "summary text",
@@ -123,7 +132,7 @@ test("resolveTreePick: a summary pick crosses its boundary to the assistant befo
 });
 
 test("resolveTreePick: no assistant ancestor is a newRoot pick", () => {
-  assert.deepEqual(resolveTreePick(FIXTURE, { uuid: uuid(1) }), {
+  assert.deepEqual(resolveTreePick(FOREST, ENTRY_OF, { uuid: uuid(1) }), {
     kind: "newRoot",
     editorText: "hello world",
   });
@@ -167,7 +176,9 @@ function makeSelector(): {
   const picks: unknown[] = [];
   const cancels: number[] = [];
   const selector = new TreeSelectorComponent(
-    FIXTURE,
+    LEAF,
+    FOREST,
+    ENTRY_OF,
     (pick) => picks.push(pick),
     () => cancels.push(1),
   );

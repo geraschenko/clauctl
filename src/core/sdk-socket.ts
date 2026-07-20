@@ -52,9 +52,9 @@ export type SdkEvent =
   // subsequent Query restart failed — watchers track file truth. Deliberately
   // NOT an SdkControlMutation: that type is reserved for controls the real
   // SDK supports, while set-context is a method we wish the SDK had.
-  // `leaf` is the post-change context tip — the value get-tree's leaf
+  // `leaf` is the post-change context tip — the value get-entries' leaf
   // computation reports after the change (null after an empty-context
-  // reset); observers fold it into leafTreeNodeRef (agent-state.ts).
+  // reset); observers fold it into leaf (agent-state.ts).
   | {
       kind: "contextChanged";
       request: SetContextRequest;
@@ -263,12 +263,11 @@ export type SdkRequest =
   // compaction, verbatim from getSessionMessages. Reads the transcript file,
   // not the Query, so it is not an SdkControlRead.
   | { type: "get-messages" }
-  // Response data: SessionEntry[] — every jsonl line of the current session,
-  // verbatim.
+  // Response data: SessionSnapshot — every jsonl line of the current
+  // session, verbatim, plus the current-leaf occurrence. Clients build the
+  // forest locally (forest.ts); a nested wire representation would overflow
+  // JSON.stringify on long sessions.
   | { type: "get-entries" }
-  // Response data: SessionTree — the session as a forest plus the
-  // current-leaf occurrence (build-tree.ts).
-  | { type: "get-tree" }
   // Response data: SetContextResult.
   | SetContextRequest
   | SdkControlMutation

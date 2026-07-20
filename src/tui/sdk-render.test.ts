@@ -8,7 +8,7 @@ import type {
   SDKUserMessage,
 } from "@anthropic-ai/claude-agent-sdk";
 import type { SessionEntry } from "../core/session-file.ts";
-import type { TreeNode } from "../core/tree.ts";
+import type { PathNode } from "../core/tree.ts";
 import {
   beginMessage,
   foldStreamEvent,
@@ -260,16 +260,18 @@ function pathNode(
   entryUuid: UUID,
   extra: Partial<SessionEntry> = {},
   viaBoundary?: UUID,
-): TreeNode {
+): PathNode {
   return {
+    ref: {
+      uuid: entryUuid,
+      ...(viaBoundary !== undefined && { viaBoundary }),
+    },
     entry: { type, uuid: entryUuid, ...extra },
-    children: [],
-    ...(viaBoundary !== undefined && { viaBoundary }),
   };
 }
 
-function pathUuids(nodes: TreeNode[]): (UUID | undefined)[] {
-  return nodes.map((node) => node.entry.uuid);
+function pathUuids(nodes: PathNode[]): UUID[] {
+  return nodes.map((node) => node.ref.uuid);
 }
 
 test("pathUpToBoundary drops raw occurrences after the leaf occurrence", () => {

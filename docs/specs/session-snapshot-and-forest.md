@@ -7,7 +7,7 @@ Supersedes the `get-tree` portions of
 
 ## Problem
 
-`get-tree` serializes the session forest as *nested* JSON (`TreeNode` with
+`get-tree` serializes the session forest as _nested_ JSON (`TreeNode` with
 recursive `children`). A mostly-linear session nests one level per entry, and
 `JSON.stringify` overflows the call stack near depth ~5000, so resuming or
 attaching to a long session (observed: 5213 entries) **crashes the daemon**
@@ -316,25 +316,65 @@ use it.)
 
 **Instructions**: Update this section during each work session. Add new tasks, mark completed ones with [x], document decisions and problems encountered.
 
-- [ ] Core: `Forest`/`ForestNode`/`PathNode`/`SessionSnapshot` types;
+- [x] Core: `Forest`/`ForestNode`/`PathNode`/`SessionSnapshot` types;
       `buildForest` (rename build-tree.ts → forest.ts); `pathToLeaf`,
       `forestChildren`, `isFinalAssistantEntry`; delete `TreeNode`,
       `SessionTree`; port tests.
-- [ ] session-file.ts: `entriesByUuid` + tests.
-- [ ] Daemon: get-entries → SessionSnapshot (leaf computation moved from the
+- [x] session-file.ts: `entriesByUuid` + tests (covered via tree.test.ts /
+      forest.test.ts fixtures).
+- [x] Daemon: get-entries → SessionSnapshot (leaf computation moved from the
       get-tree case); delete get-tree handler/wire type/command; respond()
-      hardening; tests.
-- [ ] Renames: `AgentState.leafTreeNodeRef` → `leaf`,
+      hardening; tests (new sdk-server.test.ts pins the hardening:
+      per-response failure, connection keeps serving).
+- [x] Renames: `AgentState.leafTreeNodeRef` → `leaf`,
       `SessionFileSeed.leafTreeNodeRef` → `leaf`.
-- [ ] CLI: delete `get-tree` command; `get-entries` → bareRequestCommand
+- [x] CLI: delete `get-tree` command; `get-entries` → bareRequestCommand
       (one JSON document) + brief.
-- [ ] Format: `toLayoutForest`, `collectToolNames(entries)`,
+- [x] Format: `toLayoutForest`, `collectToolNames(entries)`,
       `collectFinalAssistantIds`, `formatSessionSnapshot`,
       `parseSessionSnapshot` (envelope + raw JSONL); command wiring; tests.
-- [ ] TUI: reloadHistory + openTreeSelector on get-entries; `PathNode`
+- [x] TUI: reloadHistory + openTreeSelector on get-entries; `PathNode`
       retypes (`pathUpToBoundary`, `appendPathNode`, `renderPathNode`);
       `resolveTreePick` + `TreeSelectorComponent` signatures; tests.
-- [ ] Docs: supersession note; pi + pictl /handoff docs.
-- [ ] End-to-end verification against the 5213-entry session.
+- [x] Docs: supersession note (session-tree-and-set-context.md header); pi +
+      pictl /handoff docs
+      (`~/git/earendil-works/pi/docs/respond-stringify-hardening-handoff.md`;
+      `~/git/geraschenko/pictl/docs/specs/respond-stringify-hardening-handoff.md`).
+- [x] End-to-end verification against the 5213-entry session
+      (078b1e79): daemon spawn with `--resume` survives; `get-entries`
+      returns a 15 MB snapshot (5213 entries, non-null leaf) and the daemon
+      keeps serving; `get-entries | format tree` and
+      `format tree < session.jsonl` both render; fresh agent returns
+      `{entries: [], leaf: null}` and `format tree` prints `[cursor: null]`;
+      full presubmit green (after the usual treefmt re-run).
 
-*Work log entries go here*
+## Implementation-Time Decisions
+
+- **Relink diagnostics in the format layer are declared-ignored**
+  (`buildForest(entries, () => {})` in `formatSessionSnapshot`;
+  `seedFromEntries(entries, () => {})` in `parseSessionSnapshot`'s raw-JSONL
+  branch): the agreed signatures take no sink, interleaving diagnostics with
+  rendered output would corrupt it, and invalid relinks still render
+  (un-relinked). The daemon path reports the same diagnostics to its log
+  when computing the leaf. The TUI passes a banner-adding sink instead.
+- **From-shape raw summary is never registered in `occurrenceOf`**: the old
+  buildTree registered the unattached raw summary node in its uuid map
+  before the relink overwrote it; nothing can resolve a parent to it in that
+  window (the anchor is the boundary, preserved uuids are earlier entries),
+  so buildForest skips the dead registration.
+- **`format messages` brief** now reads "get-messages or session-file JSONL"
+  — get-entries no longer emits entry JSONL, so it left the brief.
+- **`SDK_SOCKET_VERSION` stays 1**: the spec-review disposition initially
+  proposed bumping to 2 for the get-entries shape change + get-tree removal;
+  the owner reversed it (pre-release, no compatibility surface to protect),
+  and that reversal is recorded here rather than silently.
+- **`/tree` tool names scan uuid-bearing entries only**: the selector calls
+  `collectToolNames([...entryOf.values()])` (its inputs are `forest` +
+  `entryOf` per the agreed signature), while `formatSessionSnapshot` scans
+  all snapshot entries. Uuid-less entry kinds (file-history-snapshot,
+  queue-operation) carry no tool_use blocks, so the outputs match; if a
+  uuid-less kind ever grows tool blocks, pass precomputed tool names in.
+
+_Work log: implementation complete. All 370 tests pass, `tsc --noEmit`
+clean, presubmit green, e2e verified against the 5213-entry session
+(details in the checklist above)._

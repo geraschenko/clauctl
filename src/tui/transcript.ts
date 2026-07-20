@@ -34,7 +34,7 @@ import type {
   SessionMessage,
 } from "@anthropic-ai/claude-agent-sdk";
 import { entryToSessionMessage } from "../core/session-file.ts";
-import type { TreeNode } from "../core/tree.ts";
+import type { PathNode } from "../core/tree.ts";
 import { AssistantMessageComponent } from "./components/assistant-message.ts";
 import { ToolExecutionComponent } from "./components/tool-execution.ts";
 import { UserCommandComponent } from "./components/user-command.ts";
@@ -391,7 +391,7 @@ export class TranscriptRenderer {
    * every field its SDKMessage variant requires, so the cast is a narrowing
    * of `message: unknown`, not a fabrication.
    */
-  appendPathNode(node: TreeNode): void {
+  appendPathNode(node: PathNode): void {
     if (node.entry.subtype === "compact_boundary") {
       this.addBanner("context compacted");
       return;

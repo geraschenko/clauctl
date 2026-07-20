@@ -22,7 +22,7 @@ import type {
   SDKMessage,
   SDKUserMessage,
 } from "@anthropic-ai/claude-agent-sdk";
-import type { TreeNode, TreeNodeRef } from "../core/tree.ts";
+import type { PathNode, TreeNodeRef } from "../core/tree.ts";
 import type {
   RenderAssistant,
   RenderBlock,
@@ -244,15 +244,15 @@ export function toolResultsOf(message: SDKUserMessage): RenderToolResult[] {
  * `boundaryMissing` set; the caller decides whether to warn.
  */
 export function pathUpToBoundary(
-  path: TreeNode[],
+  path: PathNode[],
   leaf: TreeNodeRef | undefined,
-): { nodes: TreeNode[]; boundaryMissing: boolean } {
+): { nodes: PathNode[]; boundaryMissing: boolean } {
   if (leaf === undefined) {
     return { nodes: path, boundaryMissing: false };
   }
   const matchIndex = path.findIndex(
     (node) =>
-      node.entry.uuid === leaf.uuid && node.viaBoundary === leaf.viaBoundary,
+      node.ref.uuid === leaf.uuid && node.ref.viaBoundary === leaf.viaBoundary,
   );
   if (matchIndex === -1) {
     return { nodes: path, boundaryMissing: true };
@@ -264,7 +264,7 @@ export function pathUpToBoundary(
         .slice(matchIndex + 1)
         .filter(
           (node) =>
-            node.viaBoundary !== undefined ||
+            node.ref.viaBoundary !== undefined ||
             node.entry.subtype === "compact_boundary" ||
             node.entry.isCompactSummary === true,
         ),

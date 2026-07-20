@@ -36,11 +36,18 @@ import {
   nextAgentState,
   type AgentState,
 } from "../core/agent-state.ts";
-import { entryToSessionMessage } from "../core/session-file.ts";
+import type { UUID } from "node:crypto";
+import { buildForest } from "../core/forest.ts";
+import {
+  entriesByUuid,
+  entryToSessionMessage,
+  type SessionEntry,
+} from "../core/session-file.ts";
 import {
   pathToLeaf,
-  type SessionTree,
-  type TreeNode,
+  type Forest,
+  type PathNode,
+  type SessionSnapshot,
   type TreeNodeRef,
 } from "../core/tree.ts";
 import { SdkSocketClient, type SdkEvent } from "../core/sdk-socket.ts";
@@ -214,7 +221,7 @@ class InteractiveMode {
   /** True from `/model` submit until the supported-models read settles. */
   private modelSelectorPending = false;
   private treeSelector?: TreeSelectorComponent;
-  /** True from `/tree` submit until the get-tree read settles. */
+  /** True from `/tree` submit until the get-entries read settles. */
   private treeSelectorPending = false;
 
   constructor(
@@ -292,7 +299,8 @@ class InteractiveMode {
   }
 
   /**
-   * (Re)build the transcript from the session tree: fetch get-tree, render
+   * (Re)build the transcript from the session snapshot: fetch get-entries,
+   * build the forest locally, render
    * the root-to-leaf path cut at the state fold's leaf occurrence
    * (pathUpToBoundary — the entries after it arrive as live events), then
    * the delivered-but-unconfirmed prompts, then release the buffered live
@@ -321,12 +329,16 @@ class InteractiveMode {
     this.liveEventsDuringReplay = [];
     const replayed = new Set<string>();
     try {
-      const data = await this.client.request({ type: "get-tree" });
-      const sessionTree = data as SessionTree;
-      const path = pathToLeaf(sessionTree.tree, sessionTree.leaf);
+      const data = await this.client.request({ type: "get-entries" });
+      const snapshot = data as SessionSnapshot;
+      const entryOf = entriesByUuid(snapshot.entries);
+      const forest = buildForest(snapshot.entries, (message) =>
+        this.addBanner(message),
+      );
+      const path = pathToLeaf(forest, entryOf, snapshot.leaf);
       const { nodes, boundaryMissing } = pathUpToBoundary(
         path,
-        this.agentState.leafTreeNodeRef,
+        this.agentState.leaf,
       );
       for (const node of nodes) {
         this.renderPathNode(node, replayed);
@@ -376,7 +388,7 @@ class InteractiveMode {
    * same entryToSessionMessage the renderer uses — a pure conversion, run
    * twice so the renderer stays free of attach-only dedupe state.
    */
-  private renderPathNode(node: TreeNode, replayed: Set<string>): void {
+  private renderPathNode(node: PathNode, replayed: Set<string>): void {
     if (node.entry.subtype === "compact_boundary") {
       if (node.entry.uuid !== undefined) {
         replayed.add(node.entry.uuid);
@@ -561,30 +573,42 @@ class InteractiveMode {
       return;
     }
     this.treeSelectorPending = true;
-    void this.client.request({ type: "get-tree" }).then(
-      (data) => {
-        this.treeSelectorPending = false;
-        const tree = data as SessionTree;
+    // .catch (not a rejection handler) so a buildForest throw on a corrupt
+    // session lands in the banner instead of an unhandled rejection.
+    void this.client
+      .request({ type: "get-entries" })
+      .then((data) => {
+        const snapshot = data as SessionSnapshot;
+        const entryOf = entriesByUuid(snapshot.entries);
+        const forest = buildForest(snapshot.entries, (message) =>
+          this.addBanner(message),
+        );
         const selector = new TreeSelectorComponent(
-          tree,
-          (pick) => this.confirmTreePick(tree, pick),
+          snapshot.leaf,
+          forest,
+          entryOf,
+          (pick) => this.confirmTreePick(forest, entryOf, pick),
           () => this.closeTreeSelector(),
         );
+        this.treeSelectorPending = false;
         this.treeSelector = selector;
         this.statusContainer.addChild(selector);
         this.ui.setFocus(selector);
         this.ui.requestRender();
-      },
-      (error: unknown) => {
+      })
+      .catch((error: unknown) => {
         this.treeSelectorPending = false;
-        this.addBanner(`get-tree failed: ${String(error)}`, "error");
+        this.addBanner(`tree fetch failed: ${String(error)}`, "error");
         this.ui.requestRender();
-      },
-    );
+      });
   }
 
   /** The selector stays dumb; the busy gate and the request live here. */
-  private confirmTreePick(tree: SessionTree, pick: TreeNodeRef): void {
+  private confirmTreePick(
+    forest: Forest,
+    entryOf: ReadonlyMap<UUID, SessionEntry>,
+    pick: TreeNodeRef,
+  ): void {
     if (isBusy(this.agentState)) {
       this.hintText.setText(
         theme.fg("dim", "cannot navigate tree while assistant is busy"),
@@ -592,7 +616,7 @@ class InteractiveMode {
       this.ui.requestRender();
       return;
     }
-    const action = resolveTreePick(tree, pick);
+    const action = resolveTreePick(forest, entryOf, pick);
     this.closeTreeSelector();
     const request =
       action.kind === "rewind"

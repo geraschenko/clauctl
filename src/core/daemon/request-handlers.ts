@@ -17,8 +17,7 @@ import {
   type Query,
   type SDKUserMessage,
 } from "@anthropic-ai/claude-agent-sdk";
-import { buildTree } from "../build-tree.ts";
-import { treeNodeRefsEqual, type SessionTree } from "../tree.ts";
+import { treeNodeRefsEqual, type SessionSnapshot } from "../tree.ts";
 import { effectiveTreeNodeChain } from "../effective-chain.ts";
 import { settingsSeed, type PersistedOptions } from "../options.ts";
 import {
@@ -134,20 +133,17 @@ export function createRequestHandler(
   // if the daemon exits first, a later resume sees the un-rewound chain.
   let override: GetMessagesOverride | undefined = startupOverride(
     deps.startupEntries,
-    events.agentState.leafTreeNodeRef,
+    events.agentState.leaf,
     deps.log,
   );
 
   /** The get-messages override, dropped lazily once stale: the next transcript
-   * write moves leafTreeNodeRef, closing the window it corrected for. Shared
-   * by get-messages and get-tree so both report the same context tip. */
+   * write moves leaf, closing the window it corrected for. Shared
+   * by get-messages and get-entries so both report the same context tip. */
   const freshOverride = (): GetMessagesOverride | undefined => {
     if (
       override !== undefined &&
-      !treeNodeRefsEqual(
-        override.installedAtLeaf,
-        events.agentState.leafTreeNodeRef,
-      )
+      !treeNodeRefsEqual(override.installedAtLeaf, events.agentState.leaf)
     ) {
       override = undefined;
     }
@@ -283,7 +279,7 @@ export function createRequestHandler(
           // on-disk entry is its boundary, so the wait keys on
           // viaBoundary ?? uuid; an unset leaf has nothing to wait for.
           const filePath = deps.sessionFilePath(sessionId);
-          const leaf = events.agentState.leafTreeNodeRef;
+          const leaf = events.agentState.leaf;
           if (leaf !== undefined) {
             await waitForEntryOnDisk(filePath, leaf.viaBoundary ?? leaf.uuid);
           }
@@ -306,19 +302,15 @@ export function createRequestHandler(
           release();
         }
       }
-      case "get-entries":
-      case "get-tree": {
+      case "get-entries": {
         const release = await gate.awaitShared();
         try {
           // Valid before the first init because the hub is seeded (on
           // revival, with the last recorded session); a truly fresh agent has
-          // no history, so empty results — matching get-messages' [].
+          // no history, so an empty snapshot — matching get-messages' [].
           const sessionId = events.agentState.sessionId;
           if (sessionId === undefined) {
-            if (request.type === "get-entries") {
-              return [];
-            }
-            const empty: SessionTree = { tree: [], leaf: null };
+            const empty: SessionSnapshot = { entries: [], leaf: null };
             return empty;
           }
           // Waiting on the last stream-reported leaf gives read consistency
@@ -326,18 +318,17 @@ export function createRequestHandler(
           // entry is its boundary, so the wait keys on viaBoundary ?? uuid.
           // The leaf is unset when no turn has run this daemon lifetime —
           // the file is quiescent then.
-          const leaf = events.agentState.leafTreeNodeRef;
+          const stateLeaf = events.agentState.leaf;
           const entries = await readEntriesAfterStreamFlush(
             deps.sessionFilePath(sessionId),
-            leaf === undefined ? undefined : (leaf.viaBoundary ?? leaf.uuid),
+            stateLeaf === undefined
+              ? undefined
+              : (stateLeaf.viaBoundary ?? stateLeaf.uuid),
           );
-          if (request.type === "get-entries") {
-            return entries;
-          }
-          // The leaf is the effective-context tip, minus a live filterTail
-          // override's dropped uuids (a no-write rewind moves the leaf to
-          // the rewind target; the synthesize variant needs nothing — the
-          // re-read file already reflects the appended boundary).
+          // The snapshot leaf is the effective-context tip, minus a live
+          // filterTail override's dropped uuids (a no-write rewind moves the
+          // leaf to the rewind target; the synthesize variant needs nothing —
+          // the re-read file already reflects the appended boundary).
           const active = freshOverride();
           const chain =
             active?.kind === "filterTail"
@@ -345,11 +336,11 @@ export function createRequestHandler(
                   (ref) => !active.droppedUuids.has(ref.uuid),
                 )
               : effectiveTreeNodeChain(entries, deps.log);
-          const tree: SessionTree = {
-            tree: buildTree(entries, deps.log),
+          const snapshot: SessionSnapshot = {
+            entries,
             leaf: chain.at(-1) ?? null,
           };
-          return tree;
+          return snapshot;
         } finally {
           release();
         }

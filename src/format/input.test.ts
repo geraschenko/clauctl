@@ -3,7 +3,7 @@ import { test } from "node:test";
 import { UsageError } from "../core/generated/util.ts";
 import {
   parseSessionEntries,
-  parseSessionTree,
+  parseSessionSnapshot,
   parseTailRecords,
 } from "./input.ts";
 
@@ -12,10 +12,10 @@ const MESSAGE_LINE = JSON.stringify({
   message: { role: "user", content: "hi" },
 });
 const TAIL_LINE = JSON.stringify({ event: { kind: "interruptSent" } });
-// Pretty-printed like real get-tree output, so the first line is just "{".
-const TREE_DOCUMENT = JSON.stringify(
+// Pretty-printed like real get-entries output, so the first line is just "{".
+const SNAPSHOT_DOCUMENT = JSON.stringify(
   {
-    tree: [{ entry: { uuid: "u1", type: "user" }, children: [] }],
+    entries: [{ uuid: "u1", type: "user" }],
     leaf: { uuid: "u1" },
   },
   null,
@@ -76,42 +76,73 @@ test("parseTailRecords rejects malformed framing", () => {
   );
 });
 
-test("parseSessionTree accepts a pretty-printed tree document", () => {
-  const tree = parseSessionTree(TREE_DOCUMENT);
-  assert.equal(tree.tree.length, 1);
-  assert.deepEqual(tree.leaf, { uuid: "u1" });
-  assert.equal(parseSessionTree('{"tree": [], "leaf": null}').leaf, null);
+test("parseSessionSnapshot accepts a pretty-printed snapshot document", () => {
+  const snapshot = parseSessionSnapshot(SNAPSHOT_DOCUMENT);
+  assert.equal(snapshot.entries.length, 1);
+  assert.deepEqual(snapshot.leaf, { uuid: "u1" });
+  assert.equal(
+    parseSessionSnapshot('{"entries": [], "leaf": null}').leaf,
+    null,
+  );
 });
 
-test("parseSessionTree validates the leaf shape", () => {
-  assert.throws(() => parseSessionTree('{"tree": []}'), UsageError);
-  assert.throws(() => parseSessionTree('{"tree": [], "leaf": 3}'), UsageError);
+test("parseSessionSnapshot validates the leaf and entry shapes", () => {
+  assert.throws(() => parseSessionSnapshot('{"entries": []}'), UsageError);
   assert.throws(
-    () => parseSessionTree('{"tree": [], "leaf": {"viaBoundary": "b"}}'),
+    () => parseSessionSnapshot('{"entries": [], "leaf": 3}'),
+    UsageError,
+  );
+  assert.throws(
+    () => parseSessionSnapshot('{"entries": [], "leaf": {"viaBoundary": "b"}}'),
+    UsageError,
+  );
+  assert.throws(
+    () => parseSessionSnapshot('{"entries": [{"foo": 1}], "leaf": null}'),
     UsageError,
   );
 });
 
-test("parseSessionTree points the other shapes at their subcommands", () => {
+test("parseSessionSnapshot derives the leaf from raw session JSONL", () => {
+  const user = JSON.stringify({
+    uuid: "00000001-0000-4000-8000-000000000000",
+    parentUuid: null,
+    type: "user",
+    message: { role: "user", content: "hi" },
+  });
+  const assistant = JSON.stringify({
+    uuid: "00000002-0000-4000-8000-000000000000",
+    parentUuid: "00000001-0000-4000-8000-000000000000",
+    type: "assistant",
+    message: { role: "assistant", content: [] },
+  });
+  const snapshot = parseSessionSnapshot(`${user}\n${assistant}\n`);
+  assert.equal(snapshot.entries.length, 2);
+  assert.deepEqual(snapshot.leaf, {
+    uuid: "00000002-0000-4000-8000-000000000000",
+  });
+});
+
+test("parseSessionSnapshot points the other shapes at their subcommands", () => {
   assert.throws(
-    () => parseSessionTree(`${MESSAGE_LINE}\n${MESSAGE_LINE}\n`),
-    (error: unknown) =>
-      error instanceof UsageError &&
-      error.message.includes("clauctl format messages"),
-  );
-  assert.throws(
-    () => parseSessionTree(`${TAIL_LINE}\n`),
+    () => parseSessionSnapshot(`${TAIL_LINE}\n`),
     (error: unknown) =>
       error instanceof UsageError &&
       error.message.includes("clauctl format events"),
   );
-  assert.throws(() => parseSessionTree("not json"), UsageError);
+  assert.throws(() => parseSessionSnapshot("not json"), UsageError);
+  // Old get-tree documents get the generic error, not a special case.
+  assert.throws(
+    () => parseSessionSnapshot('{"tree": [], "leaf": null}'),
+    (error: unknown) =>
+      error instanceof UsageError &&
+      error.message.includes("not a session snapshot"),
+  );
 });
 
-test("parseSessionEntries and parseTailRecords point tree input at format tree", () => {
+test("parseSessionEntries and parseTailRecords point snapshot input at format tree", () => {
   for (const parse of [parseSessionEntries, parseTailRecords]) {
     assert.throws(
-      () => parse(TREE_DOCUMENT),
+      () => parse(SNAPSHOT_DOCUMENT),
       (error: unknown) =>
         error instanceof UsageError &&
         error.message.includes("clauctl format tree"),

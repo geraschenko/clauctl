@@ -235,7 +235,7 @@ export function createSetContextHandler(
     let fileMutated = false;
     let succeeded = false;
     // The post-change context tip carried by contextChanged: the value
-    // get-tree's leaf computation reports after the change. Set by every
+    // get-entries' leaf computation reports after the change. Set by every
     // path before its restart (so a durable append broadcasts the right
     // leaf even when the restart then fails).
     let changedLeaf: TreeNodeRef | null = null;
@@ -256,7 +256,7 @@ export function createSetContextHandler(
       const filePath = deps.sessionFilePath(sessionId);
       // A relinked leaf's newest on-disk entry is its boundary, so the flush
       // wait keys on viaBoundary ?? uuid.
-      const stateLeaf = events.agentState.leafTreeNodeRef;
+      const stateLeaf = events.agentState.leaf;
       const entries = await readEntriesAfterStreamFlush(
         filePath,
         stateLeaf === undefined

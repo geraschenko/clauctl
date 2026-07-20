@@ -17,7 +17,7 @@ import {
   type SDKUserMessage,
 } from "@anthropic-ai/claude-agent-sdk";
 import { INITIAL_AGENT_STATE } from "../agent-state.ts";
-import type { SessionTree } from "../tree.ts";
+import type { SessionSnapshot } from "../tree.ts";
 import type { PersistedOptions } from "../options.ts";
 import {
   readSessionEntries,
@@ -403,28 +403,24 @@ test("apply-flag-settings effortLevel null stays null when no tier specifies one
   assert.equal(applied.request.settings.effortLevel, null);
 });
 
-// --- get-entries / get-tree ----------------------------------------------------
+// --- get-entries -----------------------------------------------------------
 
-test("get-entries returns every entry verbatim; get-tree builds the forest plus the leaf", async () => {
+test("get-entries returns every entry verbatim plus the chain-tip leaf", async () => {
   const f = fixture();
-  const { u1, a1, a2 } = linearSession(f);
-  const entries = (await f.handle({
+  const { u1, a2 } = linearSession(f);
+  const snapshot = (await f.handle({
     type: "get-entries",
     id: "e1",
-  })) as SessionEntry[];
-  assert.equal(entries.length, 4);
-  assert.deepEqual(entries[0], u1);
-  const tree = (await f.handle({ type: "get-tree", id: "t1" })) as SessionTree;
-  assert.equal(tree.tree.length, 1);
-  assert.deepEqual(tree.tree[0]!.entry, u1);
-  assert.deepEqual(tree.tree[0]!.children[0]!.entry, a1);
-  assert.deepEqual(tree.leaf, { uuid: a2.uuid });
+  })) as SessionSnapshot;
+  assert.equal(snapshot.entries.length, 4);
+  assert.deepEqual(snapshot.entries[0], u1);
+  assert.deepEqual(snapshot.leaf, { uuid: a2.uuid });
 });
 
 // Criterion 2: the leaf follows the same override the get-messages answer
 // uses — a no-write rewind moves it to the rewind target until the next
 // transcript write.
-test("get-tree leaf reflects a no-write rewind's filterTail override", async () => {
+test("get-entries leaf reflects a no-write rewind's filterTail override", async () => {
   const f = fixture();
   const { a1 } = linearSession(f);
   await f.handle({
@@ -432,19 +428,20 @@ test("get-tree leaf reflects a no-write rewind's filterTail override", async () 
     rewindTo: { uuid: a1.uuid },
     id: "c1",
   });
-  const tree = (await f.handle({ type: "get-tree", id: "t1" })) as SessionTree;
-  assert.deepEqual(tree.leaf, { uuid: a1.uuid });
+  const snapshot = (await f.handle({
+    type: "get-entries",
+    id: "t1",
+  })) as SessionSnapshot;
+  assert.deepEqual(snapshot.leaf, { uuid: a1.uuid });
 });
 
-test("get-entries and get-tree return empty results without a session", async () => {
+test("get-entries returns an empty snapshot without a session", async () => {
   const f = fixture({ withSession: false });
-  const entries = (await f.handle({
+  const snapshot = (await f.handle({
     type: "get-entries",
     id: "e1",
-  })) as SessionEntry[];
-  assert.deepEqual(entries, []);
-  const tree = (await f.handle({ type: "get-tree", id: "t1" })) as SessionTree;
-  assert.deepEqual(tree, { tree: [], leaf: null });
+  })) as SessionSnapshot;
+  assert.deepEqual(snapshot, { entries: [], leaf: null });
 });
 
 // --- set-context validation ------------------------------------------------
@@ -643,8 +640,11 @@ test("rewind to an abandoned branch appends a no-summary boundary", async () => 
   // After the boundary append, the leaf is the new effective tip straight
   // from the re-read file (no override involvement) — a relinked node, since
   // the chain ends inside the boundary's relink (no post entries).
-  const tree = (await f.handle({ type: "get-tree", id: "t1" })) as SessionTree;
-  assert.deepEqual(tree.leaf, {
+  const snapshot = (await f.handle({
+    type: "get-entries",
+    id: "t1",
+  })) as SessionSnapshot;
+  assert.deepEqual(snapshot.leaf, {
     uuid: a2a.uuid,
     viaBoundary: result.boundaryUuid,
   });
@@ -965,7 +965,7 @@ test("while a context change is in flight, Query-bound requests error and reads 
 
   releaseTeardown();
   await setContext;
-  assert.equal(((await read) as SessionEntry[]).length, 4);
+  assert.equal(((await read) as SessionSnapshot).entries.length, 4);
 });
 
 test("set-context drains in-flight Query operations before teardown", async () => {
@@ -1027,8 +1027,8 @@ test("restart failure leaves the daemon query-unavailable until a set-context su
     /query restart failed; retry set-context/,
   );
   assert.equal(
-    ((await f.handle({ type: "get-entries", id: "e1" })) as SessionEntry[])
-      .length,
+    ((await f.handle({ type: "get-entries", id: "e1" })) as SessionSnapshot)
+      .entries.length,
     5,
   );
   // A subsequent set-context reconstructs the Query.
@@ -1069,9 +1069,9 @@ test("a later durable boundary clears the superseded-tail filter", async () => {
 });
 
 // The contextChanged.leaf invariant: the event carries exactly the leaf a
-// post-change get-tree reports (the empty and viaBoundary paths are pinned
-// in their own tests below).
-test("contextChanged.leaf equals the post-change get-tree leaf (append and no-write rewind)", async () => {
+// post-change get-entries reports (the empty and viaBoundary paths are
+// pinned in their own tests below).
+test("contextChanged.leaf equals the post-change get-entries leaf (append and no-write rewind)", async () => {
   const lastContextChanged = (f: Fixture) =>
     f.emitted.findLast(
       (event): event is Extract<SdkEvent, { kind: "contextChanged" }> =>
@@ -1085,14 +1085,14 @@ test("contextChanged.leaf equals the post-change get-tree leaf (append and no-wr
     uuids: [u2.uuid, a2.uuid],
     id: "c1",
   });
-  const appendTree = (await appendFixture.handle({
-    type: "get-tree",
+  const appendSnapshot = (await appendFixture.handle({
+    type: "get-entries",
     id: "g1",
-  })) as SessionTree;
+  })) as SessionSnapshot;
   const appendEvent = lastContextChanged(appendFixture);
   assert.notEqual(appendEvent.leaf, null);
   assert.notEqual(appendEvent.leaf!.viaBoundary, undefined);
-  assert.deepEqual(appendEvent.leaf, appendTree.leaf);
+  assert.deepEqual(appendEvent.leaf, appendSnapshot.leaf);
 
   const rewindFixture = fixture();
   const { a1 } = linearSession(rewindFixture);
@@ -1101,13 +1101,13 @@ test("contextChanged.leaf equals the post-change get-tree leaf (append and no-wr
     rewindTo: { uuid: a1.uuid },
     id: "c1",
   });
-  const rewindTree = (await rewindFixture.handle({
-    type: "get-tree",
+  const rewindSnapshot = (await rewindFixture.handle({
+    type: "get-entries",
     id: "g1",
-  })) as SessionTree;
+  })) as SessionSnapshot;
   const rewindEvent = lastContextChanged(rewindFixture);
   assert.deepEqual(rewindEvent.leaf, { uuid: a1.uuid });
-  assert.deepEqual(rewindEvent.leaf, rewindTree.leaf);
+  assert.deepEqual(rewindEvent.leaf, rewindSnapshot.leaf);
 });
 
 // --- occurrence-aware rewind (rewindTo.viaBoundary) --------------------------
@@ -1136,8 +1136,11 @@ test("viaBoundary rewind to a prefix of the active chain takes the no-write path
       candidate.kind === "contextChanged",
   )!;
   assert.deepEqual(event.leaf, { uuid: a1.uuid, viaBoundary: boundary.uuid });
-  const tree = (await f.handle({ type: "get-tree", id: "g1" })) as SessionTree;
-  assert.deepEqual(tree.leaf, event.leaf);
+  const snapshot = (await f.handle({
+    type: "get-entries",
+    id: "g1",
+  })) as SessionSnapshot;
+  assert.deepEqual(snapshot.leaf, event.leaf);
 });
 
 test("viaBoundary rewind into a superseded boundary's chain appends a prefix boundary", async () => {
@@ -1175,8 +1178,11 @@ test("viaBoundary rewind into a superseded boundary's chain appends a prefix bou
       candidate.kind === "contextChanged",
   )!;
   assert.deepEqual(event.leaf, { uuid: a1.uuid, viaBoundary: appended.uuid });
-  const tree = (await f.handle({ type: "get-tree", id: "g1" })) as SessionTree;
-  assert.deepEqual(tree.leaf, event.leaf);
+  const snapshot = (await f.handle({
+    type: "get-entries",
+    id: "g1",
+  })) as SessionSnapshot;
+  assert.deepEqual(snapshot.leaf, event.leaf);
 });
 
 test("viaBoundary rewind validates the boundary and the chain membership", async () => {
@@ -1226,8 +1232,11 @@ test("empty-uuids set-context appends a keep-nothing boundary; contextChanged ca
       candidate.kind === "contextChanged",
   )!;
   assert.equal(event.leaf, null);
-  const tree = (await f.handle({ type: "get-tree", id: "g1" })) as SessionTree;
-  assert.equal(tree.leaf, null);
+  const snapshot = (await f.handle({
+    type: "get-entries",
+    id: "g1",
+  })) as SessionSnapshot;
+  assert.equal(snapshot.leaf, null);
   // The synthesize override serves the (empty) chain.
   assert.deepEqual(await f.handle({ type: "get-messages", id: "g2" }), []);
 });

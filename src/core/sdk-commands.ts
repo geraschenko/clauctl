@@ -697,13 +697,9 @@ export const sdkRoutes = {
     "print the transcript since the last compaction as JSONL",
     { type: "get-messages" },
   ),
-  "get-entries": jsonlRequestCommand(
-    "print every session jsonl entry, verbatim, as JSONL",
+  "get-entries": bareRequestCommand(
+    "print the session snapshot (every jsonl entry, verbatim, plus the current leaf) as one JSON document",
     { type: "get-entries" },
-  ),
-  "get-tree": bareRequestCommand(
-    "print the session transcript as a forest plus the current leaf",
-    { type: "get-tree" },
   ),
   "set-context": commandOneTarget<SetContextFlags, string[]>({
     docs: {

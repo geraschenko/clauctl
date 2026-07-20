@@ -251,7 +251,7 @@ export interface SessionFileSeed {
   claudeCodeVersion?: string;
   model?: string;
   permissionMode?: PermissionMode;
-  leafTreeNodeRef?: TreeNodeRef;
+  leaf?: TreeNodeRef;
 }
 
 /**
@@ -261,7 +261,7 @@ export interface SessionFileSeed {
  * not describe the context a resume would load); claudeCodeVersion from the
  * last version stamp and permissionMode from the last permission-mode entry,
  * both in plain file order (latest observation wins regardless of branch);
- * leafTreeNodeRef is the chain's last user/assistant occurrence (viaBoundary
+ * leaf is the chain's last user/assistant occurrence (viaBoundary
  * preserved) under the same meta/sidechain filter the stream applies — the
  * same eligibility the live fold uses, so a chain ending in e.g. a
  * turn_duration system entry does not seed a leaf the fold would never have
@@ -291,7 +291,7 @@ export function seedFromEntries(
   const permissionMode = entries.findLast(
     (entry) => entry.type === "permission-mode",
   )?.permissionMode as PermissionMode | undefined;
-  const leafTreeNodeRef = chainRefs.findLast((ref) => {
+  const leaf = chainRefs.findLast((ref) => {
     const entry = byUuid.get(ref.uuid);
     return (
       entry !== undefined &&
@@ -310,6 +310,6 @@ export function seedFromEntries(
     }),
     ...(claudeCodeVersion !== undefined && { claudeCodeVersion }),
     ...(permissionMode !== undefined && { permissionMode }),
-    ...(leafTreeNodeRef !== undefined && { leafTreeNodeRef }),
+    ...(leaf !== undefined && { leaf }),
   };
 }

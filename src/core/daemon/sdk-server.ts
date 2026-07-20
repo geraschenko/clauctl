@@ -53,7 +53,21 @@ export function startSdkServer(
       },
     };
     const respond = (response: SdkResponse): void => {
-      connection.write(`${JSON.stringify(response)}\n`);
+      let line: string;
+      try {
+        line = JSON.stringify(response);
+      } catch (error) {
+        // Serialization failure (e.g. a cyclic or too-deep payload) must not
+        // crash the daemon. The fallback embeds only String(error) — no part
+        // of the original response data — so it cannot itself fail.
+        const failure: SdkResponse = {
+          id: response.id,
+          ok: false,
+          error: `response serialization failed: ${String(error)}`,
+        };
+        line = JSON.stringify(failure);
+      }
+      connection.write(`${line}\n`);
     };
     let buffer = "";
     socket.on("data", (chunk) => {
