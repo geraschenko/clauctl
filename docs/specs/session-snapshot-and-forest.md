@@ -88,17 +88,17 @@ export interface PathNode {
  *  set) or an occurrence whose uuid is missing from entryOf — both are
  *  corruption, impossible from buildTree + entriesByUuid over the same
  *  entries. PathNode keeps the parsed ref (parseTreeNodeRef once per node);
- *  the walk itself is string-keyed: current = parents.get(current). */
+ *  the walk itself is string-keyed: current = parentMap.get(current). */
 export function pathToLeaf(
-  parents: ParentMap,
+  parentMap: ParentMap,
   entryOf: ReadonlyMap<UUID, SessionEntry>,
   leaf: TreeNodeRef | null,
 ): PathNode[];
 
 /** Children ids per parent id, roots under null. Materialization order.
- *  Derived by inverting `parents`. */
+ *  Derived by inverting `parentMap`. */
 export function treeChildren(
-  parents: ParentMap,
+  parentMap: ParentMap,
 ): Map<string | null, string[]>;
 
 /** No child of this occurrence continues the same assistant API message.
@@ -163,7 +163,7 @@ export function entriesByUuid(
 /** Iterative adapter to the layout's nested input (replaces recursive
  *  toLayoutNode). Layout ids ARE the ParentMap keys. */
 export function toLayoutTree(
-  parents: ParentMap,
+  parentMap: ParentMap,
   entryOf: ReadonlyMap<UUID, SessionEntry>,
 ): LayoutNode<SessionEntry>[];
 
@@ -173,7 +173,7 @@ export function collectToolNames(
 ): Map<string, string>;
 
 export function collectFinalAssistantIds(
-  parents: ParentMap,
+  parentMap: ParentMap,
   children: ReadonlyMap<string | null, readonly string[]>,
   entryOf: ReadonlyMap<UUID, SessionEntry>,
 ): Set<string>;
@@ -218,17 +218,17 @@ appendPathNode(node: PathNode): void; // reads only node.entry
 
 // tree-selector.ts
 export function resolveTreePick(
-  parents: ParentMap,
+  parentMap: ParentMap,
   entryOf: ReadonlyMap<UUID, SessionEntry>,
   pick: TreeNodeRef,
 ): TreePickAction;
 // TreeSelectorComponent constructor:
-//   (leaf: TreeNodeRef | null, parents: ParentMap,
+//   (leaf: TreeNodeRef | null, parentMap: ParentMap,
 //    entryOf: ReadonlyMap<UUID, SessionEntry>,
 //    onSelect: (pick: TreeNodeRef) => void, onCancel: () => void)
 // The selector's parentById field dies — the ParentMap IS that map, held
 // directly for nearest-visible-ancestor recovery.
-// interactive-mode builds parents + entryOf once per get-entries read and
+// interactive-mode builds parentMap + entryOf once per get-entries read and
 // passes them explicitly (reloadHistory and openTreeSelector both switch
 // from get-tree to get-entries).
 ```
@@ -382,6 +382,9 @@ use it.)
   the selector's `parentById` field dies because the ParentMap is that map.
   Trade-off accepted: `string` is weaker than a ref type, mitigated by
   boundary validation (`parseTreeNodeRef` throws on malformed ids).
+  Variables/parameters of this type are named `parentMap`, not `parents` —
+  `parents` reads as a plural collection of parent nodes, not the
+  child → parent mapping (owner rename, 4e126b4).
 - **"Forest" terminology renamed to "tree" at review time** (owner request):
   `Forest` → `Tree`, `ForestNode` → `TreeNode` (the name freed by deleting
   the nested type), `buildForest` → `buildTree`, `forestChildren` →
