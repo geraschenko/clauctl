@@ -395,17 +395,26 @@ test("claude layout: Update header, Added/removed summary, expanded diff", () =>
       },
       toolUseResult: {
         structuredPatch: [
-          { lines: ["-old line", "+new line one", "+new line two"] },
+          {
+            oldStart: 4,
+            oldLines: 1,
+            newStart: 4,
+            newLines: 2,
+            lines: ["-old line", "+new line one", "+new line two"],
+          },
         ],
       },
     }),
   );
+  // The diff renders beneath the summary in both toggle states, with
+  // file-anchored numbers (old-file for -, new-file for +).
   const collapsed = renderedText(container);
   assert.match(collapsed, /Update\(src\/a\.ts\)/);
   assert.match(collapsed, /Added 2 lines, removed 1 line/);
-  assert.doesNotMatch(collapsed, /new line two/);
+  assert.match(collapsed, /4 -old line/);
+  assert.match(collapsed, /5 \+new line two/);
   renderer.setToolsExpanded(true);
-  assert.match(renderedText(container), /new line two/);
+  assert.match(renderedText(container), /5 \+new line two/);
 });
 
 test("banners keep their transcript position across fold rebuilds", () => {

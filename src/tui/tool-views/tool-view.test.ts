@@ -1,15 +1,10 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { homedir } from "node:os";
-import { initTheme } from "@earendil-works/pi-coding-agent";
 import type { RenderToolResult } from "../render-types.ts";
 import { wrapHeaderArg } from "../components/tool-execution.ts";
 import { abbreviatePath } from "./args.ts";
 import { toolViewFor } from "./tool-view.ts";
-
-// renderDiff (the Edit view's expandedBody) reads pi's theme singleton; the
-// TUI entrypoints initialize it the same way.
-initTheme("dark");
 
 // Tests exercise views through toolViewFor — the erased ToolView<unknown>
 // shape callers use — so fixture args need no generated-type ceremony.
@@ -51,7 +46,12 @@ test("toolViewFor: known tools resolve, unknown/legacy tools do not", () => {
 
 test("editView summary: singular/plural, zero parts omitted", () => {
   const summary = (lines: string[]): string | undefined =>
-    plain(editView.resultSummary({}, result({ structuredPatch: [{ lines }] })));
+    plain(
+      editView.resultSummary(
+        {},
+        result({ structuredPatch: [{ oldStart: 1, newStart: 1, lines }] }),
+      ),
+    );
   assert.equal(summary(["+a"]), "Added 1 line");
   assert.equal(summary(["+a", "+b", "-c"]), "Added 2 lines, removed 1 line");
   assert.equal(summary(["-a"]), "Removed 1 line");
@@ -64,15 +64,114 @@ test("editView summary: singular/plural, zero parts omitted", () => {
   );
 });
 
-test("editView expandedBody renders a diff from old/new strings", () => {
-  const body = editView.expandedBody?.(
-    { file_path: "/x", old_string: "alpha", new_string: "beta" },
-    result(undefined),
+// Carved from the edit-scenario session (6bfdf5f9…): the mid-file div edit,
+// whose rendering is pinned by scripts/tui-parity/out/edit.claude.txt.
+const divHunk = {
+  oldStart: 12,
+  oldLines: 6,
+  newStart: 12,
+  newLines: 8,
+  lines: [
+    " ",
+    " def div(a, b):",
+    '     """Return the quotient of a and b."""',
+    "+    if b == 0:",
+    '+        raise ValueError("Division by zero is not allowed")',
+    "     return a / b",
+    " ",
+    " def main():",
+  ],
+};
+
+test("editView resultBody: claude layout with file-anchored numbers", () => {
+  const body = editView.resultBody?.(
+    {},
+    result({ structuredPatch: [divHunk] }),
   );
-  assert.ok(body !== undefined);
-  assert.match(plain(body)!, /alpha/);
-  assert.match(plain(body)!, /beta/);
-  assert.equal(editView.expandedBody?.({}, result(undefined)), undefined);
+  assert.equal(
+    plain(body),
+    [
+      " 12",
+      " 13  def div(a, b):",
+      ' 14      """Return the quotient of a and b."""',
+      " 15 +    if b == 0:",
+      ' 16 +        raise ValueError("Division by zero is not allowed")',
+      " 17      return a / b",
+      " 18",
+      " 19  def main():",
+    ].join("\n"),
+  );
+});
+
+test("editView resultBody: - runs group before + runs, old/new numbering", () => {
+  const body = editView.resultBody?.(
+    {},
+    result({
+      structuredPatch: [
+        {
+          oldStart: 1,
+          oldLines: 3,
+          newStart: 1,
+          newLines: 3,
+          lines: [" ctx", "-old a", "+new a", "-old b", "+new b"],
+        },
+      ],
+    }),
+  );
+  assert.equal(
+    plain(body),
+    [" 1  ctx", " 2 -old a", " 3 -old b", " 2 +new a", " 3 +new b"].join("\n"),
+  );
+});
+
+test("editView resultBody: hunks separated by ..., width from widest number", () => {
+  const body = editView.resultBody?.(
+    {},
+    result({
+      structuredPatch: [
+        {
+          oldStart: 8,
+          oldLines: 1,
+          newStart: 8,
+          newLines: 1,
+          lines: ["-x", "+y"],
+        },
+        {
+          oldStart: 120,
+          oldLines: 1,
+          newStart: 120,
+          newLines: 1,
+          lines: [" z"],
+        },
+      ],
+    }),
+  );
+  assert.equal(
+    plain(body),
+    ["   8 -x", "   8 +y", "...", " 120  z"].join("\n"),
+  );
+});
+
+test("editView resultBody: no diff on error, malformed, or change-free patch", () => {
+  assert.equal(editView.resultBody?.({}, result(undefined)), undefined);
+  assert.equal(
+    editView.resultBody?.({}, result({ structuredPatch: [divHunk] }, true)),
+    undefined,
+  );
+  assert.equal(
+    editView.resultBody?.(
+      {},
+      result({ structuredPatch: [{ ...divHunk, oldStart: "12" }] }),
+    ),
+    undefined,
+  );
+  assert.equal(
+    editView.resultBody?.(
+      {},
+      result({ structuredPatch: [{ ...divHunk, lines: [" ctx only"] }] }),
+    ),
+    undefined,
+  );
 });
 
 test("readView: Read N lines from structured numLines; readOnly folds", () => {

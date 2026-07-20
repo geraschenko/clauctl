@@ -40,6 +40,12 @@ Tool-header file paths additionally render as OSC 8 links when the
 terminal supports hyperlinks (invisible in these captures: the harness
 tmux advertises no hyperlink termfeature).
 
+Status (2026-07-20): edit-diff-view verified against the new `edit`
+scenario (mid-file hunk, replace_all, long diff, multi-hunk) — the
+line-numbered diff now renders by default beneath the summary, and every
+diff block in `edit.diff` is byte-identical to claude; the remaining
+differing lines are the decided Group E chrome.
+
 ## Group B — collapsing & tool rendering (highest visual impact)
 
 | id                    | claude                                                                                                                                 | clauctl                                                                     | proposed |
@@ -188,7 +194,7 @@ under `packages/coding-agent/src/` unless noted):
 | catalog entries                                                                                     | pi component                                                                                                                               | verdict                                                                                                                                                                                 |
 | --------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | code-fence-stripping, heading-style, link-render, inline-style                                      | `Markdown` in pi-tui (`packages/tui/src/components/markdown.ts`)                                                                           | already imported — differences are theme/config, fix via `getMarkdownTheme()` in `src/tui/theme.ts`                                                                                     |
-| edit-diff-view                                                                                      | `modes/interactive/components/diff.ts` (`renderDiff`, word-level intra-line highlights) + `core/tools/edit-diff.ts` (`generateDiffString`) | import from `@earendil-works/pi-coding-agent` (both exported); `renderDiff` needs pi's theme singleton pinned via `initTheme("dark")` at startup                                        |
+| edit-diff-view                                                                                      | `modes/interactive/components/diff.ts` (`renderDiff`, word-level intra-line highlights) + `core/tools/edit-diff.ts` (`generateDiffString`) | reversed 2026-07-20 (see the rendering-parity spec WORK LOG): pi anchors line numbers by diffing the whole file, which the transcript lacks — custom claude-layout formatter in edit.ts |
 | tool-call-header, tool-result-collapse, readonly-tool-folding, subagent-summary, tool-error-summary | `modes/interactive/components/tool-execution.ts` delegates to per-tool `renderCall`/`renderResult` in `core/tools/{edit,bash,read,…}.ts`   | reference patterns only — pi's machinery is entangled with its tool registry/extensions; our `tool-execution.ts` port keeps the generic shell and grows claude-style per-tool summaries |
 | tool-result-collapse (Bash)                                                                         | `modes/interactive/components/bash-execution.ts` + `visual-truncate.ts` (`truncateToVisualLines`)                                          | copyable (deps: theme, `dynamic-border.ts`, `keybinding-hints.ts`)                                                                                                                      |
 | input-footer                                                                                        | `modes/interactive/components/footer.ts` + `core/footer-data-provider.ts`                                                                  | copy layout helpers + branch watcher; data re-wired to AgentState (see Group E note)                                                                                                    |
