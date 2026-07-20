@@ -29,8 +29,7 @@ export interface EventHubOptions {
 /**
  * The daemon's only mutable object for observable state — the single point
  * where every occurrence becomes an ordered event and its effects (broadcast,
- * state fold, queue model, waiter wakeup) are applied in one synchronous
- * step. The heavy logic lives in pure modules (agent-state.ts's fold,
+ * state fold, queue model) are applied in one synchronous step. The heavy logic lives in pure modules (agent-state.ts's fold,
  * queue-model.ts's decider); the hub is the atomic composition point:
  * broadcast + fold + queue model are one object because the emit/fold
  * atomicity and model/queue lockstep invariants need a single owner. State is
@@ -55,7 +54,6 @@ export class EventHub {
   private queueModel: QueueModel.QueueModelState =
     QueueModel.INITIAL_QUEUE_MODEL_STATE;
   private readonly deliver: (message: SDKUserMessage) => void;
-  private readonly idleWaiters: Array<() => void> = [];
   private readonly sinks = new Set<(serializedEventRecord: string) => void>();
 
   constructor(options: EventHubOptions) {
@@ -80,8 +78,8 @@ export class EventHub {
   /**
    * Attach a subscriber sink; returns the unsubscribe function. Sinks must
    * not throw (the only production sink is sdk-server's guarded
-   * connection.write) — a throwing sink would starve later sinks and idle
-   * waiters after the state has already folded. Sinks must not call back
+   * connection.write) — a throwing sink would starve later sinks after the
+   * state has already folded. Sinks must not call back
    * into the hub either: a reentrant delivery would interleave between an
    * sdkMessage and the dequeues it implies.
    */
@@ -133,14 +131,6 @@ export class EventHub {
     );
   }
 
-  /** Resolves once activity is idle (immediately if it already is). */
-  whenIdle(): Promise<void> {
-    if (this.state.activity === "idle") {
-      return Promise.resolve();
-    }
-    return new Promise((resolve) => this.idleWaiters.push(resolve));
-  }
-
   private applyTransition(transition: QueueModel.QueueTransition): void {
     this.queueModel = transition.state;
     for (const event of transition.events) {
@@ -148,18 +138,13 @@ export class EventHub {
     }
   }
 
-  // Per-event ordering: fold state, then write sinks, then wake idle waiters
-  // — any synchronous observer (a sink, a woken waiter) sees post-event state.
+  // Per-event ordering: fold state, then write sinks — a synchronous sink
+  // sees post-event state.
   private applyEvent(event: SdkEvent): void {
     this.state = nextAgentState(this.state, event);
     const line = `${JSON.stringify({ event })}\n`;
     for (const sink of this.sinks) {
       sink(line);
-    }
-    if (this.state.activity === "idle") {
-      for (const waiter of this.idleWaiters.splice(0)) {
-        waiter();
-      }
     }
   }
 }

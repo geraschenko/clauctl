@@ -242,7 +242,7 @@ export function createSetContextHandler(
     try {
       // Eligibility, checked under the gate: nothing running, nothing queued,
       // nothing delivered-but-unconfirmed. No implicit waiting — callers can
-      // wait-idle first.
+      // `clauctl wait --until idle` first.
       const state = events.agentState;
       if (
         state.activity !== "idle" ||

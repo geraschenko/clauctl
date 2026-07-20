@@ -251,9 +251,6 @@ export type SdkRequest =
       shouldQuery?: false;
     }
   | { type: "interrupt" }
-  // Resolves once the assistant is Idle; the polite-stop path (archive) waits
-  // on this instead of polling.
-  | { type: "wait-idle" }
   // Response data is the daemon's current AgentState; every event emitted
   // after it follows as an SdkEventRecord line until the connection closes.
   // No history replay — a subscriber starts at "now" and folds from there
@@ -489,42 +486,5 @@ export async function connectWithRetry(
       await new Promise((resolve) => setTimeout(resolve, delay));
       delay = Math.min(delay * 2, 500);
     }
-  }
-}
-
-export class IdleTimeoutError extends Error {}
-
-/**
- * Wait until the assistant is Idle via the daemon's wait-idle request. The
- * daemon responds when idle; the timeout is enforced client-side.
- */
-export async function waitIdle(
-  client: SdkSocketClient,
-  timeoutMs: number | undefined,
-): Promise<void> {
-  // Waiting is delegated to the daemon rather than monitored client-side: the
-  // daemon owns the state fold, so its whenIdle is an atomic check-or-enqueue
-  // with no gap between "read current state" and "watch for transitions" —
-  // the race a subscribe-then-fold client would have to close itself. Nothing
-  // is sent to the claude process either way.
-  const idle = client.request({ type: "wait-idle" });
-  if (timeoutMs === undefined) {
-    await idle;
-    return;
-  }
-  // The timer must be cleared after the race: a pending timer is an active
-  // handle that keeps node's event loop (and thus the CLI process) alive
-  // until it fires, even though the losing promise is discarded.
-  let timeoutTimer: NodeJS.Timeout | undefined;
-  const timeout = new Promise<"timeout">((resolve) => {
-    timeoutTimer = setTimeout(() => resolve("timeout"), timeoutMs);
-  });
-  const winner = await Promise.race([
-    idle.then(() => "idle" as const),
-    timeout,
-  ]);
-  clearTimeout(timeoutTimer);
-  if (winner === "timeout") {
-    throw new IdleTimeoutError();
   }
 }

@@ -1,7 +1,7 @@
 /**
  * `clauctl tail` — the raw sdk.sock stream watcher: subscribes, prints the
  * snapshot record, then each SdkEventRecord line until the daemon closes the
- * socket or the user interrupts.
+ * socket, the user interrupts, or (with `--until`) the condition is met.
  *
  * TODO: Raw JSONL is the only mode in this phase; when the formatted tail lands
  * (Phase 3+) this behavior moves behind `tail --raw`.
@@ -10,15 +10,52 @@
  * daemon pid itself instead of going through ensureAgentRunning.
  */
 
-import { commandOneTarget } from "./generated/cli.ts";
+import {
+  commandOneTarget,
+  completeChoices,
+  parsedFlag,
+  secondsFlag,
+  type InferFlags,
+} from "./generated/cli.ts";
 import { oneTarget, type CommandContext } from "./generated/targets.ts";
-import { fileExists } from "./generated/util.ts";
+import { fileExists, UsageError } from "./generated/util.ts";
 import { archivedPath, isPidAlive, sdkSocketPath } from "./registry.ts";
-import { connectWithRetry, type SdkEvent } from "./sdk-socket.ts";
+import { connectWithRetry } from "./sdk-socket.ts";
+import { runStream } from "./streaming.ts";
+import {
+  parseUntilCondition,
+  secondsToTimerMs,
+  UNTIL_COMPLETIONS,
+  UNTIL_USAGE,
+  untilMetAtSeed,
+  untilMetByEvent,
+  untilQuietMs,
+} from "./until.ts";
 
 const SOCKET_CONNECT_DEADLINE_MS = 5_000;
 
-async function tail(this: CommandContext): Promise<void> {
+const tailFlags = {
+  until: parsedFlag(
+    `Stream until ${UNTIL_USAGE}`,
+    parseUntilCondition,
+    "cond",
+    completeChoices(UNTIL_COMPLETIONS),
+  ),
+  timeout: secondsFlag(),
+};
+
+type TailFlags = InferFlags<typeof tailFlags>;
+
+async function tail(this: CommandContext, flags: TailFlags): Promise<void> {
+  const condition = flags.until;
+  if (flags.timeout !== undefined && condition === undefined) {
+    // A bare timeout on an endless stream would be a silent exit-3 sleep.
+    throw new UsageError("--timeout requires --until");
+  }
+  // Validated before the dormancy check and connection: a malformed flag is
+  // a usage error regardless of the agent's state.
+  const timeoutMs =
+    flags.timeout === undefined ? undefined : secondsToTimerMs(flags.timeout);
   const agent = oneTarget(this);
   if (!isPidAlive(agent.daemonPid)) {
     const state = (await fileExists(archivedPath(agent.agentDir)))
@@ -36,30 +73,39 @@ async function tail(this: CommandContext): Promise<void> {
   const print = (record: unknown): void => {
     this.process.stdout.write(`${JSON.stringify(record)}\n`);
   };
-  // onEvent can fire before subscribe() resolves (event lines racing the
-  // response's microtask), so gate on the snapshot to keep the output order:
-  // snapshot line first, then events in stream order.
-  let snapshotPrinted = false;
-  const preSnapshot: SdkEvent[] = [];
-  const snapshot = await client.subscribe((event) => {
-    if (snapshotPrinted) {
-      print({ event });
-    } else {
-      preSnapshot.push(event);
+  try {
+    const outcome = await runStream(
+      client,
+      {
+        onSeed: (snapshot) => {
+          print({ snapshot });
+          return condition !== undefined && untilMetAtSeed(condition, snapshot);
+        },
+        onEvent: (event, state) => {
+          print({ event });
+          return (
+            condition !== undefined && untilMetByEvent(condition, event, state)
+          );
+        },
+        quietMs: condition === undefined ? undefined : untilQuietMs(condition),
+      },
+      timeoutMs,
+    );
+    // Without --until, following until close is the command's whole job;
+    // with it, close before the condition is a failure.
+    if (outcome === "closed" && condition !== undefined) {
+      throw new Error("sdk socket closed before condition met");
     }
-  });
-  print({ snapshot });
-  snapshotPrinted = true;
-  for (const event of preSnapshot.splice(0)) {
-    print({ event });
+  } finally {
+    client.close();
   }
-  await client.waitClosed();
 }
 
 export const tailRoute = {
-  tail: commandOneTarget({
+  tail: commandOneTarget<TailFlags>({
     common: true,
     docs: { brief: "watch the agent's raw event stream" },
+    parameters: { flags: tailFlags },
     func: tail,
   }),
 } as const;

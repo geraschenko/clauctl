@@ -30,6 +30,7 @@ import {
 import {
   applyMutation,
   isControlMutation,
+  isControlRead,
   persistedOptionsAfter,
   runRead,
 } from "../sdk-passthrough.ts";
@@ -195,8 +196,9 @@ export function createRequestHandler(
     });
   };
 
-  // Request dispatch is deliberately concurrent (a pending wait-idle must not
-  // block the interrupt that would resolve it), so the mutation branch's
+  // Request dispatch is deliberately concurrent (a get-messages blocked on a
+  // transcript flush must not stall the interrupt that would end the turn),
+  // so the mutation branch's
   // read-modify-write of the persisted options — spanning awaits — would
   // lose updates if two mutations were in flight. Chaining restores the actor
   // property for mutations only; they never wait on daemon state, so the
@@ -266,9 +268,6 @@ export function createRequestHandler(
           releaseQuery();
         }
       }
-      case "wait-idle":
-        await events.whenIdle();
-        return undefined;
       case "get-messages": {
         const release = await gate.awaitShared();
         try {
@@ -414,6 +413,16 @@ export function createRequestHandler(
       } finally {
         releaseQuery();
       }
+    }
+    // The socket casts untrusted JSON, so an unrecognized type (e.g. a legacy
+    // request from an old CLI) reaches this point despite the exhaustive
+    // static types; reject it explicitly — runRead's switch has no default,
+    // so falling through would answer `ok: true` for a request the daemon
+    // never performed.
+    if (!isControlRead(request)) {
+      throw new Error(
+        `unknown request type: ${(request as { type: string }).type}`,
+      );
     }
     const releaseQuery = acquireQuery();
     try {

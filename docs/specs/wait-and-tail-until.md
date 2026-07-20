@@ -34,7 +34,7 @@ Grammar and semantics (same surface as pictl):
   and completing it is a turn end. Met immediately at the seed only when the
   agent is fully idle (`!isBusy(seed)`): a pending queued querying message
   counts as a turn that must end, which keeps sequential `query; wait`
-  race-free. With multiple turns queued, `turn-end` fires at the *first*
+  race-free. With multiple turns queued, `turn-end` fires at the _first_
   result, not when the queue drains (that is `idle`).
 - `idle` — `!isBusy(state)`: activity is `idle` and no querying messages are
   queued. Met immediately at the seed when it already holds.
@@ -88,7 +88,7 @@ time.
 - Deleted with it: client-side `waitIdle` and `IdleTimeoutError`
   (sdk-socket.ts), the `wait-idle` request type, the daemon's handler case,
   and `EventHub.whenIdle` + its waiter machinery — the handler was its only
-  production consumer (set-context only *mentions* wait-idle in a comment,
+  production consumer (set-context only _mentions_ wait-idle in a comment,
   which gets updated to point at `clauctl wait`).
 - The daemon must actively reject unknown request types with `{ok: false}`.
   Today an unrecognized type falls through the dispatch switch into
@@ -346,7 +346,7 @@ Flag helpers (`parsedFlag`, `requiredParsedFlag`, `secondsFlag`,
   (everything the session file gained since a previous cursor, including
   boundaries and superseded rewind tails) followed by the live stream.
   Deferred because two design problems need their own spec:
-  1. *Truncation point.* To avoid duplicating or losing records at the
+  1. _Truncation point._ To avoid duplicating or losing records at the
      history/live seam, the file read must stop at the last entry already on
      disk that the live stream will never re-deliver: `viaBoundary ?? uuid` of
      the seed's `leafTreeNodeRef` normally (a boundary-relinked leaf's newest
@@ -358,7 +358,7 @@ Flag helpers (`parsedFlag`, `requiredParsedFlag`, `secondsFlag`,
      rewind leaves no file record, so the client cannot compute this point —
      the daemon must expose the override (new `AgentState` field or request),
      a protocol change.
-  2. *Record shape.* History is `SessionEntry`s, the live stream is
+  2. _Record shape._ History is `SessionEntry`s, the live stream is
      `SdkEvent`s; converting entries to event-shaped records is nontrivial,
      and emitting `{entry}` lines next to `{event}` lines needs a decision.
 
@@ -384,10 +384,10 @@ Flag helpers (`parsedFlag`, `requiredParsedFlag`, `secondsFlag`,
 - Condition mapping from pi to the SDK stream (derisk findings):
   - pi `agent_end` + `willRetry !== true` → `sdkMessage` `result`; the SDK
     stream has no retry-continuation analogue.
-  - pi `get_state` (`isStreaming`, `pendingMessageCount`) → the subscribe seed
-    + `isBusy`. clauctl's subscribe is strictly better here: pi must register
-    the listener before `get_state` to avoid a gap; clauctl's seed response is
-    ordered before all pushed events by protocol.
+  - pi `get_state` (`isStreaming`, `pendingMessageCount`) → the subscribe
+    seed plus `isBusy`. clauctl's subscribe is strictly better here: pi must
+    register the listener before `get_state` to avoid a gap; clauctl's seed
+    response is ordered before all pushed events by protocol.
   - pi counts every socket event for `no-activity`; clauctl counts every
     `SdkEvent`.
 - Driver internals: single promise raced among handler-stop, quiet-timer,
@@ -430,4 +430,63 @@ Flag helpers (`parsedFlag`, `requiredParsedFlag`, `secondsFlag`,
   false (seed satisfaction takes precedence; connect/subscribe latency never
   counts against `--timeout`), making `--timeout 0` coherent. Reviewer
   approves with that edit. (This entry supersedes the round-1 note that
-  `whenIdle` would stay.)
+  `whenIdle` would stay.) Reviewer agent: pictl 4124e776 (archived; revive
+  it for the post-implementation review). Spec approved by Anton;
+  implementation not yet started.
+- 2026-07-20: Implemented. New until.ts, streaming.ts, wait.ts exactly per
+  the type design; tail.ts rewritten on runStream; app.ts route + exit-3
+  mapping; lifecycle.ts stopRunningAgent on runStream with an idle handler;
+  waitIdle/IdleTimeoutError/wait-idle/whenIdle+idleWaiters deleted (+ their
+  tests); set-context and dispatch-concurrency comments updated;
+  unknown-request rejection added. Tests: until.test.ts (parsing, durations,
+  met-at-seed/by-event), streaming.test.ts (fake StreamClient: seed
+  satisfaction with --timeout 0, pre-seed buffering, fold→print→stop order,
+  post-settlement suppression, quiet timer, deadline + tie precedence,
+  closed socket, hook/subscribe failures), request-handlers.test.ts
+  (legacy wait-idle rejected). `npm run presubmit` passes. Live smoke test
+  against a spawned agent verified criteria 1–7 end to end (dormant fast
+  path, no-activity ~1s return, busy tail --until exit 3, busy archive
+  "still busy after 1s" exit 1, turn-end return at result, seed-met
+  turn-end, polite archive).
+- 2026-07-20: Post-implementation review (reviewer 4124e776, revived).
+  Blockers found and fixed: `in`-based type classification let inherited
+  property names ("constructor") bypass the unknown-request rejection →
+  `Object.hasOwn`; `--timeout` validation ran after the dormancy check /
+  connection in wait and tail → moved first; archive's `* 1000` conversion
+  conflicted with the normative duration rule → `secondsToTimerMs`.
+  Robustness: settled guard in `resetQuietTimer` (reentrant-handler
+  re-arm); new tests for quiet-timer reset, satisfying-event-vs-close
+  ordering, and the "constructor" rejection.
+
+## Implementation-Time Decisions
+
+- **Unknown-request rejection mechanism**: added `isControlRead` +
+  `READ_TYPES` to sdk-passthrough.ts, mirroring `isControlMutation`'s
+  Record-not-Set pattern (a new SdkControlRead variant is a compile error
+  there). The dispatch rejects before calling `runRead`, so the guard lives
+  where the read/mutation classification already lives.
+- **tail closes its client in a `finally`**: pre-change tail relied on the
+  daemon's close to end the process; with `--until` the socket stays open
+  after settlement, so the command now owns the close (matching wait and
+  the connection-ownership note in IMPLEMENTATION IDEAS). The no-until path
+  is unaffected — close resolves the stream first.
+- **archive's `--timeout` goes through `secondsToTimerMs` too**: initially
+  left as `* 1000` (scope caution), reversed on reviewer push-back — the
+  type design says the helper serves "the commands for --timeout" and the
+  edge cases make oversized durations usage errors, and archive is such a
+  command. Behavior for sane values is unchanged; an oversized value is now
+  a usage error instead of a Node timer overflow firing immediately
+  ("still busy" after 0s).
+- **`--timeout` validated before the dormancy fast path** (wait, tail): a
+  malformed flag is a usage error regardless of the agent's state, so
+  `secondsToTimerMs` runs before the pid check and connection.
+- **Type tables consulted with `Object.hasOwn`, not `in`** (reviewer
+  finding): the wire type is untrusted, and `"constructor" in READ_TYPES`
+  is true via the prototype — an inherited property name would have
+  classified as a known request and fallen through to `ok: true`, the exact
+  hole the rejection exists to close. Fixed in `isControlMutation` (a
+  pre-existing latent bug) and `isControlRead`; pinned by a test.
+- **Deadline-wins-ties implementation**: the deadline timer is registered
+  before the quiet timer arms; Node fires equal-delay timers in
+  registration order, so no explicit tie-break flag is needed (pinned by
+  the quietMs 0 / timeout 0 test).

@@ -301,6 +301,23 @@ test("subscribe writes its own response carrying events.agentState", async () =>
   assert.equal(written.length, 2);
 });
 
+// runRead's switch has no default, so without the explicit rejection an
+// unknown type would fall through to `ok: true` — an old CLI's archive would
+// take a false "wait-idle" acknowledgement as "idle" and SIGTERM a busy agent.
+test("an unknown request type (e.g. legacy wait-idle) is rejected, not acknowledged", async () => {
+  const f = fixture();
+  await assert.rejects(
+    f.handle({ type: "wait-idle", id: "w1" } as unknown as SdkRequestRecord),
+    /unknown request type: wait-idle/,
+  );
+  // Inherited property names must not classify as known request types (the
+  // type tables are consulted with hasOwn, not `in`).
+  await assert.rejects(
+    f.handle({ type: "constructor", id: "w2" } as unknown as SdkRequestRecord),
+    /unknown request type: constructor/,
+  );
+});
+
 test("get-messages with no session returns [] without touching the transcript", async () => {
   const f = fixture({ withSession: false });
   assert.deepEqual(await f.handle({ type: "get-messages", id: "g1" }), []);

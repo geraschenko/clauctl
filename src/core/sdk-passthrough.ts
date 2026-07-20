@@ -36,7 +36,27 @@ const MUTATION_TYPES: Record<SdkControlMutation["type"], true> = {
 export function isControlMutation(
   request: SdkRequest,
 ): request is SdkControlMutation {
-  return request.type in MUTATION_TYPES;
+  // hasOwn, not `in`: the wire type is untrusted, and inherited property
+  // names ("constructor", "toString") must not classify as known.
+  return Object.hasOwn(MUTATION_TYPES, request.type);
+}
+
+// Record (not Set) so a new SdkControlRead variant is a compile error here.
+const READ_TYPES: Record<SdkControlRead["type"], true> = {
+  "initialization-result": true,
+  "supported-commands": true,
+  "supported-models": true,
+  "supported-agents": true,
+  "mcp-server-status": true,
+  "get-context-usage": true,
+  usage: true,
+  "account-info": true,
+  "read-file": true,
+};
+
+export function isControlRead(request: SdkRequest): request is SdkControlRead {
+  // hasOwn, not `in`: see isControlMutation.
+  return Object.hasOwn(READ_TYPES, request.type);
 }
 
 /**

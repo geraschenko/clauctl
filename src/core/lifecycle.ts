@@ -29,8 +29,16 @@ import {
   reviveLockPath,
   sdkSocketPath,
 } from "./registry.ts";
-import { connectWithRetry, IdleTimeoutError, waitIdle } from "./sdk-socket.ts";
+import { connectWithRetry } from "./sdk-socket.ts";
 import { launchDaemon } from "./spawn.ts";
+import { runStream } from "./streaming.ts";
+import {
+  secondsToTimerMs,
+  UntilTimeoutError,
+  untilMetAtSeed,
+  untilMetByEvent,
+  type UntilCondition,
+} from "./until.ts";
 
 const SOCKET_CONNECT_DEADLINE_MS = 5_000;
 const SIGKILL_ESCALATION_MS = 5_000;
@@ -202,8 +210,19 @@ async function stopRunningAgent(
     sdkSocketPath(agent.agentDir),
     SOCKET_CONNECT_DEADLINE_MS,
   );
+  const idle: UntilCondition = { kind: "idle" };
   try {
-    await waitIdle(client, timeoutMs);
+    const outcome = await runStream(
+      client,
+      {
+        onSeed: (seed) => untilMetAtSeed(idle, seed),
+        onEvent: (event, state) => untilMetByEvent(idle, event, state),
+      },
+      timeoutMs,
+    );
+    if (outcome === "closed") {
+      throw new Error("sdk socket closed while waiting for idle");
+    }
   } finally {
     client.close();
   }
@@ -230,13 +249,13 @@ async function archive(
   flags: TimeoutFlags,
 ): Promise<void> {
   const timeoutMs =
-    flags.timeout === undefined ? undefined : flags.timeout * 1000;
+    flags.timeout === undefined ? undefined : secondsToTimerMs(flags.timeout);
   await forEachAgent(multiTargets(this), async (agent) => {
     if (isPidAlive(agent.daemonPid)) {
       try {
         await stopRunningAgent(agent, timeoutMs);
       } catch (error) {
-        if (error instanceof IdleTimeoutError) {
+        if (error instanceof UntilTimeoutError) {
           throw new Error(
             `still busy after ${timeoutMs! / 1000}s; not archived`,
           );
