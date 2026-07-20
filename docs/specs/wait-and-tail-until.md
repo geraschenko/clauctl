@@ -203,7 +203,7 @@ export async function wait(
   flags: WaitFlags, // { until: UntilCondition; timeout: number | undefined }
 ): Promise<void>;
 
-export const waitRoute: { wait: /* commandOneTarget, common: true */ };
+export const waitRoute: { wait: /* commandOneTarget */ };
 ```
 
 Changed `src/core/tail.ts`:
