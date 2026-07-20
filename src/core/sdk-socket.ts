@@ -265,7 +265,7 @@ export type SdkRequest =
   | { type: "get-messages" }
   // Response data: SessionSnapshot — every jsonl line of the current
   // session, verbatim, plus the current-leaf occurrence. Clients build the
-  // forest locally (forest.ts); a nested wire representation would overflow
+  // tree locally (build-tree.ts); a nested wire representation would overflow
   // JSON.stringify on long sessions.
   | { type: "get-entries" }
   // Response data: SetContextResult.

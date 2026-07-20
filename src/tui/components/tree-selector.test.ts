@@ -4,7 +4,7 @@ import { test } from "node:test";
 import { entriesByUuid, type SessionEntry } from "../../core/session-file.ts";
 import {
   formatTreeNodeRef,
-  type Forest,
+  type Tree,
   type TreeNodeRef,
 } from "../../core/tree.ts";
 import { resolveTreePick, TreeSelectorComponent } from "./tree-selector.ts";
@@ -59,7 +59,7 @@ function ref(n: number, viaBoundary?: UUID): TreeNodeRef {
  * user(1) → assistant(2) → user(3) → assistant(4) → boundary(5) →
  * summary(6) → assistant(2)@5 → user(3)@5; leaf = the relinked user(3)@5.
  * A compaction that preserved the first exchange, mid-branch. Hand-built
- * (buildForest's construction is covered by its own tests); insertion order
+ * (buildTree's construction is covered by its own tests); insertion order
  * is materialization order, which the rendered-row assertions rely on.
  */
 const BOUNDARY = uuid(5);
@@ -71,7 +71,7 @@ const ENTRY_OF = entriesByUuid([
   boundaryEntry(5),
   summaryEntry(6, "summary text", BOUNDARY),
 ]);
-const FOREST: Forest = new Map(
+const FOREST: Tree = new Map(
   (
     [
       [ref(1), null],

@@ -1,14 +1,14 @@
 import assert from "node:assert/strict";
 import type { UUID } from "node:crypto";
 import { test } from "node:test";
-import { buildForest } from "../core/forest.ts";
+import { buildTree } from "../core/build-tree.ts";
 import type { SessionSnapshot } from "../core/tree.ts";
 import { effectiveTreeNodeChain } from "../core/effective-chain.ts";
 import { entriesByUuid, type SessionEntry } from "../core/session-file.ts";
 import {
   formatSessionSnapshot,
   formatTreeNodeLine,
-  toLayoutForest,
+  toLayoutTree,
   type TreeFormatOptions,
 } from "./tree.ts";
 import { flattenVisibleTree } from "./generated/tree-layout.ts";
@@ -80,7 +80,7 @@ test("branches render with the active branch first and leaf/ancestor markers", (
   );
 });
 
-// Pins pictl parity for multi-root forests: virtual-root children render
+// Pins pictl parity for multi-root sessions: virtual-root children render
 // flush without connectors (their own descendants indent one extra level).
 // Known divergence from pi's TreeSelector, which shifts EVERY node's display
 // indent under multiple roots — see the format-tree.md work log.
@@ -495,8 +495,8 @@ test("picker keeps user text, final assistants with text, boundaries, and the le
 
 test("formatTreeNodeLine omitUuid drops the uuid column", () => {
   const entries = [userEntry(uuid(1), "hello there")];
-  const roots = toLayoutForest(
-    buildForest(entries, () => {}),
+  const roots = toLayoutTree(
+    buildTree(entries, () => {}),
     entriesByUuid(entries),
   );
   const flat = flattenVisibleTree(roots, uuid(1), () => true);

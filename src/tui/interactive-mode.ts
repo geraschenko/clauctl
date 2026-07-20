@@ -37,7 +37,7 @@ import {
   type AgentState,
 } from "../core/agent-state.ts";
 import type { UUID } from "node:crypto";
-import { buildForest } from "../core/forest.ts";
+import { buildTree } from "../core/build-tree.ts";
 import {
   entriesByUuid,
   entryToSessionMessage,
@@ -45,7 +45,7 @@ import {
 } from "../core/session-file.ts";
 import {
   pathToLeaf,
-  type Forest,
+  type Tree,
   type PathNode,
   type SessionSnapshot,
   type TreeNodeRef,
@@ -300,7 +300,7 @@ class InteractiveMode {
 
   /**
    * (Re)build the transcript from the session snapshot: fetch get-entries,
-   * build the forest locally, render
+   * build the tree locally, render
    * the root-to-leaf path cut at the state fold's leaf occurrence
    * (pathUpToBoundary — the entries after it arrive as live events), then
    * the delivered-but-unconfirmed prompts, then release the buffered live
@@ -332,10 +332,10 @@ class InteractiveMode {
       const data = await this.client.request({ type: "get-entries" });
       const snapshot = data as SessionSnapshot;
       const entryOf = entriesByUuid(snapshot.entries);
-      const forest = buildForest(snapshot.entries, (message) =>
+      const tree = buildTree(snapshot.entries, (message) =>
         this.addBanner(message),
       );
-      const path = pathToLeaf(forest, entryOf, snapshot.leaf);
+      const path = pathToLeaf(tree, entryOf, snapshot.leaf);
       const { nodes, boundaryMissing } = pathUpToBoundary(
         path,
         this.agentState.leaf,
@@ -573,21 +573,21 @@ class InteractiveMode {
       return;
     }
     this.treeSelectorPending = true;
-    // .catch (not a rejection handler) so a buildForest throw on a corrupt
+    // .catch (not a rejection handler) so a buildTree throw on a corrupt
     // session lands in the banner instead of an unhandled rejection.
     void this.client
       .request({ type: "get-entries" })
       .then((data) => {
         const snapshot = data as SessionSnapshot;
         const entryOf = entriesByUuid(snapshot.entries);
-        const forest = buildForest(snapshot.entries, (message) =>
+        const tree = buildTree(snapshot.entries, (message) =>
           this.addBanner(message),
         );
         const selector = new TreeSelectorComponent(
           snapshot.leaf,
-          forest,
+          tree,
           entryOf,
-          (pick) => this.confirmTreePick(forest, entryOf, pick),
+          (pick) => this.confirmTreePick(tree, entryOf, pick),
           () => this.closeTreeSelector(),
         );
         this.treeSelectorPending = false;
@@ -605,7 +605,7 @@ class InteractiveMode {
 
   /** The selector stays dumb; the busy gate and the request live here. */
   private confirmTreePick(
-    forest: Forest,
+    tree: Tree,
     entryOf: ReadonlyMap<UUID, SessionEntry>,
     pick: TreeNodeRef,
   ): void {
@@ -616,7 +616,7 @@ class InteractiveMode {
       this.ui.requestRender();
       return;
     }
-    const action = resolveTreePick(forest, entryOf, pick);
+    const action = resolveTreePick(tree, entryOf, pick);
     this.closeTreeSelector();
     const request =
       action.kind === "rewind"

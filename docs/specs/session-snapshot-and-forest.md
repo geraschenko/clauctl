@@ -1,4 +1,4 @@
-# Session Snapshot and Forest
+# Session Snapshot and Tree
 
 Supersedes the `get-tree` portions of
 [session-tree-and-set-context.md](session-tree-and-set-context.md).
@@ -7,27 +7,28 @@ Supersedes the `get-tree` portions of
 
 ## Problem
 
-`get-tree` serializes the session forest as _nested_ JSON (`TreeNode` with
+`get-tree` serializes the session tree as _nested_ JSON (`TreeNode` with
 recursive `children`). A mostly-linear session nests one level per entry, and
 `JSON.stringify` overflows the call stack near depth ~5000, so resuming or
 attaching to a long session (observed: 5213 entries) **crashes the daemon**
 (`RangeError: Maximum call stack size exceeded` in `respond()`). The nested
-representation is a tripping hazard with no information advantage: the forest
+representation is a tripping hazard with no information advantage: the tree
 is a pure function of the flat entries.
 
 ## What we want
 
 1. **No nested structures on the wire.** `get-tree` is removed entirely
    (wire type, daemon handler, `clauctl get-tree` command, `parseSessionTree`).
-   Clients build the forest locally from flat entries via shared code.
+   Clients build the tree locally from flat entries via shared code.
 2. **`get-entries` returns a `SessionSnapshot`** — every file entry verbatim
    plus the daemon's context tip: `leaf` is the effective-chain tip minus a
    live filterTail override's dropped uuids — exactly `get-tree`'s leaf
    computation today. It names an occurrence present in `entries`, resolved
    to the correct tree copy (raw or viaBoundary).
-3. **The forest is represented flat**: a parent relation over occurrences
-   (`Forest`), not a recursive node type. `TreeNode` and `SessionTree` are
-   deleted. All traversals over session-length data are iterative.
+3. **The tree is represented flat**: a parent relation over occurrences
+   (`ParentMap`), not a recursive node type. The nested `TreeNode` and
+   `SessionTree` are deleted. All traversals over session-length data are
+   iterative.
 4. **The daemon survives serialization failure**: `respond()` degrades to an
    `ok: false` error response instead of crashing.
 5. **`format tree` accepts `get-entries` output** (the snapshot document) and
@@ -39,9 +40,9 @@ is a pure function of the flat entries.
 - `clauctl spawn -a -- --resume <5000+-entry session>` attaches without
   crashing the daemon; history renders; `/tree` opens and picks work.
 - Fresh agent + attach: empty transcript, no error banner.
-- `clauctl get-entries | clauctl format tree` renders the forest.
+- `clauctl get-entries | clauctl format tree` renders the tree.
 - `clauctl format tree < ~/.claude/projects/<slug>/<id>.jsonl` renders the
-  forest with the chain-derived leaf as cursor.
+  tree with the chain-derived leaf as cursor.
 - A forced-unserializable response produces an error banner client-side; the
   daemon keeps running.
 - All existing tests pass (updated where behavior changed); no recursion over
@@ -55,20 +56,19 @@ is a pure function of the flat entries.
 ## Type design
 
 ```ts
-// tree.ts — TreeNode and SessionTree are DELETED.
+// tree.ts — the nested TreeNode and SessionTree are DELETED (no replacement
+// node type: the structure is logically edges, so a node struct would
+// duplicate the map key).
 // TreeNodeRef, formatTreeNodeRef, parseTreeNodeRef, treeNodeRefsEqual: unchanged.
 
-export interface ForestNode {
-  ref: TreeNodeRef;
-  parent: TreeNodeRef | null; // null = root
-}
-
-/** Parent relation over occurrences. Key: formatTreeNodeRef(node.ref) —
- *  string keys because Map uses reference equality for objects and refs are
- *  produced independently (fold, wire, parse). Iteration order =
- *  materialization order: raw entries at file position, relinked occurrences
- *  at their boundary's summary position. */
-export type Forest = ReadonlyMap<string, ForestNode>;
+/** Child occurrence id → parent occurrence id (null = root). Both sides are
+ *  formatTreeNodeRef output: Map keys need strings because JS Maps compare
+ *  objects by reference (refs are produced independently — fold, wire,
+ *  parse), and the value matches so edges stay in one id space and the map
+ *  composes with itself. Iteration order = materialization order: raw
+ *  entries at file position, relinked occurrences at their boundary's
+ *  summary position. */
+export type ParentMap = ReadonlyMap<string, string | null>;
 
 /** get-entries response: every file entry verbatim, plus the daemon-computed
  *  context tip resolved to its occurrence in these entries. */
@@ -86,45 +86,48 @@ export interface PathNode {
 /** Root-first path to the leaf occurrence; [] when leaf is null or absent.
  *  Iterative parent walk (no recursion); throws on a parent cycle (visited
  *  set) or an occurrence whose uuid is missing from entryOf — both are
- *  corruption, impossible from buildForest + entriesByUuid over the same
- *  entries. */
+ *  corruption, impossible from buildTree + entriesByUuid over the same
+ *  entries. PathNode keeps the parsed ref (parseTreeNodeRef once per node);
+ *  the walk itself is string-keyed: current = parents.get(current). */
 export function pathToLeaf(
-  forest: Forest,
+  parents: ParentMap,
   entryOf: ReadonlyMap<UUID, SessionEntry>,
   leaf: TreeNodeRef | null,
 ): PathNode[];
 
-/** Children per parent key (formatTreeNodeRef), roots under null.
- *  Materialization order. Derived by inverting `forest`. */
-export function forestChildren(
-  forest: Forest,
-): Map<string | null, TreeNodeRef[]>;
+/** Children ids per parent id, roots under null. Materialization order.
+ *  Derived by inverting `parents`. */
+export function treeChildren(
+  parents: ParentMap,
+): Map<string | null, string[]>;
 
 /** No child of this occurrence continues the same assistant API message.
  *  False for non-assistant entries. */
 export function isFinalAssistantEntry(
-  ref: TreeNodeRef,
-  children: ReadonlyMap<string | null, readonly TreeNodeRef[]>,
+  id: string,
+  children: ReadonlyMap<string | null, readonly string[]>,
   entryOf: ReadonlyMap<UUID, SessionEntry>,
 ): boolean;
 ```
 
 ```ts
-// forest.ts (renamed from build-tree.ts)
+// build-tree.ts (keeps its name; buildTree reworked in place)
 /** Same relink algorithm as before (already iterative), emitting the parent
- *  relation instead of nested nodes. Throws on a duplicate occurrence key —
- *  valid files cannot produce one, so a duplicate means the session file is
- *  corrupt; the error is loud so the user learns about it. */
-export function buildForest(
+ *  relation instead of nested nodes. The internal uuid → occurrence map
+ *  holds formatted ids, so parent resolution yields the value directly.
+ *  Throws on a duplicate occurrence key — valid files cannot produce one,
+ *  so a duplicate means the session file is corrupt; the error is loud so
+ *  the user learns about it. */
+export function buildTree(
   entries: SessionEntry[],
   onInvalid: OnInvalid,
-): Forest;
+): ParentMap;
 ```
 
 ```ts
 // session-file.ts — addition
 /** Last entry wins on a duplicate uuid; duplicate *detection* is
- *  buildForest's job (it throws), and consumers build the forest from the
+ *  buildTree's job (it throws), and consumers build the tree from the
  *  same entries before using this lookup. */
 export function entriesByUuid(
   entries: readonly SessionEntry[],
@@ -158,9 +161,9 @@ export function entriesByUuid(
 ```ts
 // format/tree.ts
 /** Iterative adapter to the layout's nested input (replaces recursive
- *  toLayoutNode). Ids are formatTreeNodeRef output. */
-export function toLayoutForest(
-  forest: Forest,
+ *  toLayoutNode). Layout ids ARE the ParentMap keys. */
+export function toLayoutTree(
+  parents: ParentMap,
   entryOf: ReadonlyMap<UUID, SessionEntry>,
 ): LayoutNode<SessionEntry>[];
 
@@ -170,8 +173,8 @@ export function collectToolNames(
 ): Map<string, string>;
 
 export function collectFinalAssistantIds(
-  forest: Forest,
-  children: ReadonlyMap<string | null, readonly TreeNodeRef[]>,
+  parents: ParentMap,
+  children: ReadonlyMap<string | null, readonly string[]>,
   entryOf: ReadonlyMap<UUID, SessionEntry>,
 ): Set<string>;
 
@@ -197,8 +200,8 @@ export function formatSessionSnapshot(
  *      for file rendering the conversational cursor is the useful one).
  *  Tail-shaped input → cross-pointing UsageError. Anything else (including
  *  old get-tree documents) → generic "not a session snapshot" UsageError.
- *  Forest-level corruption (duplicate occurrence keys) is NOT the parser's
- *  job: buildForest throws later, and format commands let that error
+ *  Tree-level corruption (duplicate occurrence keys) is NOT the parser's
+ *  job: buildTree throws later, and format commands let that error
  *  surface loudly. */
 export function parseSessionSnapshot(input: string): SessionSnapshot;
 ```
@@ -215,15 +218,17 @@ appendPathNode(node: PathNode): void; // reads only node.entry
 
 // tree-selector.ts
 export function resolveTreePick(
-  forest: Forest,
+  parents: ParentMap,
   entryOf: ReadonlyMap<UUID, SessionEntry>,
   pick: TreeNodeRef,
 ): TreePickAction;
 // TreeSelectorComponent constructor:
-//   (leaf: TreeNodeRef | null, forest: Forest,
+//   (leaf: TreeNodeRef | null, parents: ParentMap,
 //    entryOf: ReadonlyMap<UUID, SessionEntry>,
 //    onSelect: (pick: TreeNodeRef) => void, onCancel: () => void)
-// interactive-mode builds forest + entryOf once per get-entries read and
+// The selector's parentById field dies — the ParentMap IS that map, held
+// directly for nearest-visible-ancestor recovery.
+// interactive-mode builds parents + entryOf once per get-entries read and
 // passes them explicitly (reloadHistory and openTreeSelector both switch
 // from get-tree to get-entries).
 ```
@@ -287,27 +292,27 @@ use it.)
   override-aware leaf computation carried over from get-tree.
 - **No path consumer uses `children`** (`appendPathNode`, `resolveTreePick`,
   `pathUpToBoundary` read only entry + `ref.viaBoundary`) — hence `PathNode`.
-- **`buildForest`**: keep the existing relink algorithm (pendingRelink
-  deferral, uuid → node map overwriting); the internal map value becomes the
-  occurrence's `ForestNode` instead of a nested node; `attach` records
-  `parent` instead of pushing into `children`.
-- **`toLayoutForest`**: two passes over `forest` — create all
+- **`buildTree`**: keep the existing relink algorithm (pendingRelink
+  deferral, uuid → occurrence map overwriting); `attach` records the parent
+  id instead of pushing into `children`; the occurrence map holds formatted
+  ids so parent resolution yields the ParentMap value directly.
+- **`toLayoutTree`**: two passes over the parent map — create all
   `{id, children: [], payload}` shells first, then link each into its
   parent's (mutable) children array or the roots list. Two passes make the
   adapter independent of any parent-precedes-child ordering assumption;
   structural typing satisfies the readonly `LayoutNode` interface.
-- **`tree-selector` parentById**: derivable directly from `forest`
+- **`tree-selector` parentById**: derivable directly from the parent map
   (key → parent key) — the recursive layout walk in the constructor dies.
 - **`format messages` cross-pointing**: snapshot-shaped input (an object
   with an `entries` array) fed to `format messages`/`format events` should
   point at `format tree`. Old `{tree: …}` documents get no special case.
-- **Duplicate-uuid loud check moves to buildForest**: a corrupt file
+- **Duplicate-uuid loud check moves to buildTree**: a corrupt file
   repeating a uuid currently dies in `flattenVisibleTree`'s unique-layout-id
-  precondition. A `Forest` map would silently collapse duplicates, hiding
-  on-disk corruption from the user — so `buildForest` throws on a duplicate
+  precondition. A `ParentMap` would silently collapse duplicates, hiding
+  on-disk corruption from the user — so `buildTree` throws on a duplicate
   occurrence key instead (earlier and with a clearer message than the layout
   check, which remains as backstop).
-- **Order of work**: core types + buildForest first (with tests ported from
+- **Order of work**: core types + buildTree first (with tests ported from
   build-tree.test.ts), then daemon (snapshot + respond hardening), then
   format layer, then TUI, then docs. Each step compiles and passes tests
   before the next.
@@ -316,12 +321,15 @@ use it.)
 
 **Instructions**: Update this section during each work session. Add new tasks, mark completed ones with [x], document decisions and problems encountered.
 
-- [x] Core: `Forest`/`ForestNode`/`PathNode`/`SessionSnapshot` types;
-      `buildForest` (rename build-tree.ts → forest.ts); `pathToLeaf`,
-      `forestChildren`, `isFinalAssistantEntry`; delete `TreeNode`,
-      `SessionTree`; port tests.
+- [x] Core: `ParentMap`/`PathNode`/`SessionSnapshot` types; `buildTree`
+      (build-tree.ts reworked in place); `pathToLeaf`, `treeChildren`,
+      `isFinalAssistantEntry`; delete the nested `TreeNode`, `SessionTree`;
+      port tests.
+- [ ] Review round 2: `ParentMap` (`ReadonlyMap<string, string | null>`)
+      replaces the `TreeNode`-valued map — type design above already
+      updated; implementation pending.
 - [x] session-file.ts: `entriesByUuid` + tests (covered via tree.test.ts /
-      forest.test.ts fixtures).
+      tree.test.ts fixtures).
 - [x] Daemon: get-entries → SessionSnapshot (leaf computation moved from the
       get-tree case); delete get-tree handler/wire type/command; respond()
       hardening; tests (new sdk-server.test.ts pins the hardening:
@@ -330,7 +338,7 @@ use it.)
       `SessionFileSeed.leafTreeNodeRef` → `leaf`.
 - [x] CLI: delete `get-tree` command; `get-entries` → bareRequestCommand
       (one JSON document) + brief.
-- [x] Format: `toLayoutForest`, `collectToolNames(entries)`,
+- [x] Format: `toLayoutTree`, `collectToolNames(entries)`,
       `collectFinalAssistantIds`, `formatSessionSnapshot`,
       `parseSessionSnapshot` (envelope + raw JSONL); command wiring; tests.
 - [x] TUI: reloadHistory + openTreeSelector on get-entries; `PathNode`
@@ -351,7 +359,7 @@ use it.)
 ## Implementation-Time Decisions
 
 - **Relink diagnostics in the format layer are declared-ignored**
-  (`buildForest(entries, () => {})` in `formatSessionSnapshot`;
+  (`buildTree(entries, () => {})` in `formatSessionSnapshot`;
   `seedFromEntries(entries, () => {})` in `parseSessionSnapshot`'s raw-JSONL
   branch): the agreed signatures take no sink, interleaving diagnostics with
   rendered output would corrupt it, and invalid relinks still render
@@ -361,15 +369,32 @@ use it.)
   buildTree registered the unattached raw summary node in its uuid map
   before the relink overwrote it; nothing can resolve a parent to it in that
   window (the anchor is the boundary, preserved uuids are earlier entries),
-  so buildForest skips the dead registration.
+  so buildTree skips the dead registration.
 - **`format messages` brief** now reads "get-messages or session-file JSONL"
   — get-entries no longer emits entry JSONL, so it left the brief.
+- **`ParentMap` replaces the `TreeNode`-valued map** (review round 2, owner
+  TDC): the node struct was logically an edge and duplicated its map key
+  (`node.ref` == `parseTreeNodeRef(key)`). New type:
+  `ReadonlyMap<string, string | null>` — child occurrence id → parent
+  occurrence id, both `formatTreeNodeRef` output, so edges live in one id
+  space and the map composes with itself (`key = map.get(key)` walks up).
+  Consumers that need the ref parse it from the id (lossless, validated);
+  the selector's `parentById` field dies because the ParentMap is that map.
+  Trade-off accepted: `string` is weaker than a ref type, mitigated by
+  boundary validation (`parseTreeNodeRef` throws on malformed ids).
+- **"Forest" terminology renamed to "tree" at review time** (owner request):
+  `Forest` → `Tree`, `ForestNode` → `TreeNode` (the name freed by deleting
+  the nested type), `buildForest` → `buildTree`, `forestChildren` →
+  `treeChildren`, `toLayoutForest` → `toLayoutTree`; forest.ts back to
+  build-tree.ts. "Tree" matches how people talk about the conversation even
+  though multiple roots make it technically a forest — same spirit as "leaf".
+  The spec above was updated in place; this file keeps its historical name.
 - **`SDK_SOCKET_VERSION` stays 1**: the spec-review disposition initially
   proposed bumping to 2 for the get-entries shape change + get-tree removal;
   the owner reversed it (pre-release, no compatibility surface to protect),
   and that reversal is recorded here rather than silently.
 - **`/tree` tool names scan uuid-bearing entries only**: the selector calls
-  `collectToolNames([...entryOf.values()])` (its inputs are `forest` +
+  `collectToolNames([...entryOf.values()])` (its inputs are `tree` +
   `entryOf` per the agreed signature), while `formatSessionSnapshot` scans
   all snapshot entries. Uuid-less entry kinds (file-history-snapshot,
   queue-operation) carry no tool_use blocks, so the outputs match; if a

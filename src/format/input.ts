@@ -108,8 +108,8 @@ const NOT_A_SNAPSHOT =
  * chain-tip leaf when a chain ends in a non-conversational entry; for file
  * rendering the conversational cursor is the useful one. Tail-shaped input →
  * cross-pointing UsageError; anything else → generic NOT_A_SNAPSHOT.
- * Forest-level corruption (duplicate occurrence keys) is not the parser's
- * job: buildForest throws later, and format commands let that error surface
+ * Tree-level corruption (duplicate occurrence keys) is not the parser's
+ * job: buildTree throws later, and format commands let that error surface
  * loudly.
  */
 export function parseSessionSnapshot(input: string): SessionSnapshot {

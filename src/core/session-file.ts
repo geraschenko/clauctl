@@ -125,8 +125,8 @@ export function readSessionEntries(filePath: string): SessionEntry[] {
 }
 
 /** Entry lookup by uuid; last entry wins on a duplicate uuid. Duplicate
- *  *detection* is buildForest's job (it throws), and consumers build the
- *  forest from the same entries before using this lookup. */
+ *  *detection* is buildTree's job (it throws), and consumers build the
+ *  tree from the same entries before using this lookup. */
 export function entriesByUuid(
   entries: readonly SessionEntry[],
 ): Map<UUID, SessionEntry> {

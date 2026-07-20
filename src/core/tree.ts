@@ -1,16 +1,16 @@
 /**
- * The forest vocabulary and pure forest operations: ref/node types shared by
- * the chain computation (effective-chain.ts), forest construction
- * (forest.ts), and every consumer of get-entries output. Depends only on
+ * The tree vocabulary and pure tree operations: ref/node types shared by
+ * the chain computation (effective-chain.ts), tree construction
+ * (build-tree.ts), and every consumer of get-entries output. Depends only on
  * session-file types, so both siblings import from here without a cycle;
- * `buildForest` itself stays in forest.ts — construction needs the relink
+ * `buildTree` itself stays in build-tree.ts — construction needs the relink
  * machinery.
  */
 
 import type { UUID } from "node:crypto";
 import type { SessionEntry } from "./session-file.ts";
 
-/** Identifies one forest occurrence: a raw node (viaBoundary absent) or a
+/** Identifies one tree occurrence: a raw node (viaBoundary absent) or a
  *  boundary-substructure relinked node (viaBoundary = the boundary's
  *  uuid). */
 export interface TreeNodeRef {
@@ -18,8 +18,8 @@ export interface TreeNodeRef {
   viaBoundary?: UUID;
 }
 
-// TDC: this type is confusing. It's really an _edge_, not a node. In Forest, `ref` is duplicated as the key. Logically, Forest is really just the parent map. This feels like a code smell to me. What do you think?
-export interface ForestNode {
+// TDC: this type is confusing. It's really an _edge_, not a node. In Tree, `ref` is duplicated as the key. Logically, Tree is really just the parent map. This feels like a code smell to me. What do you think?
+export interface TreeNode {
   ref: TreeNodeRef;
   /** Null = root. */
   parent: TreeNodeRef | null;
@@ -32,11 +32,11 @@ export interface ForestNode {
  *  at their boundary's summary position. Deliberately flat: a nested node
  *  type nests one JSON level per entry on a mostly-linear session, and
  *  JSON.stringify overflows the call stack near depth ~5000. */
-export type Forest = ReadonlyMap<string, ForestNode>;
+export type Tree = ReadonlyMap<string, TreeNode>;
 
 /** get-entries response: every file entry verbatim, plus the daemon-computed
  *  context tip resolved to its occurrence in these entries. Entries lacking
- *  a uuid (file-history-snapshot, queue-operation) get no forest occurrence
+ *  a uuid (file-history-snapshot, queue-operation) get no tree occurrence
  *  and are visible in `entries` only. */
 export interface SessionSnapshot {
   entries: SessionEntry[];
@@ -97,16 +97,16 @@ export function treeNodeRefsEqual(
 }
 
 /** Root-first path to the leaf occurrence; [] when leaf is null or absent
- *  from the forest. Iterative parent walk (no recursion). Throws on a parent
+ *  from the tree. Iterative parent walk (no recursion). Throws on a parent
  *  cycle or an occurrence whose uuid is missing from entryOf — both are
- *  corruption, impossible from buildForest + entriesByUuid over the same
+ *  corruption, impossible from buildTree + entriesByUuid over the same
  *  entries. */
 export function pathToLeaf(
-  forest: Forest,
+  tree: Tree,
   entryOf: ReadonlyMap<UUID, SessionEntry>,
   leaf: TreeNodeRef | null,
 ): PathNode[] {
-  if (leaf === null || !forest.has(formatTreeNodeRef(leaf))) {
+  if (leaf === null || !tree.has(formatTreeNodeRef(leaf))) {
     return [];
   }
   const path: PathNode[] = [];
@@ -118,11 +118,11 @@ export function pathToLeaf(
       throw new Error(`pathToLeaf revisited ${key} — parent cycle`);
     }
     seen.add(key);
-    // A recorded parent always names a forest occurrence (buildForest falls
+    // A recorded parent always names a tree occurrence (buildTree falls
     // back to root otherwise), so mid-walk absence is corruption.
-    const node = forest.get(key);
+    const node = tree.get(key);
     if (node === undefined) {
-      throw new Error(`pathToLeaf: parent ${key} names no forest occurrence`);
+      throw new Error(`pathToLeaf: parent ${key} names no tree occurrence`);
     }
     const entry = entryOf.get(current.uuid);
     if (entry === undefined) {
@@ -136,12 +136,10 @@ export function pathToLeaf(
 }
 
 /** Children per parent key (formatTreeNodeRef), roots under null.
- *  Materialization order. Derived by inverting `forest`. */
-export function forestChildren(
-  forest: Forest,
-): Map<string | null, TreeNodeRef[]> {
+ *  Materialization order. Derived by inverting `tree`. */
+export function treeChildren(tree: Tree): Map<string | null, TreeNodeRef[]> {
   const children = new Map<string | null, TreeNodeRef[]>();
-  for (const node of forest.values()) {
+  for (const node of tree.values()) {
     const parentKey =
       node.parent === null ? null : formatTreeNodeRef(node.parent);
     const siblings = children.get(parentKey);

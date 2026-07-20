@@ -10,11 +10,11 @@ import type { UUID } from "node:crypto";
 import { Container, matchesKey, type Focusable } from "@earendil-works/pi-tui";
 import type { SessionEntry } from "../../core/session-file.ts";
 import {
-  forestChildren,
+  treeChildren,
   formatTreeNodeRef,
   parseTreeNodeRef,
   pathToLeaf,
-  type Forest,
+  type Tree,
   type TreeNodeRef,
 } from "../../core/tree.ts";
 import { extractTextContent } from "../../format/generated/text.ts";
@@ -29,7 +29,7 @@ import {
   entrySummary,
   formatTreeNodeLine,
   passesFilter,
-  toLayoutForest,
+  toLayoutTree,
 } from "../../format/tree.ts";
 import { theme } from "../theme.ts";
 
@@ -50,11 +50,11 @@ export type TreePickAction =
  * (reachable via the current-leaf filter exemption) omits editorText.
  */
 export function resolveTreePick(
-  forest: Forest,
+  tree: Tree,
   entryOf: ReadonlyMap<UUID, SessionEntry>,
   pick: TreeNodeRef,
 ): TreePickAction {
-  const path = pathToLeaf(forest, entryOf, pick);
+  const path = pathToLeaf(tree, entryOf, pick);
   const picked = path.at(-1);
   if (picked?.entry.type === "assistant") {
     return { kind: "rewind", rewindTo: pick };
@@ -109,23 +109,19 @@ export class TreeSelectorComponent extends Container implements Focusable {
 
   constructor(
     leaf: TreeNodeRef | null,
-    forest: Forest,
+    tree: Tree,
     entryOf: ReadonlyMap<UUID, SessionEntry>,
     onSelect: (pick: TreeNodeRef) => void,
     onCancel: () => void,
   ) {
     super();
-    this.roots = toLayoutForest(forest, entryOf);
+    this.roots = toLayoutTree(tree, entryOf);
     this.currentLeafId = leaf === null ? null : formatTreeNodeRef(leaf);
     this.toolNames = collectToolNames([...entryOf.values()]);
-    this.finalIds = collectFinalAssistantIds(
-      forest,
-      forestChildren(forest),
-      entryOf,
-    );
+    this.finalIds = collectFinalAssistantIds(tree, treeChildren(tree), entryOf);
     this.onSelect = onSelect;
     this.onCancel = onCancel;
-    for (const [key, node] of forest) {
+    for (const [key, node] of tree) {
       this.parentById.set(
         key,
         node.parent === null ? null : formatTreeNodeRef(node.parent),

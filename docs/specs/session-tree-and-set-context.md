@@ -5,7 +5,7 @@
 > and the nested `TreeNode`/`SessionTree` types are gone (the nested wire
 > representation overflowed `JSON.stringify` on long sessions and crashed the
 > daemon). `get-entries` now returns a `SessionSnapshot` (`{entries, leaf}`)
-> and clients build a flat parent-relation `Forest` locally. `set-context`,
+> and clients build a flat parent-relation `Tree` locally. `set-context`,
 > the boundary mechanics, and `get-messages` are unchanged.
 
 # SPEC

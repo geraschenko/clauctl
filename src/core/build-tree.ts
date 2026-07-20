@@ -1,5 +1,5 @@
 /**
- * The session forest over raw jsonl entries. Probe ids in comments
+ * The session tree over raw jsonl entries. Probe ids in comments
  * (e.g. p0b/p0c) cite the experiments in
  * docs/derisk/compact-boundary-injection/FINDINGS.md.
  */
@@ -14,13 +14,13 @@ import {
 import { entriesByUuid, type SessionEntry } from "./session-file.ts";
 import {
   formatTreeNodeRef,
-  type Forest,
-  type ForestNode,
+  type Tree,
+  type TreeNode,
   type TreeNodeRef,
 } from "./tree.ts";
 
 /**
- * Raw parentUuid edges give the base forest; each boundary node is attached
+ * Raw parentUuid edges give the base tree; each boundary node is attached
  * as a child of its logicalParentUuid entry (root if absent). A boundary
  * with a valid relink additionally emits its relinked context as
  * substructure: one `viaBoundary` occurrence per relinked uuid, chained per
@@ -46,20 +46,17 @@ import {
  * from: the last preserved entry = parent of the first summarized message —
  * confirmed in the p0b/p0c captures; see file comment). Native summary
  * entries parent onto the boundary in BOTH shapes, so parentUuid-based
- * forest construction stays correct without special-casing.
+ * tree construction stays correct without special-casing.
  */
-export function buildForest(
-  entries: SessionEntry[],
-  onInvalid: OnInvalid,
-): Forest {
+export function buildTree(entries: SessionEntry[], onInvalid: OnInvalid): Tree {
   const byUuid = entriesByUuid(entries);
-  const forest = new Map<string, ForestNode>();
+  const tree = new Map<string, TreeNode>();
   /** The current occurrence for each uuid; a processed relink overwrites. */
   const occurrenceOf = new Map<UUID, TreeNodeRef>();
 
   const attach = (ref: TreeNodeRef, parentUuid: UUID | undefined): void => {
     const key = formatTreeNodeRef(ref);
-    if (forest.has(key)) {
+    if (tree.has(key)) {
       throw new Error(
         `duplicate occurrence ${key} — the session file is corrupt`,
       );
@@ -68,7 +65,7 @@ export function buildForest(
     // which append order rules out) falls back to a root.
     const parent =
       parentUuid === undefined ? undefined : occurrenceOf.get(parentUuid);
-    forest.set(key, { ref, parent: parent ?? null });
+    tree.set(key, { ref, parent: parent ?? null });
     occurrenceOf.set(ref.uuid, ref);
   };
 
@@ -136,5 +133,5 @@ export function buildForest(
     }
     emitSubstructure(boundaryUuid, relink);
   }
-  return forest;
+  return tree;
 }

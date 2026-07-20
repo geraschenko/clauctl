@@ -1,11 +1,11 @@
 import assert from "node:assert/strict";
 import { randomUUID, type UUID } from "node:crypto";
 import { test } from "node:test";
-import { buildForest } from "./forest.ts";
+import { buildTree } from "./build-tree.ts";
 import {
-  forestChildren,
+  treeChildren,
   formatTreeNodeRef,
-  type Forest,
+  type Tree,
   type TreeNodeRef,
 } from "./tree.ts";
 import type { SessionEntry } from "./session-file.ts";
@@ -58,19 +58,19 @@ function summaryEntry(
 }
 
 /** Root occurrences, materialization order. */
-function rootsOf(forest: Forest): TreeNodeRef[] {
-  return forestChildren(forest).get(null) ?? [];
+function rootsOf(tree: Tree): TreeNodeRef[] {
+  return treeChildren(tree).get(null) ?? [];
 }
 
 /** Child refs of an occurrence, materialization order. */
-function childrenOf(forest: Forest, ref: TreeNodeRef): TreeNodeRef[] {
-  return forestChildren(forest).get(formatTreeNodeRef(ref)) ?? [];
+function childrenOf(tree: Tree, ref: TreeNodeRef): TreeNodeRef[] {
+  return treeChildren(tree).get(formatTreeNodeRef(ref)) ?? [];
 }
 
-/** Flattens a branchless (sub)forest into its single root → leaf ref path,
+/** Flattens a branchless (sub)tree into its single root → leaf ref path,
  *  asserting every occurrence has at most one child. */
-function pathOf(forest: Forest, from?: TreeNodeRef): TreeNodeRef[] {
-  const children = forestChildren(forest);
+function pathOf(tree: Tree, from?: TreeNodeRef): TreeNodeRef[] {
+  const children = treeChildren(tree);
   const path: TreeNodeRef[] = [];
   let level = from === undefined ? (children.get(null) ?? []) : [from];
   while (level.length === 1) {
@@ -85,7 +85,7 @@ function pathOf(forest: Forest, from?: TreeNodeRef): TreeNodeRef[] {
 // The spec's fixture (criterion 2): one branch point, one boundary. Both
 // branches appear; the boundary hangs under the last pre-compaction message;
 // the summary appears under the boundary (its raw parent).
-test("branch point plus boundary: raw forest with boundary under logicalParentUuid", () => {
+test("branch point plus boundary: raw tree with boundary under logicalParentUuid", () => {
   const root = chainEntry(null);
   const branchA = chainEntry(root.uuid, "assistant");
   const branchB = chainEntry(root.uuid, "assistant");
@@ -105,20 +105,20 @@ test("branch point plus boundary: raw forest with boundary under logicalParentUu
     type: "user",
     isCompactSummary: true,
   };
-  const forest = buildForest(
+  const tree = buildTree(
     [root, branchA, branchB, leafB, boundary, summary],
     failOnInvalid,
   );
 
-  assert.deepEqual(rootsOf(forest), [{ uuid: root.uuid }]);
-  assert.deepEqual(childrenOf(forest, { uuid: root.uuid }), [
+  assert.deepEqual(rootsOf(tree), [{ uuid: root.uuid }]);
+  assert.deepEqual(childrenOf(tree, { uuid: root.uuid }), [
     { uuid: branchA.uuid },
     { uuid: branchB.uuid },
   ]);
-  assert.deepEqual(childrenOf(forest, { uuid: leafB.uuid }), [
+  assert.deepEqual(childrenOf(tree, { uuid: leafB.uuid }), [
     { uuid: boundaryUuid },
   ]);
-  assert.deepEqual(childrenOf(forest, { uuid: boundaryUuid }), [
+  assert.deepEqual(childrenOf(tree, { uuid: boundaryUuid }), [
     { uuid: summaryUuid },
   ]);
 });
@@ -130,9 +130,9 @@ test("entries without a uuid get no occurrence but chain entries still resolve",
     messageId: "m1",
   };
   const child = chainEntry(root.uuid);
-  const forest = buildForest([root, snapshot, child], failOnInvalid);
-  assert.equal(forest.size, 2);
-  assert.deepEqual(pathOf(forest), [{ uuid: root.uuid }, { uuid: child.uuid }]);
+  const tree = buildTree([root, snapshot, child], failOnInvalid);
+  assert.equal(tree.size, 2);
+  assert.deepEqual(pathOf(tree), [{ uuid: root.uuid }, { uuid: child.uuid }]);
 });
 
 test("a boundary without logicalParentUuid becomes a root", () => {
@@ -142,27 +142,27 @@ test("a boundary without logicalParentUuid becomes a root", () => {
     type: "system",
     subtype: "compact_boundary",
   };
-  const forest = buildForest([boundary], failOnInvalid);
-  assert.deepEqual(rootsOf(forest), [{ uuid: boundary.uuid }]);
+  const tree = buildTree([boundary], failOnInvalid);
+  assert.deepEqual(rootsOf(tree), [{ uuid: boundary.uuid }]);
 });
 
 test("a parentUuid pointing at a missing entry falls back to a root", () => {
   const orphan = chainEntry(uuid());
-  const forest = buildForest([orphan], failOnInvalid);
-  assert.deepEqual(rootsOf(forest), [{ uuid: orphan.uuid }]);
+  const tree = buildTree([orphan], failOnInvalid);
+  assert.deepEqual(rootsOf(tree), [{ uuid: orphan.uuid }]);
 });
 
 test("a duplicated raw uuid throws (corrupt session file)", () => {
   const root = chainEntry(null);
   const duplicate: SessionEntry = { ...root };
   assert.throws(
-    () => buildForest([root, duplicate], failOnInvalid),
+    () => buildTree([root, duplicate], failOnInvalid),
     /duplicate occurrence .* corrupt/,
   );
 });
 
 // --- boundary substructure -------------------------------------------------
-// Forests A–D from docs/specs/boundary-substructure.md "Concrete examples".
+// Examples A–D from docs/specs/boundary-substructure.md "Concrete examples".
 
 test("up_to relink (example A): substructure under the raw summary, post entry on the relinked tip", () => {
   const u1 = chainEntry(null);
@@ -176,11 +176,8 @@ test("up_to relink (example A): substructure under the raw summary, post entry o
   });
   const summary = summaryEntry(boundary.uuid, summaryUuid);
   const u4 = chainEntry(u3.uuid);
-  const forest = buildForest(
-    [u1, u2, u3, boundary, summary, u4],
-    failOnInvalid,
-  );
-  assert.deepEqual(pathOf(forest), [
+  const tree = buildTree([u1, u2, u3, boundary, summary, u4], failOnInvalid);
+  assert.deepEqual(pathOf(tree), [
     { uuid: u1.uuid },
     { uuid: u2.uuid },
     { uuid: u3.uuid },
@@ -203,19 +200,16 @@ test("from-shape relink (example B): substructure under the boundary, raw summar
   });
   const summary = summaryEntry(boundary.uuid);
   const u4 = chainEntry(summary.uuid);
-  const forest = buildForest(
-    [u1, u2, u3, boundary, summary, u4],
-    failOnInvalid,
-  );
-  assert.deepEqual(rootsOf(forest), [{ uuid: u1.uuid }]);
-  assert.deepEqual(childrenOf(forest, { uuid: u2.uuid }), [
+  const tree = buildTree([u1, u2, u3, boundary, summary, u4], failOnInvalid);
+  assert.deepEqual(rootsOf(tree), [{ uuid: u1.uuid }]);
+  assert.deepEqual(childrenOf(tree, { uuid: u2.uuid }), [
     { uuid: u3.uuid },
     { uuid: boundary.uuid },
   ]);
   // The raw summary occurrence (whose parent would be the boundary) is
   // omitted — the boundary's subtree is the branchless relinked chain.
-  assert.ok(!forest.has(summary.uuid));
-  assert.deepEqual(pathOf(forest, { uuid: boundary.uuid }), [
+  assert.ok(!tree.has(summary.uuid));
+  assert.deepEqual(pathOf(tree, { uuid: boundary.uuid }), [
     { uuid: boundary.uuid },
     { uuid: u1.uuid, viaBoundary: boundary.uuid },
     { uuid: u2.uuid, viaBoundary: boundary.uuid },
@@ -244,11 +238,8 @@ test("stacked boundaries (example C): post entries and later boundaries attach t
   });
   const s2 = summaryEntry(second.uuid, s2Uuid);
   const e = chainEntry(d.uuid);
-  const forest = buildForest(
-    [a, b, c, first, s1, d, second, s2, e],
-    failOnInvalid,
-  );
-  assert.deepEqual(pathOf(forest), [
+  const tree = buildTree([a, b, c, first, s1, d, second, s2, e], failOnInvalid);
+  assert.deepEqual(pathOf(tree), [
     { uuid: a.uuid },
     { uuid: b.uuid },
     { uuid: c.uuid },
@@ -275,12 +266,12 @@ test("invalid relink (example D): no substructure, raw summary kept", () => {
   });
   const summary = summaryEntry(boundary.uuid, summaryUuid);
   const invalidMessages: string[] = [];
-  const forest = buildForest([u1, u2, u3, boundary, summary], (message) =>
+  const tree = buildTree([u1, u2, u3, boundary, summary], (message) =>
     invalidMessages.push(message),
   );
   assert.equal(invalidMessages.length, 1);
   assert.match(invalidMessages[0]!, /duplicated uuid/);
-  assert.deepEqual(pathOf(forest), [
+  assert.deepEqual(pathOf(tree), [
     { uuid: u1.uuid },
     { uuid: u2.uuid },
     { uuid: u3.uuid },
@@ -297,8 +288,8 @@ test("a valid relink with no summary emits its substructure at the boundary", ()
     anchor: "own",
     logicalParentUuid: u2.uuid,
   });
-  const forest = buildForest([u1, u2, boundary], failOnInvalid);
-  assert.deepEqual(pathOf(forest), [
+  const tree = buildTree([u1, u2, boundary], failOnInvalid);
+  assert.deepEqual(pathOf(tree), [
     { uuid: u1.uuid },
     { uuid: u2.uuid },
     { uuid: boundary.uuid },

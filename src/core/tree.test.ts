@@ -3,14 +3,14 @@ import { randomUUID, type UUID } from "node:crypto";
 import { test } from "node:test";
 import { entriesByUuid, type SessionEntry } from "./session-file.ts";
 import {
-  forestChildren,
+  treeChildren,
   formatTreeNodeRef,
   isFinalAssistantEntry,
   parseTreeNodeRef,
   pathToLeaf,
   treeNodeRefsEqual,
-  type Forest,
-  type ForestNode,
+  type Tree,
+  type TreeNode,
   type TreeNodeRef,
 } from "./tree.ts";
 
@@ -53,8 +53,8 @@ test("treeNodeRefsEqual is structural", () => {
   assert.ok(!treeNodeRefsEqual({ uuid: a }, undefined));
 });
 
-/** A hand-built forest from (ref, parent) pairs, keyed like buildForest. */
-function forestOf(nodes: ForestNode[]): Forest {
+/** A hand-built tree from (ref, parent) pairs, keyed like buildTree. */
+function treeOf(nodes: TreeNode[]): Tree {
   return new Map(nodes.map((node) => [formatTreeNodeRef(node.ref), node]));
 }
 
@@ -64,18 +64,18 @@ test("pathToLeaf: root-first path, null leaf, absent leaf", () => {
   const otherEntry: SessionEntry = { uuid: uuid(), type: "assistant" };
   const root: TreeNodeRef = { uuid: rootEntry.uuid! };
   const child: TreeNodeRef = { uuid: childEntry.uuid! };
-  const forest = forestOf([
+  const tree = treeOf([
     { ref: root, parent: null },
     { ref: { uuid: otherEntry.uuid! }, parent: root },
     { ref: child, parent: root },
   ]);
   const entryOf = entriesByUuid([rootEntry, childEntry, otherEntry]);
-  assert.deepEqual(pathToLeaf(forest, entryOf, child), [
+  assert.deepEqual(pathToLeaf(tree, entryOf, child), [
     { ref: root, entry: rootEntry },
     { ref: child, entry: childEntry },
   ]);
-  assert.deepEqual(pathToLeaf(forest, entryOf, null), []);
-  assert.deepEqual(pathToLeaf(forest, entryOf, { uuid: uuid() }), []);
+  assert.deepEqual(pathToLeaf(tree, entryOf, null), []);
+  assert.deepEqual(pathToLeaf(tree, entryOf, { uuid: uuid() }), []);
 });
 
 test("pathToLeaf distinguishes occurrences by viaBoundary", () => {
@@ -91,7 +91,7 @@ test("pathToLeaf distinguishes occurrences by viaBoundary", () => {
     uuid: entry.uuid!,
     viaBoundary: boundary.uuid!,
   };
-  const forest = forestOf([
+  const tree = treeOf([
     { ref: raw, parent: null },
     { ref: boundaryRef, parent: raw },
     { ref: relinked, parent: boundaryRef },
@@ -100,8 +100,8 @@ test("pathToLeaf distinguishes occurrences by viaBoundary", () => {
 
   // A bare ref stops at the raw occurrence; the via ref walks into the
   // substructure.
-  assert.deepEqual(pathToLeaf(forest, entryOf, raw), [{ ref: raw, entry }]);
-  assert.deepEqual(pathToLeaf(forest, entryOf, relinked), [
+  assert.deepEqual(pathToLeaf(tree, entryOf, raw), [{ ref: raw, entry }]);
+  assert.deepEqual(pathToLeaf(tree, entryOf, relinked), [
     { ref: raw, entry },
     { ref: boundaryRef, entry: boundary },
     { ref: relinked, entry },
@@ -111,7 +111,7 @@ test("pathToLeaf distinguishes occurrences by viaBoundary", () => {
 test("pathToLeaf throws on a parent cycle and on a missing entry", () => {
   const a: TreeNodeRef = { uuid: uuid() };
   const b: TreeNodeRef = { uuid: uuid() };
-  const cyclic = forestOf([
+  const cyclic = treeOf([
     { ref: a, parent: b },
     { ref: b, parent: a },
   ]);
@@ -121,23 +121,23 @@ test("pathToLeaf throws on a parent cycle and on a missing entry", () => {
   ]);
   assert.throws(() => pathToLeaf(cyclic, entryOf, a), /parent cycle/);
 
-  const lone = forestOf([{ ref: a, parent: null }]);
+  const lone = treeOf([{ ref: a, parent: null }]);
   assert.throws(
     () => pathToLeaf(lone, entriesByUuid([]), a),
     /no entry for uuid/,
   );
 });
 
-test("forestChildren inverts the parent relation, roots under null", () => {
+test("treeChildren inverts the parent relation, roots under null", () => {
   const root: TreeNodeRef = { uuid: uuid() };
   const childA: TreeNodeRef = { uuid: uuid() };
   const childB: TreeNodeRef = { uuid: uuid() };
-  const forest = forestOf([
+  const tree = treeOf([
     { ref: root, parent: null },
     { ref: childA, parent: root },
     { ref: childB, parent: root },
   ]);
-  const children = forestChildren(forest);
+  const children = treeChildren(tree);
   assert.deepEqual(children.get(null), [root]);
   assert.deepEqual(children.get(formatTreeNodeRef(root)), [childA, childB]);
   assert.equal(children.get(formatTreeNodeRef(childA)), undefined);
@@ -151,7 +151,7 @@ function assistantEntry(apiMessageId: string | undefined): SessionEntry {
   };
 }
 
-/** Forest + lookups for a single chain of entries (each parenting the
+/** Tree + lookups for a single chain of entries (each parenting the
  *  previous), all occurrences raw unless viaBoundary is given. */
 function chainFixture(
   entries: SessionEntry[],
@@ -165,7 +165,7 @@ function chainFixture(
     uuid: entry.uuid!,
     ...(viaBoundary !== undefined && { viaBoundary }),
   }));
-  const forest = forestOf(
+  const tree = treeOf(
     refs.map((ref, index) => ({
       ref,
       parent: index === 0 ? null : refs[index - 1]!,
@@ -173,7 +173,7 @@ function chainFixture(
   );
   return {
     refs,
-    children: forestChildren(forest),
+    children: treeChildren(tree),
     entryOf: entriesByUuid(entries),
   };
 }
