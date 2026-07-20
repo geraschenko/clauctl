@@ -11,8 +11,10 @@ condition engine (`until.ts`) consumed by `wait`, `tail --until`, and streaming
 `prompt --until`. Port that capability to clauctl:
 
 - a new `wait` subcommand: block until the agent meets a condition;
-- `--until`/`--timeout` flags on `tail`: stream events until a condition holds,
-  then emit a final cursor record and exit.
+- `--until`/`--timeout` flags on `tail`: stream events until a condition
+  holds, then exit;
+- archive's polite stop reimplemented on the same engine, deleting the
+  `wait-idle` protocol request — one waiting mechanism, not two.
 
 The port is a redesign, not a copy: pictl's streaming engine runs the stop
 condition as a separate listener racing the printer, coordinated with a
@@ -59,22 +61,31 @@ time.
 
 - Without `--until`: unchanged — print `{snapshot}` then `{event}` lines until
   the daemon closes the socket (exit 0) or the user interrupts.
-- With `--until`: same output, but when the condition is met, print a final
-  cursor record and exit 0:
-
-  ```
-  {"cursor": "<uuid>"} or {"cursor": "<uuid>@<boundary-uuid>"} or {"cursor": null}
-  ```
-
-  The cursor is the final folded state's `leafTreeNodeRef` via
-  `formatTreeNodeRef`; `null` when unset. Always emitted on condition-met, so
-  scripted consumers get a definite final line. No cursor on timeout or close.
-  TDC: actually, don't the messages themselves already have the cursor information in the form of the uuid of the last entry? pictl included the cursor just because the messages streamed through the RPC interface don't include the entry uuids, but clauctl doesn't have that problem. This means that we only need to show the cursor information when text formatting omits the uuid. So I think we can omit cursor from this spec.
+- With `--until`: same output, but exit 0 when the condition is met. No final
+  cursor record: the raw stream already carries the resume point (the
+  `{snapshot}` line includes `leafTreeNodeRef`; stream user/assistant
+  `sdkMessage`s carry their transcript uuid; `contextChanged` events carry the
+  post-change leaf). pictl's `pictl_cursor` compensated for uuid-less RPC
+  message records; a printed cursor only becomes necessary when formatted
+  output omits uuids (the later `--type` spec).
 - With `--until`, the daemon closing the socket before the condition is met is
   an error (exit 1). `--timeout` expiring is exit 3.
 - `--timeout` requires `--until` (a bare timeout on an endless stream would be
   a silent exit-3 sleep); reject the combination with a usage error.
 - Dormant/archived handling is unchanged: `tail` errors and never revives.
+
+`clauctl archive` (behavior unchanged, mechanism replaced)
+
+- The polite stop waits for `idle` via `runStream` instead of the daemon's
+  `wait-idle` request. On timeout it keeps its current surface: "still busy
+  after Ns; not archived", exit 1 (the `UntilTimeoutError` is wrapped in a
+  plain Error, so the exit-3 mapping does not apply).
+- Deleted with it: client-side `waitIdle` and `IdleTimeoutError`
+  (sdk-socket.ts), the `wait-idle` request type, and the daemon's handler
+  case. The daemon-internal `whenIdle` stays (set-context needs it).
+  `SDK_SOCKET_VERSION` is not bumped: a new CLI never sends `wait-idle`, and
+  an old CLI archiving against a new daemon gets a clean "unknown request"
+  error.
 
 ## Success criteria
 
@@ -89,14 +100,18 @@ time.
    the first 1s event gap, or exits 3 after 5s of continuous activity.
 4. `clauctl wait -t <dormant-agent> --until idle` exits 0 immediately and does
    not revive the agent.
-5. `clauctl tail -t <agent> --until turn-end` prints the snapshot, the turn's
-   events, then exactly one `{"cursor": ...}` line, and exits 0.
+5. `clauctl tail -t <agent> --until turn-end` prints the snapshot and the
+   turn's events, then exits 0 at the turn's `result`.
 6. `clauctl tail -t <agent> --until idle --timeout 2` against a long-running
-   turn exits 3 with no cursor line.
-7. Unit tests cover: condition parsing (valid + malformed), met-at-seed and
+   turn exits 3.
+7. `clauctl archive -t <busy-agent> --timeout 1` exits 1 with "still busy
+   after 1s; not archived"; without `--timeout` it archives once the agent
+   goes idle. `waitIdle`, `IdleTimeoutError`, and the `wait-idle` request no
+   longer exist.
+8. Unit tests cover: condition parsing (valid + malformed), met-at-seed and
    met-by-event for each condition, and the driver's quiet-timer, deadline,
    and closed-socket behavior.
-8. `npm run presubmit` passes.
+9. `npm run presubmit` passes.
 
 ## Type design
 
@@ -161,12 +176,8 @@ export interface StreamHandler {
   quietMs?: number;
 }
 
-export interface StreamOutcome {
-  /** "done" = handler or quiet-timer stop; "closed" = socket closed. */
-  reason: "done" | "closed";
-  /** The final folded state (cursor source). */
-  state: AgentState;
-}
+/** "done" = handler or quiet-timer stop; "closed" = socket closed. */
+export type StreamOutcome = "done" | "closed";
 
 /**
  * Subscribe on `client`, fold `nextAgentState` over the pushed events, and
@@ -192,7 +203,7 @@ export async function wait(
   flags: WaitFlags, // { until: UntilCondition; timeout: number | undefined }
 ): Promise<void>;
 
-export const waitRoute: { wait: /* commandOneTarget */ };
+export const waitRoute: { wait: /* commandOneTarget, common: true */ };
 ```
 
 Changed `src/core/tail.ts`:
@@ -210,8 +221,7 @@ const tailFlags = {
 
 /** Rewritten on runStream: handler prints `{event}` lines and (when --until
  *  is given) applies the until checkers; prints `{snapshot}` from onSeed.
- *  On reason "done" with --until: print `{cursor: string | null}`. On reason
- *  "closed": exit 0 without --until, throw with it. */
+ *  On "closed": exit 0 without --until, throw with it. */
 async function tail(this: CommandContext, flags: TailFlags): Promise<void>;
 ```
 
@@ -222,24 +232,43 @@ determineExitCode: (error) =>
   error instanceof UsageError ? 2 : error instanceof UntilTimeoutError ? 3 : 1;
 ```
 
+Changed `src/core/lifecycle.ts`:
+
+```ts
+/** The waitIdle call becomes: connect, runStream with an idle handler
+ *  (untilMetAtSeed/untilMetByEvent for { kind: "idle" }), close. "closed"
+ *  → throw. archive's catch matches UntilTimeoutError instead of
+ *  IdleTimeoutError; its error message and exit code are unchanged. */
+async function stopRunningAgent(
+  agent: AgentRecord,
+  timeoutMs: number | undefined,
+): Promise<void>;
+```
+
+Deleted from `src/core/sdk-socket.ts`: `waitIdle`, `IdleTimeoutError`, and the
+`{ type: "wait-idle" }` member of `SdkRequest`. Deleted from
+`src/core/daemon/request-handlers.ts`: the `"wait-idle"` dispatch case
+(`events.whenIdle()` itself stays for set-context).
+
 Flag helpers (`parsedFlag`, `requiredParsedFlag`, `secondsFlag`,
 `completeChoices`) already exist in `src/core/generated/cli.ts`.
 
 ## Edge cases
 
-- `wait --until idle` does not use the daemon's `wait-idle` request: the
-  subscribe seed is atomically ordered before all pushed events, so
-  seed-check + fold is race-free without daemon delegation. `wait-idle`
-  remains for its existing consumers (archive's polite stop).
-  TDC: Should archive's polite stop be reimplemented with this new approach?
+- Idle waits do not go through the daemon: the subscribe seed is atomically
+  ordered before all pushed events, so seed-check + fold is race-free without
+  daemon delegation — the rationale that justified `wait-idle` (atomic
+  check-or-enqueue on the daemon's fold) applies equally to a subscribed
+  client, which is why the request can be deleted rather than kept alongside.
 - Condition met at seed: `wait` exits 0 without waiting for events; `tail
-  --until` prints the snapshot and cursor with no event lines.
+  --until` prints the snapshot line and exits with no event lines.
 - Socket events racing the subscribe response: `runStream` gates event
   processing on the seed (the pre-snapshot buffering currently in tail.ts
   moves into the driver), so `onSeed` always runs before any `onEvent` and
   tail's output ordering is preserved.
 - Timers must be cleared after settling: a pending timer keeps node's event
-  loop alive (see the existing comment in `sdk-socket.ts` `waitIdle`).
+  loop alive (the rationale currently documented in `sdk-socket.ts` `waitIdle`
+  — that comment moves into `runStream` when `waitIdle` is deleted).
 - `no-activity` with `--timeout` where timeout < quiet window: exit 3.
 - Malformed `--until` (unknown word, `no-activity:` without a number,
   negative/garbage seconds): usage error, exit 2.
@@ -267,8 +296,11 @@ Flag helpers (`parsedFlag`, `requiredParsedFlag`, `secondsFlag`,
      and emitting `{entry}` lines next to `{event}` lines needs a decision.
 
   `-n` goes with `--since` because tail has no other historical output to
-  limit. The `{cursor}` record emitted by this spec is the value a future
-  `--since` consumes.
+  limit. No printed cursor is needed to feed a future `--since`: the raw
+  stream already carries the resume point (uuids on user/assistant events,
+  `leafTreeNodeRef` in the snapshot, post-change leaves on `contextChanged`).
+  A cursor record becomes necessary only alongside formatted output that
+  omits uuids (the `--type` spec).
 - **`--type` / `--json` formatted output** — later spec; the raw JSONL stream
   is tail's only mode here. `StreamHandler` accommodates a stateful formatted
   printer without interface changes.
@@ -307,4 +339,10 @@ Flag helpers (`parsedFlag`, `requiredParsedFlag`, `secondsFlag`,
 
 **Instructions**: Update this section during each work session. Add new tasks, mark completed ones with [x], document decisions and problems encountered.
 
-*Work log entries go here*
+- 2026-07-19: Spec written and critiqued. Review round 1 (TDC): dropped the
+  final `{cursor}` record — the raw stream already carries the resume point,
+  so `runStream` returns just `"done" | "closed"`. Decided (Anton): archive's
+  polite stop moves onto `runStream` + `idle`; `waitIdle`, `IdleTimeoutError`,
+  the `wait-idle` request, and its daemon dispatch case are deleted
+  (daemon-internal `whenIdle` stays). Archive's timeout surface is unchanged
+  (exit 1, "still busy ...; not archived").
