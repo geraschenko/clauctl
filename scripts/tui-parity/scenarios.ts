@@ -56,9 +56,9 @@ export const scenarios: Scenario[] = [
       "Edit diffs: mid-file single hunk, multi-hunk replace_all, long diff",
     // Prompt 1 pins the file's shape (params named a/b, NO error handling)
     // so the later edits have real work to do — a model that anticipates
-    // them turns the edit prompts into no-ops. Regenerate into a CLEAN
-    // workdir: a stale calc.py from a previous run has the edits already
-    // applied, which no-ops them the same way.
+    // them turns the edit prompts into no-ops. (generate.ts wipes the
+    // workdir per generation for the same reason: a stale calc.py has the
+    // edits already applied.)
     prompts: [
       "Create a file named calc.py: functions add, sub, mul, div, each " +
         "taking parameters named a and b with a one-line docstring, and a " +

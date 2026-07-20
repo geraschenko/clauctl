@@ -9,7 +9,7 @@
  */
 
 import { execFile } from "node:child_process";
-import { copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
@@ -134,6 +134,11 @@ async function main(): Promise<void> {
   const manifest = await readManifest();
   for (const scenario of selected) {
     const workdir = join(workdirBase, scenario.name);
+    // Stale files from a previous generation no-op prompts that would
+    // create or edit them (e.g. the edit scenario's calc.py arrives with
+    // the edits already applied), so each generated scenario starts from
+    // an empty workdir. Only the scenarios being regenerated are wiped.
+    await rm(workdir, { recursive: true, force: true });
     await mkdir(workdir, { recursive: true });
     console.log(`generating ${scenario.name}…`);
     const generated = await generateSession(scenario, workdir, claudeVersion);
