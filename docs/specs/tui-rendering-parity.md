@@ -1097,3 +1097,9 @@ wider than 2×3 context lines between occurrences.
 - [x] Rerun harness including the edit scenario; update catalog
       (edit.diff: all diff blocks byte-identical; remaining lines are
       the decided Group E chrome + prompt-wrap width)
+
+Accepted divergence (Anton, 2026-07-20): over-width diff lines. claude
+wraps them with a gutter continuation (blank number field + repeated
+gutter, content capacity ≈ pane − prefix − 1); we wrap at the plain
+result indent. Matching would push the render width into `resultBody`
+for two lines in a 5000-line session (session-44a0b993 capture).
