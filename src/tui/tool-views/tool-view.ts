@@ -34,11 +34,11 @@ export interface ToolView<A> {
   readOnly: boolean;
   /** Fold-line contribution, e.g. (2) => "read 2 files". */
   foldLabel(count: number): string;
-  /** Expanded rendering override; undefined → the generic expanded form
-   *  (pretty-printed args + full result text). Exists specifically for
-   *  the Edit view, whose expanded form is the rendered diff — no other
-   *  view implements it. */
-  expandedBody?(args: A, result: RenderToolResult): string | undefined;
+  /** Extra block rendered beneath the ⎿ summary in BOTH toggle states
+   *  (claude renders it identically collapsed and expanded). Exists
+   *  specifically for the Edit view, whose result rendering is the
+   *  line-numbered diff — no other view implements it. */
+  resultBody?(args: A, result: RenderToolResult): string | undefined;
 }
 
 export const toolViews: { [K in ToolName]?: ToolView<ToolInputMap[K]> } = {

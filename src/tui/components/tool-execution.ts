@@ -7,11 +7,12 @@
 //        … +N lines (ctrl+o…)  lines of the result
 //
 // with colors/formats captured by scripts/tui-parity/ (claude-derived:
-// update against fresh captures on claude version bumps). Expanded shows
-// pretty-printed args + full result (or the view's expandedBody), plus the
-// nested subagent transcript, which stays hidden while collapsed behind the
-// "(ctrl+o to expand)" hint line. pi lineage: the Component/Container
-// shapes and truncateToVisualLines.
+// update against fresh captures on claude version bumps). A view's
+// resultBody (the Edit diff) hangs beneath the ⎿ block in both toggle
+// states, as claude renders it. Expanded shows pretty-printed args + full
+// result, plus the nested subagent transcript, which stays hidden while
+// collapsed behind the "(ctrl+o to expand)" hint line. pi lineage: the
+// Component/Container shapes and truncateToVisualLines.
 
 import { isAbsolute } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -195,18 +196,27 @@ export class ToolExecutionComponent implements Component {
     if (this.result === undefined) {
       return this.expanded ? resultBlockLines(this.argsJson(), width) : [];
     }
+    const resultBody = this.view?.resultBody?.(this.args, this.result);
+    const bodyLines =
+      resultBody === undefined ? [] : hangingBlockLines(resultBody, width);
     if (this.expanded) {
-      const body =
-        this.view?.expandedBody?.(this.args, this.result) ??
-        `${this.argsJson()}\n\n${this.result.content.trim()}`;
-      return resultBlockLines(body, width);
+      return [
+        ...resultBlockLines(
+          `${this.argsJson()}\n\n${this.result.content.trim()}`,
+          width,
+        ),
+        ...bodyLines,
+      ];
     }
     const color = this.result.isError ? claudeStyle.error : undefined;
     const summary = this.view?.resultSummary(this.args, this.result);
     if (summary !== undefined) {
-      return resultBlockLines(summary, width, color);
+      return [...resultBlockLines(summary, width, color), ...bodyLines];
     }
-    return collapsedOutputLines(this.result.content.trim(), width, color);
+    return [
+      ...collapsedOutputLines(this.result.content.trim(), width, color),
+      ...bodyLines,
+    ];
   }
 
   private argsJson(): string {
@@ -255,6 +265,21 @@ export function resultBlockLines(
     0,
   );
   return prefixed(visualLines, color);
+}
+
+/** A resultBody block: wrapped like a ⎿-block but with no ⎿ prefix — every
+ *  line hangs at the result indent (claude's diff placement). */
+function hangingBlockLines(text: string, width: number): string[] {
+  const capacity = Math.max(1, width - RESULT_CONTINUATION_INDENT);
+  const { visualLines } = truncateToVisualLines(
+    text,
+    Number.MAX_SAFE_INTEGER,
+    capacity,
+    0,
+  );
+  return visualLines.map(
+    (line) => " ".repeat(RESULT_CONTINUATION_INDENT) + line,
+  );
 }
 
 function prefixed(

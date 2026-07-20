@@ -1092,6 +1092,8 @@ before the final generation; scenario prompts were tightened so each
 edit has real work to do. Multi-hunk splitting needs unchanged gaps
 wider than 2×3 context lines between occurrences.
 
-- [ ] Implement: `resultBody` hook + structuredPatch formatter in
+- [x] Implement: `resultBody` hook + structuredPatch formatter in
       edit.ts + unit tests (fixture carved from the edit scenario)
-- [ ] Rerun harness including the edit scenario; update catalog
+- [x] Rerun harness including the edit scenario; update catalog
+      (edit.diff: all diff blocks byte-identical; remaining lines are
+      the decided Group E chrome + prompt-wrap width)
