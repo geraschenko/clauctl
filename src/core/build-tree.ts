@@ -12,12 +12,7 @@ import {
   type OnInvalid,
 } from "./effective-chain.ts";
 import { entriesByUuid, type SessionEntry } from "./session-file.ts";
-import {
-  formatTreeNodeRef,
-  type Tree,
-  type TreeNode,
-  type TreeNodeRef,
-} from "./tree.ts";
+import { formatTreeNodeRef, type ParentMap, type TreeNodeRef } from "./tree.ts";
 
 /**
  * Raw parentUuid edges give the base tree; each boundary node is attached
@@ -48,15 +43,19 @@ import {
  * entries parent onto the boundary in BOTH shapes, so parentUuid-based
  * tree construction stays correct without special-casing.
  */
-export function buildTree(entries: SessionEntry[], onInvalid: OnInvalid): Tree {
+export function buildTree(
+  entries: SessionEntry[],
+  onInvalid: OnInvalid,
+): ParentMap {
   const byUuid = entriesByUuid(entries);
-  const tree = new Map<string, TreeNode>();
-  /** The current occurrence for each uuid; a processed relink overwrites. */
-  const occurrenceOf = new Map<UUID, TreeNodeRef>();
+  const parents = new Map<string, string | null>();
+  /** The current occurrence id for each uuid; a processed relink
+   *  overwrites. */
+  const occurrenceOf = new Map<UUID, string>();
 
   const attach = (ref: TreeNodeRef, parentUuid: UUID | undefined): void => {
     const key = formatTreeNodeRef(ref);
-    if (tree.has(key)) {
+    if (parents.has(key)) {
       throw new Error(
         `duplicate occurrence ${key} — the session file is corrupt`,
       );
@@ -65,8 +64,8 @@ export function buildTree(entries: SessionEntry[], onInvalid: OnInvalid): Tree {
     // which append order rules out) falls back to a root.
     const parent =
       parentUuid === undefined ? undefined : occurrenceOf.get(parentUuid);
-    tree.set(key, { ref, parent: parent ?? null });
-    occurrenceOf.set(ref.uuid, ref);
+    parents.set(key, parent ?? null);
+    occurrenceOf.set(ref.uuid, key);
   };
 
   const emitSubstructure = (
@@ -133,5 +132,5 @@ export function buildTree(entries: SessionEntry[], onInvalid: OnInvalid): Tree {
     }
     emitSubstructure(boundaryUuid, relink);
   }
-  return tree;
+  return parents;
 }

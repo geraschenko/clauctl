@@ -5,7 +5,8 @@ import { buildTree } from "./build-tree.ts";
 import {
   treeChildren,
   formatTreeNodeRef,
-  type Tree,
+  parseTreeNodeRef,
+  type ParentMap,
   type TreeNodeRef,
 } from "./tree.ts";
 import type { SessionEntry } from "./session-file.ts";
@@ -58,25 +59,28 @@ function summaryEntry(
 }
 
 /** Root occurrences, materialization order. */
-function rootsOf(tree: Tree): TreeNodeRef[] {
-  return treeChildren(tree).get(null) ?? [];
+function rootsOf(parents: ParentMap): TreeNodeRef[] {
+  return (treeChildren(parents).get(null) ?? []).map(parseTreeNodeRef);
 }
 
 /** Child refs of an occurrence, materialization order. */
-function childrenOf(tree: Tree, ref: TreeNodeRef): TreeNodeRef[] {
-  return treeChildren(tree).get(formatTreeNodeRef(ref)) ?? [];
+function childrenOf(parents: ParentMap, ref: TreeNodeRef): TreeNodeRef[] {
+  return (treeChildren(parents).get(formatTreeNodeRef(ref)) ?? []).map(
+    parseTreeNodeRef,
+  );
 }
 
 /** Flattens a branchless (sub)tree into its single root → leaf ref path,
  *  asserting every occurrence has at most one child. */
-function pathOf(tree: Tree, from?: TreeNodeRef): TreeNodeRef[] {
-  const children = treeChildren(tree);
+function pathOf(parents: ParentMap, from?: TreeNodeRef): TreeNodeRef[] {
+  const children = treeChildren(parents);
   const path: TreeNodeRef[] = [];
-  let level = from === undefined ? (children.get(null) ?? []) : [from];
+  let level =
+    from === undefined ? (children.get(null) ?? []) : [formatTreeNodeRef(from)];
   while (level.length === 1) {
-    const ref = level[0]!;
-    path.push(ref);
-    level = children.get(formatTreeNodeRef(ref)) ?? [];
+    const id = level[0]!;
+    path.push(parseTreeNodeRef(id));
+    level = children.get(id) ?? [];
   }
   assert.equal(level.length, 0);
   return path;

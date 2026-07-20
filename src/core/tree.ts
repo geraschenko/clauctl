@@ -18,21 +18,17 @@ export interface TreeNodeRef {
   viaBoundary?: UUID;
 }
 
-// TDC: this type is confusing. It's really an _edge_, not a node. In Tree, `ref` is duplicated as the key. Logically, Tree is really just the parent map. This feels like a code smell to me. What do you think?
-export interface TreeNode {
-  ref: TreeNodeRef;
-  /** Null = root. */
-  parent: TreeNodeRef | null;
-}
-
-/** Parent relation over occurrences. Key: formatTreeNodeRef(node.ref) —
- *  string keys because Map uses reference equality for objects and refs are
- *  produced independently (fold, wire, parse). Iteration order =
- *  materialization order: raw entries at file position, relinked occurrences
- *  at their boundary's summary position. Deliberately flat: a nested node
- *  type nests one JSON level per entry on a mostly-linear session, and
- *  JSON.stringify overflows the call stack near depth ~5000. */
-export type Tree = ReadonlyMap<string, TreeNode>;
+/** The tree as its parent relation: child occurrence id → parent occurrence
+ *  id (null = root). Both sides are formatTreeNodeRef output — Map keys need
+ *  strings because JS Maps compare objects by reference (refs are produced
+ *  independently: fold, wire, parse), and the value matches so edges stay in
+ *  one id space and the map composes with itself (`id = map.get(id)` walks
+ *  up). Iteration order = materialization order: raw entries at file
+ *  position, relinked occurrences at their boundary's summary position.
+ *  Deliberately flat: a nested node type nests one JSON level per entry on a
+ *  mostly-linear session, and JSON.stringify overflows the call stack near
+ *  depth ~5000. */
+export type ParentMap = ReadonlyMap<string, string | null>;
 
 /** get-entries response: every file entry verbatim, plus the daemon-computed
  *  context tip resolved to its occurrence in these entries. Entries lacking
@@ -102,51 +98,49 @@ export function treeNodeRefsEqual(
  *  corruption, impossible from buildTree + entriesByUuid over the same
  *  entries. */
 export function pathToLeaf(
-  tree: Tree,
+  parents: ParentMap,
   entryOf: ReadonlyMap<UUID, SessionEntry>,
   leaf: TreeNodeRef | null,
 ): PathNode[] {
-  if (leaf === null || !tree.has(formatTreeNodeRef(leaf))) {
+  if (leaf === null || !parents.has(formatTreeNodeRef(leaf))) {
     return [];
   }
   const path: PathNode[] = [];
   const seen = new Set<string>();
-  let current: TreeNodeRef | null = leaf;
+  let current: string | null = formatTreeNodeRef(leaf);
   while (current !== null) {
-    const key = formatTreeNodeRef(current);
-    if (seen.has(key)) {
-      throw new Error(`pathToLeaf revisited ${key} — parent cycle`);
+    if (seen.has(current)) {
+      throw new Error(`pathToLeaf revisited ${current} — parent cycle`);
     }
-    seen.add(key);
+    seen.add(current);
     // A recorded parent always names a tree occurrence (buildTree falls
     // back to root otherwise), so mid-walk absence is corruption.
-    const node = tree.get(key);
-    if (node === undefined) {
-      throw new Error(`pathToLeaf: parent ${key} names no tree occurrence`);
+    const parent: string | null | undefined = parents.get(current);
+    if (parent === undefined) {
+      throw new Error(`pathToLeaf: parent ${current} names no tree occurrence`);
     }
-    const entry = entryOf.get(current.uuid);
+    const ref = parseTreeNodeRef(current);
+    const entry = entryOf.get(ref.uuid);
     if (entry === undefined) {
-      throw new Error(`pathToLeaf: no entry for uuid ${current.uuid}`);
+      throw new Error(`pathToLeaf: no entry for uuid ${ref.uuid}`);
     }
-    path.push({ ref: node.ref, entry });
-    current = node.parent;
+    path.push({ ref, entry });
+    current = parent;
   }
   path.reverse();
   return path;
 }
 
-/** Children per parent key (formatTreeNodeRef), roots under null.
- *  Materialization order. Derived by inverting `tree`. */
-export function treeChildren(tree: Tree): Map<string | null, TreeNodeRef[]> {
-  const children = new Map<string | null, TreeNodeRef[]>();
-  for (const node of tree.values()) {
-    const parentKey =
-      node.parent === null ? null : formatTreeNodeRef(node.parent);
-    const siblings = children.get(parentKey);
+/** Child occurrence ids per parent id, roots under null. Materialization
+ *  order. Derived by inverting `parents`. */
+export function treeChildren(parents: ParentMap): Map<string | null, string[]> {
+  const children = new Map<string | null, string[]>();
+  for (const [id, parent] of parents) {
+    const siblings = children.get(parent);
     if (siblings === undefined) {
-      children.set(parentKey, [node.ref]);
+      children.set(parent, [id]);
     } else {
-      siblings.push(node.ref);
+      siblings.push(id);
     }
   }
   return children;
@@ -160,11 +154,11 @@ function apiMessageIdOf(entry: SessionEntry | undefined): string | undefined {
  *  (shares message.id) — the entry is a valid rewindTo target. False for
  *  non-assistant entries. */
 export function isFinalAssistantEntry(
-  ref: TreeNodeRef,
-  children: ReadonlyMap<string | null, readonly TreeNodeRef[]>,
+  id: string,
+  children: ReadonlyMap<string | null, readonly string[]>,
   entryOf: ReadonlyMap<UUID, SessionEntry>,
 ): boolean {
-  const entry = entryOf.get(ref.uuid);
+  const entry = entryOf.get(parseTreeNodeRef(id).uuid);
   if (entry?.type !== "assistant") {
     return false;
   }
@@ -172,8 +166,10 @@ export function isFinalAssistantEntry(
   if (apiMessageId === undefined) {
     return true;
   }
-  const childRefs = children.get(formatTreeNodeRef(ref)) ?? [];
-  return !childRefs.some(
-    (child) => apiMessageIdOf(entryOf.get(child.uuid)) === apiMessageId,
+  const childIds = children.get(id) ?? [];
+  return !childIds.some(
+    (child) =>
+      apiMessageIdOf(entryOf.get(parseTreeNodeRef(child).uuid)) ===
+      apiMessageId,
   );
 }

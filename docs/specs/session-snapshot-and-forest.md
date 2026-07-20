@@ -325,9 +325,9 @@ use it.)
       (build-tree.ts reworked in place); `pathToLeaf`, `treeChildren`,
       `isFinalAssistantEntry`; delete the nested `TreeNode`, `SessionTree`;
       port tests.
-- [ ] Review round 2: `ParentMap` (`ReadonlyMap<string, string | null>`)
-      replaces the `TreeNode`-valued map — type design above already
-      updated; implementation pending.
+- [x] Review round 2: `ParentMap` (`ReadonlyMap<string, string | null>`)
+      replaces the `TreeNode`-valued map — implemented across core, format,
+      TUI, and tests.
 - [x] session-file.ts: `entriesByUuid` + tests (covered via tree.test.ts /
       tree.test.ts fixtures).
 - [x] Daemon: get-entries → SessionSnapshot (leaf computation moved from the

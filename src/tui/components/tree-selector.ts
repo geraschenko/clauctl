@@ -14,7 +14,7 @@ import {
   formatTreeNodeRef,
   parseTreeNodeRef,
   pathToLeaf,
-  type Tree,
+  type ParentMap,
   type TreeNodeRef,
 } from "../../core/tree.ts";
 import { extractTextContent } from "../../format/generated/text.ts";
@@ -50,11 +50,11 @@ export type TreePickAction =
  * (reachable via the current-leaf filter exemption) omits editorText.
  */
 export function resolveTreePick(
-  tree: Tree,
+  parents: ParentMap,
   entryOf: ReadonlyMap<UUID, SessionEntry>,
   pick: TreeNodeRef,
 ): TreePickAction {
-  const path = pathToLeaf(tree, entryOf, pick);
+  const path = pathToLeaf(parents, entryOf, pick);
   const picked = path.at(-1);
   if (picked?.entry.type === "assistant") {
     return { kind: "rewind", rewindTo: pick };
@@ -97,7 +97,7 @@ export class TreeSelectorComponent extends Container implements Focusable {
   private readonly finalIds: ReadonlySet<string>;
   /** Full-tree parent relation (layout ids), for nearest-visible-ancestor
    *  selection recovery when search hides the selected row. */
-  private readonly parentById = new Map<string, string | null>();
+  private readonly parents: ParentMap;
   private readonly onSelect: (pick: TreeNodeRef) => void;
   private readonly onCancel: () => void;
 
@@ -109,24 +109,23 @@ export class TreeSelectorComponent extends Container implements Focusable {
 
   constructor(
     leaf: TreeNodeRef | null,
-    tree: Tree,
+    parents: ParentMap,
     entryOf: ReadonlyMap<UUID, SessionEntry>,
     onSelect: (pick: TreeNodeRef) => void,
     onCancel: () => void,
   ) {
     super();
-    this.roots = toLayoutTree(tree, entryOf);
+    this.roots = toLayoutTree(parents, entryOf);
     this.currentLeafId = leaf === null ? null : formatTreeNodeRef(leaf);
     this.toolNames = collectToolNames([...entryOf.values()]);
-    this.finalIds = collectFinalAssistantIds(tree, treeChildren(tree), entryOf);
+    this.finalIds = collectFinalAssistantIds(
+      parents,
+      treeChildren(parents),
+      entryOf,
+    );
     this.onSelect = onSelect;
     this.onCancel = onCancel;
-    for (const [key, node] of tree) {
-      this.parentById.set(
-        key,
-        node.parent === null ? null : formatTreeNodeRef(node.parent),
-      );
-    }
+    this.parents = parents;
     this.lastSelectedId = this.currentLeafId;
     this.applyFilter();
   }
@@ -193,7 +192,7 @@ export class TreeSelectorComponent extends Container implements Focusable {
       if (index !== undefined) {
         return index;
       }
-      currentId = this.parentById.get(currentId) ?? null;
+      currentId = this.parents.get(currentId) ?? null;
     }
     return Math.min(
       this.selectedIndex,

@@ -45,7 +45,7 @@ import {
 } from "../core/session-file.ts";
 import {
   pathToLeaf,
-  type Tree,
+  type ParentMap,
   type PathNode,
   type SessionSnapshot,
   type TreeNodeRef,
@@ -332,10 +332,10 @@ class InteractiveMode {
       const data = await this.client.request({ type: "get-entries" });
       const snapshot = data as SessionSnapshot;
       const entryOf = entriesByUuid(snapshot.entries);
-      const tree = buildTree(snapshot.entries, (message) =>
+      const parents = buildTree(snapshot.entries, (message) =>
         this.addBanner(message),
       );
-      const path = pathToLeaf(tree, entryOf, snapshot.leaf);
+      const path = pathToLeaf(parents, entryOf, snapshot.leaf);
       const { nodes, boundaryMissing } = pathUpToBoundary(
         path,
         this.agentState.leaf,
@@ -580,14 +580,14 @@ class InteractiveMode {
       .then((data) => {
         const snapshot = data as SessionSnapshot;
         const entryOf = entriesByUuid(snapshot.entries);
-        const tree = buildTree(snapshot.entries, (message) =>
+        const parents = buildTree(snapshot.entries, (message) =>
           this.addBanner(message),
         );
         const selector = new TreeSelectorComponent(
           snapshot.leaf,
-          tree,
+          parents,
           entryOf,
-          (pick) => this.confirmTreePick(tree, entryOf, pick),
+          (pick) => this.confirmTreePick(parents, entryOf, pick),
           () => this.closeTreeSelector(),
         );
         this.treeSelectorPending = false;
@@ -605,7 +605,7 @@ class InteractiveMode {
 
   /** The selector stays dumb; the busy gate and the request live here. */
   private confirmTreePick(
-    tree: Tree,
+    parents: ParentMap,
     entryOf: ReadonlyMap<UUID, SessionEntry>,
     pick: TreeNodeRef,
   ): void {
@@ -616,7 +616,7 @@ class InteractiveMode {
       this.ui.requestRender();
       return;
     }
-    const action = resolveTreePick(tree, entryOf, pick);
+    const action = resolveTreePick(parents, entryOf, pick);
     this.closeTreeSelector();
     const request =
       action.kind === "rewind"
