@@ -1,0 +1,1 @@
+Let's not display the perserved messages on compact boundaries in either the tree or conversation history. For the tree, we can have a --filter mode that includes them, but somehow indicates that they are relinked messages (e.g. a prefix like "~").
