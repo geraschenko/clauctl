@@ -176,11 +176,22 @@ async function daemon(this: CommandContext, flags: DaemonFlags): Promise<void> {
     childEnv(record.persistedOptions.env, agentId).CLAUDE_CONFIG_DIR ??
     join(homedir(), ".claude");
 
+  // Also feeds the AgentState seed below. Resolved before buildOptions
+  // because the settings-cascade permissionMode must reach the child
+  // explicitly: SDK 0.3.211's query() defaults an unset permissionMode to
+  // "default" and always passes --permission-mode to the CLI, so the
+  // cascade's permissions.defaultMode never takes effect on its own.
+  const settings = await settingsSeed(record.persistedOptions, record.cwd);
+
   const buildOptions = (
     resume: string | undefined,
     resumeSessionAt?: string,
   ): Options => ({
     ...record.persistedOptions,
+    ...(record.persistedOptions.permissionMode === undefined &&
+      settings.permissionMode !== undefined && {
+        permissionMode: settings.permissionMode,
+      }),
     ...invariantOptions(),
     cwd: record.cwd,
     env: childEnv(record.persistedOptions.env, agentId),
@@ -226,7 +237,6 @@ async function daemon(this: CommandContext, flags: DaemonFlags): Promise<void> {
       : undefined;
   const fileSeed =
     startupEntries !== undefined ? seedFromEntries(startupEntries, log) : {};
-  const settings = await settingsSeed(record.persistedOptions, record.cwd);
   const events = new EventHub({
     seed: {
       ...INITIAL_AGENT_STATE,

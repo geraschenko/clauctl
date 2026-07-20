@@ -712,8 +712,9 @@ class InteractiveMode {
     const cycle: PermissionMode[] = [];
     for (const mode of [
       "default" as const,
-      "acceptEdits" as const,
       "plan" as const,
+      "acceptEdits" as const,
+      "auto" as const,
       ...this.agentState.observedPermissionModes,
     ]) {
       if (!cycle.includes(mode)) {
