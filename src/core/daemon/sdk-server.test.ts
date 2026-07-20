@@ -24,7 +24,7 @@ test("respond survives an unserializable payload and the daemon keeps serving", 
         /response serialization failed/,
       );
       // The failure was per-response: the connection and server still work.
-      assert.equal(await client.request({ type: "wait-idle" }), "ok");
+      assert.equal(await client.request({ type: "get-messages" }), "ok");
     } finally {
       client.close();
     }
