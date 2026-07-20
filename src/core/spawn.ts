@@ -9,14 +9,16 @@ import { closeSync, openSync } from "node:fs";
 import { mkdir } from "node:fs/promises";
 import { resolve } from "node:path";
 import type { Readable } from "node:stream";
+import { attach } from "./generated/attach.ts";
 import {
+  booleanFlag,
   commandNoTarget,
   recordCommandAudit,
   restArgs,
   stringFlag,
   type InferFlags,
 } from "./generated/cli.ts";
-import { type CommandContext } from "./generated/targets.ts";
+import { resolveTargets, type CommandContext } from "./generated/targets.ts";
 import { mainEntryPath } from "./main-entry-path.ts";
 import { parseClaudeFlags } from "./options.ts";
 import {
@@ -101,6 +103,7 @@ const spawnFlags = {
   cwd: stringFlag("Working directory", "path"),
   id: stringFlag("Agent id", "uuid"),
   tag: stringFlag("Agent label", "str"),
+  attach: booleanFlag("Attach this terminal to the agent after spawning"),
 };
 
 type SpawnFlags = InferFlags<typeof spawnFlags>;
@@ -146,6 +149,14 @@ export async function spawn(
   // On failure the dir is left in place so daemon.log can be inspected;
   // `clauctl gc` removes dirs that never got an agent.json.
   await launchDaemon(agentId);
+
+  if (flags.attach) {
+    // attach reads its target from this.targets and takes over the terminal
+    // (exiting via process.exit), so it never returns here.
+    this.targets = await resolveTargets([agentId]);
+    await attach.call(this);
+    return;
+  }
   this.process.stdout.write(`${agentId}\n`);
 }
 
@@ -154,11 +165,12 @@ const spawnCommand = commandNoTarget<SpawnFlags, string[]>({
   docs: {
     brief: "start an agent, print its id",
     customUsage: [
-      "[--cwd <dir>] [--id <id>] [--tag <label>] [-- <claude flags...>]",
+      "[--cwd <dir>] [--id <id>] [--tag <label>] [-a] [-- <claude flags...>]",
     ],
   },
   parameters: {
     flags: spawnFlags,
+    aliases: { a: "attach" },
     positional: restArgs("claude-style flags (see spec)", "claude-flags"),
   },
   func: spawn,
