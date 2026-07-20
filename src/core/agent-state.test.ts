@@ -299,6 +299,33 @@ test("system/init sets sessionId, model, cwd, and observes the mode", () => {
   assert.deepEqual(state.observedPermissionModes, ["default"]);
 });
 
+// A resumed session can fork: init announces a new session id whose file
+// never contains the leaf seeded from the resumed file. The leaf must always
+// belong to sessionId's file, so an id change drops it.
+test("system/init announcing a different session id drops the leaf", () => {
+  const seeded: AgentState = {
+    ...INITIAL_AGENT_STATE,
+    sessionId: "resumed-session",
+    leafTreeNodeRef: { uuid: "00000000-0000-0000-0000-00000000000a" },
+  };
+  const state = nextAgentState(seeded, init({ session_id: "forked-session" }));
+  assert.equal(state.sessionId, "forked-session");
+  assert.equal(state.leafTreeNodeRef, undefined);
+});
+
+test("system/init announcing the same session id preserves the leaf", () => {
+  const seeded: AgentState = {
+    ...INITIAL_AGENT_STATE,
+    sessionId: "sess-1",
+    leafTreeNodeRef: { uuid: "00000000-0000-0000-0000-00000000000a" },
+  };
+  const state = nextAgentState(seeded, init());
+  assert.equal(state.sessionId, "sess-1");
+  assert.deepEqual(state.leafTreeNodeRef, {
+    uuid: "00000000-0000-0000-0000-00000000000a",
+  });
+});
+
 test("system/status with a permissionMode observes it; without one, no change", () => {
   const state = run([
     init(),

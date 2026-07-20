@@ -436,16 +436,15 @@ test("get-tree leaf reflects a no-write rewind's filterTail override", async () 
   assert.deepEqual(tree.leaf, { uuid: a1.uuid });
 });
 
-test("get-entries and get-tree error without a session", async () => {
+test("get-entries and get-tree return empty results without a session", async () => {
   const f = fixture({ withSession: false });
-  await assert.rejects(
-    f.handle({ type: "get-entries", id: "e1" }),
-    /no session yet/,
-  );
-  await assert.rejects(
-    f.handle({ type: "get-tree", id: "t1" }),
-    /no session yet/,
-  );
+  const entries = (await f.handle({
+    type: "get-entries",
+    id: "e1",
+  })) as SessionEntry[];
+  assert.deepEqual(entries, []);
+  const tree = (await f.handle({ type: "get-tree", id: "t1" })) as SessionTree;
+  assert.deepEqual(tree, { tree: [], leaf: null });
 });
 
 // --- set-context validation ------------------------------------------------

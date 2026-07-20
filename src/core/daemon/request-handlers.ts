@@ -310,9 +310,16 @@ export function createRequestHandler(
       case "get-tree": {
         const release = await gate.awaitShared();
         try {
+          // Valid before the first init because the hub is seeded (on
+          // revival, with the last recorded session); a truly fresh agent has
+          // no history, so empty results — matching get-messages' [].
           const sessionId = events.agentState.sessionId;
           if (sessionId === undefined) {
-            throw new Error(`${request.type}: no session yet`);
+            if (request.type === "get-entries") {
+              return [];
+            }
+            const empty: SessionTree = { tree: [], leaf: null };
+            return empty;
           }
           // Waiting on the last stream-reported leaf gives read consistency
           // across the CLI's flush lag; a relinked leaf's newest on-disk

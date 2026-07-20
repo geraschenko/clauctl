@@ -258,6 +258,19 @@ export function nextAgentState(state: AgentState, event: SdkEvent): AgentState {
         return { ...withoutOldContext, deliveredMessages: [] };
       }
       if (message.type === "system" && message.subtype === "init") {
+        // The leaf must belong to the announced session's file: history reads
+        // gate on the leaf uuid appearing in that file, and a resumed session
+        // can fork — init then announces a new id whose file never contains
+        // the leaf seeded from the resumed file. Drop the leaf on an id
+        // change; stream messages repopulate it. (conversation_reset enforces
+        // the same coupling by clearing both.)
+        if (
+          next.leafTreeNodeRef !== undefined &&
+          next.sessionId !== message.session_id
+        ) {
+          const { leafTreeNodeRef: _leafTreeNodeRef, ...withoutLeaf } = next;
+          next = withoutLeaf;
+        }
         return withObservedPermissionMode(
           {
             ...next,
