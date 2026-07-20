@@ -59,21 +59,21 @@ function summaryEntry(
 }
 
 /** Root occurrences, materialization order. */
-function rootsOf(parents: ParentMap): TreeNodeRef[] {
-  return (treeChildren(parents).get(null) ?? []).map(parseTreeNodeRef);
+function rootsOf(parentMap: ParentMap): TreeNodeRef[] {
+  return (treeChildren(parentMap).get(null) ?? []).map(parseTreeNodeRef);
 }
 
 /** Child refs of an occurrence, materialization order. */
-function childrenOf(parents: ParentMap, ref: TreeNodeRef): TreeNodeRef[] {
-  return (treeChildren(parents).get(formatTreeNodeRef(ref)) ?? []).map(
+function childrenOf(parentMap: ParentMap, ref: TreeNodeRef): TreeNodeRef[] {
+  return (treeChildren(parentMap).get(formatTreeNodeRef(ref)) ?? []).map(
     parseTreeNodeRef,
   );
 }
 
 /** Flattens a branchless (sub)tree into its single root → leaf ref path,
  *  asserting every occurrence has at most one child. */
-function pathOf(parents: ParentMap, from?: TreeNodeRef): TreeNodeRef[] {
-  const children = treeChildren(parents);
+function pathOf(parentMap: ParentMap, from?: TreeNodeRef): TreeNodeRef[] {
+  const children = treeChildren(parentMap);
   const path: TreeNodeRef[] = [];
   let level =
     from === undefined ? (children.get(null) ?? []) : [formatTreeNodeRef(from)];

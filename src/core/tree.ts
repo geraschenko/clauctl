@@ -98,11 +98,11 @@ export function treeNodeRefsEqual(
  *  corruption, impossible from buildTree + entriesByUuid over the same
  *  entries. */
 export function pathToLeaf(
-  parents: ParentMap,
+  parentMap: ParentMap,
   entryOf: ReadonlyMap<UUID, SessionEntry>,
   leaf: TreeNodeRef | null,
 ): PathNode[] {
-  if (leaf === null || !parents.has(formatTreeNodeRef(leaf))) {
+  if (leaf === null || !parentMap.has(formatTreeNodeRef(leaf))) {
     return [];
   }
   const path: PathNode[] = [];
@@ -115,7 +115,7 @@ export function pathToLeaf(
     seen.add(current);
     // A recorded parent always names a tree occurrence (buildTree falls
     // back to root otherwise), so mid-walk absence is corruption.
-    const parent: string | null | undefined = parents.get(current);
+    const parent: string | null | undefined = parentMap.get(current);
     if (parent === undefined) {
       throw new Error(`pathToLeaf: parent ${current} names no tree occurrence`);
     }
@@ -132,10 +132,12 @@ export function pathToLeaf(
 }
 
 /** Child occurrence ids per parent id, roots under null. Materialization
- *  order. Derived by inverting `parents`. */
-export function treeChildren(parents: ParentMap): Map<string | null, string[]> {
+ *  order. Derived by inverting `parentMap`. */
+export function treeChildren(
+  parentMap: ParentMap,
+): Map<string | null, string[]> {
   const children = new Map<string | null, string[]>();
-  for (const [id, parent] of parents) {
+  for (const [id, parent] of parentMap) {
     const siblings = children.get(parent);
     if (siblings === undefined) {
       children.set(parent, [id]);

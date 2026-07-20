@@ -50,11 +50,11 @@ export type TreePickAction =
  * (reachable via the current-leaf filter exemption) omits editorText.
  */
 export function resolveTreePick(
-  parents: ParentMap,
+  parentMap: ParentMap,
   entryOf: ReadonlyMap<UUID, SessionEntry>,
   pick: TreeNodeRef,
 ): TreePickAction {
-  const path = pathToLeaf(parents, entryOf, pick);
+  const path = pathToLeaf(parentMap, entryOf, pick);
   const picked = path.at(-1);
   if (picked?.entry.type === "assistant") {
     return { kind: "rewind", rewindTo: pick };
@@ -97,7 +97,7 @@ export class TreeSelectorComponent extends Container implements Focusable {
   private readonly finalIds: ReadonlySet<string>;
   /** Full-tree parent relation (layout ids), for nearest-visible-ancestor
    *  selection recovery when search hides the selected row. */
-  private readonly parents: ParentMap;
+  private readonly parentMap: ParentMap;
   private readonly onSelect: (pick: TreeNodeRef) => void;
   private readonly onCancel: () => void;
 
@@ -109,23 +109,23 @@ export class TreeSelectorComponent extends Container implements Focusable {
 
   constructor(
     leaf: TreeNodeRef | null,
-    parents: ParentMap,
+    parentMap: ParentMap,
     entryOf: ReadonlyMap<UUID, SessionEntry>,
     onSelect: (pick: TreeNodeRef) => void,
     onCancel: () => void,
   ) {
     super();
-    this.roots = toLayoutTree(parents, entryOf);
+    this.roots = toLayoutTree(parentMap, entryOf);
     this.currentLeafId = leaf === null ? null : formatTreeNodeRef(leaf);
     this.toolNames = collectToolNames([...entryOf.values()]);
     this.finalIds = collectFinalAssistantIds(
-      parents,
-      treeChildren(parents),
+      parentMap,
+      treeChildren(parentMap),
       entryOf,
     );
     this.onSelect = onSelect;
     this.onCancel = onCancel;
-    this.parents = parents;
+    this.parentMap = parentMap;
     this.lastSelectedId = this.currentLeafId;
     this.applyFilter();
   }
@@ -192,7 +192,7 @@ export class TreeSelectorComponent extends Container implements Focusable {
       if (index !== undefined) {
         return index;
       }
-      currentId = this.parents.get(currentId) ?? null;
+      currentId = this.parentMap.get(currentId) ?? null;
     }
     return Math.min(
       this.selectedIndex,

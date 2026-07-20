@@ -71,7 +71,7 @@ const ENTRY_OF = entriesByUuid([
   boundaryEntry(5),
   summaryEntry(6, "summary text", BOUNDARY),
 ]);
-const PARENTS: ParentMap = new Map(
+const PARENT_MAP: ParentMap = new Map(
   (
     [
       [ref(1), null],
@@ -91,14 +91,14 @@ const PARENTS: ParentMap = new Map(
 const LEAF: TreeNodeRef = { uuid: uuid(3), viaBoundary: BOUNDARY };
 
 test("resolveTreePick: assistant pick rewinds to itself", () => {
-  assert.deepEqual(resolveTreePick(PARENTS, ENTRY_OF, { uuid: uuid(4) }), {
+  assert.deepEqual(resolveTreePick(PARENT_MAP, ENTRY_OF, { uuid: uuid(4) }), {
     kind: "rewind",
     rewindTo: { uuid: uuid(4) },
   });
 });
 
 test("resolveTreePick: user pick rewinds to its assistant with editorText", () => {
-  assert.deepEqual(resolveTreePick(PARENTS, ENTRY_OF, { uuid: uuid(3) }), {
+  assert.deepEqual(resolveTreePick(PARENT_MAP, ENTRY_OF, { uuid: uuid(3) }), {
     kind: "rewind",
     rewindTo: { uuid: uuid(2) },
     editorText: "second question",
@@ -107,7 +107,7 @@ test("resolveTreePick: user pick rewinds to its assistant with editorText", () =
 
 test("resolveTreePick: a viaBoundary user pick's ancestor keeps its occurrence", () => {
   assert.deepEqual(
-    resolveTreePick(PARENTS, ENTRY_OF, {
+    resolveTreePick(PARENT_MAP, ENTRY_OF, {
       uuid: uuid(3),
       viaBoundary: BOUNDARY,
     }),
@@ -120,14 +120,14 @@ test("resolveTreePick: a viaBoundary user pick's ancestor keeps its occurrence",
 });
 
 test("resolveTreePick: boundary pick rewinds to the pre-boundary assistant, no editorText", () => {
-  assert.deepEqual(resolveTreePick(PARENTS, ENTRY_OF, { uuid: uuid(5) }), {
+  assert.deepEqual(resolveTreePick(PARENT_MAP, ENTRY_OF, { uuid: uuid(5) }), {
     kind: "rewind",
     rewindTo: { uuid: uuid(4) },
   });
 });
 
 test("resolveTreePick: a summary pick crosses its boundary to the assistant before it", () => {
-  assert.deepEqual(resolveTreePick(PARENTS, ENTRY_OF, { uuid: uuid(6) }), {
+  assert.deepEqual(resolveTreePick(PARENT_MAP, ENTRY_OF, { uuid: uuid(6) }), {
     kind: "rewind",
     rewindTo: { uuid: uuid(4) },
     editorText: "summary text",
@@ -135,7 +135,7 @@ test("resolveTreePick: a summary pick crosses its boundary to the assistant befo
 });
 
 test("resolveTreePick: no assistant ancestor is a newRoot pick", () => {
-  assert.deepEqual(resolveTreePick(PARENTS, ENTRY_OF, { uuid: uuid(1) }), {
+  assert.deepEqual(resolveTreePick(PARENT_MAP, ENTRY_OF, { uuid: uuid(1) }), {
     kind: "newRoot",
     editorText: "hello world",
   });
@@ -180,7 +180,7 @@ function makeSelector(): {
   const cancels: number[] = [];
   const selector = new TreeSelectorComponent(
     LEAF,
-    PARENTS,
+    PARENT_MAP,
     ENTRY_OF,
     (pick) => picks.push(pick),
     () => cancels.push(1),

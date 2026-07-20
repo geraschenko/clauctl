@@ -48,14 +48,14 @@ export function buildTree(
   onInvalid: OnInvalid,
 ): ParentMap {
   const byUuid = entriesByUuid(entries);
-  const parents = new Map<string, string | null>();
+  const parentMap = new Map<string, string | null>();
   /** The current occurrence id for each uuid; a processed relink
    *  overwrites. */
   const occurrenceOf = new Map<UUID, string>();
 
   const attach = (ref: TreeNodeRef, parentUuid: UUID | undefined): void => {
     const key = formatTreeNodeRef(ref);
-    if (parents.has(key)) {
+    if (parentMap.has(key)) {
       throw new Error(
         `duplicate occurrence ${key} — the session file is corrupt`,
       );
@@ -64,7 +64,7 @@ export function buildTree(
     // which append order rules out) falls back to a root.
     const parent =
       parentUuid === undefined ? undefined : occurrenceOf.get(parentUuid);
-    parents.set(key, parent ?? null);
+    parentMap.set(key, parent ?? null);
     occurrenceOf.set(ref.uuid, key);
   };
 
@@ -132,5 +132,5 @@ export function buildTree(
     }
     emitSubstructure(boundaryUuid, relink);
   }
-  return parents;
+  return parentMap;
 }

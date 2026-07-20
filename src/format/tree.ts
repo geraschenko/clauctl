@@ -220,14 +220,14 @@ export function entrySummary(
 /**
  * Iterative adapter to the layout's nested in-memory input. Layout ids ARE
  * the parent-map keys (formatTreeNodeRef output), so a consumer recovers a
- * picked occurrence with parseTreeNodeRef(id). Two passes over `parents` —
+ * picked occurrence with parseTreeNodeRef(id). Two passes over `parentMap` —
  * create all shells, then link each into its parent's children array or the
  * roots list — so the adapter needs no parent-precedes-child ordering
  * assumption; parent-map iteration order keeps children in materialization
  * order, matching the nested construction it replaces.
  */
 export function toLayoutTree(
-  parents: ParentMap,
+  parentMap: ParentMap,
   entryOf: ReadonlyMap<UUID, SessionEntry>,
 ): LayoutNode<SessionEntry>[] {
   interface MutableLayoutNode {
@@ -236,7 +236,7 @@ export function toLayoutTree(
     payload: SessionEntry;
   }
   const shells = new Map<string, MutableLayoutNode>();
-  for (const id of parents.keys()) {
+  for (const id of parentMap.keys()) {
     // buildTree over the same entries guarantees the entry exists.
     shells.set(id, {
       id,
@@ -245,7 +245,7 @@ export function toLayoutTree(
     });
   }
   const roots: MutableLayoutNode[] = [];
-  for (const [id, parent] of parents) {
+  for (const [id, parent] of parentMap) {
     const shell = shells.get(id)!;
     if (parent === null) {
       roots.push(shell);
@@ -259,12 +259,12 @@ export function toLayoutTree(
 /** Layout ids of the occurrences that are final assistant entries — the
  *  per-tree input `passesFilter`'s "picker" mode needs. */
 export function collectFinalAssistantIds(
-  parents: ParentMap,
+  parentMap: ParentMap,
   children: ReadonlyMap<string | null, readonly string[]>,
   entryOf: ReadonlyMap<UUID, SessionEntry>,
 ): Set<string> {
   const finalIds = new Set<string>();
-  for (const id of parents.keys()) {
+  for (const id of parentMap.keys()) {
     if (isFinalAssistantEntry(id, children, entryOf)) {
       finalIds.add(id);
     }
@@ -308,17 +308,17 @@ export function formatSessionSnapshot(
   options: TreeFormatOptions,
 ): string {
   const entryOf = entriesByUuid(snapshot.entries);
-  const parents = buildTree(snapshot.entries, () => {});
+  const parentMap = buildTree(snapshot.entries, () => {});
   const toolNames = collectToolNames(snapshot.entries);
   const finalIds = collectFinalAssistantIds(
-    parents,
-    treeChildren(parents),
+    parentMap,
+    treeChildren(parentMap),
     entryOf,
   );
   const currentLeafId =
     snapshot.leaf === null ? null : formatTreeNodeRef(snapshot.leaf);
   const lines = flattenVisibleTree(
-    toLayoutTree(parents, entryOf),
+    toLayoutTree(parentMap, entryOf),
     currentLeafId,
     (node) =>
       passesFilter(
