@@ -84,7 +84,10 @@ export interface PathNode {
 }
 
 /** Root-first path to the leaf occurrence; [] when leaf is null or absent.
- *  Iterative parent walk (calls nothing per node). */
+ *  Iterative parent walk (no recursion); throws on a parent cycle (visited
+ *  set) or an occurrence whose uuid is missing from entryOf — both are
+ *  corruption, impossible from buildForest + entriesByUuid over the same
+ *  entries. */
 export function pathToLeaf(
   forest: Forest,
   entryOf: ReadonlyMap<UUID, SessionEntry>,
@@ -120,6 +123,9 @@ export function buildForest(
 
 ```ts
 // session-file.ts — addition
+/** Last entry wins on a duplicate uuid; duplicate *detection* is
+ *  buildForest's job (it throws), and consumers build the forest from the
+ *  same entries before using this lookup. */
 export function entriesByUuid(
   entries: readonly SessionEntry[],
 ): Map<UUID, SessionEntry>;
@@ -138,7 +144,15 @@ export function entriesByUuid(
 ```ts
 // sdk-server.ts — respond() wraps JSON.stringify; on failure it writes
 // { id, ok: false, error: "response serialization failed: …" } instead of
-// crashing the daemon.
+// crashing the daemon. The fallback embeds only String(error) — no part of
+// the original response data — so it cannot itself fail to serialize.
+```
+
+```ts
+// sdk-commands.ts — the `get-tree` command is deleted. `get-entries`
+// switches from jsonlRequestCommand (iterates the response as an array —
+// would break on an object) to bareRequestCommand, printing the snapshot
+// as one JSON document; its brief is updated.
 ```
 
 ```ts
@@ -170,11 +184,22 @@ export function formatSessionSnapshot(
 
 ```ts
 // format/input.ts
-/** Replaces parseSessionTree. Accepts: (1) one JSON document with an
- *  `entries` array and a null-or-ref `leaf`; (2) raw session-entry JSONL,
- *  leaf derived via the seedFromEntries chain logic. Tail-shaped input →
- *  cross-pointing UsageError. Anything else (including old get-tree
- *  documents) → generic "not a session snapshot" UsageError. */
+/** Replaces parseSessionTree. Accepts:
+ *  (1) one JSON document with an `entries` array and a `leaf` that is null
+ *      or `{uuid: string, viaBoundary?: string}` (same leniency as the old
+ *      parseSessionTree: entry elements are validated by the same rule
+ *      parseSessionEntries uses — records with a string `type`; uuids are
+ *      not syntax-checked; a missing `leaf` property is a UsageError);
+ *  (2) raw session-entry JSONL via parseSessionEntries, leaf derived via
+ *      the seedFromEntries chain logic (deliberately: the last
+ *      user/assistant occurrence, which can differ from the daemon's
+ *      chain-tip leaf when a chain ends in a non-conversational entry —
+ *      for file rendering the conversational cursor is the useful one).
+ *  Tail-shaped input → cross-pointing UsageError. Anything else (including
+ *  old get-tree documents) → generic "not a session snapshot" UsageError.
+ *  Forest-level corruption (duplicate occurrence keys) is NOT the parser's
+ *  job: buildForest throws later, and format commands let that error
+ *  surface loudly. */
 export function parseSessionSnapshot(input: string): SessionSnapshot;
 ```
 
@@ -204,7 +229,7 @@ export function resolveTreePick(
 ```
 
 **Renames**: `AgentState.leafTreeNodeRef` → `leaf`;
-`StartupSeed.leafTreeNodeRef` → `leaf`. ("Leaf" is strictly inaccurate — the
+`SessionFileSeed.leafTreeNodeRef` → `leaf`. ("Leaf" is strictly inaccurate — the
 tip need not be a tree leaf — but communicates the meaning: where the next
 message attaches. `contextChanged.leaf` and `SessionSnapshot.leaf` already
 use it.)
@@ -254,22 +279,23 @@ use it.)
   The transcript never needed it — `pathToLeaf` stops at the leaf by
   definition, and `pathUpToBoundary` already cuts at the client's fold leaf
   (with a structural carve-out: viaBoundary occurrences, boundaries,
-  summaries always replay since they never stream). The only consumer that
-  sees post-leaf entries is `/tree`, where showing them is the point:
+  summaries always replay since they never stream). The only user-facing
+  surface that exposes post-leaf entries is tree rendering (`/tree`, `format
+  tree`), where showing them is the point:
   navigating back with a no-write rewind and then forward again requires
   the abandoned tail in the snapshot. Hence verbatim entries + the
   override-aware leaf computation carried over from get-tree.
 - **No path consumer uses `children`** (`appendPathNode`, `resolveTreePick`,
-  `pathUpToBoundary` read only entry + viaBoundary) — hence `PathNode`.
+  `pathUpToBoundary` read only entry + `ref.viaBoundary`) — hence `PathNode`.
 - **`buildForest`**: keep the existing relink algorithm (pendingRelink
   deferral, uuid → node map overwriting); the internal map value becomes the
   occurrence's `ForestNode` instead of a nested node; `attach` records
   `parent` instead of pushing into `children`.
-- **`toLayoutForest`**: one pass over `forest` in iteration order, creating
-  `{id, children: [], payload}` shells and pushing each into its parent's
-  (mutable) children array or the roots list; structural typing satisfies
-  the readonly `LayoutNode` interface. Parent shells always precede children
-  (materialization order is topological).
+- **`toLayoutForest`**: two passes over `forest` — create all
+  `{id, children: [], payload}` shells first, then link each into its
+  parent's (mutable) children array or the roots list. Two passes make the
+  adapter independent of any parent-precedes-child ordering assumption;
+  structural typing satisfies the readonly `LayoutNode` interface.
 - **`tree-selector` parentById**: derivable directly from `forest`
   (key → parent key) — the recursive layout walk in the constructor dies.
 - **`format messages` cross-pointing**: snapshot-shaped input (an object
@@ -299,7 +325,9 @@ use it.)
       get-tree case); delete get-tree handler/wire type/command; respond()
       hardening; tests.
 - [ ] Renames: `AgentState.leafTreeNodeRef` → `leaf`,
-      `StartupSeed.leafTreeNodeRef` → `leaf`.
+      `SessionFileSeed.leafTreeNodeRef` → `leaf`.
+- [ ] CLI: delete `get-tree` command; `get-entries` → bareRequestCommand
+      (one JSON document) + brief.
 - [ ] Format: `toLayoutForest`, `collectToolNames(entries)`,
       `collectFinalAssistantIds`, `formatSessionSnapshot`,
       `parseSessionSnapshot` (envelope + raw JSONL); command wiring; tests.
