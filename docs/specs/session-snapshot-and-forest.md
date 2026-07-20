@@ -15,24 +15,16 @@ attaching to a long session (observed: 5213 entries) **crashes the daemon**
 representation is a tripping hazard with no information advantage: the forest
 is a pure function of the flat entries.
 
-Additionally, `get-tree`'s `leaf` is computed from the file's effective chain,
-while the attach protocol treats the SDK event stream as authoritative — a
-file that is *ahead* of the stream can produce a snapshot the subscriber's
-fold has not confirmed.
-
 ## What we want
 
 1. **No nested structures on the wire.** `get-tree` is removed entirely
    (wire type, daemon handler, `clauctl get-tree` command, `parseSessionTree`).
    Clients build the forest locally from flat entries via shared code.
-2. **`get-entries` returns a `SessionSnapshot`** — the entries plus the
-   daemon's context tip:
-   - The SDK stream is authoritative: entries are **truncated at the state
-     leaf's on-disk witness** (definition below), so the snapshot contains
-     nothing the subscriber's event stream has not confirmed.
-   - `leaf` is the state leaf resolved to its occurrence: the effective-chain
-     tip of the *truncated* entries. By construction it names an occurrence
-     present in `entries`.
+2. **`get-entries` returns a `SessionSnapshot`** — every file entry verbatim
+   plus the daemon's context tip: `leaf` is the effective-chain tip minus a
+   live filterTail override's dropped uuids — exactly `get-tree`'s leaf
+   computation today. It names an occurrence present in `entries`, resolved
+   to the correct tree copy (raw or viaBoundary).
 3. **The forest is represented flat**: a parent relation over occurrences
    (`Forest`), not a recursive node type. `TreeNode` and `SessionTree` are
    deleted. All traversals over session-length data are iterative.
@@ -59,13 +51,6 @@ fold has not confirmed.
 
 - **State leaf**: `AgentState.leaf` (renamed from `leafTreeNodeRef`) — the
   attach boundary tracked by the fold.
-- **Leaf witness**: the last file entry required to materialize the leaf
-  occurrence. Raw ref `{uuid}`: the entry with that uuid. ViaBoundary ref:
-  the boundary's *summary* entry (relinked occurrences materialize at the
-  summary's file position); the boundary entry itself when the boundary has
-  no summary.
-- **Truncation**: `entries.slice(0, witnessIndex + 1)`. When the leaf is
-  undefined or the witness is absent, the whole array (fallback, not error).
 
 ## Type design
 
@@ -85,8 +70,8 @@ export interface ForestNode {
  *  at their boundary's summary position. */
 export type Forest = ReadonlyMap<string, ForestNode>;
 
-/** get-entries response: entries truncated at the context tip's witness,
- *  plus that tip resolved to its occurrence in these entries. */
+/** get-entries response: every file entry verbatim, plus the daemon-computed
+ *  context tip resolved to its occurrence in these entries. */
 export interface SessionSnapshot {
   entries: SessionEntry[];
   leaf: TreeNodeRef | null;
@@ -124,7 +109,9 @@ export function isFinalAssistantEntry(
 ```ts
 // forest.ts (renamed from build-tree.ts)
 /** Same relink algorithm as before (already iterative), emitting the parent
- *  relation instead of nested nodes. */
+ *  relation instead of nested nodes. Throws on a duplicate occurrence key —
+ *  valid files cannot produce one, so a duplicate means the session file is
+ *  corrupt; the error is loud so the user learns about it. */
 export function buildForest(
   entries: SessionEntry[],
   onInvalid: OnInvalid,
@@ -136,27 +123,16 @@ export function buildForest(
 export function entriesByUuid(
   entries: readonly SessionEntry[],
 ): Map<UUID, SessionEntry>;
-
-// effective-chain.ts — addition (lives here, not session-file.ts: the
-// viaBoundary witness lookup needs summaryOf, and session-file.ts cannot
-// import effective-chain.ts without a cycle)
-/** Entries up to the leaf witness (see Definitions); the whole array when
- *  the leaf is undefined or the witness is absent. */
-export function truncateAtLeaf(
-  entries: SessionEntry[],
-  leaf: TreeNodeRef | undefined,
-): SessionEntry[];
 ```
 
 ```ts
 // request-handlers.ts — get-tree case deleted; get-entries becomes:
 //   flush-wait (unchanged key: viaBoundary ?? uuid)
-//   → truncateAtLeaf(entries, agentState.leaf)
-//   → leaf = effectiveTreeNodeChain(truncated, log).at(-1) ?? null
-//   → { entries: truncated, leaf } satisfies SessionSnapshot
+//   → leaf = chain tip minus a live filterTail override's dropped uuids
+//     (the leaf computation formerly in the get-tree case, verbatim;
+//     freshOverride stays shared by get-messages and get-entries)
+//   → { entries, leaf } satisfies SessionSnapshot
 // No session: { entries: [], leaf: null }.
-// The filterTail chain-subtraction dies here (truncation subsumes it);
-// freshOverride remains for get-messages only.
 ```
 
 ```ts
@@ -235,23 +211,18 @@ use it.)
 
 ## Edge cases
 
-- **Witness absent after flush-wait**: `truncateAtLeaf` returns the full
-  array; the chain tip is then the file's own tip (today's behavior). In
+- **Dead branches stay visible**: `get-entries` returns the file verbatim,
+  so after a no-write rewind the abandoned tail remains in the snapshot and
+  `/tree` shows it with the cursor moved back — navigating back and then
+  forward again without adding an entry keeps working.
+- **File ahead of stream**: the snapshot may contain entries the client's
+  fold has not confirmed; the client-side cut (`pathUpToBoundary` at the
+  client's fold leaf) handles attach consistency, as it does today.
+- **Flush-wait key**: remains `viaBoundary ?? uuid` (the boundary entry, not
+  its summary — a relinked occurrence fully materializes only at the
+  summary's file position). A latent gap that predates this change; in
   practice set-context writes boundary+summary before emitting
-  `contextChanged`, so a viaBoundary leaf's witness is on disk by the time a
-  read can observe the leaf.
-- **Truncation drops post-witness entries of every kind** — future messages,
-  queue-operations, file-history-snapshots, concurrent sidechain entries.
-  `get-entries` semantics change from "the file verbatim" to "the session as
-  confirmed by the stream". Accepted.
-- **Dead-branch window**: between a no-write rewind and the next transcript
-  write, the abandoned tail is truncated away, so `/tree` does not show it
-  (previously it showed as a dead branch with the cursor moved back). It
-  reappears once new entries move the leaf past it in file order. Accepted.
-  TDC: Wait, this is not acceptable. The abandoned tail must _not_ be truncated away, since it is common to navigate back and then want to navigate forward again with `/tree` without adding a new entry. Remind me again why we need to truncate the entries at `leaf` in the first place?
-- **Flush-wait key**: remains `viaBoundary ?? uuid` (the boundary entry), not
-  the summary — a latent gap that predates this change; the witness-absent
-  fallback covers it.
+  `contextChanged`.
 - **No session yet**: `{ entries: [], leaf: null }` (established by the
   preceding fix; get-messages returns `[]` likewise).
 
@@ -278,18 +249,16 @@ use it.)
 - **Crash mechanics** (verified): `JSON.stringify` overflows near depth
   ~5000 (Node 23); `JSON.parse` survives 6000+. The daemon dies before any
   client parses. 5213-entry session reproduces it.
-- **Convergence argument** for the leaf: truncating at the state leaf's
-  witness makes the truncated entries' chain tip *be* the state leaf's
-  correct occurrence (raw or viaBoundary), so "stream-authoritative content"
-  and "file-resolved occurrence" agree by construction. This is also what
-  lets the filterTail subtraction die: after a no-write rewind the state
-  leaf is the rewind target and truncation removes the dropped tail.
-- **`pathUpToBoundary` already implements the client-side cut** at the
-  client's fold leaf with a structural carve-out (viaBoundary occurrences,
-  boundaries, summaries always replay — they never stream). Daemon
-  truncation composes: daemon leaf ≥ client leaf; replay-dedupe
-  (`replayedUuids`) covers the overlap. Keep its logic byte-for-byte;
-  only types change.
+- **Why entries are NOT truncated at the leaf** (decision record): a
+  stream-authoritative daemon-side truncation was considered and rejected.
+  The transcript never needed it — `pathToLeaf` stops at the leaf by
+  definition, and `pathUpToBoundary` already cuts at the client's fold leaf
+  (with a structural carve-out: viaBoundary occurrences, boundaries,
+  summaries always replay since they never stream). The only consumer that
+  sees post-leaf entries is `/tree`, where showing them is the point:
+  navigating back with a no-write rewind and then forward again requires
+  the abandoned tail in the snapshot. Hence verbatim entries + the
+  override-aware leaf computation carried over from get-tree.
 - **No path consumer uses `children`** (`appendPathNode`, `resolveTreePick`,
   `pathUpToBoundary` read only entry + viaBoundary) — hence `PathNode`.
 - **`buildForest`**: keep the existing relink algorithm (pendingRelink
@@ -306,17 +275,16 @@ use it.)
 - **`format messages` cross-pointing**: snapshot-shaped input (an object
   with an `entries` array) fed to `format messages`/`format events` should
   point at `format tree`. Old `{tree: …}` documents get no special case.
-- **Duplicate-uuid failure mode changes**: a corrupt file repeating a uuid
-  currently yields duplicate layout ids and a loud `flattenVisibleTree`
-  throw; `Forest`'s map keys make duplicates impossible by construction
-  (last occurrence wins), so rendering silently drops the earlier one
-  instead. Judged acceptable — the loud check guarded adapter bugs, and the
-  adapter's ids now come from the same map.
-  TDC: Not acceptable. We must keep the loud check. It alerts the user if the session file on disk is corrupted.
+- **Duplicate-uuid loud check moves to buildForest**: a corrupt file
+  repeating a uuid currently dies in `flattenVisibleTree`'s unique-layout-id
+  precondition. A `Forest` map would silently collapse duplicates, hiding
+  on-disk corruption from the user — so `buildForest` throws on a duplicate
+  occurrence key instead (earlier and with a clearer message than the layout
+  check, which remains as backstop).
 - **Order of work**: core types + buildForest first (with tests ported from
-  build-tree.test.ts), then daemon (snapshot + truncation + respond
-  hardening), then format layer, then TUI, then docs. Each step compiles and
-  passes tests before the next.
+  build-tree.test.ts), then daemon (snapshot + respond hardening), then
+  format layer, then TUI, then docs. Each step compiles and passes tests
+  before the next.
 
 # WORK LOG
 
@@ -326,10 +294,10 @@ use it.)
       `buildForest` (rename build-tree.ts → forest.ts); `pathToLeaf`,
       `forestChildren`, `isFinalAssistantEntry`; delete `TreeNode`,
       `SessionTree`; port tests.
-- [ ] session-file.ts: `entriesByUuid`, `truncateAtLeaf` + tests.
-- [ ] Daemon: get-entries → SessionSnapshot (truncation, leaf resolution,
-      filterTail subtraction removal); delete get-tree handler/wire
-      type/command; respond() hardening; tests.
+- [ ] session-file.ts: `entriesByUuid` + tests.
+- [ ] Daemon: get-entries → SessionSnapshot (leaf computation moved from the
+      get-tree case); delete get-tree handler/wire type/command; respond()
+      hardening; tests.
 - [ ] Renames: `AgentState.leafTreeNodeRef` → `leaf`,
       `StartupSeed.leafTreeNodeRef` → `leaf`.
 - [ ] Format: `toLayoutForest`, `collectToolNames(entries)`,
