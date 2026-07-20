@@ -57,7 +57,7 @@ export function buildForest(
   /** The current occurrence for each uuid; a processed relink overwrites. */
   const occurrenceOf = new Map<UUID, TreeNodeRef>();
 
-  const place = (ref: TreeNodeRef, parentUuid: UUID | undefined): void => {
+  const attach = (ref: TreeNodeRef, parentUuid: UUID | undefined): void => {
     const key = formatTreeNodeRef(ref);
     if (forest.has(key)) {
       throw new Error(
@@ -82,7 +82,7 @@ export function buildForest(
       const entry = byUuid.get(relinkedUuid)!;
       // Same parent resolution as the chain walk: relink map first, raw
       // parentUuid otherwise (only reachable for uuids[0] with no anchor).
-      place(
+      attach(
         { uuid: relinkedUuid, viaBoundary: boundaryUuid },
         relink.parentMap.get(relinkedUuid) ?? entry.parentUuid ?? undefined,
       );
@@ -111,7 +111,7 @@ export function buildForest(
         (entry.subtype === "compact_boundary"
           ? (entry.logicalParentUuid ?? undefined)
           : undefined);
-      place({ uuid: entry.uuid }, parentUuid);
+      attach({ uuid: entry.uuid }, parentUuid);
       if (entry.subtype === "compact_boundary") {
         const relink = validRelink(entries, index, onInvalid);
         if (relink !== undefined) {
@@ -132,7 +132,7 @@ export function buildForest(
     const { boundaryUuid, relink } = pendingRelink;
     pendingRelink = undefined;
     if (!relink.relinkedUuids.includes(entry.uuid)) {
-      place({ uuid: entry.uuid }, entry.parentUuid ?? undefined);
+      attach({ uuid: entry.uuid }, entry.parentUuid ?? undefined);
     }
     emitSubstructure(boundaryUuid, relink);
   }

@@ -18,6 +18,7 @@ export interface TreeNodeRef {
   viaBoundary?: UUID;
 }
 
+// TDC: this type is confusing. It's really an _edge_, not a node. In Forest, `ref` is duplicated as the key. Logically, Forest is really just the parent map. This feels like a code smell to me. What do you think?
 export interface ForestNode {
   ref: TreeNodeRef;
   /** Null = root. */
