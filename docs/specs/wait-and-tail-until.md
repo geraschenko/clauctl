@@ -14,7 +14,8 @@ condition engine (`until.ts`) consumed by `wait`, `tail --until`, and streaming
 - `--until`/`--timeout` flags on `tail`: stream events until a condition
   holds, then exit;
 - archive's polite stop reimplemented on the same engine, deleting the
-  `wait-idle` protocol request — one waiting mechanism, not two.
+  `wait-idle` protocol request and its daemon-side machinery — one waiting
+  mechanism, not two.
 
 The port is a redesign, not a copy: pictl's streaming engine runs the stop
 condition as a separate listener racing the printer, coordinated with a
@@ -40,7 +41,8 @@ Grammar and semantics (same surface as pictl):
 - `no-activity:<secs>` — no `SdkEvent` of any kind for N seconds (fractional
   allowed, e.g. `no-activity:0.5`), regardless of activity state; catches turns
   stalled on human-facing UI, which `idle` never reports. Never met at the
-  seed; the timer starts at subscription. Partial-message `stream_event`s are
+  seed; the quiet timer arms once the seed is processed. Partial-message
+  `stream_event`s are
   on the stream (`includePartialMessages` is an invariant), so the timer has
   fine granularity mid-turn.
 
@@ -55,7 +57,10 @@ time.
   error (including socket closed while waiting), 2 usage error, 3 timeout.
 - A dormant or archived agent meets any condition immediately (its process is
   doing nothing): exit 0 without connecting. Never revives — a revived agent
-  is guaranteed idle anyway.
+  is guaranteed idle anyway. This deliberately overrides `no-activity`'s
+  never-met-at-seed rule: process absence is conclusive inactivity. The pid
+  check is moment-in-time; a concurrent revival racing the check is accepted
+  (same as pictl).
 
 `clauctl tail --target <agent> [--until <cond>] [--timeout <secs>]`
 
@@ -81,18 +86,26 @@ time.
   after Ns; not archived", exit 1 (the `UntilTimeoutError` is wrapped in a
   plain Error, so the exit-3 mapping does not apply).
 - Deleted with it: client-side `waitIdle` and `IdleTimeoutError`
-  (sdk-socket.ts), the `wait-idle` request type, and the daemon's handler
-  case. The daemon-internal `whenIdle` stays (set-context needs it).
-  `SDK_SOCKET_VERSION` is not bumped: a new CLI never sends `wait-idle`, and
-  an old CLI archiving against a new daemon gets a clean "unknown request"
-  error.
+  (sdk-socket.ts), the `wait-idle` request type, the daemon's handler case,
+  and `EventHub.whenIdle` + its waiter machinery — the handler was its only
+  production consumer (set-context only *mentions* wait-idle in a comment,
+  which gets updated to point at `clauctl wait`).
+- The daemon must actively reject unknown request types with `{ok: false}`.
+  Today an unrecognized type falls through the dispatch switch into
+  `runRead`, whose switch has no default, so the daemon would answer
+  `ok: true` — an old CLI's `archive` would take that as "idle" and SIGTERM
+  a busy agent. With the rejection in place, `SDK_SOCKET_VERSION` stays at 1:
+  a new CLI never sends `wait-idle`, and an old CLI archiving against a new
+  daemon gets a clean error instead of a false acknowledgement.
 
 ## Success criteria
 
-1. `clauctl query -t <agent> "..." && clauctl wait -t <agent> --until
-   turn-end` returns after that turn's `result`, never before the turn ends,
-   and never hangs when the queued turn already finished before `wait`
-   connected.
+1. On an idle agent, `clauctl query -t <agent> "..." && clauctl wait -t
+   <agent> --until turn-end` returns after that turn's `result`, never
+   before, and never hangs when the turn already finished before `wait`
+   subscribed. (On an already-busy agent, `turn-end` means the first `result`
+   after the seed — possibly an earlier turn's; waiting out the whole queue
+   is `idle`.)
 2. `clauctl wait -t <agent> --until idle` on an idle agent exits 0
    immediately; on a busy agent it exits 0 only once activity is `idle` with
    no querying messages queued.
@@ -106,12 +119,16 @@ time.
    turn exits 3.
 7. `clauctl archive -t <busy-agent> --timeout 1` exits 1 with "still busy
    after 1s; not archived"; without `--timeout` it archives once the agent
-   goes idle. `waitIdle`, `IdleTimeoutError`, and the `wait-idle` request no
-   longer exist.
-8. Unit tests cover: condition parsing (valid + malformed), met-at-seed and
-   met-by-event for each condition, and the driver's quiet-timer, deadline,
-   and closed-socket behavior.
-9. `npm run presubmit` passes.
+   goes idle. `waitIdle`, `IdleTimeoutError`, the `wait-idle` request, and
+   `EventHub.whenIdle` no longer exist.
+8. A daemon test proves an unknown request type (e.g. legacy `wait-idle`)
+   is answered `{ok: false}`, not acknowledged.
+9. Unit tests cover: condition parsing (valid + malformed, including
+   zero, huge, and non-finite durations), met-at-seed and met-by-event for
+   each condition, and the driver's quiet-timer, deadline, closed-socket,
+   post-settlement-suppression, and hook-exception behavior. `clauctl wait
+   --help` works (route is registered).
+10. `npm run presubmit` passes.
 
 ## Type design
 
@@ -136,6 +153,12 @@ export const UNTIL_COMPLETIONS = ["turn-end", "idle", "no-activity:"] as const;
 
 export function parseUntilCondition(value: string): UntilCondition;
 
+/** Seconds → ms for Node timers. Rejects with a UsageError anything whose
+ *  ms value is not finite or exceeds 2**31-1 (Node's timer max, above which
+ *  setTimeout fires ~immediately). 0 is valid and fires immediately. Used by
+ *  parseUntilCondition for no-activity and by the commands for --timeout. */
+export function secondsToTimerMs(seconds: number): number;
+
 /** Quiet-timer duration the stream driver must enforce for this condition;
  *  undefined for event-driven conditions. */
 export function untilQuietMs(condition: UntilCondition): number | undefined;
@@ -159,7 +182,15 @@ New file `src/core/streaming.ts` — the fold driver:
 ```ts
 import { nextAgentState, type AgentState } from "./agent-state.ts";
 import { UntilTimeoutError } from "./until.ts";
-import type { SdkEvent, SdkSocketClient } from "./sdk-socket.ts";
+import type { SdkEvent } from "./sdk-socket.ts";
+
+/** The slice of SdkSocketClient the driver needs; a narrow interface so
+ *  tests can drive runStream with a fake (the concrete class has private
+ *  members, so no structural fake could satisfy it). */
+export interface StreamClient {
+  subscribe(onEvent: (event: SdkEvent) => void): Promise<AgentState>;
+  waitClosed(): Promise<void>;
+}
 
 /**
  * A stream consumer as a fold step: each hook may emit output and returns
@@ -176,17 +207,31 @@ export interface StreamHandler {
   quietMs?: number;
 }
 
-/** "done" = handler or quiet-timer stop; "closed" = socket closed. */
+/** "done" = handler or quiet-timer stop; "closed" = socket closed (callers
+ *  needing an error produce e.g. "sdk socket closed before condition met"). */
 export type StreamOutcome = "done" | "closed";
 
 /**
  * Subscribe on `client`, fold `nextAgentState` over the pushed events, and
- * drive `handler`. Owns the quiet timer and the deadline timer; throws
- * UntilTimeoutError when `timeoutMs` expires first. Calls `runStream` →
- * `client.subscribe`, `nextAgentState`.
+ * drive `handler`. Contract:
+ * - `onSeed` runs exactly once, before any `onEvent`; events dispatched
+ *   before the subscribe promise settles are buffered and processed after it
+ *   (the pre-snapshot buffering currently in tail.ts, moved into the driver).
+ * - Per event, in order: fold state, call `onEvent` (which prints), then act
+ *   on its stop decision — so a satisfying event is always emitted before
+ *   the stream stops.
+ * - First settlement wins; after it, later event callbacks are ignored (the
+ *   client has no unsubscribe, and one socket chunk can dispatch several
+ *   event lines synchronously) and both timers are cleared on every path.
+ * - Both timers arm after `onSeed` returns false — seed satisfaction takes
+ *   precedence, and connection/subscribe latency never counts against the
+ *   deadline. The quiet timer resets as each event is processed. Deadline
+ *   expiry throws UntilTimeoutError, taking precedence on ties.
+ * - Exceptions thrown by hooks or the fold reject the returned promise; they
+ *   must not escape into the socket's data listener.
  */
 export function runStream(
-  client: SdkSocketClient,
+  client: StreamClient,
   handler: StreamHandler,
   timeoutMs: number | undefined,
 ): Promise<StreamOutcome>;
@@ -228,6 +273,9 @@ async function tail(this: CommandContext, flags: TailFlags): Promise<void>;
 Changed `src/core/app.ts`:
 
 ```ts
+import { waitRoute } from "./wait.ts";
+// routes: ...waitRoute,
+
 determineExitCode: (error) =>
   error instanceof UsageError ? 2 : error instanceof UntilTimeoutError ? 3 : 1;
 ```
@@ -247,8 +295,18 @@ async function stopRunningAgent(
 
 Deleted from `src/core/sdk-socket.ts`: `waitIdle`, `IdleTimeoutError`, and the
 `{ type: "wait-idle" }` member of `SdkRequest`. Deleted from
-`src/core/daemon/request-handlers.ts`: the `"wait-idle"` dispatch case
-(`events.whenIdle()` itself stays for set-context).
+`src/core/daemon/request-handlers.ts`: the `"wait-idle"` dispatch case.
+Deleted from `src/core/daemon/event-hub.ts`: `whenIdle` and its
+`idleWaiters` machinery (+ their tests) — the dispatch case was the only
+production consumer. Updated: set-context's "callers can wait-idle first"
+comment (→ `clauctl wait`), and the dispatch comment citing "a pending
+wait-idle" as the concurrency rationale (interrupt-vs-pending-request still
+justifies it; reword to a live example).
+
+Changed `src/core/daemon/request-handlers.ts`: the dispatch falls through to
+`runRead` for passthrough reads; add an explicit unknown-type rejection so
+unrecognized requests (e.g. legacy `wait-idle`) answer `{ok: false, error:
+"unknown request type: ..."}` instead of `runRead`'s undefined → `ok: true`.
 
 Flag helpers (`parsedFlag`, `requiredParsedFlag`, `secondsFlag`,
 `completeChoices`) already exist in `src/core/generated/cli.ts`.
@@ -269,7 +327,16 @@ Flag helpers (`parsedFlag`, `requiredParsedFlag`, `secondsFlag`,
 - Timers must be cleared after settling: a pending timer keeps node's event
   loop alive (the rationale currently documented in `sdk-socket.ts` `waitIdle`
   — that comment moves into `runStream` when `waitIdle` is deleted).
-- `no-activity` with `--timeout` where timeout < quiet window: exit 3.
+- `no-activity` with `--timeout` where timeout < quiet window: exit 3 (the
+  deadline takes precedence on ties).
+- `--timeout` covers only the wait itself: the deadline arms after the seed
+  is processed, so connection establishment (its own existing 5s deadline,
+  `SOCKET_CONNECT_DEADLINE_MS`) and subscribe latency never count against it.
+- Zero durations are valid and coherent because timers are seed-relative:
+  `--timeout 0` exits 0 when the condition is met at the seed, else exits 3
+  immediately; `no-activity:0` is met at the first quiet check after the
+  seed. Durations whose ms value is non-finite or exceeds Node's timer max
+  (2**31-1) are usage errors (`secondsToTimerMs`).
 - Malformed `--until` (unknown word, `no-activity:` without a number,
   negative/garbage seconds): usage error, exit 2.
 
@@ -333,7 +400,7 @@ Flag helpers (`parsedFlag`, `requiredParsedFlag`, `secondsFlag`,
   dormant fast path (`isPidAlive(agent.daemonPid)`).
 - Test seam: `untilMet*` functions are pure (fold-style, like
   `agent-state.test.ts`); `runStream` can be tested against a fake
-  `SdkSocketClient` or the daemon test harness used by `sdk-socket.test.ts`.
+  `StreamClient` or the daemon test harness used by `sdk-socket.test.ts`.
 
 # WORK LOG
 
@@ -346,3 +413,21 @@ Flag helpers (`parsedFlag`, `requiredParsedFlag`, `secondsFlag`,
   the `wait-idle` request, and its daemon dispatch case are deleted
   (daemon-internal `whenIdle` stays). Archive's timeout surface is unchanged
   (exit 1, "still busy ...; not archived").
+- 2026-07-20: Reviewer round (fresh-context agent). Verified and accepted:
+  unknown request types were silently acknowledged `ok: true` (runRead has no
+  default) — spec now requires explicit `{ok: false}` rejection, which also
+  makes the old-CLI compat claim true; `whenIdle`'s only production consumer
+  was the `wait-idle` handler, so it and `idleWaiters` are deleted too
+  (set-context only referenced it in a comment); criterion 1 reworded (on a
+  busy agent `turn-end` is the first result after the seed, not "that
+  turn's"); `runStream` contract made normative (pre-seed buffering,
+  fold→print→stop order, post-settlement suppression, hook exceptions reject,
+  timer cleanup); `StreamClient` narrow interface added as the test seam;
+  `secondsToTimerMs` added (zero valid, non-finite/over-timer-max rejected);
+  dormant fast path documented as overriding no-activity seed semantics,
+  moment-in-time. app.ts route registration added to the type design.
+  Re-review blocker fixed: both driver timers arm after `onSeed` returns
+  false (seed satisfaction takes precedence; connect/subscribe latency never
+  counts against `--timeout`), making `--timeout 0` coherent. Reviewer
+  approves with that edit. (This entry supersedes the round-1 note that
+  `whenIdle` would stay.)
