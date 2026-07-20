@@ -96,7 +96,7 @@ export function runStream(
 
     // undefined until the seed is processed; pre-seed arrivals are buffered.
     let state: AgentState | undefined;
-    const preSeed: SdkEvent[] = [];
+    const preSeedEvents: SdkEvent[] = [];
     const processEvent = (event: SdkEvent): void => {
       state = nextAgentState(state!, event);
       if (handler.onEvent(event, state)) {
@@ -112,7 +112,7 @@ export function runStream(
           return;
         }
         if (state === undefined) {
-          preSeed.push(event);
+          preSeedEvents.push(event);
           return;
         }
         try {
@@ -148,7 +148,7 @@ export function runStream(
               );
             }
             resetQuietTimer();
-            for (const event of preSeed.splice(0)) {
+            for (const event of preSeedEvents.splice(0)) {
               if (settled) {
                 return;
               }
