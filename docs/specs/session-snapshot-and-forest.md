@@ -248,6 +248,7 @@ use it.)
   write, the abandoned tail is truncated away, so `/tree` does not show it
   (previously it showed as a dead branch with the cursor moved back). It
   reappears once new entries move the leaf past it in file order. Accepted.
+  TDC: Wait, this is not acceptable. The abandoned tail must _not_ be truncated away, since it is common to navigate back and then want to navigate forward again with `/tree` without adding a new entry. Remind me again why we need to truncate the entries at `leaf` in the first place?
 - **Flush-wait key**: remains `viaBoundary ?? uuid` (the boundary entry), not
   the summary — a latent gap that predates this change; the witness-absent
   fallback covers it.
@@ -311,6 +312,7 @@ use it.)
   (last occurrence wins), so rendering silently drops the earlier one
   instead. Judged acceptable — the loud check guarded adapter bugs, and the
   adapter's ids now come from the same map.
+  TDC: Not acceptable. We must keep the loud check. It alerts the user if the session file on disk is corrupted.
 - **Order of work**: core types + buildForest first (with tests ported from
   build-tree.test.ts), then daemon (snapshot + truncation + respond
   hardening), then format layer, then TUI, then docs. Each step compiles and
