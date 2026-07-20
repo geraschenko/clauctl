@@ -51,6 +51,40 @@ export const scenarios: Scenario[] = [
     options: { model: "haiku", allowedTools: ["Write", "Read", "Bash"] },
   },
   {
+    name: "edit",
+    description:
+      "Edit diffs: mid-file single hunk, multi-hunk replace_all, long diff",
+    // Prompt 1 pins the file's shape (params named a/b, NO error handling)
+    // so the later edits have real work to do — a model that anticipates
+    // them turns the edit prompts into no-ops. Regenerate into a CLEAN
+    // workdir: a stale calc.py from a previous run has the edits already
+    // applied, which no-ops them the same way.
+    prompts: [
+      "Create a file named calc.py: functions add, sub, mul, div, each " +
+        "taking parameters named a and b with a one-line docstring, and a " +
+        "main() that prints each function's result for one input pair. " +
+        "No error handling anywhere. Reply with one sentence.",
+      // Mid-file single hunk with file-anchored line numbers.
+      "In calc.py, change div to raise ValueError on division by zero. " +
+        "Use a single Edit call. Reply with one sentence.",
+      "In calc.py, rename the first parameter of the four arithmetic " +
+        "functions from a to `left` — one Edit call with replace_all if " +
+        "possible. Reply with one sentence.",
+      // Long diff (no truncation expected on replay).
+      "Rewrite calc.py's main() to demo every function with three input " +
+        "sets labeled 'Example 1'..'Example 3', printing labeled results — " +
+        "make it at least 30 lines. Use a single Edit call replacing the " +
+        "whole function. Reply with one sentence.",
+      // Occurrences far enough apart that structuredPatch splits into
+      // multiple hunks (unchanged gaps of ~8 lines > 2×3 context lines).
+      "In calc.py, rename the word `Example` to `Case` everywhere it " +
+        "appears (comments and strings), using one Edit call with " +
+        "replace_all: true. Reply with one sentence.",
+    ],
+    // dontAsk denies any tool not pre-allowed (see the tools scenario).
+    options: { model: "haiku", allowedTools: ["Write", "Read", "Edit"] },
+  },
+  {
     name: "subagent",
     description: "Task tool with nested subagent output",
     prompts: [

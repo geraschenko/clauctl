@@ -231,16 +231,18 @@ export interface ToolView<A> {
   headerLink?(args: A): string | undefined;
   /** Collapsed ⎿ summary; undefined → generic first-line + "… +N lines". */
   resultSummary(args: A, result: RenderToolResult): string | undefined;
+  /** Extra block rendered beneath the ⎿ summary in BOTH toggle states
+   *  (claude renders it identically collapsed and expanded). Exists
+   *  specifically for the Edit view, whose result rendering is the
+   *  line-numbered diff — no other view implements it. (Approved
+   *  2026-07-20, replacing the earlier `expandedBody` amendment: the
+   *  diff is part of claude's default rendering, not an expanded-only
+   *  form — see the WORK LOG correction of that finding.) */
+  resultBody?(args: A, result: RenderToolResult): string | undefined;
   /** Folds into the "Thought for Ns, read 1 file" line. */
   readOnly: boolean;
   /** Fold-line contribution, e.g. (2) => "read 2 files". */
   foldLabel(count: number): string;
-  /** Expanded rendering override; undefined → the generic expanded form
-   *  (pretty-printed args + full result text). Exists specifically for
-   *  the Edit view, whose expanded form is the rendered diff — no other
-   *  view implements it. (Approved 2026-07-18, amending the original
-   *  type design, which had no way to express Edit's expanded diff.) */
-  expandedBody?(args: A, result: RenderToolResult): string | undefined;
 }
 export const toolViews: { [K in ToolName]?: ToolView<ToolInputMap[K]> };
 export function toolViewFor(name: string): ToolView<unknown> | undefined;
@@ -261,20 +263,43 @@ Views co-located per tool under `src/tui/tool-views/` (write.ts, edit.ts,
 bash.ts, read.ts, task.ts, glob.ts, grep.ts, …). Unknown/MCP tools use
 the generic fallback (current rendering, claude does the same).
 
-Diff rendering is imported, not ported (decided 2026-07-18):
-`@earendil-works/pi-coding-agent` becomes a dependency (version-locked to
-`@earendil-works/pi-tui`), providing `renderDiff` and
-`generateDiffString` directly. `renderDiff` reads pi's global theme
-singleton, so the TUI entrypoint calls `initTheme("dark")` once at
-startup (built-in palette, no config lookup, no watcher; matches the
-palette `theme.ts` already mimics).
+Diff rendering is custom, claude-layout (decided 2026-07-20, reversing
+the 2026-07-18 import decision — see the WORK LOG entry): a formatter in
+`edit.ts` (claude-derived, like the rest of the tool views) renders
+`toolUseResult.structuredPatch` directly. pi's `renderDiff` was
+evaluated and rejected: pi anchors line numbers by diffing the whole
+file, which the transcript does not hold; feeding it structuredPatch
+data would mean synthesizing `generateDiffString`'s undocumented
+intermediate text format — an unowned parser contract that fails
+silently (all-context grey) on upstream format changes, while the hunk
+walk it would wrap is the same ~40 lines written either way.
 
-The Edit view feeds `old_string`/`new_string` through
-`generateDiffString` → `renderDiff`.
+Format (from the edit-scenario and session-44a0b993 captures):
+
+- removed lines carry old-file line numbers, added and context lines
+  new-file line numbers; numbers right-aligned per block;
+- gutter `-`/`+`/space between number and content; within a change run,
+  `-` lines grouped before `+` lines (structuredPatch's unified order);
+- multiple hunks in one block, separated by a grey `...` line;
+- no length truncation (claude's replay rendering shows full diffs;
+  its live truncation is a live-rendering nicety, out of scope);
+- colors approximate claude via `claudeStyle` (dim numbers/context,
+  red/green change lines); claude's syntax highlighting, background
+  bands, and intra-line word highlights are ANSI-pass territory
+  (non-goal) — plain-text layout parity is what the harness compares.
+
+When `structuredPatch` is absent or malformed (untrusted wire), the
+view renders the counts summary only, no diff — snippet-relative
+numbers from `old_string`/`new_string` would be wrong, and the case
+does not occur on real sessions.
+
+pi-coding-agent remains a dependency (`initTheme`,
+`truncateToVisualLines`); `renderDiff`/`generateDiffString` go unused.
 
 `ToolExecutionComponent` reworked to claude layout: `● Name(headerArg)` +
-`⎿ summary`; expanded shows the current rendering (pretty-printed args +
-full result text; the Edit view's expanded form is the diff). Decided
+`⎿ summary` (+ `resultBody` where a view provides one — the Edit diff —
+rendered in both toggle states); expanded shows the current rendering
+(pretty-printed args + full result text). Decided
 (Anton, 2026-07-18): this rework takes `tool-execution.ts` out of the
 verbatim-port set — reclassify it as pi-inspired (drop from
 `update-ports.sh` `PORTS`, header documents lineage). Delineation
@@ -1015,3 +1040,58 @@ all implemented:
   live apply-flag-settings persists into `Options.settings`, which
   settingsSeed does not read, so a flag-tier effortLevel is not
   re-seeded after daemon restart.
+
+## 2026-07-20 — Edit diff correction (spec amendment approved by Anton)
+
+Anton reported that Update blocks show only the counts summary where
+claude shows the line-numbered diff. Root cause: the phase-3 work-log
+claim "NO diff when collapsed (the catalog's line-numbered diff is the
+expanded form)" was WRONG — the catalog had it right all along — and the
+harness could not catch the divergence because no scenario in the corpus
+exercised Edit (the tools scenario uses Write/Read/Bash only), so
+edit-diff-view's "hunks closed" held vacuously.
+
+New `edit` scenario added to scenarios.ts; ground truth from its
+captures, an import of real session 44a0b993, and a manual ctrl+o tmux
+probe (claude 2.1.211):
+
+- The diff renders by default; ctrl+o's verbose view shows the SAME
+  diff (only the header path unabbreviates). No Edit-specific expanded
+  form exists.
+- Replay/resume renders full diffs — no truncation even at 68 lines.
+  The truncation Anton saw live is live-rendering-only (a non-goal);
+  additionally his session's edits sat behind a compact boundary, which
+  resume does not render past.
+- Layout: dual file-anchored numbering (old numbers on `-`, new on `+`
+  and context), `-` runs grouped before `+` runs, multi-hunk blocks
+  separated by a grey `...` line.
+- Styling: syntax-highlighted context, red/green background bands,
+  intra-line word highlights — all left to the ANSI pass.
+
+Decisions (Anton, 2026-07-20):
+
+- Diffs render by default, matching claude; `expandedBody` replaced by
+  `resultBody` (rendered in both toggle states).
+- Custom claude-layout formatter from `structuredPatch` instead of pi's
+  `renderDiff` — reversing the 2026-07-18 import decision. pi anchors
+  numbers by diffing the whole file (unavailable here); using it would
+  mean synthesizing `generateDiffString`'s undocumented intermediate
+  format, a silent-failure parser coupling, for no substance: the hunk
+  walk is ours either way, and 0.80.10's intra-line highlighting did
+  not trigger in testing anyway. Custom keeps edit-diff-view a "match"
+  (pi layout would put a permanent decided-differ in every capture
+  containing an edit) and sits in the claude-derived tool-view layer
+  per the delineation principle.
+- `structuredPatch` absent/malformed → counts summary only, no diff
+  (snippet-relative fallback numbers would be wrong).
+
+Harness notes: scenario regeneration reuses the per-scenario workdir, so
+a stale calc.py made prompts no-op (the model pre-implements or declines
+edits that are already applied) — the edit workdir was wiped manually
+before the final generation; scenario prompts were tightened so each
+edit has real work to do. Multi-hunk splitting needs unchanged gaps
+wider than 2×3 context lines between occurrences.
+
+- [ ] Implement: `resultBody` hook + structuredPatch formatter in
+      edit.ts + unit tests (fixture carved from the edit scenario)
+- [ ] Rerun harness including the edit scenario; update catalog
