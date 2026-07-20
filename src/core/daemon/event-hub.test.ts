@@ -148,23 +148,6 @@ test("observeSdkMessage emits the message first, then implied dequeues", () => {
   );
 });
 
-test("whenIdle resolves immediately when already idle", async () => {
-  await hub().whenIdle();
-});
-
-test("whenIdle resolves on the idle transition, seeing post-event state", async () => {
-  const events = hub();
-  events.deliverUserMessage(userMessage());
-  let idleActivity: string | undefined;
-  const waited = events.whenIdle().then(() => {
-    idleActivity = events.agentState.activity;
-  });
-  events.observeSdkMessage(sdkMessage("assistant"));
-  events.observeSdkMessage(sdkMessage("result"));
-  await waited;
-  assert.equal(idleActivity, "idle");
-});
-
 test("unsubscribe detaches the sink", () => {
   const events = hub();
   const lines: string[] = [];

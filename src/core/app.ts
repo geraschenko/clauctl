@@ -10,8 +10,10 @@ import { sdkRoutes } from "./sdk-commands.ts";
 import { spawnRoute } from "./spawn.ts";
 import { tailRoute } from "./tail.ts";
 import { tuiRoute } from "../tui/interactive-mode.ts";
+import { UntilTimeoutError } from "./until.ts";
 import { UsageError } from "./generated/util.ts";
 import { VERSION } from "./generated/version.ts";
+import { waitRoute } from "./wait.ts";
 
 const routes = {
   ...spawnRoute,
@@ -22,6 +24,7 @@ const routes = {
   ...sdkRoutes,
   ...attachRoute,
   ...tailRoute,
+  ...waitRoute,
   ...formatRoute,
   ...tuiRoute,
   ...completionRoute,
@@ -85,5 +88,10 @@ export const app = buildApplication<CommandContext>(root, {
       },
     },
   },
-  determineExitCode: (error) => (error instanceof UsageError ? 2 : 1),
+  determineExitCode: (error) =>
+    error instanceof UsageError
+      ? 2
+      : error instanceof UntilTimeoutError
+        ? 3
+        : 1,
 });
