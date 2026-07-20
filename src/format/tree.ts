@@ -2,7 +2,7 @@
  * `format tree`: renders a session snapshot as an indented tree, one line
  * per visible entry — behavioral parity with `pictl format tree`. The layout
  * geometry is the synced generated/tree-layout.ts; this file owns the
- * clauctl-specific parts: entry summaries, filters, and the adapter. Lenient
+ * clauctl-specific parts: entry summaries, filters, and payload adaptation. Lenient
  * like `format messages` — verbatim entries drift with Anthropic CLI
  * versions, so unrecognized shapes render generically rather than rejecting.
  */
@@ -18,12 +18,12 @@ import {
   type ParentMap,
   type SessionSnapshot,
 } from "../core/tree.ts";
+import { toLayoutTree } from "./generated/flat-tree.ts";
 import { extractTextContent, oneLine, truncateText } from "./generated/text.ts";
 import {
   flattenVisibleTree,
   treePrefix,
   type FlatLayoutNode,
-  type LayoutNode,
 } from "./generated/tree-layout.ts";
 
 export const FILTER_MODES = [
@@ -217,45 +217,6 @@ export function entrySummary(
   return entry.subtype === undefined ? type : `${type}: ${entry.subtype}`;
 }
 
-/**
- * Iterative adapter to the layout's nested in-memory input. Layout ids ARE
- * the parent-map keys (formatTreeNodeRef output), so a consumer recovers a
- * picked occurrence with parseTreeNodeRef(id). Two passes over `parentMap` —
- * create all shells, then link each into its parent's children array or the
- * roots list — so the adapter needs no parent-precedes-child ordering
- * assumption; parent-map iteration order keeps children in materialization
- * order, matching the nested construction it replaces.
- */
-export function toLayoutTree(
-  parentMap: ParentMap,
-  entryOf: ReadonlyMap<UUID, SessionEntry>,
-): LayoutNode<SessionEntry>[] {
-  interface MutableLayoutNode {
-    id: string;
-    children: MutableLayoutNode[];
-    payload: SessionEntry;
-  }
-  const shells = new Map<string, MutableLayoutNode>();
-  for (const id of parentMap.keys()) {
-    // buildTree over the same entries guarantees the entry exists.
-    shells.set(id, {
-      id,
-      children: [],
-      payload: entryOf.get(parseTreeNodeRef(id).uuid)!,
-    });
-  }
-  const roots: MutableLayoutNode[] = [];
-  for (const [id, parent] of parentMap) {
-    const shell = shells.get(id)!;
-    if (parent === null) {
-      roots.push(shell);
-    } else {
-      shells.get(parent)!.children.push(shell);
-    }
-  }
-  return roots;
-}
-
 /** Layout ids of the occurrences that are final assistant entries — the
  *  per-tree input `passesFilter`'s "picker" mode needs. */
 export function collectFinalAssistantIds(
@@ -318,7 +279,7 @@ export function formatSessionSnapshot(
   const currentLeafId =
     snapshot.leaf === null ? null : formatTreeNodeRef(snapshot.leaf);
   const lines = flattenVisibleTree(
-    toLayoutTree(parentMap, entryOf),
+    toLayoutTree(parentMap, (id) => entryOf.get(parseTreeNodeRef(id).uuid)!),
     currentLeafId,
     (node) =>
       passesFilter(

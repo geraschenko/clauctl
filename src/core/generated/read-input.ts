@@ -37,16 +37,6 @@ export async function readInputFile(
   return await readFile(file, "utf8");
 }
 
-export function parseJsonInput(input: string): unknown {
-  try {
-    return JSON.parse(input) as unknown;
-  } catch (error) {
-    throw new UsageError(
-      `invalid JSON: ${error instanceof Error ? error.message : String(error)}`,
-    );
-  }
-}
-
 export function parseJsonlInput(input: string): readonly unknown[] {
   const lines = input.split(/\r?\n/u).filter((line) => line.trim() !== "");
   return lines.map((line, index) => {

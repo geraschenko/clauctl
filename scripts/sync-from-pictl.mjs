@@ -62,7 +62,12 @@ const SYNC_SETS = [
   {
     sourceDir: join(pictlDir, "src", "format"),
     outDir: join(repoRoot, "src", "format", "generated"),
-    files: ["text.ts", "tree-layout.ts"],
+    files: [
+      "flat-tree.ts",
+      "flat-tree.test.ts",
+      "text.ts",
+      "tree-layout.ts",
+    ],
   },
 ];
 

@@ -1,14 +1,16 @@
 /**
  * The tree vocabulary and pure tree operations: ref/node types shared by
  * the chain computation (effective-chain.ts), tree construction
- * (build-tree.ts), and every consumer of get-entries output. Depends only on
- * session-file types, so both siblings import from here without a cycle;
- * `buildTree` itself stays in build-tree.ts — construction needs the relink
- * machinery.
+ * (build-tree.ts), and every consumer of get-entries output. Its only
+ * non-core dependency is the shared ParentMap type; `buildTree` itself stays
+ * in build-tree.ts — construction needs the relink machinery.
  */
 
 import type { UUID } from "node:crypto";
 import type { SessionEntry } from "./session-file.ts";
+import type { ParentMap } from "../format/generated/flat-tree.ts";
+
+export type { ParentMap };
 
 /** Identifies one tree occurrence: a raw node (viaBoundary absent) or a
  *  boundary-substructure relinked node (viaBoundary = the boundary's
@@ -27,8 +29,7 @@ export interface TreeNodeRef {
  *  position, relinked occurrences at their boundary's summary position.
  *  Deliberately flat: a nested node type nests one JSON level per entry on a
  *  mostly-linear session, and JSON.stringify overflows the call stack near
- *  depth ~5000. */
-export type ParentMap = ReadonlyMap<string, string | null>;
+ *  depth ~5000. ParentMap is re-exported above to preserve this core API. */
 
 /** get-entries response: every file entry verbatim, plus the daemon-computed
  *  context tip resolved to its occurrence in these entries. Entries lacking

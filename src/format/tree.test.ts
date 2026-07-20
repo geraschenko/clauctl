@@ -2,15 +2,15 @@ import assert from "node:assert/strict";
 import type { UUID } from "node:crypto";
 import { test } from "node:test";
 import { buildTree } from "../core/build-tree.ts";
-import type { SessionSnapshot } from "../core/tree.ts";
+import { parseTreeNodeRef, type SessionSnapshot } from "../core/tree.ts";
 import { effectiveTreeNodeChain } from "../core/effective-chain.ts";
 import { entriesByUuid, type SessionEntry } from "../core/session-file.ts";
 import {
   formatSessionSnapshot,
   formatTreeNodeLine,
-  toLayoutTree,
   type TreeFormatOptions,
 } from "./tree.ts";
+import { toLayoutTree } from "./generated/flat-tree.ts";
 import { flattenVisibleTree } from "./generated/tree-layout.ts";
 
 /** Deterministic uuids whose first 8 chars are readable: uuid(1) renders as
@@ -495,9 +495,10 @@ test("picker keeps user text, final assistants with text, boundaries, and the le
 
 test("formatTreeNodeLine omitUuid drops the uuid column", () => {
   const entries = [userEntry(uuid(1), "hello there")];
+  const entryOf = entriesByUuid(entries);
   const roots = toLayoutTree(
     buildTree(entries, () => {}),
-    entriesByUuid(entries),
+    (id) => entryOf.get(parseTreeNodeRef(id).uuid)!,
   );
   const flat = flattenVisibleTree(roots, uuid(1), () => true);
   const toolNames = new Map<string, string>();

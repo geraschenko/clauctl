@@ -17,6 +17,7 @@ import {
   type ParentMap,
   type TreeNodeRef,
 } from "../../core/tree.ts";
+import { toLayoutTree } from "../../format/generated/flat-tree.ts";
 import { extractTextContent } from "../../format/generated/text.ts";
 import {
   flattenVisibleTree,
@@ -29,7 +30,6 @@ import {
   entrySummary,
   formatTreeNodeLine,
   passesFilter,
-  toLayoutTree,
 } from "../../format/tree.ts";
 import { theme } from "../theme.ts";
 
@@ -115,7 +115,9 @@ export class TreeSelectorComponent extends Container implements Focusable {
     onCancel: () => void,
   ) {
     super();
-    this.roots = toLayoutTree(parentMap, entryOf);
+    this.roots = toLayoutTree(parentMap, (id) =>
+      entryOf.get(parseTreeNodeRef(id).uuid)!,
+    );
     this.currentLeafId = leaf === null ? null : formatTreeNodeRef(leaf);
     this.toolNames = collectToolNames([...entryOf.values()]);
     this.finalIds = collectFinalAssistantIds(
