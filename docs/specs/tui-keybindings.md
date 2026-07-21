@@ -86,6 +86,8 @@ stringify, 2-space indent), so user formatting is normalized; top-level user
 entries are preserved verbatim as values. A missing file is created as
 `{ "default_bindings": { ... } }`.
 
+TDC: if the user edits inside of `default_bindings`, gets the warning banner, and then `/keybindings` to move their edits to the right place, they get a nasty surprise because `default_bindings` gets overwritten. Maybe when we see edits inside `default_bindings` we should move them outside in addition to showing the banner?
+
 ### Command surface
 
 Two new locally intercepted slash commands (exact-match on the first token,
@@ -116,6 +118,8 @@ plus:
 | `app.permissionMode.cycle` | `shift+tab` | cycle permission mode (existing)      |
 | `app.editor.external`      | `ctrl+g`    | *defined but unbound* (second commit) |
 
+TDC: Follow-up work is to audit what other actions pi has and see if we should adopt any of them.
+
 Ids reuse pi's names where the meaning matches (portable user configs);
 `app.permissionMode.cycle` is clauctl-specific (pi's shift+tab means
 thinking-level cycle — different semantics, different id). Only
@@ -144,6 +148,7 @@ declare module "@earendil-works/pi-tui" {
 export const CLAUCTL_KEYBINDINGS: KeybindingDefinitions; // literal, spreads TUI_KEYBINDINGS
 
 /** $CLAUCTL_CONFIG_DIR ?? envPaths("clauctl", { suffix: "" }).config */
+// TDC: should we define `clauctlPaths()` as `$CLAUCTL_CONFIG_DIR ?? envPaths("clauctl", { suffix: "" })` and then use clauctlPaths().config or clauctlPaths().data everywhere? This does seem a little awkward. `claucltPaths("config", "keybindings.json")` is another possible form.
 export function clauctlConfigDir(): string;
 
 /** <clauctlConfigDir()>/keybindings.json */
@@ -165,6 +170,7 @@ export function readKeybindingsConfig(
  * Throws on I/O errors and on an unparseable existing file (the caller
  * banners; overwriting a file we cannot parse would destroy user data).
  */
+// TDC: we also need to be able to simply fetch default bindings for the comparison to `default_bindings`.
 export function writeDefaultBindings(
   path: string,
   definitions: KeybindingDefinitions,
