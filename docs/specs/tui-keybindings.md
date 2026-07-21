@@ -86,7 +86,12 @@ stringify, 2-space indent), so user formatting is normalized; top-level user
 entries are preserved verbatim as values. A missing file is created as
 `{ "default_bindings": { ... } }`.
 
-TDC: if the user edits inside of `default_bindings`, gets the warning banner, and then `/keybindings` to move their edits to the right place, they get a nasty surprise because `default_bindings` gets overwritten. Maybe when we see edits inside `default_bindings` we should move them outside in addition to showing the banner?
+The rewrite **promotes** drifted entries instead of discarding them: an
+entry inside `default_bindings` that differs from the actual default moves
+to the top level, so the natural mistake (editing inside the field, then
+running `/keybindings`) self-heals into a real override. If that action id
+already has a top-level entry, the top-level one wins (it is the deliberate
+override) and the drifted inner edit is dropped with a warning.
 
 ### Command surface
 
@@ -118,8 +123,6 @@ plus:
 | `app.permissionMode.cycle` | `shift+tab` | cycle permission mode (existing)      |
 | `app.editor.external`      | `ctrl+g`    | *defined but unbound* (second commit) |
 
-TDC: Follow-up work is to audit what other actions pi has and see if we should adopt any of them.
-
 Ids reuse pi's names where the meaning matches (portable user configs);
 `app.permissionMode.cycle` is clauctl-specific (pi's shift+tab means
 thinking-level cycle — different semantics, different id). Only
@@ -148,7 +151,6 @@ declare module "@earendil-works/pi-tui" {
 export const CLAUCTL_KEYBINDINGS: KeybindingDefinitions; // literal, spreads TUI_KEYBINDINGS
 
 /** $CLAUCTL_CONFIG_DIR ?? envPaths("clauctl", { suffix: "" }).config */
-// TDC: should we define `clauctlPaths()` as `$CLAUCTL_CONFIG_DIR ?? envPaths("clauctl", { suffix: "" })` and then use clauctlPaths().config or clauctlPaths().data everywhere? This does seem a little awkward. `claucltPaths("config", "keybindings.json")` is another possible form.
 export function clauctlConfigDir(): string;
 
 /** <clauctlConfigDir()>/keybindings.json */
@@ -167,14 +169,24 @@ export function readKeybindingsConfig(
 /**
  * Rewrite path's default_bindings field from `definitions` (creating the
  * file and parent dirs if missing), preserving top-level user entries.
+ * Also promotes drifted default_bindings entries to top-level overrides
+ * (dropped with a warning when the id already has a top-level entry).
  * Throws on I/O errors and on an unparseable existing file (the caller
  * banners; overwriting a file we cannot parse would destroy user data).
  */
-// TDC: we also need to be able to simply fetch default bindings for the comparison to `default_bindings`.
 export function writeDefaultBindings(
   path: string,
   definitions: KeybindingDefinitions,
-): void;
+): { warnings: string[] };
+
+/**
+ * Canonical id → default-keys map as written into default_bindings (single
+ * key as string, multiple as array). Shared by writeDefaultBindings
+ * (serialization) and readKeybindingsConfig (drift comparison).
+ */
+export function defaultBindings(
+  definitions: KeybindingDefinitions,
+): KeybindingsConfig;
 
 /** Format manager.getConflicts() as banner-ready warning strings. */
 export function conflictWarnings(manager: KeybindingsManager): string[];
@@ -263,6 +275,9 @@ up/down/pageUp/pageDown/enter/escape through `tui.select.*` ids via
 - No legacy-name migration (pi has one; clauctl has no legacy users).
 - ctrl+g external-editor action and ctrl+c clear-input behavior: defined in
   the action set, implemented in the two follow-up commits.
+- Adopting more of pi's action set (model cycling, message copy, follow-up
+  queueing, …): follow-up work — audit pi's `app.*` actions once the
+  registry is in place.
 
 ## IMPLEMENTATION IDEAS
 
@@ -289,9 +304,13 @@ up/down/pageUp/pageDown/enter/escape through `tui.select.*` ids via
 - Drift detection compares normalized key lists (pi's single-key-vs-array
   looseness): `[...defaultKeys]` vs entry value, order-sensitive is fine
   since `/keybindings` writes them canonically.
-- `writeDefaultBindings` serializes single-key defaults as strings,
-  multi-key as arrays (matching `TUI_KEYBINDINGS` literal shapes), with the
-  `"//"` note first, then action ids in definitions order.
+- `writeDefaultBindings` writes the `"//"` note first, then
+  `defaultBindings(definitions)` entries in definitions order.
+- Config-dir resolution stays local (`clauctlConfigDir()`). A unified
+  `clauctlPaths(): { data, config }` folding both `CLAUCTL_DIR` (registry.ts)
+  and `CLAUCTL_CONFIG_DIR` is a possible follow-up refactor once a second
+  config consumer exists; pulling registry.ts into this commit would expand
+  scope.
 - Local-command interception in `submit()` follows the `/tree` pattern
   (`/^\/keybindings(\s|$)/` etc. on trimmed text); both ignore arguments.
 - Tests (vitest, colocated `.test.ts` per repo convention):
