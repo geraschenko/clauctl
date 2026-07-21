@@ -10,9 +10,11 @@
 import {
   Container,
   Editor,
+  getKeybindings,
+  KeybindingsManager,
   Loader,
-  matchesKey,
   ProcessTerminal,
+  setKeybindings,
   Text,
   TUI,
 } from "@earendil-works/pi-tui";
@@ -60,6 +62,18 @@ import {
   resolveTreePick,
   TreeSelectorComponent,
 } from "./components/tree-selector.ts";
+import {
+  CLAUCTL_KEYBINDINGS,
+  conflictWarnings,
+  keybindingsPath,
+  promoteEditedDefaults,
+  readKeybindingsConfig,
+  writeDefaultBindings,
+} from "./keybindings.ts";
+import {
+  editFileInExternalEditor,
+  externalEditorCommand,
+} from "./external-editor.ts";
 import { pathUpToBoundary, releaseDedupeUuid, userText } from "./sdk-render.ts";
 import { TranscriptRenderer } from "./transcript.ts";
 import { getEditorTheme, theme, type ThemeColor } from "./theme.ts";
@@ -124,13 +138,35 @@ export async function runInteractive(
   managed: boolean,
 ): Promise<void> {
   initTheme("dark");
+  // The global manager must be set before InteractiveMode exists: its Editor
+  // resolves tui.* ids against getKeybindings(), which otherwise caches a
+  // TUI_KEYBINDINGS-only fallback on first use.
+  const configRead = readKeybindingsConfig(
+    keybindingsPath(),
+    CLAUCTL_KEYBINDINGS,
+  );
+  const keybindingWarnings = configRead.ok
+    ? [...configRead.warnings]
+    : [`config ignored, using defaults: ${configRead.error}`];
+  const manager = new KeybindingsManager(
+    CLAUCTL_KEYBINDINGS,
+    configRead.ok ? configRead.bindings : {},
+  );
+  setKeybindings(manager);
+  keybindingWarnings.push(...conflictWarnings(manager));
   const buffered: SdkEvent[] = [];
   let handleEvent = (event: SdkEvent): void => {
     buffered.push(event);
   };
   const seedState = await client.subscribe((event) => handleEvent(event));
   const ui = new TUI(new ProcessTerminal());
-  const interactiveMode = new InteractiveMode(ui, client, seedState, managed);
+  const interactiveMode = new InteractiveMode(
+    ui,
+    client,
+    seedState,
+    managed,
+    keybindingWarnings,
+  );
   handleEvent = (event) => interactiveMode.handleEvent(event);
   for (const event of buffered.splice(0)) {
     interactiveMode.handleEvent(event);
@@ -182,6 +218,9 @@ class InteractiveMode {
    * the preview text).
    */
   private readonly queuedById = new Map<number, SDKUserMessage>();
+  /** The global manager set by runInteractive; also consulted by pi-tui's
+   *  Editor and SelectList, so remaps apply everywhere at once. */
+  private readonly keybindings: KeybindingsManager;
   private lastCtrlCAt = 0;
   /** ctrl+o / ctrl+t toggles, reapplied to recreated renderers. */
   private toolsExpanded = false;
@@ -229,11 +268,13 @@ class InteractiveMode {
     client: SdkSocketClient,
     seedState: AgentState,
     managed: boolean,
+    keybindingWarnings: string[],
   ) {
     this.ui = ui;
     this.client = client;
     this.managed = managed;
     this.agentState = seedState;
+    this.keybindings = getKeybindings();
     this.transcript = new TranscriptRenderer(this.chatContainer);
     this.done = new Promise((resolve) => {
       this.finish = resolve;
@@ -270,6 +311,11 @@ class InteractiveMode {
       this.pendingMessages.add(entry.id, userText(entry.message));
     }
     void this.reloadHistory();
+    // After reloadHistory's synchronous prefix, which recreates the
+    // transcript renderer — banners added earlier would be wiped.
+    for (const warning of keybindingWarnings) {
+      this.addBanner(`keybindings: ${warning}`, "warning");
+    }
 
     this.autocomplete = new TuiAutocompleteProvider(
       seedState.cwd ?? null,
@@ -509,6 +555,14 @@ class InteractiveMode {
       this.openTreeSelector();
       return;
     }
+    if (/^\/keybindings(\s|$)/.test(text.trim())) {
+      void this.openKeybindingsEditor();
+      return;
+    }
+    if (/^\/reload-keybindings(\s|$)/.test(text.trim())) {
+      this.reloadKeybindings();
+      return;
+    }
     // The queued echo comes back as a userMessageQueued event; nothing is
     // rendered here.
     void this.client
@@ -517,6 +571,92 @@ class InteractiveMode {
         this.addBanner(`query failed: ${String(error)}`);
         this.ui.requestRender();
       });
+  }
+
+  /**
+   * `/keybindings`: refresh default_bindings (skipped with a banner when the
+   * existing file is unparseable — the editor still opens, since this is
+   * also the repair tool), edit the file in $VISUAL/$EDITOR with the TUI
+   * suspended, promote post-editor default_bindings edits to top-level
+   * overrides (only when the refresh succeeded — without that baseline,
+   * drift is not attributable to this session), then reload.
+   */
+  private async openKeybindingsEditor(): Promise<void> {
+    const editorCommand = externalEditorCommand();
+    if (editorCommand === undefined) {
+      this.addBanner("set $EDITOR to edit keybindings", "warning");
+      this.ui.requestRender();
+      return;
+    }
+    const path = keybindingsPath();
+    let refreshed = true;
+    try {
+      writeDefaultBindings(path, CLAUCTL_KEYBINDINGS);
+    } catch (error) {
+      refreshed = false;
+      this.addBanner(
+        `keybindings: defaults refresh skipped: ${String(error)}`,
+        "warning",
+      );
+    }
+    const exitedZero = await editFileInExternalEditor(
+      this.ui,
+      editorCommand,
+      path,
+    );
+    if (!exitedZero) {
+      this.addBanner(
+        "keybindings: editor exited nonzero; changes not applied",
+        "warning",
+      );
+      this.ui.requestRender();
+      return;
+    }
+    if (refreshed) {
+      try {
+        const { warnings } = promoteEditedDefaults(path, CLAUCTL_KEYBINDINGS);
+        for (const warning of warnings) {
+          this.addBanner(`keybindings: ${warning}`, "warning");
+        }
+      } catch (error) {
+        this.addBanner(`keybindings: ${String(error)}`, "error");
+        this.ui.requestRender();
+        return;
+      }
+    }
+    this.reloadKeybindings();
+  }
+
+  /**
+   * `/reload-keybindings` (also the tail of openKeybindingsEditor): re-read
+   * the config and apply it to the existing manager instance — pi-tui
+   * components hold the same reference, so they see the change. A fatal
+   * read keeps the current live bindings: a temporary syntax error must not
+   * strip a working configuration.
+   */
+  private reloadKeybindings(): void {
+    const configRead = readKeybindingsConfig(
+      keybindingsPath(),
+      CLAUCTL_KEYBINDINGS,
+    );
+    if (!configRead.ok) {
+      this.addBanner(`keybindings not reloaded: ${configRead.error}`, "error");
+      this.ui.requestRender();
+      return;
+    }
+    this.keybindings.setUserBindings(configRead.bindings);
+    const warnings = [
+      ...configRead.warnings,
+      ...conflictWarnings(this.keybindings),
+    ];
+    if (warnings.length === 0) {
+      this.addBanner("keybindings reloaded");
+    } else {
+      for (const warning of warnings) {
+        this.addBanner(`keybindings: ${warning}`, "warning");
+      }
+    }
+    this.ui.requestRender();
   }
 
   private sendSetModel(model: string): void {
@@ -656,34 +796,36 @@ class InteractiveMode {
    * not export its InputListenerResult.
    */
   private handleGlobalKey(data: string): { consume: boolean } | undefined {
+    // An open menu owns the interrupt and clear chords (cancel / clear
+    // search via tui.select.cancel, which the focused selector handles).
+    const selectorOpen =
+      this.modelSelector !== undefined || this.treeSelector !== undefined;
     if (
-      matchesKey(data, "escape") &&
+      this.keybindings.matches(data, "app.interrupt") &&
       isBusy(this.agentState) &&
-      // An open menu owns escape (cancel / clear search).
-      this.modelSelector === undefined &&
-      this.treeSelector === undefined
+      !selectorOpen
     ) {
       void this.client.request({ type: "interrupt" }).catch(() => {});
       return { consume: true };
     }
-    if (matchesKey(data, "shift+tab")) {
+    if (this.keybindings.matches(data, "app.permissionMode.cycle")) {
       this.cyclePermissionMode();
       return { consume: true };
     }
-    if (matchesKey(data, "ctrl+o")) {
+    if (this.keybindings.matches(data, "app.tools.expand")) {
       this.toolsExpanded = !this.toolsExpanded;
       this.transcript.setToolsExpanded(this.toolsExpanded);
       this.transcript.setCompactSummaryExpanded(this.toolsExpanded);
       this.ui.requestRender();
       return { consume: true };
     }
-    if (matchesKey(data, "ctrl+t")) {
+    if (this.keybindings.matches(data, "app.thinking.toggle")) {
       this.showThinking = !this.showThinking;
       this.transcript.setShowThinking(this.showThinking);
       this.ui.requestRender();
       return { consume: true };
     }
-    if (matchesKey(data, "ctrl+c")) {
+    if (this.keybindings.matches(data, "app.clear") && !selectorOpen) {
       if (this.managed) {
         this.hintText.setText(theme.fg("dim", "detach: ctrl+]"));
         this.ui.requestRender();
@@ -694,10 +836,11 @@ class InteractiveMode {
         this.finish();
       } else {
         this.lastCtrlCAt = now;
+        const key = this.keybindings.getKeys("app.clear").join("/");
         this.hintText.setText(
           theme.fg(
             "dim",
-            "press ctrl+c again to detach (the agent keeps running)",
+            `press ${key} again to detach (the agent keeps running)`,
           ),
         );
         this.ui.requestRender();

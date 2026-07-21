@@ -167,14 +167,14 @@ added to `LOCAL_COMMANDS` in `autocomplete.ts`:
 definitions map missing `tui.*` ids would silently break every editor key)
 plus:
 
-| Action id                  | Default     | Bound now to                                                             |
-| -------------------------- | ----------- | ------------------------------------------------------------------------ |
-| `app.interrupt`            | `escape`    | interrupt (existing)                                                     |
+| Action id                  | Default     | Bound now to                                                    |
+| -------------------------- | ----------- | --------------------------------------------------------------- |
+| `app.interrupt`            | `escape`    | interrupt (existing)                                            |
 | `app.clear`                | `ctrl+c`    | detach double-press (existing; the clear-input half is phase 3) |
-| `app.tools.expand`         | `ctrl+o`    | toggle tool output (existing)                                            |
-| `app.thinking.toggle`      | `ctrl+t`    | toggle thinking blocks (existing)                                        |
-| `app.permissionMode.cycle` | `shift+tab` | cycle permission mode (existing)                                         |
-| `app.editor.external`      | `ctrl+g`    | _declared, not handled until phase 2_                                   |
+| `app.tools.expand`         | `ctrl+o`    | toggle tool output (existing)                                   |
+| `app.thinking.toggle`      | `ctrl+t`    | toggle thinking blocks (existing)                               |
+| `app.permissionMode.cycle` | `shift+tab` | cycle permission mode (existing)                                |
+| `app.editor.external`      | `ctrl+g`    | _declared, not handled until phase 2_                           |
 
 Ids reuse pi's names where the meaning matches (portable user configs);
 `app.permissionMode.cycle` is clauctl-specific (pi's shift+tab means
@@ -469,12 +469,38 @@ encountered.
   append-only single-entry snapshots with (id, value) dedupe (object merge
   would collide on repeated displacement of one id); all fatal file states
   skip refresh → disable promotion. Reviewer approved; archived.
-- [ ] `src/tui/keybindings.ts` (+ tests)
-- [ ] `src/tui/external-editor.ts`
-- [ ] Wire manager in `runInteractive`; banner warnings
-- [ ] `handleGlobalKey` → action ids; hints via `getKeys`
-- [ ] `tree-selector.ts` → `tui.select.*`
-- [ ] `/keybindings`, `/reload-keybindings` + autocomplete entries
-- [ ] typecheck, tests, manual TUI verification
+- [x] `src/tui/keybindings.ts` (+ tests)
+- [x] `src/tui/external-editor.ts`
+- [x] Wire manager in `runInteractive`; banner warnings
+- [x] `handleGlobalKey` → action ids; hints via `getKeys`
+- [x] `tree-selector.ts` → `tui.select.*`
+- [x] `/keybindings`, `/reload-keybindings` + autocomplete entries
+- [x] typecheck, tests (419 pass), lint, treefmt
+- [ ] manual TUI verification (user)
+
+### Implementation-Time Decisions (2026-07-21, phase 1)
+
+- **Model selector hint resolved too**: success criterion 5 says
+  "selectors'", but the type-design file list omitted
+  `model-selector.ts`; its hard-coded "esc to cancel" is now rendered from
+  `getKeys("tui.select.cancel")[0]`.
+- **Tree selector confirm drops the `enter || return` dual match**: routed
+  through `tui.select.confirm` (default `enter`), matching pi's SelectList,
+  which binds confirm to `enter` alone and works everywhere.
+- **Malformed `replaced_default_bindings` preserved by wrapping**: if the
+  field exists but is not an array when a displacement must be appended, the
+  old value becomes the new list's first element (never destroyed); when
+  nothing is displaced the field is left untouched.
+- **Promotion restores the canonical default in place**: a promoted edit's
+  `default_bindings` slot is reset to the current default (unknown ids are
+  deleted) so the drift nudge does not re-fire on the following reload.
+  An edit introducing an unknown id inside `default_bindings` is promoted
+  to the top level, where the reader's unknown-id warning surfaces the typo.
+- **Startup warnings banner after `reloadHistory()`'s synchronous prefix**:
+  that prefix recreates the transcript renderer, so banners added earlier
+  in the constructor would be wiped.
+- **Pre-existing presubmit failure**: `sync-from-pictl --check` fails on
+  `cli.ts` / `flat-tree.ts` / `tree-layout.ts` drift that predates this
+  change (files untouched here); all other presubmit steps pass.
 - [ ] (phase 2, when ctrl+g lands) move `docs/thoughts/open-editor.md` to
       `docs/thoughts/old/`
