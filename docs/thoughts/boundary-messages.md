@@ -1,1 +1,2 @@
 Let's not display the perserved messages on compact boundaries in either the tree or conversation history. For the tree, we can have a --filter mode that includes them, but somehow indicates that they are relinked messages (e.g. a prefix like "~").
+Also, every time there's a compaction or navigation right now, it appears as a branch. That's bad. If we have a long conversation with several compactions, it should appear as one long linear conversation in tree view.

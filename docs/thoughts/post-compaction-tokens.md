@@ -1,0 +1,1 @@
+After compaction, token count doesn't currently update. We should update lastUsage based on the postTokens field of the compact_boundary entry. Also, the "context compacted" banner in the tui should indicate the number of preTokens and postTokens.
