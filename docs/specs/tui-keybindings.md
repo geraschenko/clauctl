@@ -1,8 +1,10 @@
 # Spec: TUI keybindings registry
 
-> Status: **draft.** First of three planned commits (registry; then ctrl+g
+> Status: **draft.** First of three planned phases (registry; then ctrl+g
 > external editor; then ctrl+c clear-input) growing out of
-> `docs/thoughts/open-editor.md`.
+> `docs/thoughts/open-editor.md`. Phasing is for review scoping only —
+> the user manages all git operations; implementing agents must not
+> commit, stage, or otherwise mutate git state.
 
 ## SPEC (stable requirements)
 
@@ -168,18 +170,18 @@ plus:
 | Action id                  | Default     | Bound now to                                                             |
 | -------------------------- | ----------- | ------------------------------------------------------------------------ |
 | `app.interrupt`            | `escape`    | interrupt (existing)                                                     |
-| `app.clear`                | `ctrl+c`    | detach double-press (existing; the clear-input half is the third commit) |
+| `app.clear`                | `ctrl+c`    | detach double-press (existing; the clear-input half is phase 3) |
 | `app.tools.expand`         | `ctrl+o`    | toggle tool output (existing)                                            |
 | `app.thinking.toggle`      | `ctrl+t`    | toggle thinking blocks (existing)                                        |
 | `app.permissionMode.cycle` | `shift+tab` | cycle permission mode (existing)                                         |
-| `app.editor.external`      | `ctrl+g`    | _declared, not handled until commit 2_                                   |
+| `app.editor.external`      | `ctrl+g`    | _declared, not handled until phase 2_                                   |
 
 Ids reuse pi's names where the meaning matches (portable user configs);
 `app.permissionMode.cycle` is clauctl-specific (pi's shift+tab means
 thinking-level cycle — different semantics, different id). `app.clear` in
-pi means "clear editor (double press: exit)"; in this commit it carries
-only the detach double-press, and the third commit adds the clear-input
-half, converging on pi's meaning — a deliberate one-commit transition, not
+pi means "clear editor (double press: exit)"; in this phase it carries
+only the detach double-press, and phase 3 adds the clear-input
+half, converging on pi's meaning — a deliberate one-phase transition, not
 a semantic fork. Only `app.permissionMode.cycle` needs a `declare module`
 augmentation of pi-tui's `Keybindings` interface; the other `app.*` ids are
 already merged in by pi-coding-agent, which clauctl compiles against.
@@ -272,7 +274,7 @@ export function defaultBindings(
 export function conflictWarnings(manager: KeybindingsManager): string[];
 ```
 
-New module `src/tui/external-editor.ts` (shared with the ctrl+g commit):
+New module `src/tui/external-editor.ts` (shared with the ctrl+g phase):
 
 ```ts
 import type { TUI } from "@earendil-works/pi-tui";
@@ -374,7 +376,7 @@ behavior) via `getKeybindings()`; `backspace` (search editing) keeps
   last-writer-wins, and one process's reload does not affect others.
 - No legacy-name migration (pi has one; clauctl has no legacy users).
 - ctrl+g external-editor action and ctrl+c clear-input behavior: defined in
-  the action set, implemented in the two follow-up commits.
+  the action set, implemented in the two follow-up phases.
 - Adopting more of pi's action set (model cycling, message copy, follow-up
   queueing, …): follow-up work — audit pi's `app.*` actions once the
   registry is in place.
@@ -385,7 +387,14 @@ behavior) via `getKeybindings()`; `backspace` (search editing) keeps
   reaches clauctl's typecheck through the existing pi-coding-agent import
   (`matches(data, "app.editor.external")` compiles today; `tsc --noEmit`
   exit 0 with a scratch file). Only `app.permissionMode.cycle` needs our
-  own augmentation.
+  own augmentation. Robustness option: have `keybindings.ts` import a type
+  from pi-coding-agent itself so the augmentation dependency is local
+  rather than riding on interactive-mode.ts's `initTheme` import.
+- Ordering matters: `getKeybindings()` lazily caches a
+  TUI_KEYBINDINGS-only fallback manager if called before
+  `setKeybindings()` — so `runInteractive` must `setKeybindings` before
+  constructing `InteractiveMode` (whose `Editor` consults the global at
+  input time, and whose ctor reads `getKeybindings()`).
 - pi reference points: `pi-tui/dist/keybindings.js` (manager, global,
   `TUI_KEYBINDINGS`), `pi-coding-agent/dist/core/keybindings.js` (app-level
   definitions, config-file subclass — we take the pattern, not the class:
@@ -415,13 +424,15 @@ behavior) via `getKeybindings()`; `backspace` (search editing) keeps
 - Config-dir resolution stays local (`clauctlConfigDir()`). A unified
   `clauctlPaths(): { data, config }` folding both `CLAUCTL_DIR` (registry.ts)
   and `CLAUCTL_CONFIG_DIR` is a possible follow-up refactor once a second
-  config consumer exists; pulling registry.ts into this commit would expand
+  config consumer exists; pulling registry.ts into this phase would expand
   scope.
 - Local-command interception in `submit()` follows the `/tree` pattern
   (`/^\/keybindings(\s|$)/` etc. on trimmed text); both ignore arguments.
 - Tests should reset the global manager (`setKeybindings`) between cases —
   it is process-global state.
-- Tests (vitest, colocated `.test.ts` per repo convention):
+- Tests (`node --test` + `node:assert/strict`, colocated `.test.ts` per
+  repo convention — see `autocomplete.test.ts`; run via `npm test`,
+  full gate via `npm run presubmit`):
   `readKeybindingsConfig` (missing file, parse error, non-object root,
   malformed entry, unknown id, bad key string, drift nudge, valid
   overrides, `[]` unbind, replaced_default_bindings warning),
@@ -444,7 +455,7 @@ encountered.
   recoverable read classes, atomic writes, two-stage cancel for the tree
   selector, resolved-key hints, unknown-id/bad-key warnings, language
   fixes, managed-mode expansion. Rejected: `app.detach` rename (app.clear
-  converges on pi's meaning by commit 3), separate search-clear action,
+  converges on pi's meaning by phase 3), separate search-clear action,
   disabling /keybindings in managed mode, cross-process coordination.
   Promotion ambiguity resolved by timing (Anton): /keybindings refreshes
   defaults before the editor opens, so post-editor drift is always a user
@@ -465,3 +476,5 @@ encountered.
 - [ ] `tree-selector.ts` → `tui.select.*`
 - [ ] `/keybindings`, `/reload-keybindings` + autocomplete entries
 - [ ] typecheck, tests, manual TUI verification
+- [ ] (phase 2, when ctrl+g lands) move `docs/thoughts/open-editor.md` to
+      `docs/thoughts/old/`
