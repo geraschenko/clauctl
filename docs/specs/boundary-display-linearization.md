@@ -369,6 +369,10 @@ encountered.
   with no `editorText` (drops today's summary-text prefill),
   malformed-summary fallback to user-row semantics, linearity qualified to
   suffix-shaped relinks, raw-mode wording (occurrences, not entries).
+- Session notes: spec reviewer agent `c6e9434f` (archived; revive via
+  `pictl prompt -t c6e9434f` for the post-implementation review — it
+  approved this spec with full context). Next `/spec` skill phases:
+  implement.md, then review.md, each on explicit approval.
 - [ ] Implement `buildDisplayTree` + tests
 - [ ] `format tree`: `raw` mode, display-tree default, `~` marking + tests
 - [ ] Picker: display rows, `resolveTreePick` boundary-undo + tests
