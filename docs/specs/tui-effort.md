@@ -1,6 +1,6 @@
 # Spec: TUI /effort command
 
-> Status: implemented, awaiting user review and manual TUI verification.
+> Status: implemented, reviewed, and verified in the TUI (2026-07-21).
 > The user manages all git operations; implementing agents must not
 > commit, stage, or otherwise mutate git state.
 
@@ -274,4 +274,4 @@ encountered.
 - [x] `parseEffortCommand` + intercept + selector lifecycle + guard
 - [x] autocomplete entry
 - [x] tests (423 pass), typecheck, lint, treefmt
-- [ ] manual TUI verification (user)
+- [x] manual TUI verification (user, 2026-07-21)

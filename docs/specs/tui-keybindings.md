@@ -1,8 +1,7 @@
 # Spec: TUI keybindings registry
 
-> Status: **phase 1 (registry) landed; phases 2 (ctrl+g) and 3 (ctrl+c
-> clear) implemented, awaiting review.** Three phases (registry; then ctrl+g
-> external editor; then ctrl+c clear-input) growing out of
+> Status: **all three phases landed and verified.** Three phases (registry;
+> then ctrl+g external editor; then ctrl+c clear-input) growing out of
 > `docs/thoughts/open-editor.md`. Phasing is for review scoping only —
 > the user manages all git operations; implementing agents must not
 > commit, stage, or otherwise mutate git state.
