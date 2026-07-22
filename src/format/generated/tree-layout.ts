@@ -1,10 +1,10 @@
 // DO NOT MODIFY — generated from pictl by scripts/sync-from-pictl.mjs.
 // The canonical copy lives in pictl; edit it there and re-run the script.
 
-export interface LayoutNode<P> {
+export interface LayoutNode<TPayload> {
   readonly id: string;
-  readonly children: readonly LayoutNode<P>[];
-  readonly payload: P;
+  readonly children: readonly LayoutNode<TPayload>[];
+  readonly payload: TPayload;
 }
 
 export interface TreeGutter {
@@ -12,8 +12,8 @@ export interface TreeGutter {
   readonly show: boolean;
 }
 
-export interface FlatLayoutNode<P> {
-  readonly node: LayoutNode<P>;
+export interface FlatLayoutNode<TPayload> {
+  readonly node: LayoutNode<TPayload>;
   readonly indent: number;
   readonly showConnector: boolean;
   readonly isLast: boolean;
@@ -23,8 +23,8 @@ export interface FlatLayoutNode<P> {
   readonly isCurrentLeaf: boolean;
 }
 
-interface FlatLayoutNodeDraft<P> {
-  node: LayoutNode<P>;
+interface FlatLayoutNodeDraft<TPayload> {
+  node: LayoutNode<TPayload>;
   indent: number;
   showConnector: boolean;
   isLast: boolean;
@@ -34,8 +34,8 @@ interface FlatLayoutNodeDraft<P> {
   isCurrentLeaf: boolean;
 }
 
-interface StackItem<P> {
-  readonly node: LayoutNode<P>;
+interface StackItem<TPayload> {
+  readonly node: LayoutNode<TPayload>;
   readonly parentId: string | null;
   readonly indent: number;
   readonly justBranched: boolean;
@@ -45,17 +45,17 @@ interface StackItem<P> {
   readonly isVirtualRootChild: boolean;
 }
 
-interface FlattenAllResult<P> {
-  readonly flatNodes: readonly FlatLayoutNodeDraft<P>[];
+interface FlattenAllResult<TPayload> {
+  readonly flatNodes: readonly FlatLayoutNodeDraft<TPayload>[];
   readonly parentById: ReadonlyMap<string, string | null>;
 }
 
-function computeContainsActive<P>(
-  roots: readonly LayoutNode<P>[],
+function computeContainsActive<TPayload>(
+  roots: readonly LayoutNode<TPayload>[],
   currentLeafId: string | null,
-): Map<LayoutNode<P>, boolean> {
-  const containsActive = new Map<LayoutNode<P>, boolean>();
-  const allNodes: LayoutNode<P>[] = [];
+): Map<LayoutNode<TPayload>, boolean> {
+  const containsActive = new Map<LayoutNode<TPayload>, boolean>();
+  const allNodes: LayoutNode<TPayload>[] = [];
   const stack = [...roots].reverse();
   while (stack.length > 0) {
     const node = stack.pop();
@@ -86,15 +86,15 @@ function computeContainsActive<P>(
   return containsActive;
 }
 
-function flattenAll<P>(
-  roots: readonly LayoutNode<P>[],
+function flattenAll<TPayload>(
+  roots: readonly LayoutNode<TPayload>[],
   currentLeafId: string | null,
-): FlattenAllResult<P> {
-  const flatNodes: FlatLayoutNodeDraft<P>[] = [];
+): FlattenAllResult<TPayload> {
+  const flatNodes: FlatLayoutNodeDraft<TPayload>[] = [];
   const parentById = new Map<string, string | null>();
   const containsActive = computeContainsActive(roots, currentLeafId);
   const multipleRoots = roots.length > 1;
-  const stack: StackItem<P>[] = [];
+  const stack: StackItem<TPayload>[] = [];
   const orderedRoots = [...roots].sort(
     (a, b) => Number(containsActive.get(b)) - Number(containsActive.get(a)),
   );
@@ -130,7 +130,7 @@ function flattenAll<P>(
     flatNodes.push({ ...item, isOnActivePath: false, isCurrentLeaf: false });
 
     const multipleChildren = item.node.children.length > 1;
-    const orderedChildren: LayoutNode<P>[] = [];
+    const orderedChildren: LayoutNode<TPayload>[] = [];
     for (const child of item.node.children) {
       if (containsActive.get(child) === true) {
         orderedChildren.push(child);
@@ -189,12 +189,12 @@ function buildActivePath(
   return path;
 }
 
-function recalculateVisibleStructure<P>(
-  visibleFlatNodes: readonly FlatLayoutNodeDraft<P>[],
+function recalculateVisibleStructure<TPayload>(
+  visibleFlatNodes: readonly FlatLayoutNodeDraft<TPayload>[],
   parentById: ReadonlyMap<string, string | null>,
   activePath: ReadonlySet<string>,
   currentLeafId: string | null,
-): readonly FlatLayoutNode<P>[] {
+): readonly FlatLayoutNode<TPayload>[] {
   const visibleIds = new Set(visibleFlatNodes.map((node) => node.node.id));
   const visibleChildren = new Map<string | null, string[]>();
   visibleChildren.set(null, []);
@@ -211,7 +211,7 @@ function recalculateVisibleStructure<P>(
 
   const multipleRoots = (visibleChildren.get(null) ?? []).length > 1;
   const byId = new Map(visibleFlatNodes.map((node) => [node.node.id, node]));
-  const result: FlatLayoutNode<P>[] = [];
+  const result: FlatLayoutNode<TPayload>[] = [];
   const stack: Array<{
     readonly nodeId: string;
     readonly indent: number;
@@ -297,11 +297,11 @@ function recalculateVisibleStructure<P>(
 /** flattenAll → active path → filter → recalculateVisibleStructure.
  *  The predicate closes over whatever it needs (filter mode, current-leaf
  *  exemptions); pass `() => true` for the full unfiltered list. */
-export function flattenVisibleTree<P>(
-  roots: readonly LayoutNode<P>[],
+export function flattenVisibleTree<TPayload>(
+  roots: readonly LayoutNode<TPayload>[],
   currentLeafId: string | null,
-  passesFilter: (node: LayoutNode<P>) => boolean,
-): readonly FlatLayoutNode<P>[] {
+  passesFilter: (node: LayoutNode<TPayload>) => boolean,
+): readonly FlatLayoutNode<TPayload>[] {
   const { flatNodes, parentById } = flattenAll(roots, currentLeafId);
   const activePath = buildActivePath(parentById, currentLeafId);
   const filtered = flatNodes.filter((flatNode) => passesFilter(flatNode.node));
