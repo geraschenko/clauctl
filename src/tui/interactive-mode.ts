@@ -38,7 +38,10 @@ import {
   nextAgentState,
   type AgentState,
 } from "../core/agent-state.ts";
-import type { UUID } from "node:crypto";
+import { randomUUID, type UUID } from "node:crypto";
+import { readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { buildTree } from "../core/build-tree.ts";
 import {
   entriesByUuid,
@@ -659,6 +662,41 @@ class InteractiveMode {
     this.ui.requestRender();
   }
 
+  /**
+   * app.editor.external (ctrl+g): edit the prompt in $VISUAL/$EDITOR with
+   * the TUI suspended. Exit 0 replaces the editor content — stripping one
+   * trailing newline, matching pi — nonzero keeps the original text. Events
+   * arriving while the TUI is suspended are not lost: rendering is
+   * deferred, not the socket-driven handleEvent (see the spec's WORK LOG,
+   * 2026-07-21).
+   */
+  private async openExternalPromptEditor(): Promise<void> {
+    const editorCommand = externalEditorCommand();
+    if (editorCommand === undefined) {
+      this.addBanner("set $EDITOR to edit the prompt", "warning");
+      this.ui.requestRender();
+      return;
+    }
+    const tempPath = join(tmpdir(), `clauctl-editor-${randomUUID()}.md`);
+    try {
+      writeFileSync(tempPath, this.editor.getText(), "utf8");
+      const exitedZero = await editFileInExternalEditor(
+        this.ui,
+        editorCommand,
+        tempPath,
+      );
+      if (exitedZero) {
+        this.editor.setText(readFileSync(tempPath, "utf8").replace(/\n$/, ""));
+      }
+    } finally {
+      try {
+        unlinkSync(tempPath);
+      } catch {
+        // Cleanup is best-effort; the file is in tmpdir anyway.
+      }
+    }
+  }
+
   private sendSetModel(model: string): void {
     // No optimistic footer update: it follows from the controlApplied event.
     void this.client
@@ -823,6 +861,13 @@ class InteractiveMode {
       this.showThinking = !this.showThinking;
       this.transcript.setShowThinking(this.showThinking);
       this.ui.requestRender();
+      return { consume: true };
+    }
+    if (
+      this.keybindings.matches(data, "app.editor.external") &&
+      !selectorOpen
+    ) {
+      void this.openExternalPromptEditor();
       return { consume: true };
     }
     if (this.keybindings.matches(data, "app.clear") && !selectorOpen) {

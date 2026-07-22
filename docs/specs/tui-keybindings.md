@@ -1,6 +1,7 @@
 # Spec: TUI keybindings registry
 
-> Status: **phase 1 (registry) landed.** First of three planned phases (registry; then ctrl+g
+> Status: **phase 1 (registry) landed; phase 2 (ctrl+g) implemented,
+> awaiting review.** First of three planned phases (registry; then ctrl+g
 > external editor; then ctrl+c clear-input) growing out of
 > `docs/thoughts/open-editor.md`. Phasing is for review scoping only —
 > the user manages all git operations; implementing agents must not
@@ -174,7 +175,7 @@ plus:
 | `app.tools.expand`         | `ctrl+o`    | toggle tool output (existing)                                   |
 | `app.thinking.toggle`      | `ctrl+t`    | toggle thinking blocks (existing)                               |
 | `app.permissionMode.cycle` | `shift+tab` | cycle permission mode (existing)                                |
-| `app.editor.external`      | `ctrl+g`    | _declared, not handled until phase 2_                           |
+| `app.editor.external`      | `ctrl+g`    | external prompt editor (phase 2)                                |
 
 Ids reuse pi's names where the meaning matches (portable user configs);
 `app.permissionMode.cycle` is clauctl-specific (pi's shift+tab means
@@ -527,5 +528,14 @@ encountered.
 - **Startup warnings banner after `reloadHistory()`'s synchronous prefix**:
   that prefix recreates the transcript renderer, so banners added earlier
   in the constructor would be wiped.
-- [ ] (phase 2, when ctrl+g lands) move `docs/thoughts/open-editor.md` to
+- [x] (phase 2, when ctrl+g lands) move `docs/thoughts/open-editor.md` to
       `docs/thoughts/old/`
+- 2026-07-21: phase 2 implemented per the approved type design:
+  `openExternalPromptEditor()` (temp file in tmpdir, write inside the
+  try so the finally's unlink covers all failure paths — matching pi's
+  openExternalEditor; nonzero exit keeps the original text silently,
+  also matching pi), dispatched from `handleGlobalKey` on
+  `app.editor.external` with the no-open-selector guard. No new tests:
+  the method is TUI-lifecycle glue with no extractable pure logic
+  (`editFileInExternalEditor` and the keybinding dispatch are covered by
+  phase 1's design). Checks green: tsc, 419 tests, lint, treefmt.
