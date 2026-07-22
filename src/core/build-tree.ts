@@ -43,7 +43,7 @@ import { formatTreeNodeRef, type ParentMap, type TreeNodeRef } from "./tree.ts";
  * entries parent onto the boundary in BOTH shapes, so parentUuid-based
  * tree construction stays correct without special-casing.
  */
-// TDC: The basic thing this is doing besides just following parentUuid is extracting (in tree form) the stuff from the entry list that depends on the exact order of the entries, not just the parentUuid tree. The key thing is that parentUuid has to be interpreted in the context of the most recent boundary _entry_ (i.e. it really means "parentUuid@viaBoundary" if it exists and "parentUuid" otherwise). The other thing it's doing is saying that the first message in context is the boundary's anchorUuid, then the preserved uuids, and that any message whose parent is the anchorUuid is reparented onto the end of the boundary chain ... or something like that; I'm getting a bit confused again. 
+// TDC: The basic thing this is doing besides just following parentUuid is extracting (in tree form) the stuff from the entry list that depends on the exact order of the entries, not just the parentUuid tree. The key thing is that parentUuid has to be interpreted in the context of the most recent boundary _entry_ (i.e. it really means "parentUuid@viaBoundary" if it exists and "parentUuid" otherwise). The other thing it's doing is saying that the first message in context is the boundary's anchorUuid, then the preserved uuids, and that any message whose parent is the anchorUuid is reparented onto the end of the boundary chain ... or something like that; I'm getting a bit confused again.
 export function buildTree(
   entries: SessionEntry[],
   onInvalid: OnInvalid,

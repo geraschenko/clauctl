@@ -1,6 +1,10 @@
 # Spec: boundary display linearization
 
-> Status: **implemented; reviewer-approved, awaiting user review.** From
+> Status: **superseded by `docs/specs/session-tree.md`** — its user-facing
+> goals carry over, but the mechanism here was built on a guessed loader
+> model that decompiling the CLI's actual relink logic invalidated
+> (`S@B` occurrences, `isCompactSummary` special-casing, occurrence
+> composition across boundaries). Kept for the record. Originally: From
 > `docs/thoughts/boundary-messages.md`. Follow-up to
 > `docs/specs/boundary-substructure.md` (which made `buildTree` emit relinked
 > occurrences) and `docs/specs/format-tree.md`. Display-layer only:
