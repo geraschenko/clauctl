@@ -873,6 +873,12 @@ class InteractiveMode {
       return { consume: true };
     }
     if (this.keybindings.matches(data, "app.clear") && !selectorOpen) {
+      // Cleared text stays reachable via up/down history (unlike pi, which
+      // discards it).
+      const clearedText = this.editor.getText();
+      if (clearedText.trim() !== "") {
+        this.editor.addToHistory(clearedText);
+      }
       this.editor.setText("");
       this.hintText.setText(theme.fg("dim", "detach with ctrl+]"));
       this.ui.requestRender();

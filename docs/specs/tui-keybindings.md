@@ -170,14 +170,14 @@ added to `LOCAL_COMMANDS` in `autocomplete.ts`:
 definitions map missing `tui.*` ids would silently break every editor key)
 plus:
 
-| Action id                  | Default     | Bound now to                                                   |
-| -------------------------- | ----------- | -------------------------------------------------------------- |
-| `app.interrupt`            | `escape`    | interrupt (existing)                                           |
-| `app.clear`                | `ctrl+c`    | clear the prompt input; hint points at the fixed ctrl+] detach |
-| `app.tools.expand`         | `ctrl+o`    | toggle tool output (existing)                                  |
-| `app.thinking.toggle`      | `ctrl+t`    | toggle thinking blocks (existing)                              |
-| `app.permissionMode.cycle` | `shift+tab` | cycle permission mode (existing)                               |
-| `app.editor.external`      | `ctrl+g`    | external prompt editor (phase 2)                               |
+| Action id                  | Default     | Bound now to                                                 |
+| -------------------------- | ----------- | ------------------------------------------------------------ |
+| `app.interrupt`            | `escape`    | interrupt (existing)                                         |
+| `app.clear`                | `ctrl+c`    | clear the prompt into up/down history; hint at ctrl+] detach |
+| `app.tools.expand`         | `ctrl+o`    | toggle tool output (existing)                                |
+| `app.thinking.toggle`      | `ctrl+t`    | toggle thinking blocks (existing)                            |
+| `app.permissionMode.cycle` | `shift+tab` | cycle permission mode (existing)                             |
+| `app.editor.external`      | `ctrl+g`    | external prompt editor (phase 2)                             |
 
 Ids reuse pi's names where the meaning matches (portable user configs);
 `app.permissionMode.cycle` is clauctl-specific (pi's shift+tab means
@@ -572,3 +572,7 @@ encountered.
   members merge cleanly with pi-coding-agent's) — self-sufficient
   regardless of which pi-coding-agent import chains survive future
   refactors.
+- 2026-07-21: phase 3 amendment (Anton): ctrl+c saves nonempty cleared
+  text to the editor's up/down history (`addToHistory`, same call
+  `submit()` uses) before clearing — a deliberate improvement over pi,
+  whose `clearEditor` discards the text.
