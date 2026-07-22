@@ -48,6 +48,7 @@ export type TreePickAction =
  *  summary's parent boundary. A malformed summary (isCompactSummary whose
  *  parent is not a boundary — corrupt or hand-crafted file) yields
  *  undefined and falls back to ordinary user-row pick semantics. */
+// TDC: I haven't thought throught this carefully, but I suspect that the introduction of this function is slop introduced by using the wrong parent map.
 function boundaryToUndo(
   picked: SessionEntry | undefined,
   entryOf: ReadonlyMap<UUID, SessionEntry>,

@@ -145,6 +145,7 @@ export function validRelink(
       parentMap.set(summaryUuid, uuids[uuids.length - 1]!);
     }
   }
+  // TDC: Why are we including relinkedUuids *and* parentMap here? parentMap is completely recoverable from relinkedUuids ... it just says that each entry's parent is the previous entry. I think this means we can eliminate our BoundaryRelink type entirely and just use UUID[]. Or maybe this function should just return bool (valid or not), and boundary.preserved_messages (UUID[] and anchorUuid) is everything the caller needs.
   return { relinkedUuids, parentMap };
 }
 

@@ -346,6 +346,7 @@ class InteractiveMode {
         path,
         this.agentState.leaf,
       );
+      // TDC: Something is deeply wrong here. This is _repeating_ the buildDisplayTree logic instead of using it. We should be using buildDisplayTree instead of buildTree. The display tree is the order in which we render messages, not just what we display in the tree selector. Then we should not need to dedupe here and can delete dedubedPathNodes entirely.
       for (const node of dedupedPathNodes(nodes)) {
         this.renderPathNode(node, replayed);
       }
@@ -598,6 +599,7 @@ class InteractiveMode {
           displayTree,
           entryOf,
           (pick) =>
+            // TDC: is using the parent map from buildTree instead of buildDisplayTree _correct_ here? If so, we should explain why.
             this.confirmTreePick(parentMap, snapshot.entries, entryOf, pick),
           () => this.closeTreeSelector(),
         );

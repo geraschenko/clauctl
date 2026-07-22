@@ -55,8 +55,8 @@ boundary block. All display surfaces render that structure verbatim:
    boundary, the anchor resolves through that boundary's block).
 3. A child of a hidden relinked occurrence attaches to that boundary's
    **block tail**, resolving transitively until a visible row. So for an
-   up_to compaction of `1→2→4→5` preserving `[4,5]` with summary `S`, the
-   next message `7` (raw `parentUuid: 5`) displays under `S`.
+   up_to compaction of `1→2→3→4` preserving `[3,4]` with summary `S`, the
+   next message `5` (raw `parentUuid: 4`) displays under `S`.
 4. **Block edges**, explicitly: the boundary row's display parent is its
    resolved anchor (rule 2); the summary row's display parent is the
    boundary row in BOTH shapes (for from-shape that row is the relinked
@@ -79,7 +79,7 @@ boundary block. All display surfaces render that structure verbatim:
    anchor). The `[cursor: …]` line keeps printing the true leaf uuid — the
    marker means "next turn attaches here", so marker row and cursor uuid
    can legitimately differ (fresh up_to compaction: marker on `S`, cursor
-   `5`). A filter that hides the representative row leaves the marker
+   `4`). A filter that hides the representative row leaves the marker
    absent, matching existing filtered-leaf behavior.
 8. **`~` marking**: every rendered row whose occurrence id carries
    `@boundary` is marked, in ALL modes (not an option): `~` sits
@@ -94,54 +94,54 @@ boundary block. All display surfaces render that structure verbatim:
 
 ### Concrete examples
 
-Up_to compaction (raw `1→2→4→5`, boundary `B` `logicalParentUuid: 2`
-preserving `[4,5]`, summary `S`, next turn `7` with `parentUuid: 5`):
+Up_to compaction (raw `1→2→3→4`, boundary `B` `logicalParentUuid: 2`
+preserving `[3,4]`, summary `S`, next turn `5` with `parentUuid: 4`):
 
 ```
 before                            after (default modes)
 • 1 user: …                       • 1 user: …
 • 2 assistant: …                  • 2 assistant: …
-├─ 4 user: …                      • 4 user: …
-│     5 assistant: …              • 5 assistant: …
+├─ 3 user: …                      • 3 user: …
+│     4 assistant: …              • 4 assistant: …
 └─ • B [compaction]               • B [compaction]
    • S compaction: …              • S compaction: …
-   • 4 user: …        (relinked)  * 7 user: …
-   • 5 assistant: …   (relinked)
-   * 7 user: …
+   • 3 user: …        (relinked)  * 5 user: …
+   • 4 assistant: …   (relinked)
+   * 5 user: …
 ```
 
 (The "before" column is today's output; after this spec, that topology is
 `raw` mode's, where the relinked rows additionally carry the new `~`
 prefix.)
 
-Display order shows `S` after `4,5` although the loaded context is
-`[S,4,5]` — accepted display fiction; `raw` mode has the truth. Several
+Display order shows `S` after `3,4` although the loaded context is
+`[S,3,4]` — accepted display fiction; `raw` mode has the truth. Several
 compactions of a linear conversation render as one straight line.
 
 Boundary rewind to `2` (boundary `X` preserving `[1,2]`,
-`logicalParentUuid: 5`), then one new turn `7`:
+`logicalParentUuid: 4`), then one new turn `5`:
 
 ```
 after (default modes)
 • 1 user: …
 • 2 assistant: …
 ├─ • X [compaction]
-│     * 7 user: …
-└─ 4 user: …
-      5 assistant: …
+│     * 5 user: …
+└─ 3 user: …
+      4 assistant: …
 ```
 
 Same rewind with NO new turn: `X` is hidden; the tree reads
-`1 → *2 → 4 → 5` — indistinguishable from a plain tail rewind, cursor at 2.
+`1 → *2 → 3 → 4` — indistinguishable from a plain tail rewind, cursor at 2.
 
 ### `/tree` picker
 
 - Rows come from the display tree; row identity is literal — the row for
-  `5` IS raw occurrence `5`, and picking it rewinds to pre-compaction
+  `4` IS raw occurrence `4`, and picking it rewinds to pre-compaction
   context (deliberately undoing the compaction; that is the expected
   meaning of navigating to the last pre-compaction message).
 - User-row picks resolve their nearest assistant ancestor on the **full**
-  tree, unchanged — picking post-compaction user `7` resolves to `5@B`, so
+  tree, unchanged — picking post-compaction user `5` resolves to `4@B`, so
   editing a post-compaction message stays inside the compacted context.
 - **Behavior change** — boundary AND summary picks are the same action,
   "undo the boundary": resolve to the last assistant ref on

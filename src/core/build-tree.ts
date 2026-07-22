@@ -43,6 +43,7 @@ import { formatTreeNodeRef, type ParentMap, type TreeNodeRef } from "./tree.ts";
  * entries parent onto the boundary in BOTH shapes, so parentUuid-based
  * tree construction stays correct without special-casing.
  */
+// TDC: The basic thing this is doing besides just following parentUuid is extracting (in tree form) the stuff from the entry list that depends on the exact order of the entries, not just the parentUuid tree. The key thing is that parentUuid has to be interpreted in the context of the most recent boundary _entry_ (i.e. it really means "parentUuid@viaBoundary" if it exists and "parentUuid" otherwise). The other thing it's doing is saying that the first message in context is the boundary's anchorUuid, then the preserved uuids, and that any message whose parent is the anchorUuid is reparented onto the end of the boundary chain ... or something like that; I'm getting a bit confused again. 
 export function buildTree(
   entries: SessionEntry[],
   onInvalid: OnInvalid,
@@ -111,6 +112,7 @@ export function buildTree(
       if (entry.subtype === "compact_boundary") {
         const relink = validRelink(entries, index, onInvalid);
         if (relink !== undefined) {
+          // TDC: this is sloppy. validRelink has already computed what the summary is (if any) and whether it is the boundary's anchorUuid. My understanding is that summaryOf (lookahead and checking isCompactSummary) might not even be necessary. The rule is just that the first preserved uuid is reparented onto the anchor and children of the anchor are reparented onto the last preserved uuid, right? This means that to properly build the tree, we just need to keep the last boundary's `preserved_messages` field. When we encounter a new entry, first check the uuid. If it's anchorUuid, set the parent to the boundary. Else look at it's parentUuid. If it's preserved_messages.anchorUuid, then set the parent to `preserved_messages.uuids.last()@viaBoundary`; else if it's in preserved_messages.uuids, then set the parent to `parentUuid@viaBoundary`; else set the parent to parentUuid. Is that correct? Validate against our derisk findings *very carefully*. If this is correct, I think we can substantially simplify buildTree and effective-chain.ts.
           const summaryUuid = summaryOf(entries, index)?.uuid;
           if (summaryUuid !== undefined) {
             pendingRelink = { summaryUuid, boundaryUuid: entry.uuid, relink };
@@ -128,6 +130,7 @@ export function buildTree(
     const { boundaryUuid, relink } = pendingRelink;
     pendingRelink = undefined;
     if (!relink.relinkedUuids.includes(entry.uuid)) {
+      // TDC: We should make this attach unconditional.
       attach({ uuid: entry.uuid }, entry.parentUuid ?? undefined);
     }
     emitSubstructure(boundaryUuid, relink);

@@ -274,6 +274,7 @@ export function pathUpToBoundary(
   };
 }
 
+// TDC: I'm pretty sure we should delete this function.
 /**
  * Drops relinked path nodes whose uuid already rendered earlier in the same
  * replay — a boundary's preserved messages appear once (their pre-boundary

@@ -1,3 +1,4 @@
+// TDC: I'd like to update this comment to more clearly explain *why* two different tree builders exist at all. buildTree answers the question "what will the model actually see", and buildDisplayTree answers the question "what will the human see". In each case the answer is "everything from the leaf node back to the most recent boundary (or back to a root node)". The native compaction example from the spec is a good example of how these differ, so it might be good to include a brief version of it here. For good or ill, how humans conceptualize the post-compaction conversation is just different from what the post-compaction assistant context actually looks like.
 /**
  * The linearized display tree: the session tree as `buildTree` computes it,
  * minus the boundary-block forks and duplicated preserved messages. Relinked
@@ -30,6 +31,7 @@ export interface DisplayTree {
    *  for every omitted relinked occurrence and every hidden boundary row;
    *  values are transitively resolved AFTER the hidden-boundary fixpoint
    *  and are always keys of `parentMap`. For leaf-marker mapping. */
+  // TDC: I'm finding it pretty hard to reason about representativeOf and displayRowOf ... this suggests that the names aren't describing what these maps are really doing.
   representativeOf: Map<string, string>;
 }
 
@@ -43,6 +45,7 @@ export interface DisplayTree {
  * relink keep their `logicalParentUuid` anchor and are always visible (the
  * loader still honors them as context cuts).
  */
+// TDC: We need a much clearer plain-text explanation of what the rules are here. I think it's basically (a) boundaries are reparented onto the last message in their preservedUuids, (b) the first post-boundary message is reparented onto the summary of the boundary (or the boundary itself, if no summary), (c) viaBoundary nodes are always hidden, (d) boundary nodes are hidden if all their descendents (after applying this scheme) are hidden. Would this be clearer if it _were_ a transformation of the parentMap returned by buildTree? buildTree already does (b), (a) is easy to do, and (c) and (d) are just about deciding what to hide after applying (a) and (b). I think buildTree also *hides* the original summary node, but we can undo that so that it's really full/raw, representing both the raw summary node (parent=boundary) and the relinked summary node (parent=last uuid of bounday chain); our visibility rules select the right representative.
 export function buildDisplayTree(
   entries: SessionEntry[],
   onInvalid: OnInvalid,
@@ -67,6 +70,7 @@ export function buildDisplayTree(
     displayRowOf.set(ref.uuid, key);
   };
 
+  // TDC: is this function needless indirection? Isn't this just `displayRowOf.get(parentUuid) ?? null`?
   const displayRow = (parentUuid: UUID | undefined): string | null =>
     parentUuid === undefined ? null : (displayRowOf.get(parentUuid) ?? null);
 
