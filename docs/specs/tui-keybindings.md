@@ -1,7 +1,7 @@
 # Spec: TUI keybindings registry
 
-> Status: **phase 1 (registry) landed; phase 2 (ctrl+g) implemented,
-> awaiting review.** First of three planned phases (registry; then ctrl+g
+> Status: **phase 1 (registry) landed; phases 2 (ctrl+g) and 3 (ctrl+c
+> clear) implemented, awaiting review.** Three phases (registry; then ctrl+g
 > external editor; then ctrl+c clear-input) growing out of
 > `docs/thoughts/open-editor.md`. Phasing is for review scoping only —
 > the user manages all git operations; implementing agents must not
@@ -29,9 +29,10 @@ user experience).
 
 1. Every command chord the clauctl TUI dispatches on is declared in one
    definitions map (`CLAUCTL_KEYBINDINGS`) with an action id, default
-   key(s), and description. (Text input into the tree selector's search —
-   printable characters and backspace — is editing, not a command chord,
-   and stays hard-coded.)
+   key(s), and description. (Two deliberate exceptions: text input into
+   the tree selector's search — printable characters and backspace — is
+   editing, not a command chord; and the ctrl+] detach chord is fixed at
+   the tty level by the attach client, so the registry cannot remap it.)
 2. A user can remap any action — including pi-tui's built-in editor and
    select-list keys — by editing `keybindings.json` in the clauctl config
    dir; override entries use pi's schema (flat `actionId → key | key[]`).
@@ -42,9 +43,10 @@ user experience).
    ids, key conflicts among user overrides, `default_bindings` drift)
    surface as transcript banners — never silently ignored, never fatal to
    the TUI.
-5. Key hints shown in the UI (the detach hint's "press ctrl+c again", the
-   selectors' "esc to cancel", …) render the _resolved_ keys via
-   `manager.getKeys()`, so they stay correct under remaps.
+5. Key hints shown in the UI (the selectors' "esc to cancel", …) render
+   the _resolved_ keys via `manager.getKeys()`, so they stay correct under
+   remaps. (The "detach with ctrl+]" hint is deliberately literal — the
+   chord is fixed outside the registry, see criterion 1.)
 6. Default behavior is unchanged except one accepted change: **ctrl+c now
    acts as cancel in an open tree or model selector** (via
    `tui.select.cancel`, whose pi default is `["escape", "ctrl+c"]`).
@@ -53,8 +55,8 @@ user experience).
    identically). This requires `handleGlobalKey` to defer its ctrl+c
    handling while a selector is open (the same guard escape already has) —
    the global listener runs before the focused component and would
-   otherwise consume the key. Consequence: ctrl+c cannot detach while a
-   selector is open (escape/ctrl+c closes it first).
+   otherwise consume the key. Consequence: ctrl+c cannot clear the prompt
+   while a selector is open (escape/ctrl+c closes it first).
 
 ### Config file
 
@@ -168,22 +170,25 @@ added to `LOCAL_COMMANDS` in `autocomplete.ts`:
 definitions map missing `tui.*` ids would silently break every editor key)
 plus:
 
-| Action id                  | Default     | Bound now to                                                    |
-| -------------------------- | ----------- | --------------------------------------------------------------- |
-| `app.interrupt`            | `escape`    | interrupt (existing)                                            |
-| `app.clear`                | `ctrl+c`    | detach double-press (existing; the clear-input half is phase 3) |
-| `app.tools.expand`         | `ctrl+o`    | toggle tool output (existing)                                   |
-| `app.thinking.toggle`      | `ctrl+t`    | toggle thinking blocks (existing)                               |
-| `app.permissionMode.cycle` | `shift+tab` | cycle permission mode (existing)                                |
-| `app.editor.external`      | `ctrl+g`    | external prompt editor (phase 2)                                |
+| Action id                  | Default     | Bound now to                                                   |
+| -------------------------- | ----------- | -------------------------------------------------------------- |
+| `app.interrupt`            | `escape`    | interrupt (existing)                                           |
+| `app.clear`                | `ctrl+c`    | clear the prompt input; hint points at the fixed ctrl+] detach |
+| `app.tools.expand`         | `ctrl+o`    | toggle tool output (existing)                                  |
+| `app.thinking.toggle`      | `ctrl+t`    | toggle thinking blocks (existing)                              |
+| `app.permissionMode.cycle` | `shift+tab` | cycle permission mode (existing)                               |
+| `app.editor.external`      | `ctrl+g`    | external prompt editor (phase 2)                               |
 
 Ids reuse pi's names where the meaning matches (portable user configs);
 `app.permissionMode.cycle` is clauctl-specific (pi's shift+tab means
 thinking-level cycle — different semantics, different id). `app.clear` in
-pi means "clear editor (double press: exit)"; in this phase it carries
-only the detach double-press, and phase 3 adds the clear-input
-half, converging on pi's meaning — a deliberate one-phase transition, not
-a semantic fork. Only `app.permissionMode.cycle` needs a `declare module`
+pi means "clear editor (double press: exit)"; clauctl takes only the
+clear-editor half — a deliberate divergence, since detach (clauctl's
+analogue of exit) is the fixed tty-level ctrl+] chord, outside the
+registry: in managed mode the attach client intercepts the raw 0x1d byte
+before the pty, so a keybindings.json entry could never affect real
+(managed) users, and the non-managed debugging TUI just mirrors that fixed
+chord. Only `app.permissionMode.cycle` needs a `declare module`
 augmentation of pi-tui's `Keybindings` interface; the other `app.*` ids are
 already merged in by pi-coding-agent, which clauctl compiles against.
 
@@ -539,3 +544,16 @@ encountered.
   the method is TUI-lifecycle glue with no extractable pure logic
   (`editFileInExternalEditor` and the keybinding dispatch are covered by
   phase 1's design). Checks green: tsc, 419 tests, lint, treefmt.
+- 2026-07-21: phase 3 redesigned with Anton before implementing. Original
+  sketch (converge on pi: clear + double-press-detach window) rejected in
+  steps: 500ms window considered, then dropped entirely — ctrl+c now only
+  clears the prompt and hints "detach with ctrl+]". Detach stays the fixed
+  tty-level ctrl+] in both modes: a registry `app.detach` action was
+  rejected because the attach client intercepts the raw 0x1d before the
+  pty, so remapping could never work for managed (i.e. real) users and the
+  entry would only confuse them; the non-managed debugging TUI hard-codes
+  the same chord (`matchesKey(data, "ctrl+]")` → finish, `!managed`
+  guard, no selector guard — ctrl+] means nothing to a selector). Removed:
+  `CTRL_C_EXIT_WINDOW_MS`, `lastCtrlCAt`, the double-ctrl+c detach.
+  Verified pi-tui parses 0x1d as "ctrl+]" (keys.js legacy sequences), so
+  `matchesKey` works in the non-managed raw-mode terminal.

@@ -13,6 +13,7 @@ import {
   getKeybindings,
   KeybindingsManager,
   Loader,
+  matchesKey,
   ProcessTerminal,
   setKeybindings,
   Text,
@@ -81,12 +82,10 @@ import { pathUpToBoundary, releaseDedupeUuid, userText } from "./sdk-render.ts";
 import { TranscriptRenderer } from "./transcript.ts";
 import { getEditorTheme, theme, type ThemeColor } from "./theme.ts";
 
-const CTRL_C_EXIT_WINDOW_MS = 2_000;
-
 const tuiFlags = {
   sdkSocket: requiredStringFlag("Path to the agent's sdk.sock", "path"),
   managed: booleanFlag(
-    "Run as the daemon-managed shared renderer (ctrl+c shows the detach hint instead of exiting)",
+    "Run as the daemon-managed shared renderer (disables the local ctrl+] detach; the attach client handles it)",
   ),
 };
 
@@ -130,11 +129,11 @@ export function parseModelCommand(
  * Connect the TUI to a subscribed client. Owns the subscribe ordering: events
  * may be delivered before the snapshot promise settles (SdkSocketClient
  * contract), so they buffer in a closure until InteractiveMode exists — the
- * same gating `tail` does. Resolves on detach (double Ctrl+C; the agent keeps
+ * same gating `tail` does. Resolves on detach (ctrl+]; the agent keeps
  * running) or when the daemon closes the socket, which it only does while
- * shutting the agent down. Under `managed` there is no local detach — ctrl+c
- * only hints at the tty-level detach key — so it resolves on socket close
- * alone.
+ * shutting the agent down. Under `managed` there is no local detach — the
+ * attach client intercepts ctrl+] at the tty level — so it resolves on
+ * socket close alone.
  */
 export async function runInteractive(
   client: SdkSocketClient,
@@ -190,8 +189,9 @@ class InteractiveMode {
 
   private readonly ui: TUI;
   private readonly client: SdkSocketClient;
-  /** Daemon-managed shared renderer: exiting on ctrl+c would kill the screen
-   *  for every attacher, so ctrl+c only hints at the tty-level detach key. */
+  /** Daemon-managed shared renderer: a local detach would kill the screen
+   *  for every attacher, so the ctrl+] handler is disabled (the attach
+   *  client detaches at the tty level; the byte never reaches us anyway). */
   private readonly managed: boolean;
   /**
    * Seeded from the subscribe response and advanced only by `nextAgentState`
@@ -224,7 +224,6 @@ class InteractiveMode {
   /** The global manager set by runInteractive; also consulted by pi-tui's
    *  Editor and SelectList, so remaps apply everywhere at once. */
   private readonly keybindings: KeybindingsManager;
-  private lastCtrlCAt = 0;
   /** ctrl+o / ctrl+t toggles, reapplied to recreated renderers. */
   private toolsExpanded = false;
   private showThinking = false;
@@ -871,25 +870,18 @@ class InteractiveMode {
       return { consume: true };
     }
     if (this.keybindings.matches(data, "app.clear") && !selectorOpen) {
-      if (this.managed) {
-        this.hintText.setText(theme.fg("dim", "detach: ctrl+]"));
-        this.ui.requestRender();
-        return { consume: true };
-      }
-      const now = Date.now();
-      if (now - this.lastCtrlCAt <= CTRL_C_EXIT_WINDOW_MS) {
-        this.finish();
-      } else {
-        this.lastCtrlCAt = now;
-        const key = this.keybindings.getKeys("app.clear").join("/");
-        this.hintText.setText(
-          theme.fg(
-            "dim",
-            `press ${key} again to detach (the agent keeps running)`,
-          ),
-        );
-        this.ui.requestRender();
-      }
+      this.editor.setText("");
+      this.hintText.setText(theme.fg("dim", "detach with ctrl+]"));
+      this.ui.requestRender();
+      return { consume: true };
+    }
+    // Detach is a fixed tty-level chord, not a registry action: in managed
+    // mode the attach client intercepts the raw 0x1d byte before the pty
+    // (attach.ts DETACH_KEY), so a keybindings.json entry could never affect
+    // real (managed) users. This handler mirrors it for the non-managed
+    // debugging TUI, where the byte reaches us directly.
+    if (!this.managed && matchesKey(data, "ctrl+]")) {
+      this.finish();
       return { consume: true };
     }
     this.hintText.setText("");
