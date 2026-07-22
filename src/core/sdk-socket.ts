@@ -64,9 +64,17 @@ export type SdkEvent =
 
 export type TurnPriority = "now" | "next" | "later";
 
-/** The `applyFlagSettings` payload: `null` clears a key, a value replaces it
- *  (the SDK method's own parameter shape). */
-export type FlagSettings = { [K in keyof Settings]?: Settings[K] | null };
+/**
+ * The `applyFlagSettings` payload: `null` clears a key, a value replaces it
+ * (the SDK method's own parameter shape). effortLevel is widened beyond
+ * Settings' type: the Settings file schema omits "max", but the CLI runtime
+ * accepts and applies it (verified 2026-07-21 via CLAUDE_EFFORT on a live
+ * session).
+ */
+export type FlagSettings = Omit<
+  { [K in keyof Settings]?: Settings[K] | null },
+  "effortLevel"
+> & { effortLevel?: EffortLevel | null };
 
 /**
  * Query mutations except interrupt; each maps 1:1 to a Query method and emits
@@ -106,17 +114,8 @@ export type SdkControlMutation =
  * the settings cascade — so the daemon resolves the post-clear level at
  * emission (spawn `--effort`, else the settings cascade) and emits it in
  * place of the null; null survives only when neither tier specifies a level.
- * The range widens to the full EffortLevel because the spawn flag admits
- * "max", which the Settings file schema does not.
  */
-export type SdkControlApplied =
-  | Exclude<SdkControlMutation, { type: "apply-flag-settings" }>
-  | {
-      type: "apply-flag-settings";
-      settings: Omit<FlagSettings, "effortLevel"> & {
-        effortLevel?: EffortLevel | null;
-      };
-    };
+export type SdkControlApplied = SdkControlMutation;
 
 /** Query reads; the response `data` is the method's return value. */
 export type SdkControlRead =

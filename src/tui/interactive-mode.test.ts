@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { parseModelCommand } from "./interactive-mode.ts";
+import { parseEffortCommand, parseModelCommand } from "./interactive-mode.ts";
 
 test("bare /model opens the menu", () => {
   assert.deepEqual(parseModelCommand("/model"), { model: undefined });
@@ -24,4 +24,26 @@ test("only an exact case-sensitive /model token matches", () => {
   assert.equal(parseModelCommand("model"), null);
   assert.equal(parseModelCommand("tell me about /model"), null);
   assert.equal(parseModelCommand("/compact"), null);
+});
+
+test("bare /effort opens the menu", () => {
+  assert.deepEqual(parseEffortCommand("/effort"), { level: undefined });
+  assert.deepEqual(parseEffortCommand("  /effort  "), { level: undefined });
+});
+
+test("/effort with an argument passes the trimmed remainder verbatim", () => {
+  assert.deepEqual(parseEffortCommand("/effort high"), { level: "high" });
+  assert.deepEqual(parseEffortCommand("/effort  max  "), { level: "max" });
+  assert.deepEqual(parseEffortCommand("/effort not a level"), {
+    level: "not a level",
+  });
+});
+
+test("only an exact case-sensitive /effort token matches", () => {
+  assert.equal(parseEffortCommand("/Effort"), null);
+  assert.equal(parseEffortCommand("/efforts"), null);
+  assert.equal(parseEffortCommand("/effort/x"), null);
+  assert.equal(parseEffortCommand("effort"), null);
+  assert.equal(parseEffortCommand("tell me about /effort"), null);
+  assert.equal(parseEffortCommand("/compact"), null);
 });

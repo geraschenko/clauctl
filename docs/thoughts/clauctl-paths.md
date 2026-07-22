@@ -1,0 +1,1 @@
+Unify path resolution into a `clauctlPaths(): { data, config }` helper folding `CLAUCTL_DIR` (data dir, registry.ts) and `CLAUCTL_CONFIG_DIR` (config dir, tui/keybindings.ts `clauctlConfigDir()`). Deferred until a second config consumer exists.

@@ -10,14 +10,18 @@
 import {
   Container,
   Editor,
+  getKeybindings,
+  KeybindingsManager,
   Loader,
   matchesKey,
   ProcessTerminal,
+  setKeybindings,
   Text,
   TUI,
 } from "@earendil-works/pi-tui";
 import { initTheme } from "@earendil-works/pi-coding-agent";
 import type {
+  EffortLevel,
   ModelInfo,
   PermissionMode,
   SDKControlInitializeResponse,
@@ -32,7 +36,10 @@ import {
 } from "../core/generated/cli.ts";
 import type { CommandContext } from "../core/generated/targets.ts";
 import { isIdle, type AgentState } from "../core/agent-state.ts";
-import type { UUID } from "node:crypto";
+import { randomUUID, type UUID } from "node:crypto";
+import { readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { buildTree } from "../core/build-tree.ts";
 import {
   entriesByUuid,
@@ -48,6 +55,7 @@ import {
 } from "../core/tree.ts";
 import { SdkSocketClient, type SdkEvent } from "../core/sdk-socket.ts";
 import { findFd, TuiAutocompleteProvider } from "./autocomplete.ts";
+import { EffortSelectorComponent } from "./components/effort-selector.ts";
 import { FooterComponent } from "./components/footer.ts";
 import { FooterDataProvider } from "./footer-data-provider.ts";
 import { ModelSelectorComponent } from "./components/model-selector.ts";
@@ -56,16 +64,26 @@ import {
   resolveTreePick,
   TreeSelectorComponent,
 } from "./components/tree-selector.ts";
+import {
+  CLAUCTL_KEYBINDINGS,
+  conflictWarnings,
+  keybindingsPath,
+  promoteEditedDefaults,
+  readKeybindingsConfig,
+  writeDefaultBindings,
+} from "./keybindings.ts";
+import {
+  editFileInExternalEditor,
+  externalEditorCommand,
+} from "./external-editor.ts";
 import { pathUpToBoundary, releaseDedupeUuid, userText } from "./sdk-render.ts";
 import { TranscriptRenderer } from "./transcript.ts";
 import { getEditorTheme, theme, type ThemeColor } from "./theme.ts";
 
-const CTRL_C_EXIT_WINDOW_MS = 2_000;
-
 const tuiFlags = {
   sdkSocket: requiredStringFlag("Path to the agent's sdk.sock", "path"),
   managed: booleanFlag(
-    "Run as the daemon-managed shared renderer (ctrl+c shows the detach hint instead of exiting)",
+    "Run as the daemon-managed shared renderer (disables the local ctrl+] detach; the attach client handles it)",
   ),
 };
 
@@ -106,20 +124,54 @@ export function parseModelCommand(
 }
 
 /**
+ * Parse the locally intercepted `/effort` command; same first-token parse
+ * as parseModelCommand. `level` undefined means bare `/effort` (open the
+ * menu).
+ */
+export function parseEffortCommand(
+  text: string,
+): { level: string | undefined } | null {
+  const trimmed = text.trim();
+  const spaceIndex = trimmed.search(/\s/);
+  const token = spaceIndex === -1 ? trimmed : trimmed.slice(0, spaceIndex);
+  if (token !== "/effort") {
+    return null;
+  }
+  const arg = spaceIndex === -1 ? "" : trimmed.slice(spaceIndex).trim();
+  return { level: arg === "" ? undefined : arg };
+}
+
+/**
  * Connect the TUI to a subscribed client. Owns the subscribe ordering: events
  * may be delivered before the snapshot promise settles (SdkSocketClient
  * contract), so they buffer in a closure until InteractiveMode exists — the
- * same gating `tail` does. Resolves on detach (double Ctrl+C; the agent keeps
+ * same gating `tail` does. Resolves on detach (ctrl+]; the agent keeps
  * running) or when the daemon closes the socket, which it only does while
- * shutting the agent down. Under `managed` there is no local detach — ctrl+c
- * only hints at the tty-level detach key — so it resolves on socket close
- * alone.
+ * shutting the agent down. Under `managed` there is no local detach — the
+ * attach client intercepts ctrl+] at the tty level — so it resolves on
+ * socket close alone.
  */
 export async function runInteractive(
   client: SdkSocketClient,
   managed: boolean,
 ): Promise<void> {
   initTheme("dark");
+  // The global manager must be set before InteractiveMode exists: its Editor
+  // resolves tui.* ids against getKeybindings(), which otherwise caches a
+  // TUI_KEYBINDINGS-only fallback on first use.
+  const configRead = readKeybindingsConfig(
+    keybindingsPath(),
+    CLAUCTL_KEYBINDINGS,
+  );
+  const keybindingWarnings = configRead.ok
+    ? [...configRead.warnings]
+    : [`config ignored, using defaults: ${configRead.error}`];
+  const keybindings = new KeybindingsManager(
+    CLAUCTL_KEYBINDINGS,
+    configRead.ok ? configRead.bindings : {},
+  );
+  setKeybindings(keybindings);
+  keybindingWarnings.push(...conflictWarnings(keybindings));
   const buffered: Array<[SdkEvent, AgentState]> = [];
   let handleEvent = (event: SdkEvent, state: AgentState): void => {
     buffered.push([event, state]);
@@ -128,7 +180,13 @@ export async function runInteractive(
     handleEvent(event, state),
   );
   const ui = new TUI(new ProcessTerminal());
-  const interactiveMode = new InteractiveMode(ui, client, seedState, managed);
+  const interactiveMode = new InteractiveMode(
+    ui,
+    client,
+    seedState,
+    managed,
+    keybindingWarnings,
+  );
   handleEvent = (event, state) => interactiveMode.handleEvent(event, state);
   for (const [event, state] of buffered.splice(0)) {
     interactiveMode.handleEvent(event, state);
@@ -149,8 +207,9 @@ class InteractiveMode {
 
   private readonly ui: TUI;
   private readonly client: SdkSocketClient;
-  /** Daemon-managed shared renderer: exiting on ctrl+c would kill the screen
-   *  for every attacher, so ctrl+c only hints at the tty-level detach key. */
+  /** Daemon-managed shared renderer: a local detach would kill the screen
+   *  for every attacher, so the ctrl+] handler is disabled (the attach
+   *  client detaches at the tty level; the byte never reaches us anyway). */
   private readonly managed: boolean;
   /**
    * Seeded from the subscribe response and assigned the post-fold state the
@@ -181,7 +240,9 @@ class InteractiveMode {
    * the preview text).
    */
   private readonly queuedById = new Map<number, SDKUserMessage>();
-  private lastCtrlCAt = 0;
+  /** The global manager set by runInteractive; also consulted by pi-tui's
+   *  Editor and SelectList, so remaps apply everywhere at once. */
+  private readonly keybindings: KeybindingsManager;
   /** ctrl+o / ctrl+t toggles, reapplied to recreated renderers. */
   private toolsExpanded = false;
   private showThinking = false;
@@ -223,17 +284,22 @@ class InteractiveMode {
   private treeSelector?: TreeSelectorComponent;
   /** True from `/tree` submit until the get-entries read settles. */
   private treeSelectorPending = false;
+  private effortSelector?: EffortSelectorComponent;
+  /** True from `/effort` submit until the supported-models read settles. */
+  private effortSelectorPending = false;
 
   constructor(
     ui: TUI,
     client: SdkSocketClient,
     seedState: AgentState,
     managed: boolean,
+    keybindingWarnings: string[],
   ) {
     this.ui = ui;
     this.client = client;
     this.managed = managed;
     this.agentState = seedState;
+    this.keybindings = getKeybindings();
     this.transcript = new TranscriptRenderer(this.chatContainer);
     this.done = new Promise((resolve) => {
       this.finish = resolve;
@@ -270,6 +336,11 @@ class InteractiveMode {
       this.pendingMessages.add(entry.id, userText(entry.message));
     }
     void this.reloadHistory();
+    // After reloadHistory's synchronous prefix, which recreates the
+    // transcript renderer — banners added earlier would be wiped.
+    for (const warning of keybindingWarnings) {
+      this.addBanner(`keybindings: ${warning}`, "warning");
+    }
 
     this.autocomplete = new TuiAutocompleteProvider(
       seedState.cwd ?? null,
@@ -505,8 +576,21 @@ class InteractiveMode {
       }
       return;
     }
+    const effortCommand = parseEffortCommand(text);
+    if (effortCommand !== null) {
+      this.handleEffortCommand(effortCommand.level);
+      return;
+    }
     if (/^\/tree(\s|$)/.test(text.trim())) {
       this.openTreeSelector();
+      return;
+    }
+    if (/^\/keybindings(\s|$)/.test(text.trim())) {
+      void this.openKeybindingsEditor();
+      return;
+    }
+    if (/^\/reload-keybindings(\s|$)/.test(text.trim())) {
+      this.reloadKeybindings();
       return;
     }
     // The queued echo comes back as a userMessageQueued event; nothing is
@@ -517,6 +601,127 @@ class InteractiveMode {
         this.addBanner(`query failed: ${String(error)}`);
         this.ui.requestRender();
       });
+  }
+
+  /**
+   * `/keybindings`: refresh default_bindings (skipped with a banner when the
+   * existing file is unparseable — the editor still opens, since this is
+   * also the repair tool), edit the file in $VISUAL/$EDITOR with the TUI
+   * suspended, promote post-editor default_bindings edits to top-level
+   * overrides (only when the refresh succeeded — without that baseline,
+   * drift is not attributable to this session), then reload.
+   */
+  private async openKeybindingsEditor(): Promise<void> {
+    const editorCommand = externalEditorCommand();
+    if (editorCommand === undefined) {
+      this.addBanner("set $EDITOR to edit keybindings", "warning");
+      this.ui.requestRender();
+      return;
+    }
+    const path = keybindingsPath();
+    let refreshed = true;
+    try {
+      writeDefaultBindings(path, CLAUCTL_KEYBINDINGS);
+    } catch (error) {
+      refreshed = false;
+      this.addBanner(
+        `keybindings: defaults refresh skipped: ${String(error)}`,
+        "warning",
+      );
+    }
+    const exitedZero = await editFileInExternalEditor(
+      this.ui,
+      editorCommand,
+      path,
+    );
+    if (!exitedZero) {
+      this.addBanner(
+        "keybindings: editor exited nonzero; changes not applied",
+        "warning",
+      );
+      this.ui.requestRender();
+      return;
+    }
+    if (refreshed) {
+      try {
+        const { warnings } = promoteEditedDefaults(path, CLAUCTL_KEYBINDINGS);
+        for (const warning of warnings) {
+          this.addBanner(`keybindings: ${warning}`, "warning");
+        }
+      } catch (error) {
+        this.addBanner(`keybindings: ${String(error)}`, "error");
+        this.ui.requestRender();
+        return;
+      }
+    }
+    this.reloadKeybindings();
+  }
+
+  /**
+   * `/reload-keybindings` (also the tail of openKeybindingsEditor): re-read
+   * the config and apply it to the existing manager instance — pi-tui
+   * components hold the same reference, so they see the change. A fatal
+   * read keeps the current live bindings: a temporary syntax error must not
+   * strip a working configuration.
+   */
+  private reloadKeybindings(): void {
+    const configRead = readKeybindingsConfig(
+      keybindingsPath(),
+      CLAUCTL_KEYBINDINGS,
+    );
+    if (!configRead.ok) {
+      this.addBanner(`keybindings not reloaded: ${configRead.error}`, "error");
+      this.ui.requestRender();
+      return;
+    }
+    this.keybindings.setUserBindings(configRead.bindings);
+    const warnings = [
+      ...configRead.warnings,
+      ...conflictWarnings(this.keybindings),
+    ];
+    if (warnings.length === 0) {
+      this.addBanner("keybindings reloaded");
+    } else {
+      for (const warning of warnings) {
+        this.addBanner(`keybindings: ${warning}`, "warning");
+      }
+    }
+    this.ui.requestRender();
+  }
+
+  /**
+   * app.editor.external (ctrl+g): edit the prompt in $VISUAL/$EDITOR with
+   * the TUI suspended. Exit 0 replaces the editor content — stripping one
+   * trailing newline, matching pi — nonzero keeps the original text. Events
+   * arriving while the TUI is suspended are not lost: rendering is
+   * deferred, not the socket-driven handleEvent (see the spec's WORK LOG,
+   * 2026-07-21).
+   */
+  private async openExternalPromptEditor(): Promise<void> {
+    const editorCommand = externalEditorCommand();
+    if (editorCommand === undefined) {
+      this.addBanner("set $EDITOR to edit the prompt", "warning");
+      this.ui.requestRender();
+      return;
+    }
+    const tempPath = join(tmpdir(), `clauctl-editor-${randomUUID()}.md`);
+    try {
+      writeFileSync(tempPath, this.editor.getText(), "utf8");
+      const exitedZero = await editFileInExternalEditor(
+        this.ui,
+        editorCommand,
+        tempPath,
+      );
+      if (exitedZero) {
+        this.editor.setText(readFileSync(tempPath, "utf8").replace(/\n$/, ""));
+      }
+    } finally {
+      try {
+        unlinkSync(tempPath);
+      } catch {
+        // Cleanup is best-effort; the file is in tmpdir anyway.
+      }
+    }
   }
 
   private sendSetModel(model: string): void {
@@ -566,6 +771,105 @@ class InteractiveMode {
     this.modelSelector = undefined;
     this.ui.setFocus(this.editor);
     this.ui.requestRender();
+  }
+
+  /**
+   * `/effort` (both forms): fetch supported-models and resolve the current
+   * model's levels. Bare form: open the selector. With `level`: validate
+   * against the resolved levels and send — the one place a typo can surface
+   * (the CLI runtime silently drops unknown levels into the settings
+   * cascade). Not named open…Selector because the direct-set path never
+   * opens one.
+   */
+  private handleEffortCommand(level?: string): void {
+    if (this.effortSelector !== undefined || this.effortSelectorPending) {
+      return;
+    }
+    this.effortSelectorPending = true;
+    void this.client.request({ type: "supported-models" }).then(
+      (data) => {
+        this.effortSelectorPending = false;
+        const models = data as ModelInfo[];
+        // agentState.model holds a set-model request value or the SDK init
+        // message's resolved id, depending on history — so match both.
+        const current = this.agentState.model;
+        const matched = models.find(
+          (model) =>
+            current !== undefined &&
+            (model.value === current || model.resolvedModel === current),
+        );
+        if (matched === undefined) {
+          this.addBanner(
+            "cannot determine effort levels for the current model",
+            "warning",
+          );
+          this.ui.requestRender();
+          return;
+        }
+        const levels = matched.supportedEffortLevels ?? [];
+        if (levels.length === 0) {
+          this.addBanner(
+            "current model does not support effort levels",
+            "warning",
+          );
+          this.ui.requestRender();
+          return;
+        }
+        if (level !== undefined) {
+          const validated = levels.find((candidate) => candidate === level);
+          if (validated === undefined) {
+            this.addBanner(
+              `invalid effort level ${level}; ${matched.displayName} supports: ${levels.join(", ")}`,
+              "warning",
+            );
+            this.ui.requestRender();
+          } else {
+            this.sendSetEffort(validated);
+          }
+          return;
+        }
+        const selector = new EffortSelectorComponent(
+          levels,
+          (picked) => {
+            this.closeEffortSelector();
+            this.sendSetEffort(picked);
+          },
+          () => this.closeEffortSelector(),
+        );
+        this.effortSelector = selector;
+        this.statusContainer.addChild(selector);
+        this.ui.setFocus(selector);
+        this.ui.requestRender();
+      },
+      (error: unknown) => {
+        this.effortSelectorPending = false;
+        this.addBanner(`supported-models failed: ${String(error)}`, "error");
+        this.ui.requestRender();
+      },
+    );
+  }
+
+  private closeEffortSelector(): void {
+    if (this.effortSelector === undefined) {
+      return;
+    }
+    this.statusContainer.removeChild(this.effortSelector);
+    this.effortSelector = undefined;
+    this.ui.setFocus(this.editor);
+    this.ui.requestRender();
+  }
+
+  private sendSetEffort(level: EffortLevel): void {
+    // No optimistic footer update: it follows from the controlApplied event.
+    void this.client
+      .request({
+        type: "apply-flag-settings",
+        settings: { effortLevel: level },
+      })
+      .catch((error: unknown) => {
+        this.addBanner(`apply-flag-settings failed: ${String(error)}`, "error");
+        this.ui.requestRender();
+      });
   }
 
   private openTreeSelector(): void {
@@ -656,52 +960,66 @@ class InteractiveMode {
    * not export its InputListenerResult.
    */
   private handleGlobalKey(data: string): { consume: boolean } | undefined {
+    // An open menu owns the interrupt and clear chords (cancel / clear
+    // search via tui.select.cancel, which the focused selector handles).
+    const selectorOpen =
+      this.modelSelector !== undefined ||
+      this.treeSelector !== undefined ||
+      this.effortSelector !== undefined;
     if (
-      matchesKey(data, "escape") &&
+      this.keybindings.matches(data, "app.interrupt") &&
       !isIdle(this.agentState) &&
-      // An open menu owns escape (cancel / clear search).
-      this.modelSelector === undefined &&
-      this.treeSelector === undefined
+      !selectorOpen
     ) {
       void this.client.request({ type: "interrupt" }).catch(() => {});
       return { consume: true };
     }
-    if (matchesKey(data, "shift+tab")) {
+    if (this.keybindings.matches(data, "app.permissionMode.cycle")) {
       this.cyclePermissionMode();
       return { consume: true };
     }
-    if (matchesKey(data, "ctrl+o")) {
+    if (this.keybindings.matches(data, "app.tools.expand")) {
       this.toolsExpanded = !this.toolsExpanded;
       this.transcript.setToolsExpanded(this.toolsExpanded);
       this.transcript.setCompactSummaryExpanded(this.toolsExpanded);
       this.ui.requestRender();
       return { consume: true };
     }
-    if (matchesKey(data, "ctrl+t")) {
+    if (this.keybindings.matches(data, "app.thinking.toggle")) {
       this.showThinking = !this.showThinking;
       this.transcript.setShowThinking(this.showThinking);
       this.ui.requestRender();
       return { consume: true };
     }
-    if (matchesKey(data, "ctrl+c")) {
-      if (this.managed) {
-        this.hintText.setText(theme.fg("dim", "detach: ctrl+]"));
+    if (
+      this.keybindings.matches(data, "app.editor.external") &&
+      !selectorOpen
+    ) {
+      void this.openExternalPromptEditor().catch((error: unknown) => {
+        this.addBanner(`external editor failed: ${String(error)}`, "error");
         this.ui.requestRender();
-        return { consume: true };
+      });
+      return { consume: true };
+    }
+    if (this.keybindings.matches(data, "app.clear") && !selectorOpen) {
+      // Cleared text stays reachable via up/down history (unlike pi, which
+      // discards it).
+      const clearedText = this.editor.getText();
+      if (clearedText.trim() !== "") {
+        this.editor.addToHistory(clearedText);
       }
-      const now = Date.now();
-      if (now - this.lastCtrlCAt <= CTRL_C_EXIT_WINDOW_MS) {
-        this.finish();
-      } else {
-        this.lastCtrlCAt = now;
-        this.hintText.setText(
-          theme.fg(
-            "dim",
-            "press ctrl+c again to detach (the agent keeps running)",
-          ),
-        );
-        this.ui.requestRender();
-      }
+      this.editor.setText("");
+      this.hintText.setText(theme.fg("dim", "detach with ctrl+]"));
+      this.ui.requestRender();
+      return { consume: true };
+    }
+    // Detach is a fixed tty-level chord, not a registry action: in managed
+    // mode the attach client intercepts the raw 0x1d byte before the pty
+    // (attach.ts DETACH_KEY), so a keybindings.json entry could never affect
+    // real (managed) users. This handler mirrors it for the non-managed
+    // debugging TUI, where the byte reaches us directly.
+    if (!this.managed && matchesKey(data, "ctrl+]")) {
+      this.finish();
       return { consume: true };
     }
     this.hintText.setText("");

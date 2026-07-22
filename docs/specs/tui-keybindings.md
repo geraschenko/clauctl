@@ -1,7 +1,7 @@
 # Spec: TUI keybindings registry
 
-> Status: **draft.** First of three planned phases (registry; then ctrl+g
-> external editor; then ctrl+c clear-input) growing out of
+> Status: **all three phases landed and verified.** Three phases (registry;
+> then ctrl+g external editor; then ctrl+c clear-input) growing out of
 > `docs/thoughts/open-editor.md`. Phasing is for review scoping only —
 > the user manages all git operations; implementing agents must not
 > commit, stage, or otherwise mutate git state.
@@ -28,9 +28,10 @@ user experience).
 
 1. Every command chord the clauctl TUI dispatches on is declared in one
    definitions map (`CLAUCTL_KEYBINDINGS`) with an action id, default
-   key(s), and description. (Text input into the tree selector's search —
-   printable characters and backspace — is editing, not a command chord,
-   and stays hard-coded.)
+   key(s), and description. (Two deliberate exceptions: text input into
+   the tree selector's search — printable characters and backspace — is
+   editing, not a command chord; and the ctrl+] detach chord is fixed at
+   the tty level by the attach client, so the registry cannot remap it.)
 2. A user can remap any action — including pi-tui's built-in editor and
    select-list keys — by editing `keybindings.json` in the clauctl config
    dir; override entries use pi's schema (flat `actionId → key | key[]`).
@@ -41,9 +42,10 @@ user experience).
    ids, key conflicts among user overrides, `default_bindings` drift)
    surface as transcript banners — never silently ignored, never fatal to
    the TUI.
-5. Key hints shown in the UI (the detach hint's "press ctrl+c again", the
-   selectors' "esc to cancel", …) render the _resolved_ keys via
-   `manager.getKeys()`, so they stay correct under remaps.
+5. Key hints shown in the UI (the selectors' "esc to cancel", …) render
+   the _resolved_ keys via `manager.getKeys()`, so they stay correct under
+   remaps. (The "detach with ctrl+]" hint is deliberately literal — the
+   chord is fixed outside the registry, see criterion 1.)
 6. Default behavior is unchanged except one accepted change: **ctrl+c now
    acts as cancel in an open tree or model selector** (via
    `tui.select.cancel`, whose pi default is `["escape", "ctrl+c"]`).
@@ -52,8 +54,8 @@ user experience).
    identically). This requires `handleGlobalKey` to defer its ctrl+c
    handling while a selector is open (the same guard escape already has) —
    the global listener runs before the focused component and would
-   otherwise consume the key. Consequence: ctrl+c cannot detach while a
-   selector is open (escape/ctrl+c closes it first).
+   otherwise consume the key. Consequence: ctrl+c cannot clear the prompt
+   while a selector is open (escape/ctrl+c closes it first).
 
 ### Config file
 
@@ -167,22 +169,25 @@ added to `LOCAL_COMMANDS` in `autocomplete.ts`:
 definitions map missing `tui.*` ids would silently break every editor key)
 plus:
 
-| Action id                  | Default     | Bound now to                                                    |
-| -------------------------- | ----------- | --------------------------------------------------------------- |
-| `app.interrupt`            | `escape`    | interrupt (existing)                                            |
-| `app.clear`                | `ctrl+c`    | detach double-press (existing; the clear-input half is phase 3) |
-| `app.tools.expand`         | `ctrl+o`    | toggle tool output (existing)                                   |
-| `app.thinking.toggle`      | `ctrl+t`    | toggle thinking blocks (existing)                               |
-| `app.permissionMode.cycle` | `shift+tab` | cycle permission mode (existing)                                |
-| `app.editor.external`      | `ctrl+g`    | _declared, not handled until phase 2_                           |
+| Action id                  | Default     | Bound now to                                                 |
+| -------------------------- | ----------- | ------------------------------------------------------------ |
+| `app.interrupt`            | `escape`    | interrupt (existing)                                         |
+| `app.clear`                | `ctrl+c`    | clear the prompt into up/down history; hint at ctrl+] detach |
+| `app.tools.expand`         | `ctrl+o`    | toggle tool output (existing)                                |
+| `app.thinking.toggle`      | `ctrl+t`    | toggle thinking blocks (existing)                            |
+| `app.permissionMode.cycle` | `shift+tab` | cycle permission mode (existing)                             |
+| `app.editor.external`      | `ctrl+g`    | external prompt editor (phase 2)                             |
 
 Ids reuse pi's names where the meaning matches (portable user configs);
 `app.permissionMode.cycle` is clauctl-specific (pi's shift+tab means
 thinking-level cycle — different semantics, different id). `app.clear` in
-pi means "clear editor (double press: exit)"; in this phase it carries
-only the detach double-press, and phase 3 adds the clear-input
-half, converging on pi's meaning — a deliberate one-phase transition, not
-a semantic fork. Only `app.permissionMode.cycle` needs a `declare module`
+pi means "clear editor (double press: exit)"; clauctl takes only the
+clear-editor half — a deliberate divergence, since detach (clauctl's
+analogue of exit) is the fixed tty-level ctrl+] chord, outside the
+registry: in managed mode the attach client intercepts the raw 0x1d byte
+before the pty, so a keybindings.json entry could never affect real
+(managed) users, and the non-managed debugging TUI just mirrors that fixed
+chord. Only `app.permissionMode.cycle` needs a `declare module`
 augmentation of pi-tui's `Keybindings` interface; the other `app.*` ids are
 already merged in by pi-coding-agent, which clauctl compiles against.
 
@@ -308,6 +313,24 @@ class InteractiveMode {
   constructor(/* existing args */, keybindingWarnings: string[]); // banners them
   private openKeybindingsEditor(): Promise<void>; // /keybindings
   private reloadKeybindings(): void; // /reload-keybindings; also called by openKeybindingsEditor
+}
+```
+
+Phase 2 (ctrl+g) adds one method (approved 2026-07-21):
+
+```ts
+class InteractiveMode {
+  /**
+   * app.editor.external: write editor.getText() to a temp file
+   * (os.tmpdir()/clauctl-editor-<random>.md), editFileInExternalEditor,
+   * on exit 0 read it back — stripping one trailing newline, matching pi —
+   * into editor.setText(); unlink the temp file in a finally. No
+   * $VISUAL/$EDITOR: hint banner, nothing else. Dispatched from
+   * handleGlobalKey with the no-open-selector guard. Events arriving while
+   * the TUI is suspended are safe: rendering is deferred, not the
+   * socket-driven handleEvent (see WORK LOG 2026-07-21).
+   */
+  private openExternalPromptEditor(): Promise<void>;
 }
 ```
 
@@ -469,12 +492,86 @@ encountered.
   append-only single-entry snapshots with (id, value) dedupe (object merge
   would collide on repeated displacement of one id); all fatal file states
   skip refresh → disable promotion. Reviewer approved; archived.
-- [ ] `src/tui/keybindings.ts` (+ tests)
-- [ ] `src/tui/external-editor.ts`
-- [ ] Wire manager in `runInteractive`; banner warnings
-- [ ] `handleGlobalKey` → action ids; hints via `getKeys`
-- [ ] `tree-selector.ts` → `tui.select.*`
-- [ ] `/keybindings`, `/reload-keybindings` + autocomplete entries
-- [ ] typecheck, tests, manual TUI verification
-- [ ] (phase 2, when ctrl+g lands) move `docs/thoughts/open-editor.md` to
+- [x] `src/tui/keybindings.ts` (+ tests)
+- [x] `src/tui/external-editor.ts`
+- [x] Wire manager in `runInteractive`; banner warnings
+- [x] `handleGlobalKey` → action ids; hints via `getKeys`
+- [x] `tree-selector.ts` → `tui.select.*`
+- [x] `/keybindings`, `/reload-keybindings` + autocomplete entries
+- [x] typecheck, tests (419 pass), lint, treefmt
+- [x] manual TUI verification (user)
+- 2026-07-21: phase 1 reviewed and committed by Anton; TDC round resolved
+  (renamed the JSON-file helpers, recorded why pi-tui's key validator can't
+  be reused). Phase 1 complete; phases 2–3 next.
+- 2026-07-21: verified in pi-tui source (relevant to phase 2's ctrl+g):
+  while the TUI is stopped, SDK events keep flowing — handleEvent is
+  socket-driven and unaffected; only rendering is skipped (`stopped` guards
+  every render path, so nothing scribbles over the external editor), and
+  `editFileInExternalEditor`'s finally (`ui.start()` +
+  `requestRender(true)`) re-renders everything that accumulated. No events
+  are lost or deferred during an editor session.
+
+### Implementation-Time Decisions (2026-07-21, phase 1)
+
+- **Model selector hint resolved too**: success criterion 5 says
+  "selectors'", but the type-design file list omitted
+  `model-selector.ts`; its hard-coded "esc to cancel" is now rendered from
+  `getKeys("tui.select.cancel")[0]`.
+- **Tree selector confirm drops the `enter || return` dual match**: routed
+  through `tui.select.confirm` (default `enter`), matching pi's SelectList,
+  which binds confirm to `enter` alone and works everywhere.
+- **Malformed `replaced_default_bindings` preserved by wrapping**: if the
+  field exists but is not an array when a displacement must be appended, the
+  old value becomes the new list's first element (never destroyed); when
+  nothing is displaced the field is left untouched.
+- **Promotion restores the canonical default in place**: a promoted edit's
+  `default_bindings` slot is reset to the current default (unknown ids are
+  deleted) so the drift nudge does not re-fire on the following reload.
+  An edit introducing an unknown id inside `default_bindings` is promoted
+  to the top level, where the reader's unknown-id warning surfaces the typo.
+- **Startup warnings banner after `reloadHistory()`'s synchronous prefix**:
+  that prefix recreates the transcript renderer, so banners added earlier
+  in the constructor would be wiped.
+- [x] (phase 2, when ctrl+g lands) move `docs/thoughts/open-editor.md` to
       `docs/thoughts/old/`
+- 2026-07-21: phase 2 implemented per the approved type design:
+  `openExternalPromptEditor()` (temp file in tmpdir, write inside the
+  try so the finally's unlink covers all failure paths — matching pi's
+  openExternalEditor; nonzero exit keeps the original text silently,
+  also matching pi), dispatched from `handleGlobalKey` on
+  `app.editor.external` with the no-open-selector guard. No new tests:
+  the method is TUI-lifecycle glue with no extractable pure logic
+  (`editFileInExternalEditor` and the keybinding dispatch are covered by
+  phase 1's design). Checks green: tsc, 419 tests, lint, treefmt.
+- 2026-07-21: phase 3 redesigned with Anton before implementing. Original
+  sketch (converge on pi: clear + double-press-detach window) rejected in
+  steps: 500ms window considered, then dropped entirely — ctrl+c now only
+  clears the prompt and hints "detach with ctrl+]". Detach stays the fixed
+  tty-level ctrl+] in both modes: a registry `app.detach` action was
+  rejected because the attach client intercepts the raw 0x1d before the
+  pty, so remapping could never work for managed (i.e. real) users and the
+  entry would only confuse them; the non-managed debugging TUI hard-codes
+  the same chord (`matchesKey(data, "ctrl+]")` → finish, `!managed`
+  guard, no selector guard — ctrl+] means nothing to a selector). Removed:
+  `CTRL_C_EXIT_WINDOW_MS`, `lastCtrlCAt`, the double-ctrl+c detach.
+  Verified pi-tui parses 0x1d as "ctrl+]" (keys.js legacy sequences), so
+  `matchesKey` works in the non-managed raw-mode terminal.
+- 2026-07-21: ctrl+g dispatch gained a `.catch` banner (approved deviation
+  from pi, whose unhandled equivalent would kill the process on a rare fs
+  throw). `openKeybindingsEditor` deliberately keeps its internal
+  try/catches instead: they are control flow (refresh failure still opens
+  the editor; promotion failure skips the reload), and with every throwing
+  call caught internally the method cannot reject, so a dispatch-site
+  `.catch` would be unreachable.
+- 2026-07-21: declaration-merge hardening (the IMPLEMENTATION IDEAS
+  robustness option, amended): pi-coding-agent's `exports` map blocks a
+  direct `core/keybindings` type import and its root index doesn't
+  re-export it, so instead of importing a token type, keybindings.ts's own
+  augmentation now declares every app.* id clauctl uses (identical `true`
+  members merge cleanly with pi-coding-agent's) — self-sufficient
+  regardless of which pi-coding-agent import chains survive future
+  refactors.
+- 2026-07-21: phase 3 amendment (Anton): ctrl+c saves nonempty cleared
+  text to the editor's up/down history (`addToHistory`, same call
+  `submit()` uses) before clearing — a deliberate improvement over pi,
+  whose `clearEditor` discards the text.
