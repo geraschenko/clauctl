@@ -564,3 +564,11 @@ encountered.
   the editor; promotion failure skips the reload), and with every throwing
   call caught internally the method cannot reject, so a dispatch-site
   `.catch` would be unreachable.
+- 2026-07-21: declaration-merge hardening (the IMPLEMENTATION IDEAS
+  robustness option, amended): pi-coding-agent's `exports` map blocks a
+  direct `core/keybindings` type import and its root index doesn't
+  re-export it, so instead of importing a token type, keybindings.ts's own
+  augmentation now declares every app.* id clauctl uses (identical `true`
+  members merge cleanly with pi-coding-agent's) — self-sufficient
+  regardless of which pi-coding-agent import chains survive future
+  refactors.

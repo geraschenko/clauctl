@@ -24,10 +24,22 @@ import {
   type KeyId,
 } from "@earendil-works/pi-tui";
 
+/**
+ * Every app.* id clauctl dispatches on. All but `app.permissionMode.cycle`
+ * (clauctl-specific: pi's shift+tab cycles thinking level instead) are also
+ * declared by pi-coding-agent's identical Keybindings augmentation, but
+ * that one reaches the typecheck only through whichever pi-coding-agent
+ * import chain happens to be in the program — declaring them here keeps
+ * this module self-sufficient.
+ */
 declare module "@earendil-works/pi-tui" {
   interface Keybindings {
-    /** clauctl-specific: pi's shift+tab cycles thinking level instead. */
+    "app.interrupt": true;
+    "app.clear": true;
+    "app.tools.expand": true;
+    "app.thinking.toggle": true;
     "app.permissionMode.cycle": true;
+    "app.editor.external": true;
   }
 }
 
