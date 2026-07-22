@@ -57,29 +57,40 @@ boundary block. All display surfaces render that structure verbatim:
    **block tail**, resolving transitively until a visible row. So for an
    up_to compaction of `1→2→4→5` preserving `[4,5]` with summary `S`, the
    next message `7` (raw `parentUuid: 5`) displays under `S`.
-4. **Hidden boundary**: a summary-less boundary with no displayed
+4. **Block edges**, explicitly: the boundary row's display parent is its
+   resolved anchor (rule 2); the summary row's display parent is the
+   boundary row in BOTH shapes (for from-shape that row is the relinked
+   `S@boundary` occurrence); hidden relinked occurrences map to the block
+   tail (rule 3).
+5. **Hidden boundary**: a summary-less boundary with no displayed
    descendants is hidden entirely; anything resolving to it (leaf marker)
-   falls through to its display anchor. Once a message follows the
-   boundary, it appears (fork at the true divergence point). The rule is a
-   fixpoint — "displayed descendants" is evaluated after hiding — so N
-   stacked message-less navigation boundaries (each anchored on the
-   previous) all disappear and the tree reads as one plain rewind, marker
-   on the final target.
-5. Boundaries **without a valid relink** keep their current placement
+   falls through to its display anchor. Once any occurrence follows the
+   boundary, it appears (fork at the true divergence point). "Displayed
+   descendants" is evaluated on the unfiltered display tree and counts
+   every retained occurrence type, not just messages. The rule is a
+   fixpoint — evaluated after hiding — so N stacked message-less
+   navigation boundaries (each anchored on the previous) all disappear and
+   the tree reads as one plain rewind, marker on the final target.
+6. Boundaries **without a valid relink** keep their current placement
    (`logicalParentUuid` anchor) and are always visible — the loader still
    honors them as context cuts, and they produce no duplicates today.
-6. **Leaf marker**: when the current leaf is a hidden occurrence, `*` lands
+7. **Leaf marker**: when the current leaf is a hidden occurrence, `*` lands
    on its representative (block tail; through a hidden boundary, its
    anchor). The `[cursor: …]` line keeps printing the true leaf uuid — the
    marker means "next turn attaches here", so marker row and cursor uuid
    can legitimately differ (fresh up_to compaction: marker on `S`, cursor
-   `5`).
-7. **`~` marking**: every rendered row whose occurrence id carries
-   `@boundary` is prefixed `~`, in ALL modes (not an option). In default
-   view the only such rows are from-shape summaries.
-8. **`raw` filter mode** (new `FilterMode`): `buildTree`'s output verbatim —
-   no hiding, no re-anchoring, all entries shown (passes-filter = true),
-   `~` on relinked rows. The faithful debugging view.
+   `5`). A filter that hides the representative row leaves the marker
+   absent, matching existing filtered-leaf behavior.
+8. **`~` marking**: every rendered row whose occurrence id carries
+   `@boundary` is marked, in ALL modes (not an option): `~` sits
+   immediately before the uuid column — `treePrefix + marker + "~" +
+   uuid8 …` — and immediately before the summary text when the uuid column
+   is omitted (picker rows). In default view the only such rows are
+   from-shape summaries.
+9. **`raw` filter mode** (new `FilterMode`): `buildTree`'s output verbatim —
+   no hiding, no re-anchoring, every occurrence `buildTree` emits shown
+   (passes-filter = true; entries without uuids have no tree occurrence in
+   any mode), `~` on relinked rows. The faithful debugging view.
 
 ### Concrete examples
 
@@ -94,11 +105,14 @@ before                            after (default modes)
 │     5 assistant: …              • 5 assistant: …
 └─ • B [compaction]               • B [compaction]
    • S compaction: …              • S compaction: …
-   • ~4 user: …       (relinked)  * 7 user: …
-   • ~5 assistant: …  (relinked)
+   • 4 user: …        (relinked)  * 7 user: …
+   • 5 assistant: …   (relinked)
    * 7 user: …
 ```
-TDC: Note that the "~" prefixes are not currently shown ... that's part of this spec for `--filter raw`.
+
+(The "before" column is today's output; after this spec, that topology is
+`raw` mode's, where the relinked rows additionally carry the new `~`
+prefix.)
 
 Display order shows `S` after `4,5` although the loaded context is
 `[S,4,5]` — accepted display fiction; `raw` mode has the truth. Several
@@ -129,23 +143,35 @@ Same rewind with NO new turn: `X` is hidden; the tree reads
 - User-row picks resolve their nearest assistant ancestor on the **full**
   tree, unchanged — picking post-compaction user `7` resolves to `5@B`, so
   editing a post-compaction message stays inside the compacted context.
-- **Behavior change** — boundary/summary picks ("undo the boundary"):
-  resolve to the last assistant ref on
+- **Behavior change** — boundary AND summary picks are the same action,
+  "undo the boundary": resolve to the last assistant ref on
   `effectiveTreeNodeChain(entries before the boundary)` — the true
   pre-boundary context tip, correct even when that tip is a relinked
   occurrence of an older boundary. No assistant on that chain → `newRoot`.
-  (Today's resolution walks raw ancestors from `logicalParentUuid`, which
-  for up_to shape lands on the last summarized entry and silently drops the
-  preserved tail.)
+  Neither carries `editorText` (today a summary pick prefills the editor
+  with the full summary text via ordinary user-row handling — dropped).
+  (Today's boundary resolution walks raw ancestors from
+  `logicalParentUuid`, which for up_to shape lands on the last summarized
+  entry and silently drops the preserved tail.)
+- A malformed summary row (`isCompactSummary` whose parent is not a
+  boundary — corrupt or hand-crafted file) falls back to ordinary user-row
+  pick semantics.
 
 ### Conversation history (TUI transcript replay)
 
 - A replayed path node with `viaBoundary` set whose uuid already rendered
-  earlier in the same replay is skipped. Boundary banners and summary
-  entries still render; the pre-boundary logical path (including a rewind's
-  abandoned tail) still renders. Preserved messages appearing on the path
-  only as relinked occurrences (up_to shape) are unaffected by the dedupe
-  and still render once.
+  earlier in the same replay is skipped. The replay keeps its own
+  seen-uuids set covering EVERY uuid-bearing path node it renders — the
+  existing `replayed` set is insufficient (it feeds live-event dedupe and
+  excludes entries `entryToSessionMessage` rejects, e.g. `local_command`
+  system entries, which `appendPathNode` nevertheless renders).
+- Boundary banners and summary entries still render; the pre-boundary
+  logical path (including a rewind's abandoned tail) still renders.
+  Preserved messages appearing on the path only as relinked occurrences
+  are unaffected by the dedupe and render once. The dedupe is per-uuid,
+  not per-shape: it also covers hand-crafted up_to boundaries whose
+  `logicalParentUuid` lies inside the preserved tail (raw and relinked
+  occurrences then share the path), not just from-shape.
 
 ## Type design
 
@@ -159,8 +185,10 @@ logic in a third file there):
 export interface DisplayTree {
   /** Linearized parent relation per the display-tree rules above. */
   parentMap: ParentMap;
-  /** Hidden occurrence id → visible display row id, transitively
-   *  resolved. For leaf-marker mapping. */
+  /** Hidden occurrence id → visible display row id. Exhaustive: one entry
+   *  for every omitted relinked occurrence and every hidden boundary row;
+   *  values are transitively resolved AFTER the hidden-boundary fixpoint
+   *  and are always keys of `parentMap`. For leaf-marker mapping. */
   representativeOf: Map<string, string>;
 }
 
@@ -170,9 +198,10 @@ export function buildDisplayTree(
 ): DisplayTree
 ```
 
-Not a post-transform of `buildTree` output: the re-anchor target is the
-running `occurrenceOf` state mid-replay, unrecoverable from the finished
-`ParentMap` without replaying anyway.
+Built by its own forward replay, not as a post-transform of `buildTree`
+output: the re-anchor target is the running `occurrenceOf` state
+mid-replay, which the finished `ParentMap` alone does not retain —
+recovering it would mean replaying the entries anyway.
 
 **`src/format/tree.ts`**:
 
@@ -197,6 +226,8 @@ export function resolveTreePick(
   entries: SessionEntry[],                   // NEW: boundary-undo chain
   entryOf: ReadonlyMap<UUID, SessionEntry>,
   pick: TreeNodeRef,
+  onInvalid: OnInvalid,                      // NEW: effectiveTreeNodeChain's
+                                             // corrupt-file diagnostics
 ): TreePickAction
 
 // constructor swaps the full map for the display tree:
@@ -208,7 +239,8 @@ The component holds the display tree ONLY: rows, `applyFilter`,
 `displayTree.parentMap`; `currentLeafId` maps through `representativeOf`;
 Enter passes the row's own occurrence id to `onSelect`. The full map is
 needed solely by `resolveTreePick`, which interactive-mode (the `onSelect`
-owner) calls with its own `buildTree` output.
+owner) calls with its own `buildTree` output, passing its banner function
+as `onInvalid` (consistent with its `buildTree` call sites).
 
 **`src/tui/interactive-mode.ts`**: the `/tree` open site adds a
 `buildDisplayTree` call; `renderPathNode` implements the history dedupe
@@ -240,14 +272,15 @@ render-time or per-pick; nothing per-keystroke beyond today's reflatten.
 1. `format tree --filter conversation` on a session with N native
    compactions and no genuine forks renders a single linear chain (no
    `├─`/`└─` connectors): each boundary + summary inline at its
-   chronological spot, each message exactly once.
-2. Same rows in the `/tree` picker; picking the last pre-compaction
-   message rewinds to pre-compaction context (raw occurrence).
+   chronological spot, each occurrence exactly once.
+2. The `/tree` picker shows the same linearized topology (its fixed filter
+   and uuid omission aside); picking the last pre-compaction message
+   rewinds to pre-compaction context (raw occurrence).
 3. Picking a post-compaction user message resolves its ancestor on the
    full tree (`viaBoundary` occurrence — compaction kept).
-4. A boundary/summary pick resolves to the pre-boundary chain's last
+4. A boundary or summary pick resolves to the pre-boundary chain's last
    assistant ref (up_to: the preserved tail's tip, not
-   `logicalParentUuid`).
+   `logicalParentUuid`), with no `editorText`.
 5. After a boundary rewind plus one new turn, the display forks exactly at
    the rewind target; with no new turn, the summary-less boundary is
    invisible and the leaf marker sits on the rewind target's raw row.
@@ -264,9 +297,11 @@ render-time or per-pick; nothing per-keystroke beyond today's reflatten.
 - No change to what the agent actually sees (`get-messages`, loader
   behavior, `set-context` mechanics).
 - No new wire fields or daemon requests.
-- No special display for hand-crafted non-suffix `--uuids` lists: the
-  linear reading is an accepted approximation there; `raw` mode is the
-  truthful view.
+- No linearity guarantee for hand-crafted `--uuids` lists: single-line
+  rendering is guaranteed only when preserved lists are suffixes of a raw
+  chain (native and clauctl-written boundaries); arbitrary reordered or
+  cross-branch lists may still display forks, and the linear reading is an
+  accepted approximation there. `raw` mode is the truthful view.
 
 # IMPLEMENTATION IDEAS
 
@@ -276,7 +311,9 @@ render-time or per-pick; nothing per-keystroke beyond today's reflatten.
   (= display row of `occurrenceOf(lastPreservedUuid)` before overwriting),
   map each relinked occurrence id → block tail, and overwrite
   `occurrenceOf` for preserved uuids to the block tail so post-boundary
-  entries and later boundaries' anchors land there.
+  entries and later boundaries' anchors land there. Mirror `buildTree`'s
+  pending-relink handling on corrupt interleavings (a later boundary
+  displaces an earlier still-pending substructure).
 - The hidden-boundary rule needs "no displayed descendants", known only
   after the scan, and must cascade (fixpoint): either a pruning pass that
   iterates deleting childless summary-less boundary rows and rewrites
@@ -293,16 +330,23 @@ render-time or per-pick; nothing per-keystroke beyond today's reflatten.
   `effectiveTreeNodeChain(entries.slice(0, boundaryIndex), …)`; the pick
   path in `resolveTreePick` distinguishes boundary/summary picks the same
   way it does today (entry `subtype`/`isCompactSummary`).
-- History dedupe lives in `renderPathNode`: the `replayed` set already
-  collects rendered uuids in path order; the skip condition reads it
-  before adding. Update `reloadHistory`'s "duplicates included — honest
+- History dedupe lives in `renderPathNode` with its OWN seen-uuids set
+  (not the `replayed` live-event-dedupe set, whose membership is
+  `entryToSessionMessage`-filtered and misses `local_command`-style system
+  entries that `appendPathNode` renders): add every uuid-bearing path
+  node's uuid; skip rendering when `viaBoundary` is set and the uuid is
+  already present. Update `reloadHistory`'s "duplicates included — honest
   display" doc comment, which this spec deliberately reverses.
 - Test surfaces: `format/tree.test.ts` (linear-after-compaction, stacked
-  compactions, rewind fork, hidden boundary, `raw` mode + `~`, cursor vs
-  marker), `core/build-display-tree.test.ts` (anchor/representative rules,
-  stacked boundaries, invalid relinks), `tree-selector.test.ts` (literal
-  row picks, boundary-undo resolution), `interactive-mode.test.ts` /
-  `transcript.test.ts` (history dedupe).
+  compactions, rewind fork, hidden boundary + cascade, `raw` mode, `~`
+  alignment under connectors, cursor vs marker, filter-hidden
+  representative row), `core/build-display-tree.test.ts`
+  (anchor/representative rules incl. exhaustive `representativeOf`
+  domain, stacked boundaries, invalid relinks, corrupt interleavings),
+  `tree-selector.test.ts` (literal row picks, boundary AND summary undo
+  resolution with no `editorText`, malformed-summary fallback),
+  `interactive-mode.test.ts` / `transcript.test.ts` (history dedupe incl.
+  relinked local commands / tool results, up_to overlap shape).
 
 # WORK LOG
 
@@ -318,6 +362,13 @@ encountered.
   ancestors on full tree, boundary picks re-resolved via pre-boundary
   chain; `~` always on; `raw` mode added; type design approved with
   build-display-tree.ts as its own file.
+- [x] Reviewer pass (fresh-context agent): added explicit block-edge rule,
+  exhaustive `representativeOf` contract, dedicated history seen-uuids set
+  (the `replayed` set misses `local_command` renders), `onInvalid` on
+  `resolveTreePick`, exact `~` placement, summary picks = boundary picks
+  with no `editorText` (drops today's summary-text prefill),
+  malformed-summary fallback to user-row semantics, linearity qualified to
+  suffix-shaped relinks, raw-mode wording (occurrences, not entries).
 - [ ] Implement `buildDisplayTree` + tests
 - [ ] `format tree`: `raw` mode, display-tree default, `~` marking + tests
 - [ ] Picker: display rows, `resolveTreePick` boundary-undo + tests
