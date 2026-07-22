@@ -1,6 +1,6 @@
 # Spec: TUI keybindings registry
 
-> Status: **draft.** First of three planned phases (registry; then ctrl+g
+> Status: **phase 1 (registry) landed.** First of three planned phases (registry; then ctrl+g
 > external editor; then ctrl+c clear-input) growing out of
 > `docs/thoughts/open-editor.md`. Phasing is for review scoping only —
 > the user manages all git operations; implementing agents must not
@@ -311,6 +311,24 @@ class InteractiveMode {
 }
 ```
 
+Phase 2 (ctrl+g) adds one method (approved 2026-07-21):
+
+```ts
+class InteractiveMode {
+  /**
+   * app.editor.external: write editor.getText() to a temp file
+   * (os.tmpdir()/clauctl-editor-<random>.md), editFileInExternalEditor,
+   * on exit 0 read it back — stripping one trailing newline, matching pi —
+   * into editor.setText(); unlink the temp file in a finally. No
+   * $VISUAL/$EDITOR: hint banner, nothing else. Dispatched from
+   * handleGlobalKey with the no-open-selector guard. Events arriving while
+   * the TUI is suspended are safe: rendering is deferred, not the
+   * socket-driven handleEvent (see WORK LOG 2026-07-21).
+   */
+  private openExternalPromptEditor(): Promise<void>;
+}
+```
+
 `handleGlobalKey` switches each `matchesKey(data, "<chord>")` to
 `this.keybindings.matches(data, "<action id>")`, and its `app.clear`
 (ctrl+c) branch gains the no-open-selector guard that the `app.interrupt`
@@ -476,7 +494,17 @@ encountered.
 - [x] `tree-selector.ts` → `tui.select.*`
 - [x] `/keybindings`, `/reload-keybindings` + autocomplete entries
 - [x] typecheck, tests (419 pass), lint, treefmt
-- [ ] manual TUI verification (user)
+- [x] manual TUI verification (user)
+- 2026-07-21: phase 1 reviewed and committed by Anton; TDC round resolved
+  (renamed the JSON-file helpers, recorded why pi-tui's key validator can't
+  be reused). Phase 1 complete; phases 2–3 next.
+- 2026-07-21: verified in pi-tui source (relevant to phase 2's ctrl+g):
+  while the TUI is stopped, SDK events keep flowing — handleEvent is
+  socket-driven and unaffected; only rendering is skipped (`stopped` guards
+  every render path, so nothing scribbles over the external editor), and
+  `editFileInExternalEditor`'s finally (`ui.start()` +
+  `requestRender(true)`) re-renders everything that accumulated. No events
+  are lost or deferred during an editor session.
 
 ### Implementation-Time Decisions (2026-07-21, phase 1)
 
