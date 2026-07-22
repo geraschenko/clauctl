@@ -101,7 +101,10 @@ export function defaultBindings(
   return result;
 }
 
-// TDC: Does pi-tui really not export something like BASE_KEYS, MODIFIER_PREFIX, isWellFormedKey? It surprises me that we have to reimplement this.
+// pi-tui has no runtime key-id validator to reuse: its key set exists only
+// in the compile-time KeyId union, and its internal parseKeyId accepts any
+// base key (a typo like "ctrl+oo" parses and just never matches), so typo
+// detection needs this well-formedness check of our own.
 const BASE_KEYS = new Set<string>([
   ..."abcdefghijklmnopqrstuvwxyz",
   ..."0123456789",
@@ -121,7 +124,7 @@ const MODIFIER_PREFIX = /^(ctrl|shift|alt|super)\+/;
  */
 function isWellFormedKey(key: string): key is KeyId {
   let rest = key;
-  for (;;) {  // TDC: I prefer `while true`
+  while (true) {
     const match = MODIFIER_PREFIX.exec(rest);
     if (match === null) {
       break;
@@ -263,12 +266,14 @@ export function readKeybindingsConfig(
 }
 
 /**
- * Parse `path` for a rewrite. A missing file is an empty object; anything
- * else that does not parse to a plain object throws — clobbering data we
- * cannot parse is forbidden, so rewrites refuse to proceed.
+ * Read a JSON-object file for a rewrite. A missing file is an empty object;
+ * anything else that does not parse to a plain object throws — clobbering
+ * data we cannot parse is forbidden, so rewrites refuse to proceed.
+ * (Generic in shape, but kept local: the closest relative, registry.ts's
+ * agent.json I/O, is async and fsyncs for daemon durability — a shared
+ * json-file helper is a follow-up once a third consumer exists.)
  */
-// TDC: this seems like an extremely general function, basically reading an arbitrary json object from a file. Does this already exist somewhere? If not, should we give it a more descriptive name and put it in a separate file? Same for writeConfig below. Don't we do something similar to this for reading/writing agent.json in src/core?
-function readConfigForRewrite(path: string): Record<string, unknown> {
+function readJsonObjectFile(path: string): Record<string, unknown> {
   let raw: string;
   try {
     raw = readFileSync(path, "utf8");
@@ -291,7 +296,10 @@ function readConfigForRewrite(path: string): Record<string, unknown> {
 }
 
 /** Atomic write: temp file in the same directory, rename over. */
-function writeConfig(path: string, root: Record<string, unknown>): void {
+function writeJsonFileAtomic(
+  path: string,
+  root: Record<string, unknown>,
+): void {
   mkdirSync(dirname(path), { recursive: true });
   const tempPath = `${path}.tmp-${process.pid}`;
   writeFileSync(tempPath, `${JSON.stringify(root, null, 2)}\n`);
@@ -343,7 +351,7 @@ export function writeDefaultBindings(
   path: string,
   definitions: KeybindingDefinitions,
 ): void {
-  const root = readConfigForRewrite(path);
+  const root = readJsonObjectFile(path);
   const defaults = defaultBindings(definitions);
   const existing = root[DEFAULT_BINDINGS_FIELD];
   if (isPlainObject(existing)) {
@@ -355,7 +363,7 @@ export function writeDefaultBindings(
     );
   }
   root[DEFAULT_BINDINGS_FIELD] = { [NOTE_KEY]: NOTE_TEXT, ...defaults };
-  writeConfig(path, root);
+  writeJsonFileAtomic(path, root);
 }
 
 /**
@@ -371,7 +379,7 @@ export function promoteEditedDefaults(
   path: string,
   definitions: KeybindingDefinitions,
 ): { warnings: string[] } {
-  const root = readConfigForRewrite(path);
+  const root = readJsonObjectFile(path);
   const field = root[DEFAULT_BINDINGS_FIELD];
   if (!isPlainObject(field)) {
     return { warnings: [] };
@@ -400,7 +408,7 @@ export function promoteEditedDefaults(
     }
   }
   if (changed) {
-    writeConfig(path, root);
+    writeJsonFileAtomic(path, root);
   }
   return { warnings };
 }
