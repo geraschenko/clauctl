@@ -10,7 +10,7 @@ import { sdkRoutes } from "./sdk-commands.ts";
 import { spawnRoute } from "./spawn.ts";
 import { tailRoute } from "./tail.ts";
 import { tuiRoute } from "../tui/interactive-mode.ts";
-import { UntilTimeoutError } from "./until.ts";
+import { UntilTimeoutError } from "./generated/until-engine.ts";
 import { UsageError } from "./generated/util.ts";
 import { VERSION } from "./generated/version.ts";
 import { waitRoute } from "./wait.ts";

@@ -45,9 +45,9 @@ export interface QueueTransition {
 
 /**
  * Subject to the demote fork: priority next/default. Demotability also
- * requires acceptance while busy, but every entry *resident* in the queue was
- * accepted while busy (idle acceptance dequeues immediately), so for queued
- * messages this is purely a function of priority.
+ * requires acceptance while not idle, but every entry *resident* in the queue
+ * was accepted while not idle (idle acceptance dequeues immediately), so for
+ * queued messages this is purely a function of priority.
  */
 function isDemotable(message: SDKUserMessage): boolean {
   return message.priority === undefined || message.priority === "next";
@@ -65,7 +65,7 @@ function priorityRank(message: SDKUserMessage): number {
       return 0;
     case "later":
       return 2;
-    // "next" and default share a bucket: while busy both are demotable, and
+    // "next" and default share a bucket: while not idle both are demotable, and
     // at a result they merge into the same turn.
     default:
       return 1;
@@ -83,11 +83,11 @@ function dequeued(delivery: MessageDelivery, ids: number[]): SdkEvent {
 export function acceptUserMessage(
   state: QueueModelState,
   message: SDKUserMessage,
-  busy: boolean,
+  isIdle: boolean,
 ): QueueTransition {
   const id = state.nextId;
   const queuedEvent: SdkEvent = { kind: "userMessageQueued", id, message };
-  if (!busy) {
+  if (isIdle) {
     return {
       state: { ...state, nextId: id + 1 },
       events: [

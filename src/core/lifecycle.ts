@@ -31,14 +31,13 @@ import {
 } from "./registry.ts";
 import { connectWithRetry } from "./sdk-socket.ts";
 import { launchDaemon } from "./spawn.ts";
-import { runStream } from "./streaming.ts";
+import { runStream } from "./generated/stream-driver.ts";
 import {
   secondsToTimerMs,
   UntilTimeoutError,
-  untilMetAtSeed,
-  untilMetByEvent,
   type UntilCondition,
-} from "./until.ts";
+} from "./generated/until-engine.ts";
+import { untilMetAtSeed, untilMetByEvent } from "./until.ts";
 
 const SOCKET_CONNECT_DEADLINE_MS = 5_000;
 const SIGKILL_ESCALATION_MS = 5_000;
@@ -212,7 +211,7 @@ async function stopRunningAgent(
   );
   const idle: UntilCondition = { kind: "idle" };
   try {
-    const outcome = await runStream(
+    const { outcome } = await runStream(
       client,
       {
         onSeed: (seed) => untilMetAtSeed(idle, seed),

@@ -17,7 +17,7 @@ import type {
   SDKUserMessage,
   Settings,
 } from "@anthropic-ai/claude-agent-sdk";
-import type { AgentState } from "./agent-state.ts";
+import { nextAgentState, type AgentState } from "./agent-state.ts";
 import type { TreeNodeRef } from "./tree.ts";
 
 export const SDK_SOCKET_PROTOCOL = "clauctl-sdk-socket";
@@ -292,7 +292,11 @@ export class SdkSocketClient {
   private readonly closedPromise: Promise<void>;
   private requestCounter = 0;
   private closed = false;
-  private onEvent: ((event: SdkEvent) => void) | undefined;
+  private onEvent: ((event: SdkEvent, state: AgentState) => void) | undefined;
+  // The client-owned fold: seeded from the subscribe response at dispatch,
+  // advanced by nextAgentState per event line. undefined until subscribed.
+  private foldedState: AgentState | undefined;
+  private subscribeRequestId: string | undefined;
 
   private constructor(socket: Socket) {
     this.socket = socket;
@@ -367,7 +371,10 @@ export class SdkSocketClient {
   }
 
   // Routes structurally: records with an `id` resolve pending requests,
-  // records with an `event` go to onEvent — so onEvent never sees responses.
+  // records with an `event` fold and go to onEvent — so onEvent never sees
+  // responses. Lines dispatch synchronously in wire order, so the fold seeds
+  // at the subscribe response's line, strictly before any event line (the
+  // daemon writes the seed response before attaching the event sink).
   private dispatchLine(line: string): void {
     let record: { id?: string; event?: SdkEvent };
     try {
@@ -376,54 +383,80 @@ export class SdkSocketClient {
       return;
     }
     if (record.event !== undefined) {
-      this.onEvent?.(record.event);
+      // Pre-seed events would violate the daemon protocol; drop rather than
+      // fold into nothing.
+      if (this.foldedState !== undefined) {
+        this.foldedState = nextAgentState(this.foldedState, record.event);
+        this.onEvent?.(record.event, this.foldedState);
+      }
       return;
     }
     const pending =
       record.id === undefined ? undefined : this.pending.get(record.id);
     if (pending) {
       this.pending.delete(record.id!);
-      pending.resolve(record as unknown as SdkResponse);
+      const response = record as unknown as SdkResponse;
+      if (record.id === this.subscribeRequestId && response.ok) {
+        this.foldedState = response.data as AgentState;
+      }
+      pending.resolve(response);
     }
   }
 
   /** Send a request; resolves with the response data, throws on daemon error. */
   async request(request: SdkRequest): Promise<unknown> {
-    if (this.closed) {
-      throw new Error("sdk socket closed");
-    }
-    const id = `clauctl-${++this.requestCounter}`;
-    const response = await new Promise<SdkResponse>((resolve, reject) => {
-      this.pending.set(id, { resolve, reject });
-      this.socket.write(`${JSON.stringify({ ...request, id })}\n`);
-    });
+    const response = await this.sendRequest(request).response;
     if (!response.ok) {
       throw new Error(`daemon rejected ${request.type}: ${response.error}`);
     }
     return response.data;
   }
 
+  private sendRequest(request: SdkRequest): {
+    id: string;
+    response: Promise<SdkResponse>;
+  } {
+    if (this.closed) {
+      throw new Error("sdk socket closed");
+    }
+    const id = `clauctl-${++this.requestCounter}`;
+    const response = new Promise<SdkResponse>((resolve, reject) => {
+      this.pending.set(id, { resolve, reject });
+      this.socket.write(`${JSON.stringify({ ...request, id })}\n`);
+    });
+    return { id, response };
+  }
+
   /**
-   * Turn this connection into a subscriber: onEvent fires for every
-   * SdkEventRecord the daemon pushes after the returned seed state. A
-   * stateful subscriber folds the events into the seed with `nextAgentState`
-   * — the same fold the daemon runs, so its state always matches the
-   * daemon's. Single-use per client; requests may still be sent on a
+   * Turn this connection into a subscriber: the client owns the fold. It
+   * seeds its state from the subscribe response and folds every subsequent
+   * event through `nextAgentState` — the same fold the daemon runs, so its
+   * state always matches the daemon's — delivering each event together with
+   * the state after folding it. The (event, state) pair keeps a consumer's
+   * view aligned with the event it is processing even when the client's live
+   * state runs ahead. Single-use per client; requests may still be sent on a
    * subscribed connection.
    *
-   * The daemon writes the seed response before any event line, but response
-   * resolution is a microtask while onEvent is called synchronously from the
-   * data handler — so onEvent may fire before the returned promise settles.
-   * Every delivered event is post-seed regardless; a caller that needs
-   * strict output ordering (tail) gates on the seed itself.
+   * Resolves with the seed itself (the state before any delivered event),
+   * not the live folded state: response resolution is a microtask while
+   * onEvent is called synchronously from the data handler, so onEvent may
+   * fire before the returned promise settles, and a caller that needs strict
+   * output ordering (tail) gates on the seed those events advanced from.
    */
-  async subscribe(onEvent: (event: SdkEvent) => void): Promise<AgentState> {
+  async subscribe(
+    onEvent: (event: SdkEvent, state: AgentState) => void,
+  ): Promise<AgentState> {
     if (this.onEvent !== undefined) {
       throw new Error("sdk socket client is already subscribed");
     }
     this.onEvent = onEvent;
-    const data = await this.request({ type: "subscribe" });
-    return data as AgentState;
+    const { id, response } = this.sendRequest({ type: "subscribe" });
+    this.subscribeRequestId = id;
+    const result = await response;
+    if (!result.ok) {
+      throw new Error(`daemon rejected subscribe: ${result.error}`);
+    }
+    return result.data as AgentState;
   }
 
   /** Resolves when the daemon closes the socket. */

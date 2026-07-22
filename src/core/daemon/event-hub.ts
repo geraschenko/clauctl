@@ -2,7 +2,7 @@ import type {
   SDKMessage,
   SDKUserMessage,
 } from "@anthropic-ai/claude-agent-sdk";
-import { isBusy, nextAgentState, type AgentState } from "../agent-state.ts";
+import { isIdle, nextAgentState, type AgentState } from "../agent-state.ts";
 import * as QueueModel from "./queue-model.ts";
 import { type SdkEvent } from "../sdk-socket.ts";
 
@@ -115,7 +115,7 @@ export class EventHub {
       QueueModel.acceptUserMessage(
         this.queueModel,
         message,
-        isBusy(this.state),
+        isIdle(this.state),
       ),
     );
   }

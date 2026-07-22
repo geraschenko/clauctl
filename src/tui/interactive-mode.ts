@@ -31,11 +31,7 @@ import {
   type InferFlags,
 } from "../core/generated/cli.ts";
 import type { CommandContext } from "../core/generated/targets.ts";
-import {
-  isBusy,
-  nextAgentState,
-  type AgentState,
-} from "../core/agent-state.ts";
+import { isIdle, type AgentState } from "../core/agent-state.ts";
 import type { UUID } from "node:crypto";
 import { buildTree } from "../core/build-tree.ts";
 import {
@@ -124,16 +120,18 @@ export async function runInteractive(
   managed: boolean,
 ): Promise<void> {
   initTheme("dark");
-  const buffered: SdkEvent[] = [];
-  let handleEvent = (event: SdkEvent): void => {
-    buffered.push(event);
+  const buffered: Array<[SdkEvent, AgentState]> = [];
+  let handleEvent = (event: SdkEvent, state: AgentState): void => {
+    buffered.push([event, state]);
   };
-  const seedState = await client.subscribe((event) => handleEvent(event));
+  const seedState = await client.subscribe((event, state) =>
+    handleEvent(event, state),
+  );
   const ui = new TUI(new ProcessTerminal());
   const interactiveMode = new InteractiveMode(ui, client, seedState, managed);
-  handleEvent = (event) => interactiveMode.handleEvent(event);
-  for (const event of buffered.splice(0)) {
-    interactiveMode.handleEvent(event);
+  handleEvent = (event, state) => interactiveMode.handleEvent(event, state);
+  for (const [event, state] of buffered.splice(0)) {
+    interactiveMode.handleEvent(event, state);
   }
   ui.start();
   try {
@@ -155,10 +153,11 @@ class InteractiveMode {
    *  for every attacher, so ctrl+c only hints at the tty-level detach key. */
   private readonly managed: boolean;
   /**
-   * Seeded from the subscribe response and advanced only by `nextAgentState`
-   * on live events — the same fold the daemon runs, so this always matches
-   * the daemon's state. Historical replay renders transcript messages but
-   * must not fold them (they predate the seed).
+   * Seeded from the subscribe response and assigned the post-fold state the
+   * client delivers with each live event — the client runs the same fold the
+   * daemon does, so this always matches the daemon's state. Historical
+   * replay renders transcript messages but must not advance this state
+   * (they predate the seed).
    */
   private agentState: AgentState;
 
@@ -192,12 +191,13 @@ class InteractiveMode {
    * afterwards), so live output cannot interleave with — or precede — the
    * replayed transcript.
    */
-  private liveEventsDuringReplay: SdkEvent[] | undefined = [];
+  private liveEventsDuringReplay: Array<[SdkEvent, AgentState]> | undefined =
+    [];
 
   /**
    * Release dedupe (nonempty only during reloadHistory's release loop):
    * uuids rendered from the replayed path. A buffered event carrying one of
-   * them folds into agentState but renders nothing — the flush-synced tree
+   * them advances agentState but renders nothing — the flush-synced tree
    * read can include entries newer than the snapshot leaf, which are also
    * in the buffer.
    */
@@ -346,7 +346,7 @@ class InteractiveMode {
       if (
         boundaryMissing &&
         !this.liveEventsDuringReplay.some(
-          (event) => event.kind === "contextChanged",
+          ([event]) => event.kind === "contextChanged",
         )
       ) {
         this.addBanner(
@@ -371,8 +371,8 @@ class InteractiveMode {
       // A buffered contextChanged re-enters reloadHistory here; its
       // synchronous prefix re-arms the buffer, so the rest of this loop
       // feeds the follow-up reload instead of rendering.
-      for (const event of buffered) {
-        this.handleEvent(event);
+      for (const [event, state] of buffered) {
+        this.handleEvent(event, state);
       }
     } finally {
       this.replayedUuids = new Set();
@@ -403,14 +403,14 @@ class InteractiveMode {
     this.transcript.appendPathNode(node);
   }
 
-  handleEvent(event: SdkEvent): void {
+  handleEvent(event: SdkEvent, state: AgentState): void {
     if (this.liveEventsDuringReplay !== undefined) {
-      this.liveEventsDuringReplay.push(event);
+      this.liveEventsDuringReplay.push([event, state]);
       return;
     }
-    this.agentState = nextAgentState(this.agentState, event);
+    this.agentState = state;
     // The switch is rendering-only dispatch; all state effects (footer
-    // fields, mode cycle, activity) come from the fold above.
+    // fields, mode cycle, activity) come from the delivered state above.
     switch (event.kind) {
       case "userMessageQueued":
         this.queuedById.set(event.id, event.message);
@@ -443,7 +443,7 @@ class InteractiveMode {
         this.treeSelector?.setWarning(
           "context changed while the tree selector is open",
         );
-        // The fold above already holds the new leaf, so the reload cuts the
+        // agentState already holds the new leaf, so the reload cuts the
         // fresh path at the right occurrence.
         void this.reloadHistory();
         break;
@@ -457,7 +457,7 @@ class InteractiveMode {
 
   private handleSdkMessage(message: SDKMessage): void {
     // Release dedupe: a buffered event whose transcript entry already
-    // rendered from the replayed path folds into agentState (handleEvent,
+    // rendered from the replayed path advances agentState (handleEvent,
     // before dispatch) but renders nothing — no second banner, no streaming
     // component, no tool-result re-resolution.
     const dedupeUuid = releaseDedupeUuid(message);
@@ -609,7 +609,7 @@ class InteractiveMode {
     entryOf: ReadonlyMap<UUID, SessionEntry>,
     pick: TreeNodeRef,
   ): void {
-    if (isBusy(this.agentState)) {
+    if (!isIdle(this.agentState)) {
       this.hintText.setText(
         theme.fg("dim", "cannot navigate tree while assistant is busy"),
       );
@@ -658,7 +658,7 @@ class InteractiveMode {
   private handleGlobalKey(data: string): { consume: boolean } | undefined {
     if (
       matchesKey(data, "escape") &&
-      isBusy(this.agentState) &&
+      !isIdle(this.agentState) &&
       // An open menu owns escape (cancel / clear search).
       this.modelSelector === undefined &&
       this.treeSelector === undefined

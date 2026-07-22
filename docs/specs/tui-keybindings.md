@@ -167,14 +167,14 @@ added to `LOCAL_COMMANDS` in `autocomplete.ts`:
 definitions map missing `tui.*` ids would silently break every editor key)
 plus:
 
-| Action id                  | Default     | Bound now to                                                             |
-| -------------------------- | ----------- | ------------------------------------------------------------------------ |
-| `app.interrupt`            | `escape`    | interrupt (existing)                                                     |
+| Action id                  | Default     | Bound now to                                                    |
+| -------------------------- | ----------- | --------------------------------------------------------------- |
+| `app.interrupt`            | `escape`    | interrupt (existing)                                            |
 | `app.clear`                | `ctrl+c`    | detach double-press (existing; the clear-input half is phase 3) |
-| `app.tools.expand`         | `ctrl+o`    | toggle tool output (existing)                                            |
-| `app.thinking.toggle`      | `ctrl+t`    | toggle thinking blocks (existing)                                        |
-| `app.permissionMode.cycle` | `shift+tab` | cycle permission mode (existing)                                         |
-| `app.editor.external`      | `ctrl+g`    | _declared, not handled until phase 2_                                   |
+| `app.tools.expand`         | `ctrl+o`    | toggle tool output (existing)                                   |
+| `app.thinking.toggle`      | `ctrl+t`    | toggle thinking blocks (existing)                               |
+| `app.permissionMode.cycle` | `shift+tab` | cycle permission mode (existing)                                |
+| `app.editor.external`      | `ctrl+g`    | _declared, not handled until phase 2_                           |
 
 Ids reuse pi's names where the meaning matches (portable user configs);
 `app.permissionMode.cycle` is clauctl-specific (pi's shift+tab means

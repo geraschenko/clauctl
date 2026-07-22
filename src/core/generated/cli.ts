@@ -115,7 +115,7 @@ export type CliFlag<T, PARAMETER> = PARAMETER & {
   readonly [flagValue]: T;
 };
 
-export type InferFlagValue<F> = F extends {
+export type InferFlagValue<TFlag> = TFlag extends {
   readonly [flagValue]: infer T;
 }
   ? T
@@ -124,13 +124,15 @@ export type InferFlagValue<F> = F extends {
 // Optional object properties are different from required properties whose value
 // can be undefined. This helper finds the flags whose phantom value includes
 // undefined so InferFlags can turn `string | undefined` into `name?: string`.
-export type OptionalFlagKeys<F extends Record<string, unknown>> = {
-  readonly [K in keyof F]: undefined extends InferFlagValue<F[K]> ? K : never;
-}[keyof F];
+export type OptionalFlagKeys<TFlags extends Record<string, unknown>> = {
+  readonly [K in keyof TFlags]: undefined extends InferFlagValue<TFlags[K]>
+    ? K
+    : never;
+}[keyof TFlags];
 
-export type RequiredFlagKeys<F extends Record<string, unknown>> = Exclude<
-  keyof F,
-  OptionalFlagKeys<F>
+export type RequiredFlagKeys<TFlags extends Record<string, unknown>> = Exclude<
+  keyof TFlags,
+  OptionalFlagKeys<TFlags>
 >;
 
 // Derive the implementation-facing flags object from a flag-spec object:
@@ -139,11 +141,11 @@ export type RequiredFlagKeys<F extends Record<string, unknown>> = Exclude<
 // - stringFlag(...) becomes `name?: string`
 // The runtime flag specs remain ordinary Stricli parameters; the phantom type
 // information only exists to make this mapped type possible.
-export type InferFlags<F extends Record<string, unknown>> = {
-  readonly [K in RequiredFlagKeys<F>]: InferFlagValue<F[K]>;
+export type InferFlags<TFlags extends Record<string, unknown>> = {
+  readonly [K in RequiredFlagKeys<TFlags>]: InferFlagValue<TFlags[K]>;
 } & {
-  readonly [K in OptionalFlagKeys<F>]?: Exclude<
-    InferFlagValue<F[K]>,
+  readonly [K in OptionalFlagKeys<TFlags>]?: Exclude<
+    InferFlagValue<TFlags[K]>,
     undefined
   >;
 };

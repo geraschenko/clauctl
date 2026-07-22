@@ -10,14 +10,14 @@ export type ParentMap = ReadonlyMap<string, string | null>;
  *  passes (create shells, then link), so no parent-precedes-child ordering
  *  assumption. An id whose parent is not a key of the map becomes a root —
  *  matches pi's getTree(): orphaned entries are returned as roots. */
-export function toLayoutTree<P>(
+export function toLayoutTree<TPayload>(
   parentMap: ParentMap,
-  payloadOf: (id: string) => P,
-): LayoutNode<P>[] {
+  payloadOf: (id: string) => TPayload,
+): LayoutNode<TPayload>[] {
   interface MutableLayoutNode {
     readonly id: string;
     readonly children: MutableLayoutNode[];
-    readonly payload: P;
+    readonly payload: TPayload;
   }
   const shells = new Map<string, MutableLayoutNode>();
   for (const id of parentMap.keys()) {

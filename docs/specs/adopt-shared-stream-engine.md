@@ -54,7 +54,7 @@ other and `util.ts`, all in-set, so imports stay `./`.
   subscribe seed") instead of resolving `"closed"`: bare `tail` racing a
   daemon close in the subscribe window exits 1 instead of 0. More correct —
   the snapshot was never printed, so tail produced nothing.
-- The quiet timer resets as each handler call *completes* (async pump)
+- The quiet timer resets as each handler call _completes_ (async pump)
   rather than as each event is processed — indistinguishable for clauctl's
   synchronous handlers.
 
@@ -231,3 +231,75 @@ encountered.
   guarantees the wire ordering the client fold needs; `subscribe`'s only
   production consumer is `runStream`, so the signature change has minimal
   blast radius.
+- 2026-07-21: Implemented. pictl 269da9d neutralizes the engine comments
+  (`npm run check` there needed an `npm install` first — node_modules was
+  stale at 0.80.9-fork.0 vs the committed lockfile's 0.80.10-fork.0, a
+  pre-existing condition). Sync set + script run; `isBusy` → `isIdle`
+  rename (agent-state, event-hub, queue-model incl. test-boolean
+  inversion, until.ts, and `src/tui/interactive-mode.ts` — a use site the
+  spec's file list missed); sdk-socket fold ownership; until.ts rewritten
+  onto `makeUntilCheckers`; streaming.ts + streaming.test.ts deleted and
+  the three call sites moved to `generated/stream-driver.ts` with
+  `{ outcome }` destructuring; until.test.ts trimmed; fold-ownership test
+  added to sdk-socket.test.ts (real `startSdkServer`, single-chunk
+  seed+events write). Syncing also pulled pictl 5cdfc01's cosmetic generic
+  renames into `generated/cli.ts`/`flat-tree.ts`/`tree-layout.ts`
+  (`F`→`TFlag`/`TFlags`, `T`→`TPayload`) — required to keep `--check`
+  green against pictl HEAD. `npm run presubmit` passes (401 tests; the
+  usual first-run treefmt reformat). Live smoke test in an isolated
+  `CLAUCTL_DIR`: seed-met `wait --until idle` 0 in ~0.6s, `tail --until
+  no-activity:1 --timeout 5` exit 0, busy `tail --until idle --timeout
+  0.2` exit 3, `query` + `wait --until turn-end` exit 0, polite archive,
+  dormant-agent `wait --until no-activity:5` immediate exit 0.
+
+## Implementation-Time Decisions
+
+- **`subscribe` resolves the response's seed, not the live folded state**:
+  events dispatched in the same chunk as the subscribe response fold and
+  deliver before the promise settles; resolving the live state would
+  double-represent them (the driver queues those pairs and replays them
+  after `onSeed`, so tail would print a snapshot already containing events
+  it then prints again). Pinned by the sdk-socket fold-ownership test.
+- **`request()` split into `sendRequest` returning `{id, response}`**:
+  the dispatch path seeds the fold when the response with
+  `subscribeRequestId` arrives, so subscribe must know its request id
+  before awaiting — without duplicating the write/pending bookkeeping.
+- **Pre-seed event lines are dropped, not folded**: an event before the
+  subscribe response would violate the daemon protocol (the seed response
+  is written before the event sink attaches); there is nothing to fold it
+  into, and delivering it unfolded would hand consumers a stale state.
+- **queue-model test booleans inverted mechanically**: the `accept()`
+  helper's third argument flipped at every call site (`busy` → `isIdle`);
+  test titles still describe the scenario ("busy accept") and were left
+  alone.
+
+- 2026-07-21: Post-implementation review. Fixed: one more repo-specific
+  phrase in pictl's stream-driver.ts comment ("pi socket closed" example →
+  neutral; pictl 2af38c7, resynced) — plus a housekeeping pictl commit
+  (73ea653) isolating the package-lock normalization my `npm install`
+  produced. Noted: the presubmit's treefmt pass also reformatted two
+  pre-existing unformatted docs (`tui-keybindings.md`, `tui-error.md`) —
+  unrelated to this change. **Correction to the derisk note above**:
+  `runStream` is not subscribe's only production consumer — the TUI
+  (`interactive-mode.ts` line ~131) also subscribes, folding its own
+  state via `nextAgentState`. It compiles unchanged against the new
+  signature (one-param callback) and its independent fold produces
+  identical states, so behavior is unaffected — but the fold is now
+  duplicated client-side. Adapting the TUI to consume the delivered
+  (event, state) pairs would touch its replay-buffering paths; left out
+  of scope, flagged for a decision.
+- 2026-07-21: TUI adapted to consume the delivered pairs (approved
+  follow-up to the flag above). `handleEvent(event, state)` assigns
+  `this.agentState = state` instead of folding; the two deferred-event
+  buffers (`runInteractive`'s subscribe-window buffer and
+  `liveEventsDuringReplay`) carry `[SdkEvent, AgentState]` pairs so late
+  processing still lands the right snapshot; the TUI's `nextAgentState`
+  import and fold-referencing comments removed/updated. Smoke-tested by
+  running `_tui` directly under a pty against a live agent: history
+  replay renders, and a query sent mid-session renders its echo and
+  reply through the live pair path (also exercising the replay buffer),
+  no exceptions. Note: `attach` under a headless pty (`script`)
+  disconnects immediately in this environment — pre-existing harness
+  artifact, not this change (the daemon-managed `_tui` process stayed
+  alive and subscribed throughout); direct `_tui` was used instead.
+  Presubmit green (401 tests). Not committed (Anton commits).

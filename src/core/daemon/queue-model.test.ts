@@ -42,9 +42,9 @@ interface Scenario {
 function accept(
   scenario: Scenario,
   message: SDKUserMessage,
-  busy: boolean,
+  isIdle: boolean,
 ): Scenario {
-  const transition = acceptUserMessage(scenario.state, message, busy);
+  const transition = acceptUserMessage(scenario.state, message, isIdle);
   return {
     state: transition.state,
     events: [...scenario.events, ...transition.events],
@@ -70,7 +70,7 @@ function dequeues(scenario: Scenario): SdkEvent[] {
 }
 
 test("idle accept: queued+dequeued pair, delivery turn", () => {
-  const scenario = accept(start(), userMessage(), false);
+  const scenario = accept(start(), userMessage(), true);
   assert.equal(scenario.events.length, 2);
   assert.deepEqual(scenario.events[0], {
     kind: "userMessageQueued",
@@ -86,22 +86,22 @@ test("idle accept: queued+dequeued pair, delivery turn", () => {
 });
 
 test("idle accept of a no-query message dequeues as append", () => {
-  const scenario = accept(start(), userMessage({ shouldQuery: false }), false);
+  const scenario = accept(start(), userMessage({ shouldQuery: false }), true);
   assert.deepEqual(dequeues(scenario), [
     { kind: "userMessageDequeued", delivery: "append", ids: [1] },
   ]);
 });
 
 test("busy accept: queued only", () => {
-  const scenario = accept(start(), userMessage(), true);
+  const scenario = accept(start(), userMessage(), false);
   assert.equal(scenario.events.length, 1);
   assert.equal(scenario.events[0]!.kind, "userMessageQueued");
   assert.equal(scenario.state.queued.length, 1);
 });
 
 test("ids are daemon-assigned and monotonic", () => {
-  let scenario = accept(start(), userMessage(), false);
-  scenario = accept(scenario, userMessage(), true);
+  let scenario = accept(start(), userMessage(), true);
+  scenario = accept(scenario, userMessage(), false);
   const queuedIds = scenario.events
     .filter((event) => event.kind === "userMessageQueued")
     .map((event) => event.id);
@@ -109,8 +109,8 @@ test("ids are daemon-assigned and monotonic", () => {
 });
 
 test("group demotion: marked demotables steer at assistant activity", () => {
-  let scenario = accept(start(), userMessage(), true); // id 1, default
-  scenario = accept(scenario, userMessage({ priority: "next" }), true); // id 2
+  let scenario = accept(start(), userMessage(), false); // id 1, default
+  scenario = accept(scenario, userMessage({ priority: "next" }), false); // id 2
   scenario = observe(scenario, toolResult);
   assert.deepEqual(dequeues(scenario), []);
   scenario = observe(scenario, assistant);
@@ -121,7 +121,7 @@ test("group demotion: marked demotables steer at assistant activity", () => {
 });
 
 test("stream_event counts as assistant activity for the steer boundary", () => {
-  let scenario = accept(start(), userMessage(), true);
+  let scenario = accept(start(), userMessage(), false);
   scenario = observe(scenario, toolResult);
   scenario = observe(scenario, streamEvent);
   assert.deepEqual(dequeues(scenario), [
@@ -130,9 +130,9 @@ test("stream_event counts as assistant activity for the steer boundary", () => {
 });
 
 test("straggler: accepted between tool_result and assistant waits its own boundary", () => {
-  let scenario = accept(start(), userMessage(), true); // id 1
+  let scenario = accept(start(), userMessage(), false); // id 1
   scenario = observe(scenario, toolResult);
-  scenario = accept(scenario, userMessage(), true); // id 2, the straggler
+  scenario = accept(scenario, userMessage(), false); // id 2, the straggler
   scenario = observe(scenario, assistant);
   assert.deepEqual(dequeues(scenario), [
     { kind: "userMessageDequeued", delivery: "steer", ids: [1] },
@@ -148,16 +148,16 @@ test("straggler: accepted between tool_result and assistant waits its own bounda
 });
 
 test("later and now are not demotable", () => {
-  let scenario = accept(start(), userMessage({ priority: "later" }), true);
-  scenario = accept(scenario, userMessage({ priority: "now" }), true);
+  let scenario = accept(start(), userMessage({ priority: "later" }), false);
+  scenario = accept(scenario, userMessage({ priority: "now" }), false);
   scenario = observe(scenario, toolResult);
   scenario = observe(scenario, assistant);
   assert.deepEqual(dequeues(scenario), []);
 });
 
 test("same-priority merge: one dequeue carrying both ids", () => {
-  let scenario = accept(start(), userMessage({ priority: "later" }), true);
-  scenario = accept(scenario, userMessage({ priority: "later" }), true);
+  let scenario = accept(start(), userMessage({ priority: "later" }), false);
+  scenario = accept(scenario, userMessage({ priority: "later" }), false);
   scenario = observe(scenario, result);
   assert.deepEqual(dequeues(scenario), [
     { kind: "userMessageDequeued", delivery: "turn", ids: [1, 2] },
@@ -166,9 +166,9 @@ test("same-priority merge: one dequeue carrying both ids", () => {
 });
 
 test("c_perm drain order: now cuts ahead, then next, then later", () => {
-  let scenario = accept(start(), userMessage({ priority: "next" }), true); // id 1
-  scenario = accept(scenario, userMessage({ priority: "later" }), true); // id 2
-  scenario = accept(scenario, userMessage({ priority: "now" }), true); // id 3
+  let scenario = accept(start(), userMessage({ priority: "next" }), false); // id 1
+  scenario = accept(scenario, userMessage({ priority: "later" }), false); // id 2
+  scenario = accept(scenario, userMessage({ priority: "now" }), false); // id 3
   scenario = observe(scenario, result);
   scenario = observe(scenario, result);
   scenario = observe(scenario, result);
@@ -180,7 +180,7 @@ test("c_perm drain order: now cuts ahead, then next, then later", () => {
 });
 
 test("no-query would-be-steer stays steer", () => {
-  let scenario = accept(start(), userMessage({ shouldQuery: false }), true);
+  let scenario = accept(start(), userMessage({ shouldQuery: false }), false);
   scenario = observe(scenario, toolResult);
   scenario = observe(scenario, assistant);
   assert.deepEqual(dequeues(scenario), [
@@ -193,7 +193,7 @@ test("no-query bucket dequeues as append at the result", () => {
     accept(
       start(),
       userMessage({ priority: "later", shouldQuery: false }),
-      true,
+      false,
     ),
     result,
   );
@@ -206,9 +206,9 @@ test("mixed bucket with one querying message dequeues as turn", () => {
   let scenario = accept(
     start(),
     userMessage({ priority: "later", shouldQuery: false }),
-    true,
+    false,
   );
-  scenario = accept(scenario, userMessage({ priority: "later" }), true);
+  scenario = accept(scenario, userMessage({ priority: "later" }), false);
   scenario = observe(scenario, result);
   assert.deepEqual(dequeues(scenario), [
     { kind: "userMessageDequeued", delivery: "turn", ids: [1, 2] },
