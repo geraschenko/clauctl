@@ -499,8 +499,5 @@ encountered.
 - **Startup warnings banner after `reloadHistory()`'s synchronous prefix**:
   that prefix recreates the transcript renderer, so banners added earlier
   in the constructor would be wiped.
-- **Pre-existing presubmit failure**: `sync-from-pictl --check` fails on
-  `cli.ts` / `flat-tree.ts` / `tree-layout.ts` drift that predates this
-  change (files untouched here); all other presubmit steps pass.
 - [ ] (phase 2, when ctrl+g lands) move `docs/thoughts/open-editor.md` to
       `docs/thoughts/old/`

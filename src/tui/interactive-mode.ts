@@ -148,12 +148,12 @@ export async function runInteractive(
   const keybindingWarnings = configRead.ok
     ? [...configRead.warnings]
     : [`config ignored, using defaults: ${configRead.error}`];
-  const manager = new KeybindingsManager(
+  const keybindings = new KeybindingsManager(
     CLAUCTL_KEYBINDINGS,
     configRead.ok ? configRead.bindings : {},
   );
-  setKeybindings(manager);
-  keybindingWarnings.push(...conflictWarnings(manager));
+  setKeybindings(keybindings);
+  keybindingWarnings.push(...conflictWarnings(keybindings));
   const buffered: SdkEvent[] = [];
   let handleEvent = (event: SdkEvent): void => {
     buffered.push(event);

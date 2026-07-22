@@ -101,6 +101,7 @@ export function defaultBindings(
   return result;
 }
 
+// TDC: Does pi-tui really not export something like BASE_KEYS, MODIFIER_PREFIX, isWellFormedKey? It surprises me that we have to reimplement this.
 const BASE_KEYS = new Set<string>([
   ..."abcdefghijklmnopqrstuvwxyz",
   ..."0123456789",
@@ -120,7 +121,7 @@ const MODIFIER_PREFIX = /^(ctrl|shift|alt|super)\+/;
  */
 function isWellFormedKey(key: string): key is KeyId {
   let rest = key;
-  for (;;) {
+  for (;;) {  // TDC: I prefer `while true`
     const match = MODIFIER_PREFIX.exec(rest);
     if (match === null) {
       break;
@@ -266,6 +267,7 @@ export function readKeybindingsConfig(
  * else that does not parse to a plain object throws — clobbering data we
  * cannot parse is forbidden, so rewrites refuse to proceed.
  */
+// TDC: this seems like an extremely general function, basically reading an arbitrary json object from a file. Does this already exist somewhere? If not, should we give it a more descriptive name and put it in a separate file? Same for writeConfig below. Don't we do something similar to this for reading/writing agent.json in src/core?
 function readConfigForRewrite(path: string): Record<string, unknown> {
   let raw: string;
   try {
