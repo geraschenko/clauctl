@@ -866,7 +866,10 @@ class InteractiveMode {
       this.keybindings.matches(data, "app.editor.external") &&
       !selectorOpen
     ) {
-      void this.openExternalPromptEditor();
+      void this.openExternalPromptEditor().catch((error: unknown) => {
+        this.addBanner(`external editor failed: ${String(error)}`, "error");
+        this.ui.requestRender();
+      });
       return { consume: true };
     }
     if (this.keybindings.matches(data, "app.clear") && !selectorOpen) {

@@ -557,3 +557,10 @@ encountered.
   `CTRL_C_EXIT_WINDOW_MS`, `lastCtrlCAt`, the double-ctrl+c detach.
   Verified pi-tui parses 0x1d as "ctrl+]" (keys.js legacy sequences), so
   `matchesKey` works in the non-managed raw-mode terminal.
+- 2026-07-21: ctrl+g dispatch gained a `.catch` banner (approved deviation
+  from pi, whose unhandled equivalent would kill the process on a rare fs
+  throw). `openKeybindingsEditor` deliberately keeps its internal
+  try/catches instead: they are control flow (refresh failure still opens
+  the editor; promotion failure skips the reload), and with every throwing
+  call caught internally the method cannot reject, so a dispatch-site
+  `.catch` would be unreachable.
