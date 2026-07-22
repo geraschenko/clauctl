@@ -303,3 +303,14 @@ encountered.
   artifact, not this change (the daemon-managed `_tui` process stayed
   alive and subscribed throughout); direct `_tui` was used instead.
   Presubmit green (401 tests). Not committed (Anton commits).
+- 2026-07-21: Merged `main` in (keybindings manager, effort selector,
+  external editor). Conflicts only in `src/tui/interactive-mode.ts` and
+  `docs/specs/tui-keybindings.md`; `sdk-socket.ts` auto-merged. Resolved
+  by composing both sides: main's keybindings preamble, 5-arg
+  `InteractiveMode` constructor, and `keybindings.matches(data,
+  "app.interrupt")`/`!selectorOpen` structure, with this branch's
+  `isIdle` rename and `[SdkEvent, AgentState]` pair delivery
+  (`handleEvent(event, state)`, pair-typed subscribe-window buffer).
+  Keybindings spec doc took main's side (HEAD was a treefmt repad).
+  Swept src/ for `isBusy`/`nextAgentState` remnants in main's new files
+  — none. Presubmit green (423 tests). Merge commit left to Anton.
