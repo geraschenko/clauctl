@@ -132,14 +132,13 @@ test("a boundary and its summary render off the active path", () => {
   );
 });
 
-// --- occurrence identity -------------------------------------------------------
+// --- boundary linearization ----------------------------------------------------
 
-// The relinked occurrence duplicates the raw entry's uuid; only the
-// viaBoundary-matching occurrence carries the leaf marker (both embed the
-// same entry, so both render the same summary).
-test("with a duplicated uuid, only the viaBoundary-matching occurrence is the leaf", () => {
+/** Summary-less from-shape boundary preserving [2] with the leaf on the
+ *  relinked occurrence — the hidden-boundary shape. */
+function hiddenBoundarySession(): SessionSnapshot {
   const boundaryUuid = uuid(3);
-  const input: SessionSnapshot = {
+  return {
     entries: [
       userEntry(uuid(1), "Start"),
       assistantEntry(uuid(2), "Reply", uuid(1)),
@@ -157,21 +156,47 @@ test("with a duplicated uuid, only the viaBoundary-matching occurrence is the le
     ],
     leaf: { uuid: uuid(2), viaBoundary: boundaryUuid },
   };
+}
+
+// A summary-less boundary with no displayed descendants disappears; the
+// relinked leaf's marker lands on its representative (the raw row), and the
+// tree reads as a plain linear conversation.
+test("a hidden boundary's relinked leaf marks its representative raw row", () => {
   assert.equal(
-    render(input),
+    render(hiddenBoundarySession()),
+    "• 00000001 user: Start\n" +
+      "* 00000002 assistant: Reply\n" +
+      `[cursor: ${uuid(2)}]\n`,
+  );
+});
+
+// `raw` mode is buildTree's output verbatim: the boundary block forks off
+// the raw chain and the relinked occurrence renders as its own row, marked
+// `~` immediately before the uuid column.
+test("raw mode shows the boundary block with ~ on relinked rows", () => {
+  assert.equal(
+    render(hiddenBoundarySession(), { filter: "raw" }),
     "• 00000001 user: Start\n" +
       "├─ • 00000003 [compaction: 1k tokens]\n" +
-      "│     * 00000002 assistant: Reply\n" +
+      "│     * ~00000002 assistant: Reply\n" +
       "└─ 00000002 assistant: Reply\n" +
       `[cursor: ${uuid(2)}]\n`,
   );
 });
 
+// A filter that hides the representative row leaves the marker absent,
+// matching existing filtered-leaf behavior; the cursor line is unaffected.
+test("a filter-hidden representative row drops the marker", () => {
+  const output = render(hiddenBoundarySession(), { filter: "user-only" });
+  assert.equal(output, "• 00000001 user: Start\n" + `[cursor: ${uuid(2)}]\n`);
+});
+
 // End-to-end over effectiveTreeNodeChain (the get-entries handler's leaf
-// composition): the boundary substructure renders, the `*` lands on the
-// relinked node — distinguished from its raw duplicate — and the layout's
-// unique-id precondition holds.
-test("a compacted session renders with the leaf on the relinked node", () => {
+// composition): a fresh up_to compaction renders linear, the `*` lands on
+// the summary row (the hidden relinked leaf's representative), and the
+// cursor line keeps the true leaf uuid — marker row and cursor uuid
+// legitimately differ.
+test("a compacted session renders linear with the leaf marker on the summary", () => {
   const start = userEntry(uuid(1), "Start");
   const reply = assistantEntry(uuid(2), "Reply", uuid(1));
   const boundary: SessionEntry = {
@@ -202,9 +227,97 @@ test("a compacted session renders with the leaf on the relinked node", () => {
     "• 00000001 user: Start\n" +
       "• 00000002 assistant: Reply\n" +
       "• 00000003 [compaction: 2k tokens]\n" +
-      "• 00000004 compaction: Earlier: a reply\n" +
-      "* 00000002 assistant: Reply\n" +
+      "* 00000004 compaction: Earlier: a reply\n" +
       `[cursor: ${uuid(2)}]\n`,
+  );
+});
+
+// The spec's up_to example (success criterion 1): a compaction mid-way
+// through a linear conversation with a follow-up turn renders as one
+// straight chain, each occurrence exactly once.
+test("an up_to compaction with a follow-up turn renders as one linear chain", () => {
+  const boundary: SessionEntry = {
+    uuid: uuid(6),
+    parentUuid: null,
+    logicalParentUuid: uuid(2),
+    type: "system",
+    subtype: "compact_boundary",
+    compactMetadata: {
+      preTokens: 3000,
+      preservedMessages: { anchorUuid: uuid(3), uuids: [uuid(4), uuid(5)] },
+    },
+  };
+  const input: SessionSnapshot = {
+    entries: [
+      userEntry(uuid(1), "Start"),
+      assistantEntry(uuid(2), "First reply", uuid(1)),
+      userEntry(uuid(4), "Continue", uuid(2)),
+      assistantEntry(uuid(5), "Second reply", uuid(4)),
+      boundary,
+      {
+        ...userEntry(uuid(3), "Earlier: setup", uuid(6)),
+        isCompactSummary: true,
+      },
+      userEntry(uuid(7), "After compaction", uuid(5)),
+    ],
+    leaf: { uuid: uuid(7) },
+  };
+  assert.equal(
+    render(input),
+    "• 00000001 user: Start\n" +
+      "• 00000002 assistant: First reply\n" +
+      "• 00000004 user: Continue\n" +
+      "• 00000005 assistant: Second reply\n" +
+      "• 00000006 [compaction: 3k tokens]\n" +
+      "• 00000003 compaction: Earlier: setup\n" +
+      "* 00000007 user: After compaction\n" +
+      `[cursor: ${uuid(7)}]\n`,
+  );
+});
+
+// From-shape boundary with a summary: the display forks at the rewind
+// target, and the summary row (a relinked occurrence) carries the `~` mark
+// under the branch connectors.
+test("a from-shape summary row renders with ~ under connectors", () => {
+  const boundaryUuid = uuid(6);
+  const input: SessionSnapshot = {
+    entries: [
+      userEntry(uuid(1), "Start"),
+      assistantEntry(uuid(2), "First reply", uuid(1)),
+      userEntry(uuid(4), "Abandoned", uuid(2)),
+      assistantEntry(uuid(5), "Abandoned reply", uuid(4)),
+      {
+        uuid: boundaryUuid,
+        parentUuid: null,
+        logicalParentUuid: uuid(5),
+        type: "system",
+        subtype: "compact_boundary",
+        compactMetadata: {
+          preTokens: 4000,
+          preservedMessages: {
+            anchorUuid: boundaryUuid,
+            uuids: [uuid(1), uuid(2)],
+          },
+        },
+      },
+      {
+        ...userEntry(uuid(7), "Recap of the abandoned tail", boundaryUuid),
+        isCompactSummary: true,
+      },
+      userEntry(uuid(8), "New direction", uuid(7)),
+    ],
+    leaf: { uuid: uuid(8) },
+  };
+  assert.equal(
+    render(input),
+    "• 00000001 user: Start\n" +
+      "• 00000002 assistant: First reply\n" +
+      "├─ • 00000006 [compaction: 4k tokens]\n" +
+      "│     • ~00000007 compaction: Recap of the abandoned tail\n" +
+      "│     * 00000008 user: New direction\n" +
+      "└─ 00000004 user: Abandoned\n" +
+      "      00000005 assistant: Abandoned reply\n" +
+      `[cursor: ${uuid(8)}]\n`,
   );
 });
 
@@ -509,5 +622,42 @@ test("formatTreeNodeLine omitUuid drops the uuid column", () => {
   assert.equal(
     formatTreeNodeLine(flat[0]!, toolNames, 80, true),
     "* user: hello there",
+  );
+});
+
+// Rule 8's uuid-omitted half: on picker-style rows the `~` sits immediately
+// before the summary text.
+test("formatTreeNodeLine marks relinked rows with ~ before the summary when the uuid is omitted", () => {
+  const boundaryUuid = uuid(2);
+  const entries: SessionEntry[] = [
+    userEntry(uuid(1), "hello"),
+    {
+      uuid: boundaryUuid,
+      parentUuid: null,
+      logicalParentUuid: uuid(1),
+      type: "system",
+      subtype: "compact_boundary",
+      compactMetadata: {
+        preservedMessages: { anchorUuid: boundaryUuid, uuids: [uuid(1)] },
+      },
+    },
+  ];
+  const entryOf = entriesByUuid(entries);
+  const roots = toLayoutTree(
+    buildTree(entries, () => {}),
+    (id) => entryOf.get(parseTreeNodeRef(id).uuid)!,
+  );
+  const flat = flattenVisibleTree(roots, null, () => true);
+  const relinkedRow = flat.find(
+    (node) => parseTreeNodeRef(node.node.id).viaBoundary !== undefined,
+  )!;
+  const toolNames = new Map<string, string>();
+  assert.equal(
+    formatTreeNodeLine(relinkedRow, toolNames, 80),
+    "~00000001 user: hello",
+  );
+  assert.equal(
+    formatTreeNodeLine(relinkedRow, toolNames, 80, true),
+    "~user: hello",
   );
 });

@@ -8,6 +8,11 @@
 
 import type { UUID } from "node:crypto";
 import { Container, matchesKey, type Focusable } from "@earendil-works/pi-tui";
+import type { DisplayTree } from "../../core/build-display-tree.ts";
+import {
+  effectiveTreeNodeChain,
+  type OnInvalid,
+} from "../../core/effective-chain.ts";
 import type { SessionEntry } from "../../core/session-file.ts";
 import {
   treeChildren,
@@ -39,21 +44,60 @@ export type TreePickAction =
   | { kind: "rewind"; rewindTo: TreeNodeRef; editorText?: string }
   | { kind: "newRoot"; editorText?: string };
 
+/** The boundary a pick undoes: the picked boundary itself, or the picked
+ *  summary's parent boundary. A malformed summary (isCompactSummary whose
+ *  parent is not a boundary — corrupt or hand-crafted file) yields
+ *  undefined and falls back to ordinary user-row pick semantics. */
+function boundaryToUndo(
+  picked: SessionEntry | undefined,
+  entryOf: ReadonlyMap<UUID, SessionEntry>,
+): UUID | undefined {
+  if (picked?.subtype === "compact_boundary") {
+    return picked.uuid;
+  }
+  if (picked?.isCompactSummary === true && picked.parentUuid != null) {
+    const parent = entryOf.get(picked.parentUuid);
+    if (parent?.subtype === "compact_boundary") {
+      return parent.uuid;
+    }
+  }
+  return undefined;
+}
+
 /**
- * Assistant pick → itself; user pick → nearest assistant ancestor +
- * editorText = the user text; boundary pick → nearest assistant ancestor,
- * no editorText (undoes the boundary); no assistant ancestor → newRoot
- * (sent as {uuids: []}). The ancestor is not re-resolved to the final entry
- * of its API message: the nearest assistant ancestor on a path is final by
+ * Assistant pick → itself; user pick → nearest assistant ancestor on the
+ * FULL tree + editorText = the user text (so editing a post-compaction
+ * message stays inside the compacted context); boundary and summary picks
+ * are the same action, "undo the boundary": rewind to the last assistant
+ * ref on the pre-boundary effective chain (the true pre-boundary context
+ * tip, correct even when that tip is a relinked occurrence of an older
+ * boundary), no editorText; no assistant found → newRoot (sent as
+ * {uuids: []}). The ancestor is not re-resolved to the final entry of its
+ * API message: the nearest assistant ancestor on a path is final by
  * construction except in exotic interrupt shapes, which the daemon's
  * final-entry validation rejects with a clear error. An empty user text
  * (reachable via the current-leaf filter exemption) omits editorText.
  */
 export function resolveTreePick(
   parentMap: ParentMap,
+  entries: SessionEntry[],
   entryOf: ReadonlyMap<UUID, SessionEntry>,
   pick: TreeNodeRef,
+  onInvalid: OnInvalid,
 ): TreePickAction {
+  const undoneBoundaryUuid = boundaryToUndo(entryOf.get(pick.uuid), entryOf);
+  if (undoneBoundaryUuid !== undefined) {
+    const boundaryIndex = entries.findIndex(
+      (entry) => entry.uuid === undoneBoundaryUuid,
+    );
+    const rewindTo = effectiveTreeNodeChain(
+      entries.slice(0, boundaryIndex),
+      onInvalid,
+    ).findLast((ref) => entryOf.get(ref.uuid)?.type === "assistant");
+    return rewindTo === undefined
+      ? { kind: "newRoot" }
+      : { kind: "rewind", rewindTo };
+  }
   const path = pathToLeaf(parentMap, entryOf, pick);
   const picked = path.at(-1);
   if (picked?.entry.type === "assistant") {
@@ -95,8 +139,9 @@ export class TreeSelectorComponent extends Container implements Focusable {
   private readonly currentLeafId: string | null;
   private readonly toolNames: ReadonlyMap<string, string>;
   private readonly finalIds: ReadonlySet<string>;
-  /** Full-tree parent relation (layout ids), for nearest-visible-ancestor
-   *  selection recovery when search hides the selected row. */
+  /** Display-tree parent relation (layout ids), for
+   *  nearest-visible-ancestor selection recovery when search hides the
+   *  selected row. */
   private readonly parentMap: ParentMap;
   private readonly onSelect: (pick: TreeNodeRef) => void;
   private readonly onCancel: () => void;
@@ -109,16 +154,22 @@ export class TreeSelectorComponent extends Container implements Focusable {
 
   constructor(
     leaf: TreeNodeRef | null,
-    parentMap: ParentMap,
+    displayTree: DisplayTree,
     entryOf: ReadonlyMap<UUID, SessionEntry>,
     onSelect: (pick: TreeNodeRef) => void,
     onCancel: () => void,
   ) {
     super();
+    const { parentMap, representativeOf } = displayTree;
     this.roots = toLayoutTree(parentMap, (id) =>
       entryOf.get(parseTreeNodeRef(id).uuid)!,
     );
-    this.currentLeafId = leaf === null ? null : formatTreeNodeRef(leaf);
+    // A leaf whose occurrence is hidden marks its display representative.
+    const leafId = leaf === null ? null : formatTreeNodeRef(leaf);
+    this.currentLeafId =
+      leafId === null || parentMap.has(leafId)
+        ? leafId
+        : (representativeOf.get(leafId) ?? null);
     this.toolNames = collectToolNames([...entryOf.values()]);
     this.finalIds = collectFinalAssistantIds(
       parentMap,

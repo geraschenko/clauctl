@@ -11,6 +11,7 @@ import type { SessionEntry } from "../core/session-file.ts";
 import type { PathNode } from "../core/tree.ts";
 import {
   beginMessage,
+  dedupedPathNodes,
   foldStreamEvent,
   pathUpToBoundary,
   releaseDedupeUuid,
@@ -348,6 +349,64 @@ test("pathUpToBoundary keeps a post-cut boundary and summary even without relink
   const result = pathUpToBoundary(path, { uuid: uuid(1) });
   assert.deepEqual(pathUuids(result.nodes), [uuid(1), boundary, uuid(8)]);
   assert.equal(result.boundaryMissing, false);
+});
+
+test("dedupedPathNodes drops relinked duplicates, keeps banner and summary", () => {
+  // A boundary rewind's path: the abandoned tail renders, the banner and
+  // relinked summary render, but the preserved messages (raw occurrences
+  // earlier on the same path) do not render a second time.
+  const boundary = uuid(9);
+  const path = [
+    pathNode("user", uuid(1)),
+    pathNode("assistant", uuid(2)),
+    pathNode("user", uuid(4)),
+    pathNode("assistant", uuid(5)),
+    pathNode("system", boundary, { subtype: "compact_boundary" }),
+    pathNode(
+      "user",
+      uuid(8),
+      { isCompactSummary: true, parentUuid: boundary },
+      boundary,
+    ),
+    pathNode("user", uuid(1), {}, boundary),
+    pathNode("assistant", uuid(2), {}, boundary),
+    pathNode("user", uuid(7)),
+  ];
+  assert.deepEqual(pathUuids(dedupedPathNodes(path)), [
+    uuid(1),
+    uuid(2),
+    uuid(4),
+    uuid(5),
+    boundary,
+    uuid(8),
+    uuid(7),
+  ]);
+});
+
+test("dedupedPathNodes covers entries entryToSessionMessage rejects", () => {
+  // local_command system entries never convert to session messages but
+  // appendPathNode renders them — the dedupe must still catch their
+  // relinked duplicates.
+  const boundary = uuid(9);
+  const path = [
+    pathNode("system", uuid(1), { subtype: "local_command" }),
+    pathNode("system", boundary, { subtype: "compact_boundary" }),
+    pathNode("system", uuid(1), { subtype: "local_command" }, boundary),
+  ];
+  assert.deepEqual(pathUuids(dedupedPathNodes(path)), [uuid(1), boundary]);
+});
+
+test("dedupedPathNodes keeps messages whose only occurrence is relinked", () => {
+  // Fresh attach after an up_to compaction: the preserved entries appear
+  // on the path only below the banner — they render once, untouched.
+  const boundary = uuid(9);
+  const path = [
+    pathNode("system", boundary, { subtype: "compact_boundary" }),
+    pathNode("user", uuid(8), { isCompactSummary: true, parentUuid: boundary }),
+    pathNode("user", uuid(4), {}, boundary),
+    pathNode("assistant", uuid(5), {}, boundary),
+  ];
+  assert.deepEqual(dedupedPathNodes(path), path);
 });
 
 test("pathUpToBoundary without a leaf returns the whole path", () => {

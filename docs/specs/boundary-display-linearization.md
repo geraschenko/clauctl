@@ -1,6 +1,6 @@
 # Spec: boundary display linearization
 
-> Status: **spec approved, not yet implemented.** From
+> Status: **implemented; reviewer-approved, awaiting user review.** From
 > `docs/thoughts/boundary-messages.md`. Follow-up to
 > `docs/specs/boundary-substructure.md` (which made `buildTree` emit relinked
 > occurrences) and `docs/specs/format-tree.md`. Display-layer only:
@@ -17,7 +17,7 @@ boundary block. All display surfaces render that structure verbatim:
 
 - **`format tree` / TUI `/tree` picker**: every compaction forks the tree —
   the boundary anchors at `logicalParentUuid` (for up_to shape the last
-  *summarized* entry, not the context tip) while post-boundary messages
+  _summarized_ entry, not the context tip) while post-boundary messages
   chain through the relinked duplicates — and preserved messages render
   twice. A long conversation with several compactions renders as a ladder
   of forks and duplicated blocks instead of the linear conversation it
@@ -306,7 +306,7 @@ render-time or per-pick; nothing per-keystroke beyond today's reflatten.
 # IMPLEMENTATION IDEAS
 
 - `buildDisplayTree` as a forward replay mirroring `buildTree`'s loop
-  shape: maintain `occurrenceOf` (uuid → current *display* row id) and
+  shape: maintain `occurrenceOf` (uuid → current _display_ row id) and
   `representativeOf`; at a valid-relink boundary, record its anchor
   (= display row of `occurrenceOf(lastPreservedUuid)` before overwriting),
   map each relinked occurrence id → block tail, and overwrite
@@ -355,25 +355,71 @@ tasks, mark completed ones with [x], document decisions and problems
 encountered.
 
 - [x] Derisk discussion: display-only transform; re-anchor at last
-  preserved uuid's pre-boundary occurrence; children to block tail;
-  summary-less childless boundaries hidden; invalid boundaries stay
-  visible (loader still honors them as cuts — "ignored by loader" was
-  incorrect); picker rows literal (raw pick = undo compaction), user-pick
-  ancestors on full tree, boundary picks re-resolved via pre-boundary
-  chain; `~` always on; `raw` mode added; type design approved with
-  build-display-tree.ts as its own file.
+      preserved uuid's pre-boundary occurrence; children to block tail;
+      summary-less childless boundaries hidden; invalid boundaries stay
+      visible (loader still honors them as cuts — "ignored by loader" was
+      incorrect); picker rows literal (raw pick = undo compaction), user-pick
+      ancestors on full tree, boundary picks re-resolved via pre-boundary
+      chain; `~` always on; `raw` mode added; type design approved with
+      build-display-tree.ts as its own file.
 - [x] Reviewer pass (fresh-context agent): added explicit block-edge rule,
-  exhaustive `representativeOf` contract, dedicated history seen-uuids set
-  (the `replayed` set misses `local_command` renders), `onInvalid` on
-  `resolveTreePick`, exact `~` placement, summary picks = boundary picks
-  with no `editorText` (drops today's summary-text prefill),
-  malformed-summary fallback to user-row semantics, linearity qualified to
-  suffix-shaped relinks, raw-mode wording (occurrences, not entries).
+      exhaustive `representativeOf` contract, dedicated history seen-uuids set
+      (the `replayed` set misses `local_command` renders), `onInvalid` on
+      `resolveTreePick`, exact `~` placement, summary picks = boundary picks
+      with no `editorText` (drops today's summary-text prefill),
+      malformed-summary fallback to user-row semantics, linearity qualified to
+      suffix-shaped relinks, raw-mode wording (occurrences, not entries).
 - Session notes: spec reviewer agent `c6e9434f` (archived; revive via
   `pictl prompt -t c6e9434f` for the post-implementation review — it
   approved this spec with full context). Next `/spec` skill phases:
   implement.md, then review.md, each on explicit approval.
-- [ ] Implement `buildDisplayTree` + tests
-- [ ] `format tree`: `raw` mode, display-tree default, `~` marking + tests
-- [ ] Picker: display rows, `resolveTreePick` boundary-undo + tests
-- [ ] TUI history dedupe + tests
+- [x] Implement `buildDisplayTree` + tests
+- [x] `format tree`: `raw` mode, display-tree default, `~` marking + tests
+- [x] Picker: display rows, `resolveTreePick` boundary-undo + tests
+- [x] TUI history dedupe + tests
+- All presubmit steps green except the pre-existing `sync-from-pictl
+  --check` drift (upstream pictl moved; unrelated to this change).
+- [x] Post-implementation review by reviewer agent `c6e9434f` (re-archived).
+      Found two blockers, both fixed: O(n²) pruning → child-count work queue +
+      path-compressed representative resolution; silent `representativeOf`
+      drop on root resolution → loud corruption throw. Required tests added:
+      pending-relink displacement, from-shape `S@B` summary pick, picker-row
+      `~` placement. Accepted gaps (recorded, not implemented): integrated
+      `reloadHistory` transcript test (no socket/TUI harness in the suite),
+      relinked tool-result dedupe variant (same code path as the pinned
+      local_command case), long-cascade perf test (timing-flaky). Final
+      verdict: "Implementation approved."
+
+## Implementation-Time Decisions
+
+- **History dedupe as a pure function**: `dedupedPathNodes(nodes)` exported
+  from `sdk-render.ts` (next to `pathUpToBoundary`), applied by
+  `reloadHistory` before the render loop, instead of threading a seen-set
+  through `renderPathNode`. Same semantics as the spec's formulation
+  (dedicated set covering every uuid-bearing node), but testable in
+  isolation and `renderPathNode` stays unchanged.
+- **Hidden-boundary fixpoint via a pruning pass** (the spec left pruning
+  vs. deferred emission open): build with all boundaries attached, then
+  delete childless summary-less valid-relink boundary rows and resolve
+  `representativeOf` values through the pruned rows. Childless in the
+  display parentMap ⇔ no displayed descendants (relinked occurrences are
+  never parentMap children). Child counts + a work queue keep the cascade
+  O(n) (reviewer finding: the first version's re-scan-per-round was O(n²)
+  on long hidden-boundary chains).
+- **`representativeOf` root-resolution is a loud throw**: a pruned
+  boundary whose display anchor is root is corruption (preserved uuids
+  always name earlier attached entries, so the anchor is always a real
+  row) — throw like the duplicate-occurrence case rather than silently
+  weaken the exhaustiveness contract (reviewer finding; the first version
+  dropped the entry).
+- **No `build-tree/` restructure**: the conditional shared-logic
+  subdirectory wasn't needed — `buildDisplayTree` shares only
+  `validRelink`/`summaryOf`, which already live in `effective-chain.ts`.
+- **tree-selector.test.ts fixture rebuilt from real entries**: the old
+  hand-built ParentMap couldn't feed `resolveTreePick`'s boundary undo
+  (needs entries with real parent chains and `preservedMessages`), so the
+  fixture now declares entries and derives both trees via
+  `buildTree`/`buildDisplayTree` — one source of truth.
+- **Picker-open diagnostics**: the `/tree` open site passes a silent
+  `onInvalid` to `buildDisplayTree`; the adjacent `buildTree` call already
+  banners the identical diagnostics (both run `validRelink`).

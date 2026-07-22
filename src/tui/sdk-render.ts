@@ -13,6 +13,7 @@
  * a StreamingMessage is created at each `message_start`.
  */
 
+import type { UUID } from "node:crypto";
 import type {
   BetaRawMessageStreamEvent,
   BetaStopReason,
@@ -271,6 +272,33 @@ export function pathUpToBoundary(
     ],
     boundaryMissing: false,
   };
+}
+
+/**
+ * Drops relinked path nodes whose uuid already rendered earlier in the same
+ * replay — a boundary's preserved messages appear once (their pre-boundary
+ * raw occurrence), not again below the banner. The seen set covers EVERY
+ * uuid-bearing node (including e.g. local_command system entries that
+ * entryToSessionMessage rejects but appendPathNode renders), and the dedupe
+ * is per-uuid, not per-shape: it also covers up_to boundaries whose raw and
+ * relinked occurrences share the path. Boundary banners and summary entries
+ * are unaffected (their uuids appear once), as are preserved messages whose
+ * only path occurrence is relinked.
+ */
+export function dedupedPathNodes(nodes: PathNode[]): PathNode[] {
+  const renderedUuids = new Set<UUID>();
+  const deduped: PathNode[] = [];
+  for (const node of nodes) {
+    if (
+      node.ref.viaBoundary !== undefined &&
+      renderedUuids.has(node.ref.uuid)
+    ) {
+      continue;
+    }
+    renderedUuids.add(node.ref.uuid);
+    deduped.push(node);
+  }
+  return deduped;
 }
 
 /**

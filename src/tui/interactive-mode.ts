@@ -37,6 +37,7 @@ import {
   type AgentState,
 } from "../core/agent-state.ts";
 import type { UUID } from "node:crypto";
+import { buildDisplayTree } from "../core/build-display-tree.ts";
 import { buildTree } from "../core/build-tree.ts";
 import {
   entriesByUuid,
@@ -60,7 +61,12 @@ import {
   resolveTreePick,
   TreeSelectorComponent,
 } from "./components/tree-selector.ts";
-import { pathUpToBoundary, releaseDedupeUuid, userText } from "./sdk-render.ts";
+import {
+  dedupedPathNodes,
+  pathUpToBoundary,
+  releaseDedupeUuid,
+  userText,
+} from "./sdk-render.ts";
 import { TranscriptRenderer } from "./transcript.ts";
 import { getEditorTheme, theme, type ThemeColor } from "./theme.ts";
 
@@ -305,11 +311,11 @@ class InteractiveMode {
    * (pathUpToBoundary — the entries after it arrive as live events), then
    * the delivered-but-unconfirmed prompts, then release the buffered live
    * events. Called on attach (constructor) and on every contextChanged
-   * (redraw). Path nodes render unconditionally, duplicates included — a
-   * boundary's preserved messages appear both in the raw pre-boundary
-   * history and below the banner, which is the honest display of the
-   * logical history; only path-vs-buffer duplication is deduped
-   * (replayedUuids, during the release loop).
+   * (redraw). Each message renders once: relinked duplicates of already-
+   * rendered messages are dropped (dedupedPathNodes) — a boundary's
+   * preserved messages appear in the raw pre-boundary history only, not
+   * again below the banner; path-vs-buffer duplication is deduped
+   * separately (replayedUuids, during the release loop).
    *
    * When the leaf is missing from the path, exactly-once is unachievable:
    * the whole path replays behind a warning banner — unless a buffered
@@ -340,7 +346,7 @@ class InteractiveMode {
         path,
         this.agentState.leaf,
       );
-      for (const node of nodes) {
+      for (const node of dedupedPathNodes(nodes)) {
         this.renderPathNode(node, replayed);
       }
       if (
@@ -583,11 +589,16 @@ class InteractiveMode {
         const parentMap = buildTree(snapshot.entries, (message) =>
           this.addBanner(message),
         );
+        // The rows come from the display tree; the full tree is needed
+        // solely by resolveTreePick. Diagnostics are silenced here — the
+        // buildTree call above already bannered the same ones.
+        const displayTree = buildDisplayTree(snapshot.entries, () => {});
         const selector = new TreeSelectorComponent(
           snapshot.leaf,
-          parentMap,
+          displayTree,
           entryOf,
-          (pick) => this.confirmTreePick(parentMap, entryOf, pick),
+          (pick) =>
+            this.confirmTreePick(parentMap, snapshot.entries, entryOf, pick),
           () => this.closeTreeSelector(),
         );
         this.treeSelectorPending = false;
@@ -606,6 +617,7 @@ class InteractiveMode {
   /** The selector stays dumb; the busy gate and the request live here. */
   private confirmTreePick(
     parentMap: ParentMap,
+    entries: SessionEntry[],
     entryOf: ReadonlyMap<UUID, SessionEntry>,
     pick: TreeNodeRef,
   ): void {
@@ -616,7 +628,13 @@ class InteractiveMode {
       this.ui.requestRender();
       return;
     }
-    const action = resolveTreePick(parentMap, entryOf, pick);
+    const action = resolveTreePick(
+      parentMap,
+      entries,
+      entryOf,
+      pick,
+      (message) => this.addBanner(message),
+    );
     this.closeTreeSelector();
     const request =
       action.kind === "rewind"

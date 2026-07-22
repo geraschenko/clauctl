@@ -8,6 +8,7 @@
  */
 
 import type { UUID } from "node:crypto";
+import { buildDisplayTree } from "../core/build-display-tree.ts";
 import { buildTree } from "../core/build-tree.ts";
 import { entriesByUuid, type SessionEntry } from "../core/session-file.ts";
 import {
@@ -32,6 +33,7 @@ export const FILTER_MODES = [
   "user-only",
   "all",
   "picker",
+  "raw",
 ] as const;
 export type FilterMode = (typeof FILTER_MODES)[number];
 
@@ -91,6 +93,9 @@ export function passesFilter(
   filter: FilterMode,
 ): boolean {
   switch (filter) {
+    // "raw" shows buildTree's output verbatim (formatSessionSnapshot picks
+    // the tree); "all" shows every display-tree occurrence.
+    case "raw":
     case "all":
       return true;
     case "user-only":
@@ -234,7 +239,9 @@ export function collectFinalAssistantIds(
 }
 
 /** `omitUuid` drops the uuid column — the /tree selector's rows (uuids are
- *  for CLI copy-paste, noise in an interactive picker). */
+ *  for CLI copy-paste, noise in an interactive picker). Relinked occurrences
+ *  (layout id carries `@boundary`) are marked `~` just before the uuid
+ *  column (before the summary when the uuid is omitted). */
 export function formatTreeNodeLine(
   flatNode: FlatLayoutNode<SessionEntry>,
   toolNames: ReadonlyMap<string, string>,
@@ -246,10 +253,12 @@ export function formatTreeNodeLine(
     : flatNode.isOnActivePath
       ? "• "
       : "";
+  const relinked =
+    parseTreeNodeRef(flatNode.node.id).viaBoundary === undefined ? "" : "~";
   const uuid8 = omitUuid
     ? ""
     : `${String(flatNode.node.payload.uuid).slice(0, 8)} `;
-  const prefix = `${treePrefix(flatNode)}${marker}${uuid8}`;
+  const prefix = `${treePrefix(flatNode)}${marker}${relinked}${uuid8}`;
   const availableSummary = Math.max(0, width - [...prefix].length);
   const summary = entrySummary(flatNode.node.payload, toolNames);
   return `${prefix}${truncateText(summary, availableSummary)}`.trimEnd();
@@ -257,27 +266,42 @@ export function formatTreeNodeLine(
 
 /** Whole-input formatter for `format tree`: builds the tree from the
  * snapshot's entries, adapts it to LayoutNode<SessionEntry>[], calls
- * flattenVisibleTree, renders lines + the cursor line. Layout ids are the
- * tree keys, and currentLeafId is the same composite over
- * `snapshot.leaf`. Unique layout ids are a checked precondition of the
- * synced layout: `flattenVisibleTree` throws on duplicates as a backstop
- * (buildTree throws first, with the clearer message). Relink diagnostics
- * are declared-ignored: interleaving them with the rendered tree would
- * corrupt the output, and invalid relinks still render (un-relinked). */
+ * flattenVisibleTree, renders lines + the cursor line. `raw` mode renders
+ * buildTree's output verbatim; every other mode renders the linearized
+ * display tree, with the leaf marker mapped through `representativeOf`
+ * when the leaf occurrence is hidden (the `[cursor: …]` line keeps the
+ * true leaf uuid). Layout ids are the tree keys. Unique layout ids are a
+ * checked precondition of the synced layout: `flattenVisibleTree` throws
+ * on duplicates as a backstop (the tree builders throw first, with the
+ * clearer message). Relink diagnostics are declared-ignored: interleaving
+ * them with the rendered tree would corrupt the output, and invalid
+ * relinks still render (un-relinked). */
 export function formatSessionSnapshot(
   snapshot: SessionSnapshot,
   options: TreeFormatOptions,
 ): string {
   const entryOf = entriesByUuid(snapshot.entries);
-  const parentMap = buildTree(snapshot.entries, () => {});
+  const leafId =
+    snapshot.leaf === null ? null : formatTreeNodeRef(snapshot.leaf);
+  let parentMap: ParentMap;
+  let currentLeafId: string | null;
+  if (options.filter === "raw") {
+    parentMap = buildTree(snapshot.entries, () => {});
+    currentLeafId = leafId;
+  } else {
+    const displayTree = buildDisplayTree(snapshot.entries, () => {});
+    parentMap = displayTree.parentMap;
+    currentLeafId =
+      leafId === null || parentMap.has(leafId)
+        ? leafId
+        : (displayTree.representativeOf.get(leafId) ?? null);
+  }
   const toolNames = collectToolNames(snapshot.entries);
   const finalIds = collectFinalAssistantIds(
     parentMap,
     treeChildren(parentMap),
     entryOf,
   );
-  const currentLeafId =
-    snapshot.leaf === null ? null : formatTreeNodeRef(snapshot.leaf);
   const lines = flattenVisibleTree(
     toLayoutTree(parentMap, (id) => entryOf.get(parseTreeNodeRef(id).uuid)!),
     currentLeafId,
