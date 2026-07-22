@@ -236,7 +236,7 @@ Deleted with no replacement: `summaryOf`, `BoundaryRelink`, `validRelink`.
 `seedFromEntries` moves to `src/core/session-seed.ts` unchanged except for
 calling `loadedContext`.
 
-**`src/core/tree/full-tree.ts`**
+**`src/core/tree/build-tree.ts`**
 
 ```ts
 /** Every occurrence: raw entries under their last-boundary-lens parents
@@ -314,6 +314,7 @@ call already reported diagnostics pass a silent sink.
 
 ## Data flow
 
+TDC: this ascii diagram is so complicated, and probably a pain for you to reason about. If you want a DAG like this, can you just make it a mermaid diagram?
 ```
 entries ──compactBoundaryAt──► CompactBoundary (per boundary)
    │                                │
