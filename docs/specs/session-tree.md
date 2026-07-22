@@ -286,10 +286,12 @@ it is clauctl bookkeeping about summaries clauctl (or the CLI) wrote —
 `get-messages.ts` (synthesis-window closure) and `set-context.ts`
 (boundary-block end) still need it — and moves to
 `src/core/session-file.ts` next to the other entry-scan utilities.
+TDC: This is suspicious. I don't think get-messages or set-context should need summaryOf. I think they just need loadedContextUuids, and the current use of summaryOf is effectively reimplementing the logic we're trying to extract.
 
 **`src/core/tree/build-tree.ts`**
 
 ```ts
+// TDC: DO NOT use the "lens" terminology you made up. We don't need new terminology for something that already has a name. "Latest boundary", "last boundary", or just "compaction boundary" already covers this concept. A "lens" is not a _different_ thing.
 /** Every occurrence: raw entries under their lens parents
  *  (effectiveParent, decorated to `uuid@B` keys when the parent uuid is
  *  among the lens boundary's preserved uuids), plus each boundary's
