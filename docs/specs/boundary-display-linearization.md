@@ -98,6 +98,7 @@ before                            after (default modes)
    • ~5 assistant: …  (relinked)
    * 7 user: …
 ```
+TDC: Note that the "~" prefixes are not currently shown ... that's part of this spec for `--filter raw`.
 
 Display order shows `S` after `4,5` although the loaded context is
 `[S,4,5]` — accepted display fiction; `raw` mode has the truth. Several
