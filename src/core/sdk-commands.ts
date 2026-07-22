@@ -12,7 +12,7 @@
 import { readFile } from "node:fs/promises";
 import { readFileSync } from "node:fs";
 import { extname } from "node:path";
-import { resolveSettings, type Settings } from "@anthropic-ai/claude-agent-sdk";
+import { resolveSettings } from "@anthropic-ai/claude-agent-sdk";
 import type {
   ContentBlockParam,
   ImageBlockParam,
@@ -37,6 +37,7 @@ import { sdkSocketPath } from "./registry.ts";
 import {
   connectWithRetry,
   parseSetContextRequest,
+  type FlagSettings,
   type SdkRequest,
   type SetContextRequest,
 } from "./sdk-socket.ts";
@@ -248,9 +249,7 @@ async function setMaxThinkingTokens(
 }
 
 /** Inline-JSON-or-file settings argument for apply-flag-settings. */
-function parseSettingsArg(value: string): {
-  [K in keyof Settings]?: Settings[K] | null;
-} {
+function parseSettingsArg(value: string): FlagSettings {
   const raw = value.trimStart().startsWith("{")
     ? value
     : readFileSync(value, "utf8");
@@ -263,7 +262,7 @@ function parseSettingsArg(value: string): {
   if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
     throw new UsageError("settings must be a JSON object");
   }
-  return parsed as { [K in keyof Settings]?: Settings[K] | null };
+  return parsed as FlagSettings;
 }
 
 async function applyFlagSettings(

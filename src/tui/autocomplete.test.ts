@@ -13,10 +13,11 @@ async function slashSuggestions(
   return (suggestions?.items ?? []).map((item) => item.value);
 }
 
-test("local /model is offered with no SDK commands", async () => {
+test("the local commands are offered with no SDK commands", async () => {
   const provider = new TuiAutocompleteProvider(null, null, () => {});
   assert.deepEqual(await slashSuggestions(provider, "/"), [
     "model",
+    "effort",
     "tree",
     "keybindings",
     "reload-keybindings",
@@ -32,6 +33,7 @@ test("setCommands merges SDK commands with the local ones", async () => {
   const values = await slashSuggestions(provider, "/");
   assert.deepEqual(values.toSorted(), [
     "compact",
+    "effort",
     "keybindings",
     "model",
     "reload-keybindings",
@@ -60,6 +62,7 @@ test("setCommands replaces the previous SDK list", async () => {
   provider.setCommands([{ name: "new" }]);
   const values = await slashSuggestions(provider, "/");
   assert.deepEqual(values.toSorted(), [
+    "effort",
     "keybindings",
     "model",
     "new",

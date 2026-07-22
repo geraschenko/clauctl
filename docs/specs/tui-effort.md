@@ -1,8 +1,8 @@
 # Spec: TUI /effort command
 
-> Status: draft, awaiting review. The user manages all git operations;
-> implementing agents must not commit, stage, or otherwise mutate git
-> state.
+> Status: implemented, awaiting user review and manual TUI verification.
+> The user manages all git operations; implementing agents must not
+> commit, stage, or otherwise mutate git state.
 
 ## SPEC (stable requirements)
 
@@ -239,11 +239,39 @@ encountered.
   SDK stream message carries effort — the hook-callback machinery it
   needs (daemon hook registration, new effortResolved event, mid-turn
   clobber corner) outweighs a fold tweak.
-- [ ] `FlagSettings` widening + `SdkControlApplied` collapse
+- 2026-07-21: implemented. Deviations and implementation-time decisions:
+  - `mergeFlagSettings` (sdk-passthrough.ts) had to take `FlagSettings`
+    instead of its inline pre-widening mapped type — mechanical fallout of
+    the widening, not new surface. Same for `parseSettingsArg`
+    (sdk-commands.ts), whose return type was the same inline duplicate;
+    both now name the protocol type.
+  - Banner colors (unspecified in the spec): "warning" for user-facing
+    validation (unmatched model, unsupported model, invalid level),
+    "error" for failed requests — matching the `$EDITOR` warning vs.
+    request-failure precedent.
+  - The direct-set validation uses `levels.find(candidate => candidate ===
+    level)`, which narrows the string to `EffortLevel` without a cast.
+  - The daemon test also pins that `"max"` passes validation, reaches the
+    SDK call, and emits controlApplied — typing cleanly against the
+    widened `FlagSettings` (only the invalid `"superduper"` request needs
+    a cast onto the wire type).
+- 2026-07-21: fresh-context review (pictl reviewer): approved after two
+  comment rewordings (daemon comment now says "backstop for every socket
+  client"; controlApplied/persist ordering attributed to the request
+  handler, not applyMutation), a stale autocomplete test name, and the
+  `parseSettingsArg` type unification. Explicitly deferred as documented
+  follow-ups, not fixed here: the cross-selector pending race (a `/model`
+  read in flight does not block `/effort` — pre-existing across all three
+  selectors), the persisted-settings `base as Settings` cast now carrying
+  `"max"` (pre-existing cast; persisting "max" is deliberate so respawn
+  re-applies it), staleness of an open selector when another client
+  changes the model (same as `/model` and `/tree`), and TUI-lifecycle
+  tests (spec scopes these to manual verification).
+- [x] `FlagSettings` widening + `SdkControlApplied` collapse
       (sdk-socket.ts) + passthrough cast
-- [ ] daemon effortLevel validation (sdk-passthrough.ts) + test
-- [ ] `EffortSelectorComponent`
-- [ ] `parseEffortCommand` + intercept + selector lifecycle + guard
-- [ ] autocomplete entry
-- [ ] tests, typecheck, lint, treefmt
+- [x] daemon effortLevel validation (sdk-passthrough.ts) + test
+- [x] `EffortSelectorComponent`
+- [x] `parseEffortCommand` + intercept + selector lifecycle + guard
+- [x] autocomplete entry
+- [x] tests (423 pass), typecheck, lint, treefmt
 - [ ] manual TUI verification (user)

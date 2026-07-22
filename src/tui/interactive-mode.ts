@@ -21,6 +21,7 @@ import {
 } from "@earendil-works/pi-tui";
 import { initTheme } from "@earendil-works/pi-coding-agent";
 import type {
+  EffortLevel,
   ModelInfo,
   PermissionMode,
   SDKControlInitializeResponse,
@@ -58,6 +59,7 @@ import {
 } from "../core/tree.ts";
 import { SdkSocketClient, type SdkEvent } from "../core/sdk-socket.ts";
 import { findFd, TuiAutocompleteProvider } from "./autocomplete.ts";
+import { EffortSelectorComponent } from "./components/effort-selector.ts";
 import { FooterComponent } from "./components/footer.ts";
 import { FooterDataProvider } from "./footer-data-provider.ts";
 import { ModelSelectorComponent } from "./components/model-selector.ts";
@@ -123,6 +125,24 @@ export function parseModelCommand(
   }
   const arg = spaceIndex === -1 ? "" : trimmed.slice(spaceIndex).trim();
   return { model: arg === "" ? undefined : arg };
+}
+
+/**
+ * Parse the locally intercepted `/effort` command; same first-token parse
+ * as parseModelCommand. `level` undefined means bare `/effort` (open the
+ * menu).
+ */
+export function parseEffortCommand(
+  text: string,
+): { level: string | undefined } | null {
+  const trimmed = text.trim();
+  const spaceIndex = trimmed.search(/\s/);
+  const token = spaceIndex === -1 ? trimmed : trimmed.slice(0, spaceIndex);
+  if (token !== "/effort") {
+    return null;
+  }
+  const arg = spaceIndex === -1 ? "" : trimmed.slice(spaceIndex).trim();
+  return { level: arg === "" ? undefined : arg };
 }
 
 /**
@@ -264,6 +284,9 @@ class InteractiveMode {
   private treeSelector?: TreeSelectorComponent;
   /** True from `/tree` submit until the get-entries read settles. */
   private treeSelectorPending = false;
+  private effortSelector?: EffortSelectorComponent;
+  /** True from `/effort` submit until the supported-models read settles. */
+  private effortSelectorPending = false;
 
   constructor(
     ui: TUI,
@@ -553,6 +576,11 @@ class InteractiveMode {
       }
       return;
     }
+    const effortCommand = parseEffortCommand(text);
+    if (effortCommand !== null) {
+      this.handleEffortCommand(effortCommand.level);
+      return;
+    }
     if (/^\/tree(\s|$)/.test(text.trim())) {
       this.openTreeSelector();
       return;
@@ -745,6 +773,105 @@ class InteractiveMode {
     this.ui.requestRender();
   }
 
+  /**
+   * `/effort` (both forms): fetch supported-models and resolve the current
+   * model's levels. Bare form: open the selector. With `level`: validate
+   * against the resolved levels and send — the one place a typo can surface
+   * (the CLI runtime silently drops unknown levels into the settings
+   * cascade). Not named open…Selector because the direct-set path never
+   * opens one.
+   */
+  private handleEffortCommand(level?: string): void {
+    if (this.effortSelector !== undefined || this.effortSelectorPending) {
+      return;
+    }
+    this.effortSelectorPending = true;
+    void this.client.request({ type: "supported-models" }).then(
+      (data) => {
+        this.effortSelectorPending = false;
+        const models = data as ModelInfo[];
+        // agentState.model holds a set-model request value or the SDK init
+        // message's resolved id, depending on history — so match both.
+        const current = this.agentState.model;
+        const matched = models.find(
+          (model) =>
+            current !== undefined &&
+            (model.value === current || model.resolvedModel === current),
+        );
+        if (matched === undefined) {
+          this.addBanner(
+            "cannot determine effort levels for the current model",
+            "warning",
+          );
+          this.ui.requestRender();
+          return;
+        }
+        const levels = matched.supportedEffortLevels ?? [];
+        if (levels.length === 0) {
+          this.addBanner(
+            "current model does not support effort levels",
+            "warning",
+          );
+          this.ui.requestRender();
+          return;
+        }
+        if (level !== undefined) {
+          const validated = levels.find((candidate) => candidate === level);
+          if (validated === undefined) {
+            this.addBanner(
+              `invalid effort level ${level}; ${matched.displayName} supports: ${levels.join(", ")}`,
+              "warning",
+            );
+            this.ui.requestRender();
+          } else {
+            this.sendSetEffort(validated);
+          }
+          return;
+        }
+        const selector = new EffortSelectorComponent(
+          levels,
+          (picked) => {
+            this.closeEffortSelector();
+            this.sendSetEffort(picked);
+          },
+          () => this.closeEffortSelector(),
+        );
+        this.effortSelector = selector;
+        this.statusContainer.addChild(selector);
+        this.ui.setFocus(selector);
+        this.ui.requestRender();
+      },
+      (error: unknown) => {
+        this.effortSelectorPending = false;
+        this.addBanner(`supported-models failed: ${String(error)}`, "error");
+        this.ui.requestRender();
+      },
+    );
+  }
+
+  private closeEffortSelector(): void {
+    if (this.effortSelector === undefined) {
+      return;
+    }
+    this.statusContainer.removeChild(this.effortSelector);
+    this.effortSelector = undefined;
+    this.ui.setFocus(this.editor);
+    this.ui.requestRender();
+  }
+
+  private sendSetEffort(level: EffortLevel): void {
+    // No optimistic footer update: it follows from the controlApplied event.
+    void this.client
+      .request({
+        type: "apply-flag-settings",
+        settings: { effortLevel: level },
+      })
+      .catch((error: unknown) => {
+        this.addBanner(`apply-flag-settings failed: ${String(error)}`, "error");
+        this.ui.requestRender();
+      });
+  }
+
   private openTreeSelector(): void {
     if (this.treeSelector !== undefined || this.treeSelectorPending) {
       return;
@@ -836,7 +963,9 @@ class InteractiveMode {
     // An open menu owns the interrupt and clear chords (cancel / clear
     // search via tui.select.cancel, which the focused selector handles).
     const selectorOpen =
-      this.modelSelector !== undefined || this.treeSelector !== undefined;
+      this.modelSelector !== undefined ||
+      this.treeSelector !== undefined ||
+      this.effortSelector !== undefined;
     if (
       this.keybindings.matches(data, "app.interrupt") &&
       isBusy(this.agentState) &&

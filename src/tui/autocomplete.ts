@@ -18,6 +18,7 @@ import {
 /** Commands the TUI intercepts at submit time; they shadow same-named SDK entries. */
 const LOCAL_COMMANDS: SlashCommand[] = [
   { name: "model", description: "select the agent's model interactively" },
+  { name: "effort", description: "set the reasoning effort level" },
   { name: "tree", description: "rewind the conversation via the session tree" },
   {
     name: "keybindings",
