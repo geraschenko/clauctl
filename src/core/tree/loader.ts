@@ -1,6 +1,6 @@
 /**
  * The CLI loader's load-time transform, ported from the decompiled binary
- * (v2.1.170). The numbered steps in comments cite the "Ground truth"
+ * (v2.1.195). The numbered steps in comments cite the "Ground truth"
  * section of docs/specs/session-tree.md, which records the transform and
  * the extraction method; probe ids (e.g. P10, P3 m4) cite
  * docs/derisk/compact-boundary-injection/FINDINGS.md. This module owns
@@ -26,6 +26,8 @@ export type OnInvalid = (message: string) => void;
  *  see the spec's Edge cases). */
 export interface CompactBoundary {
   uuid: UUID;
+  // TDC: why is preservedMessages optional? Are we not working under the assumption that all boundaries have this field?
+  // TDC: why is anchorUuid optional? It's not optional in the sdk, so shouldn't be optional in our type either.
   preservedMessages?: { anchorUuid?: UUID; uuids: UUID[] };
 }
 
@@ -47,6 +49,7 @@ export function compactBoundaryAt(
     { preservedMessages?: { anchorUuid?: UUID; uuids?: unknown } } | undefined;
   const preserved = metadata?.preservedMessages;
   if (preserved === undefined || !Array.isArray(preserved.uuids)) {
+    // TDC: shouldn't we throw in this situation?
     return { uuid: entry.uuid };
   }
   return {
@@ -60,18 +63,9 @@ export function compactBoundaryAt(
   };
 }
 
+// TDC: What is "Step-3"? A future developer is going to be confused by this terminology.
 /** Step-3 validation, written once: the reason this boundary's relink must
- *  not apply — a preserved uuid naming no file entry (loader-observed;
- *  anywhere in the file, NOT just earlier — the loader validates against
- *  the complete map), a duplicated uuid (probe-observed, P3 m4), or the
- *  anchor appearing among the preserved uuids (deliberate divergence like
- *  the duplicate rejection: the binary proceeds and its sequential passes
- *  self-parent the chain — a parent cycle; real files never take this
- *  shape, the anchor is the summary or the boundary's own uuid) — or
- *  undefined when the relink applies. loadedContext aborts its transform
- *  on it; buildTree emits no block; both report it through their
- *  onInvalid. Undefined for a metadata-less boundary: there is no relink
- *  to invalidate. */
+ *  not apply. */
 export function invalidRelinkReason(
   fileUuids: ReadonlySet<UUID>,
   boundary: CompactBoundary,
@@ -81,21 +75,28 @@ export function invalidRelinkReason(
     return undefined;
   }
   if (new Set(preserved.uuids).size !== preserved.uuids.length) {
+    // A duplicated uuid (probe-observed to be invalid, P3 m4; see file comment)
     return "duplicated uuid in preservedMessages.uuids";
   }
   if (
     preserved.anchorUuid !== undefined &&
     preserved.uuids.includes(preserved.anchorUuid)
   ) {
+    // Deliberate divergence; the binary proceeds and its sequential passes
+    // self-parent the chain.
+    // TDC: did we actually observe that the CLI binary allows the anchorUuid in preservedMessages? If so, maybe we should allow it as well?
     return "anchorUuid appears in preservedMessages.uuids";
   }
   const unknownUuid = preserved.uuids.find((uuid) => !fileUuids.has(uuid));
   if (unknownUuid !== undefined) {
+    // Note: the loader allows uuids that appear _after_ the boundary.
+    // TDC: Does the loader really allow this?
     return `preserved uuid ${unknownUuid} names no file entry`;
   }
   return undefined;
 }
 
+// TDC: what the hell is "step 4"? Your comments are terrible. Don't put the implementation in the comments; that just creates the opportunity for the comments to go stale. The reader can just read the code, and the code should be clear enough to understand. The comments should explain _what_ the function does, not _how_ it does it, and document things that are not obvious from the implementation. I want you to do an audit of all the comments added in this most recent change and fix them.
 /** Loader parent rewrite under this boundary's relink: parentUuid ==
  *  anchorUuid (anchor present, uuids non-empty) → uuids.last(); otherwise
  *  the raw parentUuid. THE anchor-child rule (step 4) — the only place it
@@ -121,12 +122,12 @@ export function effectiveParent(
     return preserved.uuids[preserved.uuids.length - 1];
   }
   return rawParent;
+  // TDC: Should this function also set the effective parent of the boundary entry itself to be its logicalParentUuid? Right now this bit of parenting logic is in clauctl/src/core/tree/build-tree.ts, but I think it belongs here.
 }
 
-/** Parent of uuids[index] inside the relinked chain: anchorUuid for
- *  index 0, uuids[index-1] after. THE chain-rewrite rule (step 4). Throws
- *  on a metadata-less boundary or an out-of-range index (caller bug). */
-export function preservedParent(
+/** Parent of uuids[index] inside the relinked chain. Throws on a metadata-less
+ * boundary or an out-of-range index (caller bug). */
+export function parentOfPreserved(
   boundary: CompactBoundary,
   index: number,
 ): UUID | undefined {
@@ -162,6 +163,7 @@ export function loadedContext(
 ): TreeNodeRef[] {
   // The loader's uuid-keyed view: last-wins on a duplicated uuid, both for
   // the entry payload and for the file index the cut compares against.
+  // TDC: it seems wastful to iterate over entries twice. Let's build byUuid and lastIndexOf in one loop. If there are multiple callers of `entriesByUuid` that need lastIndexOf, we should make a function in session-file.ts that builds both in one loop and returns both.
   const byUuid = entriesByUuid(entries);
   const lastIndexOf = new Map<UUID, number>();
   for (const [index, entry] of entries.entries()) {
@@ -169,6 +171,7 @@ export function loadedContext(
       lastIndexOf.set(entry.uuid, index);
     }
   }
+  // TDC: why exactly do we have to maintain `transformed`? What is it doing for us algorithmically?
   const transformed = new Map<UUID, TransformedNode>();
   for (const [uuid, entry] of byUuid) {
     transformed.set(uuid, { entry, parent: entry.parentUuid ?? undefined });
@@ -180,14 +183,15 @@ export function loadedContext(
   // boundary carrying preservedMessages. No metadata anywhere → no
   // transform at all.
   const cutIndex = entries.findLastIndex(isBoundary);
-  let meta: { index: number; boundary: Required<CompactBoundary> } | undefined;
-  for (let index = cutIndex; index >= 0 && meta === undefined; index -= 1) {
+  let lastValidBoundary: { index: number; boundary: Required<CompactBoundary> } | undefined;
+  for (let index = cutIndex; index >= 0 && lastValidBoundary === undefined; index -= 1) {
     if (!isBoundary(entries[index]!)) {
       continue;
     }
     const boundary = compactBoundaryAt(entries, index);
+    // TDC: does this if condition ever fail? I feel you've introduced unnecessary complexity. Why are we EVER bothering to look beyond the latest boundary, since we know the loader doesn't.
     if (boundary.preservedMessages !== undefined) {
-      meta = {
+      lastValidBoundary = {
         index,
         boundary: {
           uuid: boundary.uuid,
@@ -200,22 +204,23 @@ export function loadedContext(
   /** The relink whose rules ran (valid, non-empty uuids): its preserved
    *  uuids carry viaBoundary in the result. */
   let appliedBoundary: Required<CompactBoundary> | undefined;
-  if (meta !== undefined) {
+  if (lastValidBoundary !== undefined) {
     // Step 2: the relink rules run only when the metadata boundary IS the
     // last boundary. Step 3: an invalid preserved list aborts the whole
     // transform — no rewrite AND no cut.
     const abortReason =
-      meta.index === cutIndex
-        ? invalidRelinkReason(new Set(byUuid.keys()), meta.boundary)
+      lastValidBoundary.index === cutIndex
+        ? invalidRelinkReason(new Set(byUuid.keys()), lastValidBoundary.boundary)
         : undefined;
     if (abortReason !== undefined) {
       onInvalid(
-        `boundary ${meta.boundary.uuid}: relink skipped — ${abortReason}`,
+        `boundary ${lastValidBoundary.boundary.uuid}: relink skipped — ${abortReason}`,
       );
     } else {
       const preservedUuids =
-        meta.index === cutIndex ? meta.boundary.preservedMessages.uuids : [];
+        lastValidBoundary.index === cutIndex ? lastValidBoundary.boundary.preservedMessages.uuids : [];
       if (preservedUuids.length > 0) {
+        // TDC: What's with this comment? I don't want you re-describing the implementation of effectiveParent. The whole point of that function was to centralize the logic in one place. Spreading it across comments is a TERRIBLE idea.
         // Step 4: anchor-child reparent (on raw parents), then the chain
         // rewrite on the preserved uuids themselves — same outcome as the
         // binary's rewrite-then-reparent order, because effectiveParent
@@ -225,17 +230,19 @@ export function loadedContext(
         // passes see post-rewrite parents this order never produces) —
         // guaranteed here by invalidRelinkReason.
         for (const node of transformed.values()) {
-          node.parent = effectiveParent(meta.boundary, node.entry);
+          // TDC: Holy fuck! Why are we reparenting every node in the whole fucking session? And doing with the completely incorrect boundary for those entries? I just want to know the _current_ loaded context. To compute that, we should only need to find the last boundary, then start with the last entry and walk back along effective parents until the effective parent is the last entry of the preseved list, then walk back along parentOfPreserved. Done. No nead to iterate over everything.
+          node.parent = effectiveParent(lastValidBoundary.boundary, node.entry);
         }
         for (const [index, preservedUuid] of preservedUuids.entries()) {
           // Validated above: every preserved uuid names a file entry.
-          transformed.get(preservedUuid)!.parent = preservedParent(
-            meta.boundary,
+          transformed.get(preservedUuid)!.parent = parentOfPreserved(
+            lastValidBoundary.boundary,
             index,
           );
         }
-        appliedBoundary = meta.boundary;
+        appliedBoundary = lastValidBoundary.boundary;
       }
+      // TDC: You're being a fucking maniac. You don't need to load everything in the whole session and then delete stuff. You just don't ever build it in the first place.
       // Step 5: the cut — delete every entry before the last boundary that
       // is not preserved (nothing is preserved when the last boundary is
       // metadata-less or a pure wipe)…
@@ -247,6 +254,7 @@ export function loadedContext(
           deleted.add(uuid);
         }
       }
+      // TDC: This is completely irrelevant claptrap! Who cares if there are a bunch of entries whose parents were deleted if they're not reachable from the leaf we're starting at?
       // …then orphan reparent: surviving user/assistant entries whose
       // parent was deleted land on the preserved tail (non-empty lists
       // only).

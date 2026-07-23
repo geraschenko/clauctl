@@ -243,6 +243,7 @@ export function toolResultsOf(message: SDKUserMessage): RenderToolResult[] {
  */
 export function pathUpToBoundary(
   path: PathNode[],
+  // TDC: What the fuck? Why did you change this from TreeNodeRef to string?
   leafRowId: string | undefined,
 ): { nodes: PathNode[]; boundaryMissing: boolean } {
   if (leafRowId === undefined) {

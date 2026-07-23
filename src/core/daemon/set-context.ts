@@ -104,6 +104,7 @@ export function createSetContextHandler(
         .slice(targetIndex + 1)
         .some(
           (entry) =>
+            // TDC: wait, but won't the re-persisted _earlier_ siblings be considered as later siblings by this test? I think we need to prune all re-persisted entries before applying this test.
             entry.uuid !== target.uuid &&
             (entry.message as { id?: string } | undefined)?.id === apiMessageId,
         )

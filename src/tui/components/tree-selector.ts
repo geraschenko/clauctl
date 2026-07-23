@@ -47,6 +47,7 @@ export type TreePickAction =
  *  malformed summary (isCompactSummary whose parent is not a boundary —
  *  corrupt or hand-crafted file) yields undefined and falls back to
  *  ordinary user-row pick semantics. */
+// TDC: NO! Rewinding to a summary should NOT undo the boundary. Get rid of this fucking function!
 function boundaryToUndo(
   picked: SessionEntry | undefined,
   entryOf: ReadonlyMap<UUID, SessionEntry>,

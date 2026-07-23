@@ -343,6 +343,7 @@ class InteractiveMode {
       // renders no path, matching filtered-leaf behavior; an unmapped row
       // falls through unresolved so the raced-leaf handling below still
       // warns.
+      // TDC: This function should take a TreeNodeRef and return an optional TreeNodeRef (not a string). It looks like this should be a method of DisplayTree, not defined here ... then we can make visibleRowOf a private field and the code here becomes much clearer.
       const visibleRow = (
         leaf: TreeNodeRef | undefined,
       ): string | undefined => {
@@ -599,6 +600,9 @@ class InteractiveMode {
       return;
     }
     this.treeSelectorPending = true;
+    // TDC: you removed this comment. Why? If buildTree can no longer throw, then we shouldn't need a catch. If it can, then this comment is still applicable.
+    // .catch (not a rejection handler) so a buildTree throw on a corrupt
+    // session lands in the banner instead of an unhandled rejection.
     void this.client
       .request({ type: "get-entries" })
       .then((data) => {

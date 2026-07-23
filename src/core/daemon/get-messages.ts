@@ -64,7 +64,8 @@ function synthesizeWindowChain(
   // The boundary's summary is its isCompactSummary child (either anchor
   // shape); any OTHER post-boundary user/assistant turn closes the window.
   // Parentage alone cannot identify the summary: after an empty-uuids wipe
-  // the first real prompt also parents onto the boundary (P10).
+  // the first real prompt also parents onto the boundary (P10; see file
+  // comment).
   const boundaryUuid = entries[boundaryIndex]!.uuid;
   const windowClosed = entries
     .slice(boundaryIndex + 1)

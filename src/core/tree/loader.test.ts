@@ -14,7 +14,7 @@ import {
   invalidRelinkReason,
   loadedContext,
   loadedContextUuids,
-  preservedParent,
+  parentOfPreserved,
 } from "./loader.ts";
 
 const uuid = (): UUID => randomUUID();
@@ -225,9 +225,9 @@ test("preservedParent: the chain-rewrite rule", () => {
     [boundaryEntry({ sessionId: sid, uuids: [u1.uuid, u2.uuid], anchor })],
     0,
   );
-  assert.equal(preservedParent(boundary, 0), anchor);
-  assert.equal(preservedParent(boundary, 1), u1.uuid);
-  assert.throws(() => preservedParent(boundary, 2), /no preserved uuid/);
+  assert.equal(parentOfPreserved(boundary, 0), anchor);
+  assert.equal(parentOfPreserved(boundary, 1), u1.uuid);
+  assert.throws(() => parentOfPreserved(boundary, 2), /no preserved uuid/);
 });
 
 // --- loadedContext: no transform -------------------------------------------
