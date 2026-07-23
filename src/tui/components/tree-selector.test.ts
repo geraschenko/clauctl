@@ -144,22 +144,26 @@ test("resolveTreePick: boundary pick undoes the boundary, no editorText", () => 
   });
 });
 
-test("resolveTreePick: summary pick is the same undo, no editorText", () => {
+// A summary pick keeps the compaction in effect: setChain with the
+// fresh-compaction context — the summary plus the preserved chain, in
+// installed order (up_to: summary first).
+test("resolveTreePick: summary pick re-installs the fresh-compaction context", () => {
   assert.deepEqual(resolve({ uuid: uuid(6) }), {
-    kind: "rewind",
-    rewindTo: { uuid: uuid(4) },
+    kind: "setChain",
+    uuids: [uuid(6), uuid(2), uuid(3)],
   });
 });
 
 // A from-shape summary's single occurrence is raw (the anchor-child rule
-// places it under the relinked tail) — its pick is the same boundary undo,
-// keyed off the entry, not the occurrence.
-test("resolveTreePick: from-shape summary pick undoes its boundary", () => {
+// places it under the relinked tail) — the preserved chain precedes the
+// summary in the installed order.
+test("resolveTreePick: from-shape summary pick re-installs preserved chain then summary", () => {
   const entries = [
     userEntry(1, "hello"),
     assistantEntry(2, "reply", 1),
     boundaryEntry(3, { uuids: [1, 2], anchor: 3, logicalParent: 2 }),
     summaryEntry(4, "recap", 3),
+    userEntry(5, "after compaction", 4),
   ];
   const action = resolveTreePick(
     buildTree(entries, failOnInvalid),
@@ -168,9 +172,11 @@ test("resolveTreePick: from-shape summary pick undoes its boundary", () => {
     { uuid: uuid(4) },
     failOnInvalid,
   );
+  // The post-compaction turn (5) is dropped: the pick returns to the state
+  // right after the compaction.
   assert.deepEqual(action, {
-    kind: "rewind",
-    rewindTo: { uuid: uuid(2) },
+    kind: "setChain",
+    uuids: [uuid(1), uuid(2), uuid(4)],
   });
 });
 

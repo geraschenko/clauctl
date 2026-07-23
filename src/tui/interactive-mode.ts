@@ -45,8 +45,6 @@ import {
   type SessionEntry,
 } from "../core/session-file.ts";
 import {
-  formatTreeNodeRef,
-  parseTreeNodeRef,
   pathToLeaf,
   type ParentMap,
   type PathNode,
@@ -339,33 +337,18 @@ class InteractiveMode {
       const displayTree = toDisplayTree(fullTree, snapshot.entries);
       // History renders the display path: leaves map to the visible row
       // that carries them (a hidden relinked leaf renders as its summary
-      // row's line). An explicit null mapping (rootless hidden chain)
-      // renders no path, matching filtered-leaf behavior; an unmapped row
-      // falls through unresolved so the raced-leaf handling below still
-      // warns.
-      // TDC: This function should take a TreeNodeRef and return an optional TreeNodeRef (not a string). It looks like this should be a method of DisplayTree, not defined here ... then we can make visibleRowOf a private field and the code here becomes much clearer.
-      const visibleRow = (
-        leaf: TreeNodeRef | undefined,
-      ): string | undefined => {
-        if (leaf === undefined) {
-          return undefined;
-        }
-        const id = formatTreeNodeRef(leaf);
-        if (displayTree.parentMap.has(id)) {
-          return id;
-        }
-        const mapped = displayTree.visibleRowOf.get(id);
-        return mapped === null ? undefined : (mapped ?? id);
-      };
-      const leafRow = visibleRow(snapshot.leaf ?? undefined);
-      const path = pathToLeaf(
-        displayTree.parentMap,
-        entryOf,
-        leafRow === undefined ? null : parseTreeNodeRef(leafRow),
-      );
+      // row's line). A stale leaf maps to itself, so the raced-leaf
+      // handling below still warns.
+      const leafRow =
+        snapshot.leaf == null
+          ? undefined
+          : displayTree.nearestVisibleRow(snapshot.leaf);
+      const path = pathToLeaf(displayTree.parentMap, entryOf, leafRow ?? null);
       const { nodes, boundaryMissing } = pathUpToBoundary(
         path,
-        visibleRow(this.agentState.leaf),
+        this.agentState.leaf === undefined
+          ? undefined
+          : displayTree.nearestVisibleRow(this.agentState.leaf),
       );
       for (const node of nodes) {
         this.renderPathNode(node, replayed);
@@ -600,7 +583,6 @@ class InteractiveMode {
       return;
     }
     this.treeSelectorPending = true;
-    // TDC: you removed this comment. Why? If buildTree can no longer throw, then we shouldn't need a catch. If it can, then this comment is still applicable.
     // .catch (not a rejection handler) so a buildTree throw on a corrupt
     // session lands in the banner instead of an unhandled rejection.
     void this.client
@@ -662,12 +644,14 @@ class InteractiveMode {
     const request =
       action.kind === "rewind"
         ? { type: "set-context" as const, rewindTo: action.rewindTo }
-        : { type: "set-context" as const, uuids: [] };
+        : action.kind === "setChain"
+          ? { type: "set-context" as const, uuids: action.uuids }
+          : { type: "set-context" as const, uuids: [] };
     // The redraw follows from the contextChanged event; only the pick's
     // editorText is applied here (only the initiating TUI prefills).
     void this.client.request(request).then(
       () => {
-        if (action.editorText !== undefined) {
+        if (action.kind !== "setChain" && action.editorText !== undefined) {
           this.editor.setText(action.editorText);
         }
         this.ui.requestRender();

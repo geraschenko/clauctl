@@ -22,7 +22,11 @@ import type {
   SDKMessage,
   SDKUserMessage,
 } from "@anthropic-ai/claude-agent-sdk";
-import { formatTreeNodeRef, type PathNode } from "../core/tree/nodes.ts";
+import {
+  treeNodeRefsEqual,
+  type PathNode,
+  type TreeNodeRef,
+} from "../core/tree/nodes.ts";
 import type {
   RenderAssistant,
   RenderBlock,
@@ -243,14 +247,13 @@ export function toolResultsOf(message: SDKUserMessage): RenderToolResult[] {
  */
 export function pathUpToBoundary(
   path: PathNode[],
-  // TDC: What the fuck? Why did you change this from TreeNodeRef to string?
-  leafRowId: string | undefined,
+  leafRow: TreeNodeRef | undefined,
 ): { nodes: PathNode[]; boundaryMissing: boolean } {
-  if (leafRowId === undefined) {
+  if (leafRow === undefined) {
     return { nodes: path, boundaryMissing: false };
   }
-  const matchIndex = path.findIndex(
-    (node) => formatTreeNodeRef(node.ref) === leafRowId,
+  const matchIndex = path.findIndex((node) =>
+    treeNodeRefsEqual(node.ref, leafRow),
   );
   if (matchIndex === -1) {
     return { nodes: path, boundaryMissing: true };

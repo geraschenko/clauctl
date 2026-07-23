@@ -7,20 +7,40 @@
 
 import type { UUID } from "node:crypto";
 import type { SessionEntry } from "../session-file.ts";
-import type { ParentMap } from "./nodes.ts";
+import {
+  formatTreeNodeRef,
+  parseTreeNodeRef,
+  type ParentMap,
+  type TreeNodeRef,
+} from "./nodes.ts";
 import { compactBoundaryAt, invalidRelinkReason } from "./loader.ts";
 
-export interface DisplayTree {
+export class DisplayTree {
   /** Visible rows only. */
-  parentMap: ParentMap;
+  readonly parentMap: ParentMap;
   /** Hidden occurrence id → its nearest visible ancestor row, or null
    *  when the hidden chain is rootless (anchor-less or dangling-anchor
-   *  blocks — hand-crafted/corrupt shapes; a null-mapped leaf renders no
-   *  marker, matching filtered-leaf behavior). Defined for every hidden
-   *  id (relinked rows, pruned boundary rows). Sole purpose: mapping a
-   *  hidden leaf ref to the row that carries the `*` marker / picker
-   *  cursor. Picker rows themselves are all visible. */
-  visibleRowOf: Map<string, string | null>;
+   *  blocks — hand-crafted/corrupt shapes). Defined for every hidden id
+   *  (relinked rows, pruned boundary rows). */
+  private readonly visibleRowOf: Map<string, string | null>;
+
+  constructor(parentMap: ParentMap, visibleRowOf: Map<string, string | null>) {
+    this.parentMap = parentMap;
+    this.visibleRowOf = visibleRowOf;
+  }
+
+  /** The row that displays `ref`: `ref` itself when visible — or unknown
+   *  to the tree, so the caller's stale-ref handling still sees it — its
+   *  nearest visible ancestor when hidden, undefined when the hidden chain
+   *  is rootless (a leaf mapped here renders no marker, matching
+   *  filtered-leaf behavior). */
+  nearestVisibleRow(ref: TreeNodeRef): TreeNodeRef | undefined {
+    const mapped = this.visibleRowOf.get(formatTreeNodeRef(ref));
+    if (mapped === undefined) {
+      return ref;
+    }
+    return mapped === null ? undefined : parseTreeNodeRef(mapped);
+  }
 }
 
 /** The human view, derived from the full tree by three rules:
@@ -31,14 +51,13 @@ export interface DisplayTree {
  *  3. a boundary row with a valid NON-EMPTY preserved list and no
  *     visible descendants is hidden too (fixpoint, so stacked navigation
  *     boundaries cascade away).
- *  Boundaries with no applicable relink — metadata-less, invalid, or
- *  empty-list (a context wipe is a real event) — keep their placement
- *  and stay visible. Display-only: loadedContext and the wire protocol
- *  are untouched. Precondition: fullTree came from buildTree over the
- *  same entries — mismatched inputs are unchecked. No OnInvalid: boundary
- *  validity is re-derived without reporting (diagnostics belong to the
- *  buildTree call). */
-// TDC: Why not hide invalid and empty-list boundaries with no visible children?
+ *  Boundaries with no applicable relink — invalid or empty-list — keep
+ *  their placement and stay visible: a context wipe is a real event the
+ *  user performed, and hiding it would hide history. Display-only:
+ *  loadedContext and the wire protocol are untouched. Precondition:
+ *  fullTree came from buildTree over the same entries — mismatched inputs
+ *  are unchecked. No OnInvalid: boundary validity is re-derived without
+ *  reporting (diagnostics belong to the buildTree call). */
 export function toDisplayTree(
   fullTree: ParentMap,
   entries: SessionEntry[],
@@ -66,7 +85,7 @@ export function toDisplayTree(
       continue;
     }
     const boundary = compactBoundaryAt(entries, index);
-    const preservedUuids = boundary.preservedMessages?.uuids ?? [];
+    const preservedUuids = boundary.preservedMessages.uuids;
     if (
       preservedUuids.length > 0 &&
       invalidRelinkReason(fileUuids, boundary) === undefined
@@ -127,7 +146,6 @@ export function toDisplayTree(
     if (cached !== undefined) {
       return cached;
     }
-    const walked = [id];
     const onWalk = new Set<string>([id]);
     let answer: string | null = null;
     let current = parentOf(id);
@@ -144,14 +162,11 @@ export function toDisplayTree(
         answer = memo;
         break;
       }
-      walked.push(current);
       onWalk.add(current);
       current = parentOf(current);
     }
-    // Every node passed after walked[k] was hidden, so each walked node's
-    // nearest visible ancestor is the same answer.
-    // TDC: Why do we need to keep `walked` separate from `onWalk`? Can't we iterate over `onWalk` here instead, and then we can delete `walked` entirely?
-    for (const node of walked) {
+    // Every node walked past was hidden, so they all share the answer.
+    for (const node of onWalk) {
       nearestVisibleAncestorCache.set(node, answer);
     }
     return answer;
@@ -166,5 +181,5 @@ export function toDisplayTree(
       parentMap.set(id, nearestVisibleAncestor(id));
     }
   }
-  return { parentMap, visibleRowOf };
+  return new DisplayTree(parentMap, visibleRowOf);
 }

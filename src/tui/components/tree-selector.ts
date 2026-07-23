@@ -9,7 +9,11 @@
 import type { UUID } from "node:crypto";
 import { Container, matchesKey, type Focusable } from "@earendil-works/pi-tui";
 import type { DisplayTree } from "../../core/tree/display-tree.ts";
-import { loadedContext, type OnInvalid } from "../../core/tree/loader.ts";
+import {
+  loadedContext,
+  loadedContextUuids,
+  type OnInvalid,
+} from "../../core/tree/loader.ts";
 import type { SessionEntry } from "../../core/session-file.ts";
 import {
   treeChildren,
@@ -39,44 +43,57 @@ const MAX_VISIBLE_ROWS = 15;
 
 export type TreePickAction =
   | { kind: "rewind"; rewindTo: TreeNodeRef; editorText?: string }
+  | { kind: "setChain"; uuids: UUID[] }
   | { kind: "newRoot"; editorText?: string };
 
-/** The boundary a pick undoes: the picked boundary itself, or the picked
- *  summary's parent boundary — a UX affordance (boundary-row and
- *  summary-row picks are the same action), not loader modeling. A
- *  malformed summary (isCompactSummary whose parent is not a boundary —
- *  corrupt or hand-crafted file) yields undefined and falls back to
- *  ordinary user-row pick semantics. */
-// TDC: NO! Rewinding to a summary should NOT undo the boundary. Get rid of this fucking function!
-function boundaryToUndo(
-  picked: SessionEntry | undefined,
+/** The fresh-compaction context a summary pick re-installs: the loader's
+ *  view of the file truncated just after the summary — the summary plus
+ *  its boundary's preserved chain, before any post-compaction turns —
+ *  filtered to user/assistant uuids (system entries carry no context).
+ *  Undefined when the summary is not on that chain (corrupt or
+ *  hand-crafted file). */
+function summaryChainUuids(
+  summary: SessionEntry,
+  entries: SessionEntry[],
   entryOf: ReadonlyMap<UUID, SessionEntry>,
-): UUID | undefined {
-  if (picked?.subtype === "compact_boundary") {
-    return picked.uuid;
+  onInvalid: OnInvalid,
+): UUID[] | undefined {
+  const summaryIndex = entries.findIndex(
+    (entry) => entry.uuid === summary.uuid,
+  );
+  const chain = loadedContextUuids(
+    entries.slice(0, summaryIndex + 1),
+    onInvalid,
+  );
+  if (!chain.includes(summary.uuid!)) {
+    return undefined;
   }
-  if (picked?.isCompactSummary === true && picked.parentUuid != null) {
-    const parent = entryOf.get(picked.parentUuid);
-    if (parent?.subtype === "compact_boundary") {
-      return parent.uuid;
-    }
-  }
-  return undefined;
+  return chain.filter((uuid) => {
+    const type = entryOf.get(uuid)?.type;
+    return type === "user" || type === "assistant";
+  });
 }
 
 /**
  * Assistant pick → itself; user pick → nearest assistant ancestor on the
  * FULL tree + editorText = the user text (so editing a post-compaction
- * message stays inside the compacted context); boundary and summary picks
- * are the same action, "undo the boundary": rewind to the last assistant
- * ref of the pre-boundary loaded context (the true pre-boundary context
- * tip, correct even when that tip is a relinked occurrence of an older
+ * message stays inside the compacted context); boundary pick → "undo the
+ * boundary": rewind to the last assistant ref of the pre-boundary loaded
+ * context (the true pre-boundary context tip, correct even when that tip
+ * is a relinked occurrence of an older boundary), no editorText; summary
+ * pick → the compaction stays in effect with the summary as-is: setChain
+ * with the fresh-compaction context (the summary plus its boundary's
+ * preserved chain; the summary is a user entry the daemon cannot rewind
+ * to, so its old entry rides along as a preserved uuid of a fresh
  * boundary), no editorText; no assistant found → newRoot (sent as
- * {uuids: []}). The ancestor is not re-resolved to the final entry of its
- * API message: the nearest assistant ancestor on a path is final by
- * construction except in exotic interrupt shapes, which the daemon's
- * final-entry validation rejects with a clear error. An empty user text
- * (reachable via the current-leaf filter exemption) omits editorText.
+ * {uuids: []}). The
+ * ancestor is not re-resolved to the final entry of its API message: the
+ * nearest assistant ancestor on a path is final by construction except in
+ * exotic interrupt shapes, which the daemon's final-entry validation
+ * rejects with a clear error. An empty user text (reachable via the
+ * current-leaf filter exemption) omits editorText. A malformed summary
+ * (parent not a boundary, or off its boundary's chain — corrupt or
+ * hand-crafted file) falls back to ordinary user-row pick semantics.
  */
 export function resolveTreePick(
   fullTree: ParentMap,
@@ -85,10 +102,10 @@ export function resolveTreePick(
   pick: TreeNodeRef,
   onInvalid: OnInvalid,
 ): TreePickAction {
-  const undoneBoundaryUuid = boundaryToUndo(entryOf.get(pick.uuid), entryOf);
-  if (undoneBoundaryUuid !== undefined) {
+  const pickedEntry = entryOf.get(pick.uuid);
+  if (pickedEntry?.subtype === "compact_boundary") {
     const boundaryIndex = entries.findIndex(
-      (entry) => entry.uuid === undoneBoundaryUuid,
+      (entry) => entry.uuid === pickedEntry.uuid,
     );
     const rewindTo = loadedContext(
       entries.slice(0, boundaryIndex),
@@ -97,6 +114,16 @@ export function resolveTreePick(
     return rewindTo === undefined
       ? { kind: "newRoot" }
       : { kind: "rewind", rewindTo };
+  }
+  if (
+    pickedEntry?.isCompactSummary === true &&
+    pickedEntry.parentUuid != null &&
+    entryOf.get(pickedEntry.parentUuid)?.subtype === "compact_boundary"
+  ) {
+    const chain = summaryChainUuids(pickedEntry, entries, entryOf, onInvalid);
+    if (chain !== undefined) {
+      return { kind: "setChain", uuids: chain };
+    }
   }
   const path = pathToLeaf(fullTree, entryOf, pick);
   const picked = path.at(-1);
@@ -160,17 +187,16 @@ export class TreeSelectorComponent extends Container implements Focusable {
     onCancel: () => void,
   ) {
     super();
-    const { parentMap, visibleRowOf } = displayTree;
+    const parentMap = displayTree.parentMap;
     this.roots = toLayoutTree(parentMap, (id) =>
       entryOf.get(parseTreeNodeRef(id).uuid)!,
     );
-    // A hidden leaf occurrence marks its nearest visible row (null → no
-    // marker, matching filtered-leaf behavior).
-    const leafId = leaf === null ? null : formatTreeNodeRef(leaf);
+    // A hidden leaf occurrence marks its nearest visible row (a rootless
+    // hidden chain → no marker, matching filtered-leaf behavior).
+    const leafRow =
+      leaf === null ? undefined : displayTree.nearestVisibleRow(leaf);
     this.currentLeafId =
-      leafId === null || parentMap.has(leafId)
-        ? leafId
-        : (visibleRowOf.get(leafId) ?? null);
+      leafRow === undefined ? null : formatTreeNodeRef(leafRow);
     this.toolNames = collectToolNames([...entryOf.values()]);
     this.finalIds = collectFinalAssistantIds(
       parentMap,

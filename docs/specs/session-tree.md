@@ -87,14 +87,21 @@ preserved list, distinct from duplicate file entries, which are legal
 re-persisted copies (see Edge cases and
 `docs/derisk/cli-history-repersistence/FINDINGS.md`).
 
+Our implementation normalizes a metadata-less boundary to the equivalent
+wipe `{anchorUuid: boundary, uuids: []}` at parse time (the SDK documents
+absent `preservedMessages` as "unset when compaction summarizes
+everything") instead of modeling step 1's metadata scan-back. Equivalent
+everywhere except one named divergence — a file where NO boundary carries
+metadata (see Edge cases).
+
 ## Success criteria
 
 1. `loadedContext` reproduces the transform's observable outcomes, each
-   as a test case: no metadata anywhere (no transform), trailing
-   metadata-less boundary after a metadata boundary (cut, nothing
-   preserved), valid empty list (pure wipe), missing preserved uuid
-   (abort — no rewrite AND no cut), anchor-child reparent, chain rewrite,
-   orphan reparent, single-tip and multi-tip leaf selection. Scope:
+   as a test case: metadata-less boundary (normalized to a wipe — one
+   named divergence when NO boundary carries metadata; see Edge cases),
+   valid empty list (pure wipe), missing preserved uuid (abort — no
+   rewrite AND no cut), anchor-child reparent, chain rewrite, orphan
+   reparent, single-tip and multi-tip leaf selection. Scope:
    `preservedMessages` boundaries; deliberate divergences (preserved-list
    duplicate rejection, anchor-in-list rejection, legacy segments, usage
    zeroing) are named in Edge cases.
@@ -109,17 +116,21 @@ re-persisted copies (see Edge cases and
    appears only in `raw` mode.
 5. `/tree` picker rows are display rows. User-row picks resolve their
    nearest assistant ancestor on the FULL tree (editing a post-compaction
-   message stays inside the compacted context). Boundary-row and
-   summary-row picks are the same action, "undo the boundary": rewind to
-   the last assistant ref of `loadedContext(entries before the boundary)`,
-   `newRoot` if none, no editor prefill.
+   message stays inside the compacted context). Boundary-row picks "undo
+   the boundary": rewind to the last assistant ref of
+   `loadedContext(entries before the boundary)`, `newRoot` if none, no
+   editor prefill. Summary-row picks keep the compaction in effect with
+   the summary as-is (the summary reads as assistant-generated even
+   though it is a user entry): a uuids-form set-context re-installing the
+   fresh-compaction context — summary plus preserved chain, dropping
+   post-compaction turns — no editor prefill.
 6. TUI conversation history renders the display path: each message once,
    boundary banners and summaries in display order — no dedupe pass.
 7. The `[cursor: …]` line keeps printing the true leaf uuid; the `*`
    marker sits on the leaf's visible display row (they legitimately differ
    after a fresh compaction: marker on the summary row, cursor on the
-   preserved tip). A leaf whose `visibleRowOf` entry is null renders no
-   marker.
+   preserved tip). A leaf on a rootless hidden chain
+   (`nearestVisibleRow` → undefined) renders no marker.
 8. Diagnostics: invalid relinks (missing preserved uuid, duplicates
    WITHIN a preserved list, an anchor among the preserved uuids), dangling
    anchors, and parent cycles report
@@ -217,67 +228,72 @@ to the new names).
 export type OnInvalid = (message: string) => void;
 
 /** A compact_boundary entry's relink instruction, mirroring the jsonl
- *  field names. Parse-only — validity is a separate question (mirroring
- *  the binary, where parsing and step-3 validation are distinct).
- *  preservedMessages absent = the boundary carries no modeled metadata.
- *  Legacy segment-only boundaries parse as metadata-less — a known,
- *  deliberate divergence (the loader resolves them by a tail→head walk;
- *  see Edge cases). */
+ *  field names. Validity is a separate question (invalidRelinkReason) —
+ *  parsing and validation are distinct in the binary too. */
 export interface CompactBoundary {
   uuid: UUID;
-  preservedMessages?: { anchorUuid?: UUID; uuids: UUID[] };
+  preservedMessages: { anchorUuid: UUID; uuids: UUID[] };
 }
 
 /** Parse the boundary at entries[boundaryIndex]. Precondition: that entry
  *  is a compact_boundary — throws otherwise (caller bug, not file
- *  corruption). Empty uuids parses as present (a pure wipe: rules no-op,
- *  the cut still applies). */
+ *  corruption). Absent preservedMessages ("unset when compaction
+ *  summarizes everything" per the SDK; also legacy segment-only
+ *  boundaries) normalizes to the equivalent wipe
+ *  `{anchorUuid: boundary, uuids: []}` — nothing pre-boundary survives
+ *  either way (one named divergence; see Edge cases).
+ *  Present-but-malformed metadata throws: file corruption, not a shape
+ *  any producer writes. */
 export function compactBoundaryAt(
   entries: SessionEntry[],
   boundaryIndex: number,
 ): CompactBoundary;
 
-/** Step-3 validation, written once: the reason this boundary's relink
- *  must not apply — a preserved uuid naming no file entry
- *  (loader-observed; anywhere in the file, NOT just earlier — the loader
- *  validates against the complete map), a duplicated uuid
- *  (probe-observed, P3 m4), or the anchor appearing among the preserved
- *  uuids (deliberate divergence; see Edge cases) — or undefined when the
- *  relink applies. loadedContext aborts its transform on it; buildTree
- *  emits no block; both report it through their onInvalid. */
+/** The reason this boundary's relink must not apply — a preserved uuid
+ *  naming no file entry (loader-observed; anywhere in the file, NOT just
+ *  earlier — the loader validates against the complete map), a
+ *  duplicated uuid (probe-observed, P3 m4), or the anchor appearing
+ *  among the preserved uuids (deliberate divergence; see Edge cases) —
+ *  or undefined when the relink applies. loadedContext aborts its
+ *  transform on it; buildTree emits no block; both report it through
+ *  their onInvalid. */
 export function invalidRelinkReason(
   fileUuids: ReadonlySet<UUID>,
   boundary: CompactBoundary,
 ): string | undefined;
 
-/** Loader parent rewrite under this boundary's relink: parentUuid ==
- *  anchorUuid (anchor present, uuids non-empty) → uuids.last(); otherwise
- *  the raw parentUuid. THE anchor-child rule — the only place it is
- *  written. loadedContext applies it map-wide (as the loader does);
- *  buildTree applies it forward from the boundary — divergent only for
- *  hand-crafted pre-boundary references to the anchor. */
+/** Loader parent of `entry` under `boundary`'s relink (undefined = no
+ *  relink in effect): parentUuid == anchorUuid (uuids non-empty) →
+ *  uuids.last(); otherwise the raw parent, which for a compact_boundary
+ *  entry with no parentUuid is its logicalParentUuid (where the boundary
+ *  event happened). THE anchor-child rule — the only place it is
+ *  written; uuids[0] is exempt (its parent is parentOfPreserved's
+ *  business). */
 export function effectiveParent(
-  boundary: CompactBoundary,
+  boundary: CompactBoundary | undefined,
   entry: SessionEntry,
 ): UUID | undefined;
 
-/** Parent of uuids[index] inside the relinked chain: anchorUuid for
- *  index 0, uuids[index-1] after. THE chain-rewrite rule. */
-export function preservedParent(
+/** Parent ref of uuids[index] inside the relinked chain: {anchorUuid}
+ *  (bare — the anchor is not itself preserved) for index 0,
+ *  {uuids[index-1], viaBoundary} after. THE chain-rewrite rule. */
+export function parentOfPreserved(
   boundary: CompactBoundary,
   index: number,
-): UUID | undefined;
+): TreeNodeRef;
 
-/** Our best estimate of the loaded context: the transcript entries the
- *  loader selects, in exact order — the ground-truth transform
- *  (last-boundary rules via effectiveParent/preservedParent, the cut,
- *  orphan reparent), then the parent walk from the leaf per ground-truth
- *  step 6 (single dangling tip, else nearest user/assistant at-or-above
- *  the last file entry). Estimate: downstream request normalization
- *  (tool-pair sanitization, attachment dropping, API-message grouping —
- *  FINDINGS "failure modes") is out of scope. Replaces
- *  effectiveTreeNodeChain. An element carries viaBoundary iff its uuid is
- *  among the last boundary's preserved uuids. */
+/** Our best estimate of the context the NEXT appended message will see:
+ *  the loader transform of the current file — the last boundary's relink
+ *  and cut, leaf selection (single dangling tip of the surviving
+ *  relation, else nearest user/assistant at-or-above the last surviving
+ *  entry), then the parent walk from the leaf. A trailing boundary is
+ *  honored even though the binary applies it only on the next load,
+ *  because that next load is exactly what the next appended message
+ *  gets. Estimate: downstream request normalization (tool-pair
+ *  sanitization, attachment dropping, API-message grouping — FINDINGS
+ *  "failure modes") is out of scope. Replaces effectiveTreeNodeChain. An
+ *  element carries viaBoundary iff its uuid is among the last boundary's
+ *  preserved uuids. */
 export function loadedContext(
   entries: SessionEntry[],
   onInvalid: OnInvalid,
@@ -319,17 +335,13 @@ calling `loadedContext`.
 /** Every occurrence: raw entries under their parents as interpreted
  *  through the latest boundary encountered so far (effectiveParent,
  *  decorated to `uuid@B` keys when the parent uuid is among that
- *  boundary's preserved uuids), plus each boundary's relinked block
- *  `uuids[i]@B → preservedParent(i)` — emitted only when the boundary
- *  carries preservedMessages AND invalidRelinkReason returns undefined —
- *  at the boundary's file position (block parent keys may be forward
- *  references: the up_to anchor, or a preserved uuid naming a later
- *  entry; a final pass nulls parents that never materialized). EVERY
- *  encountered boundary becomes the latest — an invalid, empty, or
- *  metadata-less boundary contributes no rules but still ends the
- *  previous boundary's effect (last-wins). Boundary entries anchor at
- *  logicalParentUuid, resolved through the boundary in effect before
- *  them like any other parent reference.
+ *  boundary's preserved uuids), plus each valid boundary's relinked block
+ *  `uuids[i]@B → parentOfPreserved(i)` at the boundary's file position
+ *  (block parent keys may be forward references: the up_to anchor, or a
+ *  preserved uuid naming a later entry; a final pass nulls parents that
+ *  never materialized). EVERY encountered boundary becomes the latest —
+ *  an invalid or empty boundary contributes no rules but still ends the
+ *  previous boundary's effect (last-wins).
  *  Exactly one raw occurrence per uuid-bearing entry — no occurrence map,
  *  no pending state, no summary special case. A duplicate occurrence key
  *  is first-wins: the repeat entry is skipped entirely — no edge
@@ -343,22 +355,26 @@ export function buildTree(
 ```
 
 `buildTree` calls `compactBoundaryAt`, `invalidRelinkReason`,
-`effectiveParent`, and `preservedParent`; it restates no rule.
+`effectiveParent`, and `parentOfPreserved`; it restates no rule.
 
 **`src/core/tree/display-tree.ts`**
 
 ```ts
-export interface DisplayTree {
+export class DisplayTree {
   /** Visible rows only. */
-  parentMap: ParentMap;
+  readonly parentMap: ParentMap;
   /** Hidden occurrence id → its nearest visible ancestor row, or null
    *  when the hidden chain is rootless (anchor-less or dangling-anchor
-   *  blocks — hand-crafted/corrupt shapes; a null-mapped leaf renders no
-   *  marker, matching filtered-leaf behavior). Defined for every hidden
-   *  id (relinked rows, pruned boundary rows). Sole purpose: mapping a
-   *  hidden leaf ref to the row that carries the `*` marker / picker
-   *  cursor. Picker rows themselves are all visible. */
-  visibleRowOf: Map<string, string | null>;
+   *  blocks — hand-crafted/corrupt shapes). Defined for every hidden id
+   *  (relinked rows, pruned boundary rows). */
+  private readonly visibleRowOf: Map<string, string | null>;
+
+  /** The row that displays `ref`: `ref` itself when visible — or unknown
+   *  to the tree, so the caller's stale-ref handling still sees it — its
+   *  nearest visible ancestor when hidden, undefined when the hidden
+   *  chain is rootless (a leaf mapped here renders no marker, matching
+   *  filtered-leaf behavior). */
+  nearestVisibleRow(ref: TreeNodeRef): TreeNodeRef | undefined;
 }
 
 /** The human view, derived from the full tree by three rules:
@@ -369,10 +385,10 @@ export interface DisplayTree {
  *  3. a boundary row with a valid NON-EMPTY preserved list and no
  *     visible descendants is hidden too (fixpoint, so stacked navigation
  *     boundaries cascade away).
- *  Boundaries with no applicable relink — metadata-less, invalid, or
- *  empty-list (a context wipe is a real event) — keep their placement
- *  and stay visible. Display-only: loadedContext and the wire protocol
- *  are untouched. */
+ *  Boundaries with no applicable relink — invalid or empty-list — keep
+ *  their placement and stay visible: a context wipe is a real event the
+ *  user performed, and hiding it would hide history. Display-only:
+ *  loadedContext and the wire protocol are untouched. */
 export function toDisplayTree(
   fullTree: ParentMap,
   entries: SessionEntry[],
@@ -391,13 +407,16 @@ belong to the `buildTree` call).
 - `src/format/tree.ts`: `raw` stays in `FILTER_MODES`; `raw` renders
   `buildTree` output with `~` before the uuid column on `@boundary` rows;
   all other modes render `toDisplayTree(buildTree(...), ...)` with the
-  leaf marker mapped through `visibleRowOf` when the leaf row is hidden.
+  leaf marker mapped through `nearestVisibleRow` when the leaf row is
+  hidden.
 - `src/tui/components/tree-selector.ts`: `TreeSelectorComponent` takes the
   `DisplayTree`; `resolveTreePick(fullTree, entries, entryOf, pick,
-  onInvalid)` implements criterion 5 (boundary/summary undo via
-  `loadedContext(entries.slice(0, boundaryIndex))`; summary rows
-  identified for the pick action by `isCompactSummary` + boundary parent —
-  a UX affordance, not loader modeling).
+  onInvalid)` implements criterion 5 (boundary undo via
+  `loadedContext(entries.slice(0, boundaryIndex))`; summary picks — rows
+  identified by `isCompactSummary` + boundary parent — return
+  `{kind: "setChain", uuids}` with the fresh-compaction context:
+  `loadedContextUuids` of the file truncated just after the summary,
+  filtered to user/assistant).
 - `src/tui/interactive-mode.ts` / `sdk-render.ts`: `reloadHistory` renders
   `pathToLeaf(displayTree.parentMap, entryOf, visibleLeafRow)`;
   `dedupedPathNodes` is deleted (a display path has no duplicates by
@@ -453,12 +472,19 @@ graph TD
 - **Invalid relink** (`invalidRelinkReason` set — a preserved uuid naming
   no file entry, a duplicated uuid, or the anchor appearing among the
   preserved uuids): the boundary emits no block,
-  stays at its logicalParentUuid anchor, remains visible, and — distinct
-  from a metadata-less boundary — ABORTS `loadedContext`'s transform
-  (no cut; pre-boundary entries stay loadable-in-principle, though the
-  walk still ends at the boundary). Validation is against uuids anywhere
-  in the file (loader-faithful), not "earlier entries" as the old code
-  required.
+  stays at its logicalParentUuid anchor, remains visible, and ABORTS
+  `loadedContext`'s transform (no cut; pre-boundary entries stay
+  loadable-in-principle, though the walk still ends at the boundary).
+  Validation is against uuids anywhere in the file (loader-faithful),
+  not "earlier entries" as the old code required.
+- **Metadata-less boundaries normalize to a wipe** at parse time, so no
+  code path handles "no relink instruction". Equivalent to the binary
+  except when NO boundary in the file carries `preservedMessages`: the
+  binary then loads the file untransformed (no cut); we cut at the last
+  boundary. Hand-crafted/legacy files only — every native compaction
+  writes metadata on its boundary. Present-but-malformed metadata (uuids
+  not an array, anchorUuid missing) throws instead: real corruption,
+  surfaced as a banner rather than silently reinterpreted.
 - **Preserved uuid naming a LATER entry** (hand-crafted): valid per the
   loader. `buildTree`'s block emits with forward parent keys that resolve
   when the raw rows arrive; the final pass nulls any that never do.
@@ -500,13 +526,12 @@ graph TD
   the fold/seed boundary during implementation.
 - **Non-goals / named divergences**: the loader's usage-zeroing (step 4)
   is not modeled — `loadedContext` returns refs, not rewritten payloads;
-  legacy segment-only (`preservedSegment`) boundaries parse as
-  metadata-less (the loader resolves them via a tail→head walk and they
-  relink fine per P1e-4 — a divergence with zero observed exposure: every
-  local session file with `preservedSegment` also carries
-  `preservedMessages`; should it ever bite, the fix is confined to
-  `compactBoundaryAt` — walk tail→head over raw parentUuid and yield
-  ordinary `preservedMessages`); preserved lists containing duplicate
+  legacy segment-only (`preservedSegment`) boundaries normalize to a wipe
+  (the loader resolves them via a tail→head walk and they relink fine per
+  P1e-4 — a divergence with zero observed exposure: every local session
+  file with `preservedSegment` also carries `preservedMessages`; should
+  it ever bite, the fix is confined to `compactBoundaryAt` — walk
+  tail→head over raw parentUuid and yield ordinary `preservedMessages`); preserved lists containing duplicate
   uuids are rejected where the 2.1.170 binary shows no check (P3 m4
   observed the skip on 2.1.195); an anchor appearing among the preserved
   uuids is rejected where the binary proceeds — its sequential
@@ -561,12 +586,13 @@ graph TD
 tasks, mark completed ones with [x], document decisions and problems
 encountered.
 
-## 2026-07-23 — Anton's review round (c76f468), IN PROGRESS
+## 2026-07-23 — Anton's review round (c76f468), IMPLEMENTED
 
 TDC comments + direct changes in c76f468 (his renames kept:
 `parentOfPreserved`, `parentOfBoundary`, `nearestVisibleAncestorCache`,
-header now v2.1.195). Answers already given in conversation; decisions
-and the fix plan, none of it implemented yet:
+header now v2.1.195). Answers given in conversation; decisions and the
+fix plan, all items now implemented (TDC comments removed as each
+landed):
 
 1. `CompactBoundary`: `preservedMessages` AND `anchorUuid` both REQUIRED
    (Anton's call, pre-compaction exchange). `compactBoundaryAt`
@@ -629,9 +655,23 @@ and the fix plan, none of it implemented yet:
    leaf-marker mapping, tree-selector cursor; tests use the method.
 7. sdk-render `pathUpToBoundary(path, leaf: TreeNodeRef | undefined)`
    (match via treeNodeRefsEqual) — revert my string-ification.
-8. tree-selector: DELETE `boundaryToUndo`; summary picks are ordinary
-   user-row picks; only actual boundary rows undo. Update spec criterion
-   5 (currently says summary-row picks = boundary undo) + tests.
+8. tree-selector: DELETE `boundaryToUndo`; only actual boundary rows
+   undo. Summary picks (Anton's semantics: compaction stays in effect,
+   summary as-is, no editorText) emit `{kind: "setChain", uuids}` — the
+   uuids-form set-context; the old summary entry is itself a preserved
+   uuid, so the appended boundary reproduces the compacted context
+   exactly (P9 a; approach B, chosen over teaching the daemon
+   non-assistant rewind targets, whose no-write resumeSessionAt path is
+   unprobed for user-type leaves). interactive-mode routes the new kind
+   to set-context. REFINEMENT during implementation (flagged to Anton):
+   the chain is the FRESH-COMPACTION context — `loadedContextUuids` of
+   the file truncated just after the summary entry = summary +
+   preserved chain — not "installed chain truncated at the summary" as
+   first planned: for an up_to boundary the installed chain is
+   [summary, ...preserved], so truncating at the summary would drop the
+   preserved tail (rows displayed ABOVE the picked row), which is not
+   "compaction still in effect". Identical for the from shape. Spec
+   criterion 5 updated + tests.
 9. set-context final-entry validation: dedupe first — build
    firstIndexOf(uuid→first index); a later entry only invalidates if it
    IS a first occurrence (kills both re-persisted target copies and
@@ -654,7 +694,13 @@ and the fix plan, none of it implemented yet:
 Order: loader.ts rewrite + tests → build-tree → display-tree + consumers
 (format/tree, tree-selector, interactive-mode) → sdk-render →
 set-context → comment audit → spec criterion 5 + this entry → treefmt ×2
-→ presubmit.
+→ presubmit. Executed in that order; spec sections updated alongside:
+Ground truth (normalization caveat), criteria 1/5/7, Type design
+(CompactBoundary required fields, effectiveParent signature,
+parentOfPreserved → TreeNodeRef, loadedContext next-append semantics,
+DisplayTree class with nearestVisibleRow, consumer bullets), Edge cases
+(metadata-less-normalizes-to-wipe divergence, legacy-segment bullet).
+Open item still pending Anton: leaf-marker predicate re-dump.
 
 - [x] `src/core/tree/` scaffolding: move `nodes.ts`, port `loader.ts` with
       dump-cited tests

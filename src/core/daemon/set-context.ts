@@ -93,17 +93,26 @@ export function createSetContextHandler(
     // Only the FINAL transcript entry of an assistant API message is a valid
     // target: it keeps the chain answer-terminated with whole API messages —
     // resumeSessionAt and getSessionMessages behavior for mid-message
-    // siblings (e.g. a thinking entry) is untested.
-    // Re-persisted copies of the target itself (same uuid — a legal file
-    // shape; see cli-history-repersistence FINDINGS) share its message.id
-    // and are not later siblings.
+    // siblings (e.g. a thinking entry) is untested. Re-persisted copies (a
+    // legal file shape; see cli-history-repersistence FINDINGS) share their
+    // original's message.id without being later siblings — of the target
+    // itself, or of its EARLIER siblings — so only an entry's first
+    // occurrence counts.
+    const firstOccurrence = new Set<number>();
+    const seenUuids = new Set<UUID>();
+    for (const [index, entry] of entries.entries()) {
+      if (entry.uuid !== undefined && !seenUuids.has(entry.uuid)) {
+        seenUuids.add(entry.uuid);
+        firstOccurrence.add(index);
+      }
+    }
     const apiMessageId = (target.message as { id?: string } | undefined)?.id;
     if (
       apiMessageId !== undefined &&
-      entries.slice(targetIndex + 1).some(
-        (entry) =>
-          // TDC: wait, but won't the re-persisted _earlier_ siblings be considered as later siblings by this test? I think we need to prune all re-persisted entries before applying this test.
-          entry.uuid !== target.uuid &&
+      entries.some(
+        (entry, index) =>
+          index > targetIndex &&
+          firstOccurrence.has(index) &&
           (entry.message as { id?: string } | undefined)?.id === apiMessageId,
       )
     ) {

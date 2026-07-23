@@ -281,7 +281,7 @@ test("pathUpToBoundary drops ordinary rows after the leaf row", () => {
     pathNode("user", uuid(3)),
     pathNode("assistant", uuid(4)),
   ];
-  const result = pathUpToBoundary(path, uuid(2));
+  const result = pathUpToBoundary(path, { uuid: uuid(2) });
   assert.deepEqual(pathUuids(result.nodes), [uuid(1), uuid(2)]);
   assert.equal(result.boundaryMissing, false);
 });
@@ -300,7 +300,7 @@ test("pathUpToBoundary keeps post-leaf boundary and summary rows", () => {
     pathNode("user", uuid(8), { isCompactSummary: true, parentUuid: boundary }),
     pathNode("assistant", uuid(4)),
   ];
-  const result = pathUpToBoundary(path, uuid(2));
+  const result = pathUpToBoundary(path, { uuid: uuid(2) });
   assert.deepEqual(pathUuids(result.nodes), [
     uuid(1),
     uuid(2),
@@ -320,7 +320,7 @@ test("pathUpToBoundary without a leaf row returns the whole path", () => {
 
 test("pathUpToBoundary with an absent leaf row returns everything, flagged", () => {
   const path = [pathNode("user", uuid(1))];
-  assert.deepEqual(pathUpToBoundary(path, uuid(7)), {
+  assert.deepEqual(pathUpToBoundary(path, { uuid: uuid(7) }), {
     nodes: path,
     boundaryMissing: true,
   });

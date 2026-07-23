@@ -103,13 +103,10 @@ test("up_to compaction of a linear conversation renders linearly (criterion 2)",
   const s = summaryEntry(b.uuid, sid, summaryUuid);
   const e5 = userEntry(e4.uuid, sid);
   const entries = [e1, e2, e3, e4, b, s, e5];
-  const { parentMap, visibleRowOf } = toDisplayTree(
-    buildTree(entries, failOnInvalid),
-    entries,
-  );
+  const display = toDisplayTree(buildTree(entries, failOnInvalid), entries);
   // One straight line: 1→2→3→4→B→S→5; the relinked rows are hidden.
   assert.deepEqual(
-    [...parentMap],
+    [...display.parentMap],
     [
       [e1.uuid, null],
       [e2.uuid, e1.uuid],
@@ -120,13 +117,17 @@ test("up_to compaction of a linear conversation renders linearly (criterion 2)",
       [e5.uuid, summaryUuid],
     ],
   );
-  assert.deepEqual(
-    [...visibleRowOf],
-    [
-      [`${e3.uuid}@${b.uuid}`, summaryUuid],
-      [`${e4.uuid}@${b.uuid}`, summaryUuid],
-    ],
-  );
+  // The hidden relinked rows display as the summary row.
+  for (const hiddenUuid of [e3.uuid, e4.uuid]) {
+    assert.deepEqual(
+      display.nearestVisibleRow({ uuid: hiddenUuid, viaBoundary: b.uuid }),
+      { uuid: summaryUuid },
+    );
+  }
+  // A visible ref displays as itself.
+  assert.deepEqual(display.nearestVisibleRow({ uuid: e5.uuid }), {
+    uuid: e5.uuid,
+  });
 });
 
 test("stacked compactions render as one straight line (criterion 2)", () => {
@@ -155,12 +156,9 @@ test("stacked compactions render as one straight line (criterion 2)", () => {
   const s2 = summaryEntry(b2.uuid, sid, s2Uuid);
   const e7 = userEntry(e6.uuid, sid);
   const entries = [e1, e2, e3, e4, b1, s1, e5, e6, b2, s2, e7];
-  const { parentMap, visibleRowOf } = toDisplayTree(
-    buildTree(entries, failOnInvalid),
-    entries,
-  );
+  const display = toDisplayTree(buildTree(entries, failOnInvalid), entries);
   assert.deepEqual(
-    [...parentMap],
+    [...display.parentMap],
     [
       [e1.uuid, null],
       [e2.uuid, e1.uuid],
@@ -175,15 +173,21 @@ test("stacked compactions render as one straight line (criterion 2)", () => {
       [e7.uuid, s2Uuid],
     ],
   );
-  assert.deepEqual(
-    new Map(visibleRowOf),
-    new Map([
-      [`${e3.uuid}@${b1.uuid}`, s1Uuid],
-      [`${e4.uuid}@${b1.uuid}`, s1Uuid],
-      [`${e5.uuid}@${b2.uuid}`, s2Uuid],
-      [`${e6.uuid}@${b2.uuid}`, s2Uuid],
-    ]),
-  );
+  // Each boundary's hidden block displays as its own summary row.
+  for (const [hiddenUuid, boundaryUuid, rowUuid] of [
+    [e3.uuid, b1.uuid, s1Uuid],
+    [e4.uuid, b1.uuid, s1Uuid],
+    [e5.uuid, b2.uuid, s2Uuid],
+    [e6.uuid, b2.uuid, s2Uuid],
+  ] as const) {
+    assert.deepEqual(
+      display.nearestVisibleRow({
+        uuid: hiddenUuid,
+        viaBoundary: boundaryUuid,
+      }),
+      { uuid: rowUuid },
+    );
+  }
 });
 
 test("from-shape rewind with summary and a new turn: boundary forks off the rewind target", () => {
@@ -227,13 +231,10 @@ test("boundary rewind with no summary and no new turn is invisible (criterion 3)
     logicalParentUuid: e2.uuid,
   });
   const entries = [e1, e2, e3, e4, x];
-  const { parentMap, visibleRowOf } = toDisplayTree(
-    buildTree(entries, failOnInvalid),
-    entries,
-  );
+  const display = toDisplayTree(buildTree(entries, failOnInvalid), entries);
   // Indistinguishable from a plain tail rewind: 1 → 2 → 3 → 4, no X row.
   assert.deepEqual(
-    [...parentMap],
+    [...display.parentMap],
     [
       [e1.uuid, null],
       [e2.uuid, e1.uuid],
@@ -241,10 +242,18 @@ test("boundary rewind with no summary and no new turn is invisible (criterion 3)
       [e4.uuid, e3.uuid],
     ],
   );
-  // The leaf ref 2@X maps to visible row 2 for the marker.
-  assert.equal(visibleRowOf.get(`${e2.uuid}@${x.uuid}`), e2.uuid);
-  assert.equal(visibleRowOf.get(`${e1.uuid}@${x.uuid}`), e2.uuid);
-  assert.equal(visibleRowOf.get(x.uuid), e2.uuid);
+  // The leaf ref 2@X displays as visible row 2 for the marker.
+  assert.deepEqual(
+    display.nearestVisibleRow({ uuid: e2.uuid, viaBoundary: x.uuid }),
+    { uuid: e2.uuid },
+  );
+  assert.deepEqual(
+    display.nearestVisibleRow({ uuid: e1.uuid, viaBoundary: x.uuid }),
+    { uuid: e2.uuid },
+  );
+  assert.deepEqual(display.nearestVisibleRow({ uuid: x.uuid }), {
+    uuid: e2.uuid,
+  });
 });
 
 test("stacked no-descendant boundaries cascade away (rule 3 fixpoint)", () => {
@@ -265,19 +274,20 @@ test("stacked no-descendant boundaries cascade away (rule 3 fixpoint)", () => {
     logicalParentUuid: e2.uuid,
   });
   const entries = [e1, e2, x1, x2];
-  const { parentMap, visibleRowOf } = toDisplayTree(
-    buildTree(entries, failOnInvalid),
-    entries,
-  );
+  const display = toDisplayTree(buildTree(entries, failOnInvalid), entries);
   assert.deepEqual(
-    [...parentMap],
+    [...display.parentMap],
     [
       [e1.uuid, null],
       [e2.uuid, e1.uuid],
     ],
   );
-  assert.equal(visibleRowOf.get(x1.uuid), e2.uuid);
-  assert.equal(visibleRowOf.get(x2.uuid), e1.uuid);
+  assert.deepEqual(display.nearestVisibleRow({ uuid: x1.uuid }), {
+    uuid: e2.uuid,
+  });
+  assert.deepEqual(display.nearestVisibleRow({ uuid: x2.uuid }), {
+    uuid: e1.uuid,
+  });
 });
 
 test("boundaries with no applicable relink stay visible in place", () => {
@@ -292,12 +302,12 @@ test("boundaries with no applicable relink stay visible in place", () => {
     logicalParentUuid: e2.uuid,
   });
   const entries = [e1, e2, wipe];
-  const { parentMap, visibleRowOf } = toDisplayTree(
+  const { parentMap } = toDisplayTree(
     buildTree(entries, failOnInvalid),
     entries,
   );
   assert.equal(parentMap.get(wipe.uuid), e2.uuid);
-  assert.equal(visibleRowOf.size, 0);
+  assert.equal(parentMap.size, 3);
 
   // An invalid relink keeps its boundary visible too.
   const invalid = boundaryEntry({
@@ -342,23 +352,20 @@ test("a duplicated boundary uuid is first-wins even when the first copy is metad
     },
   };
   const entries = [e1, e2, metadataless, validCopy];
-  const { parentMap, visibleRowOf } = toDisplayTree(
-    buildTree(entries, failOnInvalid),
-    entries,
-  );
+  const display = toDisplayTree(buildTree(entries, failOnInvalid), entries);
   // The metadata-less first occurrence governs: B stays visible in place.
   assert.deepEqual(
-    [...parentMap],
+    [...display.parentMap],
     [
       [e1.uuid, null],
       [e2.uuid, e1.uuid],
       [bUuid, e2.uuid],
     ],
   );
-  assert.equal(visibleRowOf.size, 0);
+  assert.deepEqual(display.nearestVisibleRow({ uuid: bUuid }), { uuid: bUuid });
 });
 
-test("a rootless hidden chain maps to null", () => {
+test("a rootless hidden chain displays no row", () => {
   const sid = uuid();
   const e1 = userEntry(null, sid);
   // Dangling anchor: the block roots in the full tree; its rows have no
@@ -370,9 +377,12 @@ test("a rootless hidden chain maps to null", () => {
     logicalParentUuid: e1.uuid,
   });
   const entries = [e1, b];
-  const { visibleRowOf } = toDisplayTree(
+  const display = toDisplayTree(
     buildTree(entries, () => {}),
     entries,
   );
-  assert.equal(visibleRowOf.get(`${e1.uuid}@${b.uuid}`), null);
+  assert.equal(
+    display.nearestVisibleRow({ uuid: e1.uuid, viaBoundary: b.uuid }),
+    undefined,
+  );
 });

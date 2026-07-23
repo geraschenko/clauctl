@@ -898,6 +898,25 @@ test("rewind to an assistant with a re-persisted later copy succeeds", async () 
   assert.deepEqual(f.restarts, [{ resume: f.sessionId, at: a1.uuid }]);
 });
 
+// Re-persisted copies of the target's EARLIER siblings land after the
+// target in file order while sharing its message.id — they are not later
+// siblings either.
+test("rewind to an assistant with a re-persisted earlier sibling succeeds", async () => {
+  const f = fixture();
+  const sid = f.sessionId;
+  const u1 = userEntry(null, sid);
+  const thinking = assistantEntry(u1.uuid, sid, "msg_shared");
+  const text = assistantEntry(thinking.uuid, sid, "msg_shared");
+  f.writeEntries([u1, thinking, text, u1, thinking, text]);
+  const result = await f.handle({
+    type: "set-context",
+    rewindTo: { uuid: text.uuid },
+    id: "c1",
+  });
+  assert.deepEqual(result, {});
+  assert.deepEqual(f.restarts, [{ resume: f.sessionId, at: text.uuid }]);
+});
+
 // P10: after an empty-uuids wipe the first real prompt parents onto the
 // boundary itself, so parentage alone cannot distinguish it from a summary —
 // only the isCompactSummary child leaves the window open.

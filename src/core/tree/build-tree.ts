@@ -19,17 +19,13 @@ import {
 /** Every occurrence: raw entries under their parents as interpreted
  *  through the latest boundary encountered so far (effectiveParent,
  *  decorated to `uuid@B` keys when the parent uuid is among that
- *  boundary's preserved uuids), plus each boundary's relinked block
- *  `uuids[i]@B → preservedParent(i)` — emitted only when the boundary
- *  carries preservedMessages AND invalidRelinkReason returns undefined —
- *  at the boundary's file position (the block's one genuine forward
- *  reference is the up_to anchor's raw occurrence, which arrives after
- *  the boundary; a final pass nulls parents that never materialized). EVERY
- *  encountered boundary becomes the latest — an invalid, empty, or
- *  metadata-less boundary contributes no rules but still ends the
- *  previous boundary's effect (last-wins). Boundary entries anchor at
- *  logicalParentUuid, resolved through the boundary in effect before
- *  them like any other parent reference.
+ *  boundary's preserved uuids), plus each valid boundary's relinked block
+ *  `uuids[i]@B → parentOfPreserved(i)` at the boundary's file position
+ *  (the block's one genuine forward reference is the up_to anchor's raw
+ *  occurrence, which arrives after the boundary; a final pass nulls
+ *  parents that never materialized). EVERY encountered boundary becomes
+ *  the latest — an invalid or empty boundary contributes no rules but
+ *  still ends the previous boundary's effect (last-wins).
  *  Exactly one raw occurrence per uuid-bearing entry — a duplicate occurrence
  *  key is first-wins: the repeat entry is skipped entirely — no edge
  *  overwrite, no re-emitted block, and a re-appended boundary entry does
@@ -39,7 +35,7 @@ export function buildTree(
   entries: SessionEntry[],
   onInvalid: OnInvalid,
 ): ParentMap {
-  // Step-3 validation is anywhere-in-file (loader-faithful).
+  // Validation is anywhere-in-file (loader-faithful).
   const fileUuids = new Set<UUID>();
   for (const entry of entries) {
     if (entry.uuid !== undefined) {
@@ -63,37 +59,22 @@ export function buildTree(
     if (parentMap.has(key)) {
       continue; // a re-persisted copy, skipped entirely (first-wins)
     }
-    const isBoundaryEntry = entry.subtype === "compact_boundary";
-    // Boundaries carry parentUuid null; their tree anchor is
-    // logicalParentUuid, resolved through the boundary in effect before
-    // them like any other parent reference.
-    const anchored: SessionEntry = isBoundaryEntry
-      ? { ...entry, parentUuid: entry.parentUuid ?? entry.logicalParentUuid }
-      : entry;
-    const parentUuid =
-      latest === undefined
-        ? (anchored.parentUuid ?? undefined)
-        : effectiveParent(latest.boundary, anchored);
+    const parentUuid = effectiveParent(latest?.boundary, entry);
     const parentKey =
       parentUuid === undefined
         ? null
-        : latest !== undefined && latest.preservedSet.has(parentUuid)
-          ? // TDC: here we should be using formatTreeNodeRef regardless. But we should set viaBoundary based on the above condition. DO NOT assume that formatTreeNodeRef({uuid, undefined}) === uuid.
-            formatTreeNodeRef({
-              uuid: parentUuid,
-              viaBoundary: latest.boundary.uuid,
-            })
-          : parentUuid;
+        : formatTreeNodeRef(
+            latest !== undefined && latest.preservedSet.has(parentUuid)
+              ? { uuid: parentUuid, viaBoundary: latest.boundary.uuid }
+              : { uuid: parentUuid },
+          );
     parentMap.set(key, parentKey);
-    if (!isBoundaryEntry) {
+    if (entry.subtype !== "compact_boundary") {
       continue;
     }
 
     latest = undefined;
     const boundary = compactBoundaryAt(entries, index);
-    if (boundary.preservedMessages === undefined) {
-      continue;
-    }
     const invalidReason = invalidRelinkReason(fileUuids, boundary);
     if (invalidReason !== undefined) {
       onInvalid(`boundary ${boundary.uuid}: relink skipped — ${invalidReason}`);
@@ -101,18 +82,9 @@ export function buildTree(
     }
     const preservedUuids = boundary.preservedMessages.uuids;
     for (const [preservedIndex, preservedUuid] of preservedUuids.entries()) {
-      const blockParent = parentOfPreserved(boundary, preservedIndex);
       parentMap.set(
         formatTreeNodeRef({ uuid: preservedUuid, viaBoundary: boundary.uuid }),
-        blockParent === undefined
-          ? null
-          : // TDC: the fact that we have to do this dance here suggests that preservedParent should return a TreeNodeRef, not a UUID. The caller should not have to know whether to set viaBoundary.
-            preservedIndex === 0
-            ? blockParent // the anchor's raw occurrence
-            : formatTreeNodeRef({
-                uuid: blockParent,
-                viaBoundary: boundary.uuid,
-              }),
+        formatTreeNodeRef(parentOfPreserved(boundary, preservedIndex)),
       );
     }
     if (preservedUuids.length > 0) {

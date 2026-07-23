@@ -268,9 +268,9 @@ export function formatTreeNodeLine(
  * snapshot's entries, adapts it to LayoutNode<SessionEntry>[], calls
  * flattenVisibleTree, renders lines + the cursor line. `raw` mode renders
  * buildTree's output verbatim; every other mode renders the display tree,
- * with the leaf marker mapped through `visibleRowOf` when the leaf
- * occurrence is hidden (the `[cursor: …]` line keeps the true leaf uuid;
- * a null-mapped leaf renders no marker). Layout ids are the tree keys.
+ * with the leaf marker on the visible row that carries a hidden leaf
+ * occurrence (the `[cursor: …]` line keeps the true leaf uuid; a leaf on
+ * a rootless hidden chain renders no marker). Layout ids are the tree keys.
  * Relink diagnostics are declared-ignored: interleaving them with the
  * rendered tree would corrupt the output, and invalid relinks still
  * render (un-relinked). */
@@ -279,21 +279,21 @@ export function formatSessionSnapshot(
   options: TreeFormatOptions,
 ): string {
   const entryOf = entriesByUuid(snapshot.entries);
-  const leafId =
-    snapshot.leaf === null ? null : formatTreeNodeRef(snapshot.leaf);
   const fullTree = buildTree(snapshot.entries, () => {});
   let parentMap: ParentMap;
   let currentLeafId: string | null;
   if (options.filter === "raw") {
     parentMap = fullTree;
-    currentLeafId = leafId;
+    currentLeafId =
+      snapshot.leaf === null ? null : formatTreeNodeRef(snapshot.leaf);
   } else {
     const displayTree = toDisplayTree(fullTree, snapshot.entries);
     parentMap = displayTree.parentMap;
-    currentLeafId =
-      leafId === null || parentMap.has(leafId)
-        ? leafId
-        : (displayTree.visibleRowOf.get(leafId) ?? null);
+    const leafRow =
+      snapshot.leaf === null
+        ? undefined
+        : displayTree.nearestVisibleRow(snapshot.leaf);
+    currentLeafId = leafRow === undefined ? null : formatTreeNodeRef(leafRow);
   }
   const toolNames = collectToolNames(snapshot.entries);
   const finalIds = collectFinalAssistantIds(

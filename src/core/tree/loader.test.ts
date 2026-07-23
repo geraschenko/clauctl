@@ -1,7 +1,7 @@
 /**
- * Test cases transliterated from the decompiled loader transform — step
- * numbers cite docs/specs/session-tree.md "Ground truth", probe ids (e.g.
- * P10, P3 m4) cite docs/derisk/compact-boundary-injection/FINDINGS.md.
+ * Test cases transliterated from the decompiled loader transform recorded
+ * in docs/specs/session-tree.md "Ground truth"; probe ids (e.g. P10,
+ * P3 m4) cite docs/derisk/compact-boundary-injection/FINDINGS.md.
  */
 
 import assert from "node:assert/strict";
@@ -129,21 +129,45 @@ test("compactBoundaryAt parses preservedMessages and throws on a non-boundary", 
   );
 });
 
-test("compactBoundaryAt: a metadata-less boundary parses without preservedMessages", () => {
+test("compactBoundaryAt: absent preservedMessages normalizes to a wipe", () => {
   const sid = uuid();
   const bare = bareBoundaryEntry(sid);
-  assert.deepEqual(compactBoundaryAt([bare], 0), { uuid: bare.uuid });
-  // Legacy segment-only metadata reads the same way (named divergence).
+  assert.deepEqual(compactBoundaryAt([bare], 0), {
+    uuid: bare.uuid,
+    preservedMessages: { anchorUuid: bare.uuid, uuids: [] },
+  });
+  // Legacy segment-only metadata normalizes the same way.
   const segmentOnly = {
     ...bareBoundaryEntry(sid),
     compactMetadata: { preservedSegment: { startUuid: uuid() } },
   };
   assert.deepEqual(compactBoundaryAt([segmentOnly], 0), {
     uuid: segmentOnly.uuid,
+    preservedMessages: { anchorUuid: segmentOnly.uuid, uuids: [] },
   });
 });
 
-test("invalidRelinkReason: step-3 missing uuid, P3 m4 duplicate, valid otherwise", () => {
+test("compactBoundaryAt: present-but-malformed preservedMessages throws", () => {
+  const sid = uuid();
+  const noUuidsArray = {
+    ...bareBoundaryEntry(sid),
+    compactMetadata: { preservedMessages: { anchorUuid: uuid() } },
+  };
+  assert.throws(
+    () => compactBoundaryAt([noUuidsArray], 0),
+    /malformed preservedMessages/,
+  );
+  const noAnchor = {
+    ...bareBoundaryEntry(sid),
+    compactMetadata: { preservedMessages: { uuids: [uuid()] } },
+  };
+  assert.throws(
+    () => compactBoundaryAt([noAnchor], 0),
+    /malformed preservedMessages/,
+  );
+});
+
+test("invalidRelinkReason: missing uuid, P3 m4 duplicate, valid otherwise", () => {
   const sid = uuid();
   const u1 = userEntry(null, sid);
   const fileUuids = new Set([u1.uuid]);
@@ -207,6 +231,8 @@ test("effectiveParent: the anchor-child rule, uuids[0] exempt", () => {
   );
   const anchorChild = userEntry(anchor, sid);
   assert.equal(effectiveParent(boundary, anchorChild), u2.uuid);
+  // No relink in effect: the raw parent, always.
+  assert.equal(effectiveParent(undefined, anchorChild), anchor);
   // uuids[0] keeps its raw parent even when it points at the anchor.
   assert.equal(
     effectiveParent(boundary, { ...u1, parentUuid: anchor }),
@@ -216,7 +242,28 @@ test("effectiveParent: the anchor-child rule, uuids[0] exempt", () => {
   assert.equal(effectiveParent(boundary, u2), u1.uuid);
 });
 
-test("preservedParent: the chain-rewrite rule", () => {
+test("effectiveParent: a compact_boundary entry hangs off its logicalParentUuid", () => {
+  const sid = uuid();
+  const tip = uuid();
+  const entry = boundaryEntry({
+    sessionId: sid,
+    uuids: [],
+    anchor: "own",
+    logicalParentUuid: tip,
+  });
+  assert.equal(effectiveParent(undefined, entry), tip);
+  // A raw parent, when present, wins over the logical anchor.
+  const rawParent = uuid();
+  assert.equal(
+    effectiveParent(undefined, { ...entry, parentUuid: rawParent }),
+    rawParent,
+  );
+  // Non-boundary entries never use logicalParentUuid.
+  const user = { ...userEntry(null, sid), logicalParentUuid: tip };
+  assert.equal(effectiveParent(undefined, user), undefined);
+});
+
+test("parentOfPreserved: the chain-rewrite rule", () => {
   const sid = uuid();
   const u1 = userEntry(null, sid);
   const u2 = userEntry(u1.uuid, sid);
@@ -225,8 +272,11 @@ test("preservedParent: the chain-rewrite rule", () => {
     [boundaryEntry({ sessionId: sid, uuids: [u1.uuid, u2.uuid], anchor })],
     0,
   );
-  assert.equal(parentOfPreserved(boundary, 0), anchor);
-  assert.equal(parentOfPreserved(boundary, 1), u1.uuid);
+  assert.deepEqual(parentOfPreserved(boundary, 0), { uuid: anchor });
+  assert.deepEqual(parentOfPreserved(boundary, 1), {
+    uuid: u1.uuid,
+    viaBoundary: boundary.uuid,
+  });
   assert.throws(() => parentOfPreserved(boundary, 2), /no preserved uuid/);
 });
 
@@ -245,26 +295,25 @@ test("no boundary: the raw walk from the last entry (later branch wins)", () => 
   ]);
 });
 
-test("step 1: no metadata anywhere means no transform — and no cut", () => {
+test("a metadata-less boundary cuts like a wipe (named divergence)", () => {
   const sid = uuid();
   const u1 = userEntry(null, sid);
   const a1 = assistantEntry(u1.uuid, sid);
   const bare = bareBoundaryEntry(sid);
-  // File ends at the boundary: the walk finds no user/assistant leaf.
   assert.deepEqual(loadedContextUuids([u1, a1, bare], failOnInvalid), []);
-  // A post-boundary turn parenting into pre-boundary history walks straight
-  // through — nothing was cut.
+  // The binary loads a file with NO metadata-bearing boundary untransformed;
+  // our normalization cuts at the last boundary instead (hand-crafted/legacy
+  // files only — see the spec's Edge cases). The post-boundary turn's parent
+  // is cut, so it stands alone.
   const u2 = userEntry(a1.uuid, sid);
   assert.deepEqual(loadedContextUuids([u1, a1, bare, u2], failOnInvalid), [
-    u1.uuid,
-    a1.uuid,
     u2.uuid,
   ]);
 });
 
 // --- loadedContext: the cut without rules -----------------------------------
 
-test("step 2+5: trailing metadata-less boundary after a metadata boundary cuts, preserving nothing", () => {
+test("a trailing metadata-less boundary supersedes an earlier metadata boundary, preserving nothing", () => {
   const sid = uuid();
   const u1 = userEntry(null, sid);
   const a1 = assistantEntry(u1.uuid, sid);
@@ -284,7 +333,7 @@ test("step 2+5: trailing metadata-less boundary after a metadata boundary cuts, 
   ]);
 });
 
-test("step 5, P10: a trailing valid empty-uuids boundary wipes the context", () => {
+test("P10: a trailing valid empty-uuids boundary wipes the context", () => {
   const sid = uuid();
   const u1 = userEntry(null, sid);
   const a1 = assistantEntry(u1.uuid, sid);
@@ -294,7 +343,7 @@ test("step 5, P10: a trailing valid empty-uuids boundary wipes the context", () 
 
 // --- loadedContext: abort ----------------------------------------------------
 
-test("step 3: a missing preserved uuid aborts the whole transform — no rewrite AND no cut", () => {
+test("a missing preserved uuid aborts the whole transform — no rewrite AND no cut", () => {
   const sid = uuid();
   const u1 = userEntry(null, sid);
   const a1 = assistantEntry(u1.uuid, sid);
@@ -370,7 +419,7 @@ test("an anchor among the preserved uuids aborts the same way (deliberate diverg
 
 // --- loadedContext: the rules -------------------------------------------------
 
-test("step 4+6, up_to shape: chain rewrite hangs the preserved uuids under the summary; single-tip leaf", () => {
+test("up_to shape: chain rewrite hangs the preserved uuids under the summary; single-tip leaf", () => {
   const sid = uuid();
   const u1 = userEntry(null, sid);
   const a1 = assistantEntry(u1.uuid, sid);
@@ -385,7 +434,7 @@ test("step 4+6, up_to shape: chain rewrite hangs the preserved uuids under the s
   const summary = summaryEntry(boundary.uuid, sid, summaryUuid);
   const base = [u1, a1, u2, a2, boundary, summary];
   // The file ends at the summary, but the leaf is the preserved tail: the
-  // chain rewrite leaves exactly one dangling tip (step 6).
+  // chain rewrite leaves exactly one dangling tip.
   assert.deepEqual(loadedContext(base, failOnInvalid), [
     { uuid: summaryUuid },
     { uuid: u2.uuid, viaBoundary: boundary.uuid },
@@ -401,7 +450,7 @@ test("step 4+6, up_to shape: chain rewrite hangs the preserved uuids under the s
   ]);
 });
 
-test("step 4, from shape: the anchor-child rule reparents the summary onto the preserved tail; the summary ref is bare", () => {
+test("from shape: the anchor-child rule reparents the summary onto the preserved tail; the summary ref is bare", () => {
   const sid = uuid();
   const u1 = userEntry(null, sid);
   const a1 = assistantEntry(u1.uuid, sid);
@@ -476,7 +525,7 @@ test("a truncated file ignores later boundaries", () => {
   assert.deepEqual(loadedContextUuids(entries, failOnInvalid), [a1.uuid]);
 });
 
-test("step 5: orphan reparent lands a surviving turn on the preserved tail", () => {
+test("orphan reparent lands a surviving turn on the preserved tail", () => {
   const sid = uuid();
   const u1 = userEntry(null, sid);
   const a1 = assistantEntry(u1.uuid, sid);
@@ -495,7 +544,7 @@ test("step 5: orphan reparent lands a surviving turn on the preserved tail", () 
 
 // --- loadedContext: leaf selection ------------------------------------------
 
-test("step 6: multiple tips fall back to the last file entry; trailing system entries are not the leaf", () => {
+test("multiple tips fall back to the last file entry; trailing system entries are not the leaf", () => {
   const sid = uuid();
   const u1 = userEntry(null, sid);
   const a1 = assistantEntry(u1.uuid, sid);
