@@ -81,7 +81,10 @@ Caveats: binary v2.1.170 vs probes on v2.1.195/2.1.211 — every probe
 observation in `docs/derisk/compact-boundary-injection/FINDINGS.md` is
 consistent with this code except P3 m4's duplicate-uuid skip, which has no
 visible check here (version drift, or downstream cycle detection). We keep
-the duplicate-uuid validation, justified by the probe.
+that validation, justified by the probe — it concerns duplicates WITHIN a
+preserved list, distinct from duplicate file entries, which are legal
+re-persisted copies (see Edge cases and
+`docs/derisk/cli-history-repersistence/FINDINGS.md`).
 
 ## Success criteria
 
@@ -91,8 +94,9 @@ the duplicate-uuid validation, justified by the probe.
    preserved), valid empty list (pure wipe), missing preserved uuid
    (abort — no rewrite AND no cut), anchor-child reparent, chain rewrite,
    orphan reparent, single-tip and multi-tip leaf selection. Scope:
-   `preservedMessages` boundaries; deliberate divergences (duplicate
-   uuids, legacy segments, usage zeroing) are named in Edge cases.
+   `preservedMessages` boundaries; deliberate divergences (preserved-list
+   duplicate rejection, legacy segments, usage zeroing) are named in Edge
+   cases.
 2. A native up_to compaction of a linear conversation renders linearly
    (default filter modes) — see the concrete example below. Several
    stacked compactions render as one straight line.
@@ -115,9 +119,12 @@ the duplicate-uuid validation, justified by the probe.
    after a fresh compaction: marker on the summary row, cursor on the
    preserved tip). A leaf whose `visibleRowOf` entry is null renders no
    marker.
-8. Diagnostics: invalid relinks (missing/duplicated preserved uuid),
-   dangling anchors, and parent cycles report through `OnInvalid` and
-   degrade per the Edge cases; a duplicate occurrence key throws.
+8. Diagnostics: invalid relinks (missing preserved uuid, duplicates
+   WITHIN a preserved list), dangling anchors, and parent cycles report
+   through `OnInvalid` and degrade per the Edge cases. Duplicate raw
+   uuids in the file are tolerated silently — re-persisted entries, a
+   legal CLI file shape (see Edge cases): first-wins for tree edges,
+   last-wins for content and `loadedContext`.
 
 ## Concrete examples
 
@@ -138,7 +145,8 @@ raw mode                          default modes
 ```
 
 Full tree: `S` under `B` (raw parent), `3@B` under `S` (chain rewrite),
-`4@B` under `3@B`, `5` under `4@B` (last-boundary lens). Display: hide
+`4@B` under `3@B`, `5` under `4@B` (parent decorated through the latest
+boundary). Display: hide
 `3@B`/`4@B`, reparent `B` onto raw `4`; `5`'s nearest visible ancestor is
 `S`. Display order shows `S` after `3,4` although the loaded context is
 `[S,3,4,5]` — accepted display fiction; `raw` mode shows the full
@@ -279,35 +287,48 @@ export function loadedContextUuids(
 ): UUID[];
 ```
 
-Deleted with no replacement: `BoundaryRelink`, `validRelink`.
+Deleted with no replacement: `BoundaryRelink`, `validRelink`, and
+`summaryOf` — its two call sites were block-extent proxies that
+reformulate onto `loadedContextUuids`:
+
+- `set-context.ts` (viaBoundary rewind): "the chain the boundary
+  installed" becomes `loadedContextUuids` of the file truncated at the
+  NEXT `compact_boundary` (or EOF) instead of at the boundary's block
+  end; the existing cut-at-target slice discards any post-block turns
+  (the target is an assistant entry, never the summary).
+- `get-messages.ts` (synthesis window): open iff the last user/assistant
+  entry in file order has `parentUuid === lastBoundary.uuid` — the
+  summary parents onto the boundary in both shapes, and every
+  window-closing turn parents onto the loaded tip, which is never the
+  boundary (verify both reformulations against the existing fixtures
+  during implementation).
+
 `seedFromEntries` moves to `src/core/session-seed.ts` unchanged except for
-calling `loadedContext`. `summaryOf` SURVIVES but leaves the loader model:
-it is clauctl bookkeeping about summaries clauctl (or the CLI) wrote —
-`get-messages.ts` (synthesis-window closure) and `set-context.ts`
-(boundary-block end) still need it — and moves to
-`src/core/session-file.ts` next to the other entry-scan utilities.
-TDC: This is suspicious. I don't think get-messages or set-context should need summaryOf. I think they just need loadedContextUuids, and the current use of summaryOf is effectively reimplementing the logic we're trying to extract.
+calling `loadedContext`.
 
 **`src/core/tree/build-tree.ts`**
 
 ```ts
-// TDC: DO NOT use the "lens" terminology you made up. We don't need new terminology for something that already has a name. "Latest boundary", "last boundary", or just "compaction boundary" already covers this concept. A "lens" is not a _different_ thing.
-/** Every occurrence: raw entries under their lens parents
- *  (effectiveParent, decorated to `uuid@B` keys when the parent uuid is
- *  among the lens boundary's preserved uuids), plus each boundary's
- *  relinked block `uuids[i]@B → preservedParent(i)` — emitted only when
- *  the boundary carries preservedMessages AND invalidRelinkReason
- *  returns undefined — at the boundary's file position
- *  (block parent keys may be forward references: the up_to anchor, or a
- *  preserved uuid naming a later entry; a final pass nulls parents that
- *  never materialized). Lens lifecycle: EVERY encountered boundary
- *  replaces the lens — invalid, empty, or metadata-less boundaries
- *  install a lens with no rules, ending the previous boundary's
- *  (last-wins). Boundary entries anchor at logicalParentUuid, resolved
- *  through the prior lens's decoration like any other parent reference.
+/** Every occurrence: raw entries under their parents as interpreted
+ *  through the latest boundary encountered so far (effectiveParent,
+ *  decorated to `uuid@B` keys when the parent uuid is among that
+ *  boundary's preserved uuids), plus each boundary's relinked block
+ *  `uuids[i]@B → preservedParent(i)` — emitted only when the boundary
+ *  carries preservedMessages AND invalidRelinkReason returns undefined —
+ *  at the boundary's file position (block parent keys may be forward
+ *  references: the up_to anchor, or a preserved uuid naming a later
+ *  entry; a final pass nulls parents that never materialized). EVERY
+ *  encountered boundary becomes the latest — an invalid, empty, or
+ *  metadata-less boundary contributes no rules but still ends the
+ *  previous boundary's effect (last-wins). Boundary entries anchor at
+ *  logicalParentUuid, resolved through the boundary in effect before
+ *  them like any other parent reference.
  *  Exactly one raw occurrence per uuid-bearing entry — no occurrence map,
- *  no pending state, no summary special case. Throws on a duplicate
- *  occurrence key. */
+ *  no pending state, no summary special case. A duplicate occurrence key
+ *  is first-wins: the repeat entry is skipped entirely — no edge
+ *  overwrite, no re-emitted block, and a re-appended boundary entry does
+ *  not become the latest boundary. Silent — a legal CLI file shape (see
+ *  Edge cases). */
 export function buildTree(
   entries: SessionEntry[],
   onInvalid: OnInvalid,
@@ -379,7 +400,8 @@ belong to the `buildTree` call).
 - Full migration surface (mechanical renames/imports beyond the above):
   `src/core/daemon/request-handlers.ts`, `daemon.ts`, `set-context.ts`,
   `get-messages.ts` (`effectiveChain`/`effectiveTreeNodeChain` →
-  `loadedContext*`, `summaryOf` import path), `src/format/input.ts` and
+  `loadedContext*`, `summaryOf` call-site reformulations per Type
+  design), `src/format/input.ts` and
   daemon startup (`seedFromEntries` relocation), plus tests and doc
   comments referencing the old occurrence semantics.
 
@@ -431,16 +453,26 @@ graph TD
 - **Preserved uuid naming a LATER entry** (hand-crafted): valid per the
   loader. `buildTree`'s block emits with forward parent keys that resolve
   when the raw rows arrive; the final pass nulls any that never do.
-- **Duplicate raw uuids in the file**: the loader's uuid-keyed map
-  silently keeps the last entry; `buildTree` throws on the duplicate
-  occurrence key instead — clauctl treats it as corruption worth
-  surfacing loudly.
+- **Duplicate raw uuids in the file**: not corruption — the CLI
+  re-persists dropped-from-context history immediately before a later
+  /compact, with relinks materialized into raw `parentUuid` pointers
+  (`docs/derisk/cli-history-repersistence/FINDINGS.md`). Content lookups
+  (`entriesByUuid`) and the `loadedContext` transform are last-wins,
+  matching the loader's uuid-keyed map. Edges (`buildTree`) are
+  FIRST-wins: a copy is re-persisted under a different latest boundary
+  than its original, so replaying its edges would reinterpret them — a
+  problem the loader never faces (it never recomputes context further
+  back than the file's current last boundary) — and the copies'
+  materialized parents under last-wins would make display rule 1
+  (boundary → raw `uuids.last()`) cyclic on the observed file shape.
+  Skipped silently, no `onInvalid`: a report would fire on every fetch
+  of a legal file.
 - **Up_to anchor entry never arrives** (corrupt): the block's forward
   anchor reference dangles; the final `buildTree` pass nulls it (block
   becomes a root fork), `onInvalid` reports it.
 - **Entry parenting into an earlier boundary's preserved region** after a
-  later boundary exists: raw parent (the lens knows nothing of earlier
-  boundaries) — matches the loader's last-wins, diverges from the old
+  later boundary exists: raw parent (only the latest boundary decorates) —
+  matches the loader's last-wins, diverges from the old
   occurrence-composition behavior. Not observed in native files (post-
   boundary writes parent onto the active playlist only).
 - **Boundary whose logicalParentUuid is absent/unknown**: root, as today.
@@ -461,10 +493,14 @@ graph TD
   is not modeled — `loadedContext` returns refs, not rewritten payloads;
   legacy segment-only (`preservedSegment`) boundaries parse as
   metadata-less (the loader resolves them via a tail→head walk and they
-  relink fine per P1e-4 — a real divergence on old organic sessions,
-  kept from the current code); duplicate-uuid relinks are rejected where
-  the 2.1.170 binary shows no check (P3 m4 observed the skip on 2.1.195);
-  any wire-protocol or set-context change.
+  relink fine per P1e-4 — a divergence with zero observed exposure: every
+  local session file with `preservedSegment` also carries
+  `preservedMessages`; should it ever bite, the fix is confined to
+  `compactBoundaryAt` — walk tail→head over raw parentUuid and yield
+  ordinary `preservedMessages`); preserved lists containing duplicate
+  uuids are rejected where the 2.1.170 binary shows no check (P3 m4
+  observed the skip on 2.1.195); any wire-protocol or set-context
+  change.
 
 # IMPLEMENTATION IDEAS
 
@@ -494,6 +530,15 @@ graph TD
   caller (byte ~242272200 in the 2.1.170 binary) while implementing and
   pin each predicate; until then, match the existing effective-chain
   fixtures on native shapes.
+- Duplicate-tolerance verification: run `buildTree` and `loadedContext`
+  over a COPY of the real affected session named in
+  `docs/specs/repersisted-duplicates-handoff.md` (237 duplicated uuids) —
+  no throw, one raw occurrence per uuid; do not commit session files or
+  their contents. Collateral from that handoff: flip the tests asserting
+  the duplicate throw (`build-tree.test.ts`, `format/tree.test.ts`), add
+  a re-persist-block fixture test, and fix the now-false comments
+  (`entriesByUuid` in `session-file.ts`, `format/input.ts` ~line 111,
+  P2 d scope note in the compact-boundary-injection FINDINGS).
 
 # WORK LOG
 
@@ -507,9 +552,24 @@ encountered.
       shapes)
 - [ ] `display-tree.ts` + tests (success criteria 2, 3, and the examples)
 - [ ] Consumers: `format/tree.ts`, tree-selector, reloadHistory; delete
-      `dedupedPathNodes`, `validRelink`, old modules; move `summaryOf` to
-      `session-file.ts`
+      `dedupedPathNodes`, `validRelink`, `summaryOf`, old modules;
+      reformulate the two `summaryOf` call sites per Type design
 - [ ] Presubmit + full test suite
+
+## 2026-07-22 — TDC round: terminology, summaryOf, duplicate uuids
+
+Anton's review comments (e8ad242) plus the cli-history-repersistence
+finding (separate thread). Decisions folded in: "lens" terminology
+dropped (the concept is just the latest boundary encountered so far);
+`summaryOf` deleted — both daemon call sites were block-extent proxies
+and reformulate onto `loadedContextUuids` (set-context: truncate at the
+NEXT boundary; get-messages window: last user/assistant entry parents
+onto the last boundary); duplicate raw uuids are legal re-persisted
+entries, not corruption — last-wins for content/`loadedContext`
+(loader-faithful), first-wins for `buildTree` edges (copies are
+re-persisted under a different latest boundary, so replaying their edges
+would reinterpret them; the loader never recomputes that far back, and
+last-wins edges would make display rule 1 cyclic on the observed file).
 
 ## 2026-07-22 — reviewer pass (pre-implementation)
 
@@ -523,8 +583,9 @@ distinct; `summaryOf` survives for daemon bookkeeping (synthesis window,
 block end) and moves to `session-file.ts`; `visibleRowOf` values now
 nullable for rootless hidden chains; empty-list (wipe) boundaries stay
 visible; segment-only contradiction removed; "exact messages"/"O(n)
-single-pass" overclaims softened; stacked worked example added; lens
-lifecycle and logicalParent decoration made explicit. Pushed back
+single-pass" overclaims softened; stacked worked example added;
+latest-boundary lifecycle and logicalParent decoration made explicit.
+Pushed back
 (reviewer accepted): discriminated-union parse result, renames of
 `visibleRowOf`/`loadedContext`. Verdict: approved, conditional on two
 owner decisions — legacy `preservedSegment` modeling, and the from-shape
