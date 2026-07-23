@@ -36,14 +36,14 @@ after the duplicates were written, including three more compacts).
 
 ## Timeline of the session
 
-| when (UTC)     | event                                                                                          | evidence                                                                       |
-| -------------- | ---------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
-| Jul 21 23:45   | manual `/compact` — boundary `2cab8750…` (line 584), preserves `1064cc5c…`                      | native boundary, `gitBranch: main`                                             |
-| Jul 22 ~01:24  | esc-esc rewind: lines 833–900 abandoned (line 905's parent is line 830)                         | clauctl no-write rewind → `resumeSessionAt` query restart (P2 d path)          |
-| Jul 22 01:33   | manual `/compact` — boundary `19ac29da…` (line 947), preserves `f0db8495…`                      | summarizes the chain from the 23:45 boundary block down to line 940            |
-| 01:33–04:58    | conversation continues normally (lines 948–1448)                                               |                                                                                |
-| Jul 22 05:00   | manual `/compact` — boundary `4355252c…` (line 1689). **Immediately before it, the CLI appended lines 1452–1688: 237 re-persisted copies of earlier entries.** | the duplication event                                                          |
-| Jul 22 05:20+  | archive → re-attach → `history fetch failed`; repeats on every attach                          | `audit.jsonl`, `daemon.log`                                                    |
+| when (UTC)    | event                                                                                                                                                          | evidence                                                              |
+| ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------- |
+| Jul 21 23:45  | manual `/compact` — boundary `2cab8750…` (line 584), preserves `1064cc5c…`                                                                                     | native boundary, `gitBranch: main`                                    |
+| Jul 22 ~01:24 | esc-esc rewind: lines 833–900 abandoned (line 905's parent is line 830)                                                                                        | clauctl no-write rewind → `resumeSessionAt` query restart (P2 d path) |
+| Jul 22 01:33  | manual `/compact` — boundary `19ac29da…` (line 947), preserves `f0db8495…`                                                                                     | summarizes the chain from the 23:45 boundary block down to line 940   |
+| 01:33–04:58   | conversation continues normally (lines 948–1448)                                                                                                               |                                                                       |
+| Jul 22 05:00  | manual `/compact` — boundary `4355252c…` (line 1689). **Immediately before it, the CLI appended lines 1452–1688: 237 re-persisted copies of earlier entries.** | the duplication event                                                 |
+| Jul 22 05:20+ | archive → re-attach → `history fetch failed`; repeats on every attach                                                                                          | `audit.jsonl`, `daemon.log`                                           |
 
 ## What exactly was duplicated
 
@@ -59,15 +59,15 @@ dropped-from-context segment.
 
 Field-by-field diff of all 237 first/second pairs:
 
-| field           | pairs differing | nature                                                                                                    |
-| --------------- | --------------- | ---------------------------------------------------------------------------------------------------------- |
+| field           | pairs differing | nature                                                                                                                                        |
+| --------------- | --------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
 | `gitBranch`     | 14              | restamped `main` → `keybindings` (only originals written before the branch switch differ) — proves a live process re-serialized at write time |
-| `toolUseResult` | 50              | value re-normalized                                                                                          |
-| `promptId`      | 10              | value changed                                                                                                |
-| `attachment`    | 7               | value re-normalized                                                                                          |
-| `parentUuid`    | 2               | **the boundary relink materialized into raw pointers** (below)                                              |
-| `message`       | 1               | `usage` zeroed on the preserved message's copy                                                               |
-| `slug`          | 1               | added                                                                                                        |
+| `toolUseResult` | 50              | value re-normalized                                                                                                                           |
+| `promptId`      | 10              | value changed                                                                                                                                 |
+| `attachment`    | 7               | value re-normalized                                                                                                                           |
+| `parentUuid`    | 2               | **the boundary relink materialized into raw pointers** (below)                                                                                |
+| `message`       | 1               | `usage` zeroed on the preserved message's copy                                                                                                |
+| `slug`          | 1               | added                                                                                                                                         |
 
 The two `parentUuid` rewrites are the smoking gun: the preserved message
 `1064cc5c…`'s copy parents onto the summary `b3b31b3f…` (its original raw

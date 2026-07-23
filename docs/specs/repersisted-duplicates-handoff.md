@@ -1,7 +1,7 @@
 # Handoff: tolerate CLI-re-persisted duplicate uuids in `buildTree`
 
 For the agent refactoring `buildTree`: fold this into the refactor. The
-symptom, diagnosis, and agreed *semantics* below are settled with Anton;
+symptom, diagnosis, and agreed _semantics_ below are settled with Anton;
 the implementation details are deliberately left open so they can follow
 the refactored shape.
 
@@ -37,10 +37,10 @@ hypothesis): `docs/derisk/cli-history-repersistence/FINDINGS.md`.
 TDC: I didn't agree to this. The agent that wrote this doc is a bullshitter. I think we should probably do first-wins or last-wins everywhere.
 
 1. **First occurrence wins for tree placement.** A repeated raw uuid is
-   skipped *entirely* by tree construction — no new occurrence, no parent
+   skipped _entirely_ by tree construction — no new occurrence, no parent
    re-binding, and no boundary side effects (a re-appended
    `compact_boundary` entry must not re-emit its relink substructure).
-   Rationale: the tree records where an entry *happened*; relinks are
+   Rationale: the tree records where an entry _happened_; relinks are
    already represented explicitly (`viaBoundary` occurrences), and the
    copy's materialized parent is a restatement of that relink, not new
    history. Last-wins would overwrite the original raw edge and encode the
@@ -59,7 +59,7 @@ TDC: I didn't agree to this. The agent that wrote this doc is a bullshitter. I t
 
 - Now-false comments: the `buildTree` docstring paragraph ("valid files
   cannot produce one"), the `entriesByUuid` comment in
-  `src/core/session-file.ts` ("duplicate *detection* is buildTree's job"),
+  `src/core/session-file.ts` ("duplicate _detection_ is buildTree's job"),
   and the duplicate-corruption note in `src/format/input.ts` (~line 111).
   Add a scope note to P2 d in
   `docs/derisk/compact-boundary-injection/FINDINGS.md`: the rewind itself

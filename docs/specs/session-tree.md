@@ -1,6 +1,7 @@
 # Spec: session tree — loader model, full tree, display tree
 
-> Status: **draft, awaiting review.** Supersedes
+> Status: **approved for implementation** (reviewer pass + owner
+> decisions resolved, 2026-07-22; see WORK LOG). Supersedes
 > `docs/specs/boundary-display-linearization.md` (whose user-facing goals
 > carry over, but whose mechanism was built on a guessed loader model) and
 > rewrites the relink machinery from `docs/specs/boundary-substructure.md`.
@@ -555,6 +556,14 @@ encountered.
       `dedupedPathNodes`, `validRelink`, `summaryOf`, old modules;
       reformulate the two `summaryOf` call sites per Type design
 - [ ] Presubmit + full test suite
+
+## 2026-07-22 — approved for implementation
+
+All reviewer conditions and owner decisions resolved. Implementation
+builds FORWARD from the tree as committed (no revert of the discarded
+boundary-display-linearization files — they all get rewritten or moved
+anyway). Anton verified the loader's relink logic is unchanged at the
+latest CLI version, so the 2.1.170 dump stands as ground truth.
 
 ## 2026-07-22 — TDC round: terminology, summaryOf, duplicate uuids
 
