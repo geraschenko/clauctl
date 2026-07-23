@@ -183,8 +183,13 @@ export function loadedContext(
   // boundary carrying preservedMessages. No metadata anywhere → no
   // transform at all.
   const cutIndex = entries.findLastIndex(isBoundary);
-  let lastValidBoundary: { index: number; boundary: Required<CompactBoundary> } | undefined;
-  for (let index = cutIndex; index >= 0 && lastValidBoundary === undefined; index -= 1) {
+  let lastValidBoundary:
+    { index: number; boundary: Required<CompactBoundary> } | undefined;
+  for (
+    let index = cutIndex;
+    index >= 0 && lastValidBoundary === undefined;
+    index -= 1
+  ) {
     if (!isBoundary(entries[index]!)) {
       continue;
     }
@@ -210,7 +215,10 @@ export function loadedContext(
     // transform — no rewrite AND no cut.
     const abortReason =
       lastValidBoundary.index === cutIndex
-        ? invalidRelinkReason(new Set(byUuid.keys()), lastValidBoundary.boundary)
+        ? invalidRelinkReason(
+            new Set(byUuid.keys()),
+            lastValidBoundary.boundary,
+          )
         : undefined;
     if (abortReason !== undefined) {
       onInvalid(
@@ -218,7 +226,9 @@ export function loadedContext(
       );
     } else {
       const preservedUuids =
-        lastValidBoundary.index === cutIndex ? lastValidBoundary.boundary.preservedMessages.uuids : [];
+        lastValidBoundary.index === cutIndex
+          ? lastValidBoundary.boundary.preservedMessages.uuids
+          : [];
       if (preservedUuids.length > 0) {
         // TDC: What's with this comment? I don't want you re-describing the implementation of effectiveParent. The whole point of that function was to centralize the logic in one place. Spreading it across comments is a TERRIBLE idea.
         // Step 4: anchor-child reparent (on raw parents), then the chain

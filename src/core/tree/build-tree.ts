@@ -78,8 +78,8 @@ export function buildTree(
       parentUuid === undefined
         ? null
         : latest !== undefined && latest.preservedSet.has(parentUuid)
-          // TDC: here we should be using formatTreeNodeRef regardless. But we should set viaBoundary based on the above condition. DO NOT assume that formatTreeNodeRef({uuid, undefined}) === uuid.
-          ? formatTreeNodeRef({
+          ? // TDC: here we should be using formatTreeNodeRef regardless. But we should set viaBoundary based on the above condition. DO NOT assume that formatTreeNodeRef({uuid, undefined}) === uuid.
+            formatTreeNodeRef({
               uuid: parentUuid,
               viaBoundary: latest.boundary.uuid,
             })
@@ -106,8 +106,8 @@ export function buildTree(
         formatTreeNodeRef({ uuid: preservedUuid, viaBoundary: boundary.uuid }),
         blockParent === undefined
           ? null
-          // TDC: the fact that we have to do this dance here suggests that preservedParent should return a TreeNodeRef, not a UUID. The caller should not have to know whether to set viaBoundary.
-          : preservedIndex === 0
+          : // TDC: the fact that we have to do this dance here suggests that preservedParent should return a TreeNodeRef, not a UUID. The caller should not have to know whether to set viaBoundary.
+            preservedIndex === 0
             ? blockParent // the anchor's raw occurrence
             : formatTreeNodeRef({
                 uuid: blockParent,

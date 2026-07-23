@@ -38,7 +38,7 @@ export interface DisplayTree {
  *  same entries — mismatched inputs are unchecked. No OnInvalid: boundary
  *  validity is re-derived without reporting (diagnostics belong to the
  *  buildTree call). */
- // TDC: Why not hide invalid and empty-list boundaries with no visible children?
+// TDC: Why not hide invalid and empty-list boundaries with no visible children?
 export function toDisplayTree(
   fullTree: ParentMap,
   entries: SessionEntry[],
@@ -71,7 +71,10 @@ export function toDisplayTree(
       preservedUuids.length > 0 &&
       invalidRelinkReason(fileUuids, boundary) === undefined
     ) {
-      parentOfBoundary.set(entry.uuid, preservedUuids[preservedUuids.length - 1]!);
+      parentOfBoundary.set(
+        entry.uuid,
+        preservedUuids[preservedUuids.length - 1]!,
+      );
     }
   }
 

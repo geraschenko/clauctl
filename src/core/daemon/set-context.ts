@@ -100,14 +100,12 @@ export function createSetContextHandler(
     const apiMessageId = (target.message as { id?: string } | undefined)?.id;
     if (
       apiMessageId !== undefined &&
-      entries
-        .slice(targetIndex + 1)
-        .some(
-          (entry) =>
-            // TDC: wait, but won't the re-persisted _earlier_ siblings be considered as later siblings by this test? I think we need to prune all re-persisted entries before applying this test.
-            entry.uuid !== target.uuid &&
-            (entry.message as { id?: string } | undefined)?.id === apiMessageId,
-        )
+      entries.slice(targetIndex + 1).some(
+        (entry) =>
+          // TDC: wait, but won't the re-persisted _earlier_ siblings be considered as later siblings by this test? I think we need to prune all re-persisted entries before applying this test.
+          entry.uuid !== target.uuid &&
+          (entry.message as { id?: string } | undefined)?.id === apiMessageId,
+      )
     ) {
       throw new Error(
         "set-context: rewindTo must be the FINAL transcript entry of its assistant API message (a later entry shares its message.id)",

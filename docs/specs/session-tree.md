@@ -561,6 +561,101 @@ graph TD
 tasks, mark completed ones with [x], document decisions and problems
 encountered.
 
+## 2026-07-23 — Anton's review round (c76f468), IN PROGRESS
+
+TDC comments + direct changes in c76f468 (his renames kept:
+`parentOfPreserved`, `parentOfBoundary`, `nearestVisibleAncestorCache`,
+header now v2.1.195). Answers already given in conversation; decisions
+and the fix plan, none of it implemented yet:
+
+1. `CompactBoundary`: `preservedMessages` AND `anchorUuid` both REQUIRED
+   (Anton's call, pre-compaction exchange). `compactBoundaryAt`
+   NORMALIZES absent preservedMessages (SDK: "unset when compaction
+   summarizes everything"; also legacy segment-only) to the wipe shape
+   `{anchorUuid: boundary.uuid, uuids: []}` — semantically equivalent
+   ("everything summarized" ⇒ nothing pre-boundary in context). NAMED
+   DIVERGENCE to add to Edge cases: a file where NO boundary carries
+   preservedMessages — the binary loads it untransformed (no cut); we
+   cut at the last boundary. Hand-crafted/legacy only. This kills the
+   look-beyond-the-latest-boundary metadata scan, the anyMetadata flag,
+   the `Required<CompactBoundary>` dance, and invalidRelinkReason's
+   metadata-less case. PRESENT but malformed metadata (uuids not an
+   array, anchorUuid missing) THROWS — keeps Anton's restored `.catch`
+   comment in interactive-mode accurate.
+2. `parentOfPreserved` returns `TreeNodeRef` (index 0 → `{uuid: anchor}`,
+   else `{uuid: uuids[i-1], viaBoundary}`), never undefined now;
+   buildTree's block loop becomes
+   `formatTreeNodeRef(parentOfPreserved(...))`.
+3. `effectiveParent(boundary | undefined, entry)`: absorbs boundary
+   logicalParentUuid anchoring (raw parent = parentUuid ??
+   logicalParentUuid for boundary entries) so buildTree drops its
+   `anchored` spread and always calls effectiveParent. CAVEAT (verified
+   by analysis, holds under Anton's next-append semantics too):
+   loadedContext must NOT let boundaries contribute edges — its parentOf
+   returns undefined for boundary entries (chain ends) and the tips pass
+   skips boundaries as edge sources. Otherwise the boundary's logical
+   anchor points at the preserved tail, every survivor becomes someone's
+   parent, single-tip detection dies, and a file ending at an up_to
+   summary collapses to [summary], losing the preserved chain. The
+   logical anchor is tree-domain placement, not a loaded-relation edge.
+4. `loadedContext` REWRITE (walk-back, no map mutation, no
+   build-then-delete). Doc states Anton's semantics: the context the
+   NEXT appended message will see (= loader transform of the current
+   file; a trailing valid boundary shows its relinked chain). One loop
+   builds byUuid (last-wins) + lastIndexOf; cutIndex = last boundary
+   (none → plain walk); boundary = compactBoundaryAt(cutIndex), always
+   metadata-bearing post-normalization; invalid list → onInvalid + plain
+   walk (abort: no relink, no cut); relink = boundary when uuids
+   non-empty; cutApplies = !aborted;
+   deleted(u) = cutApplies && lastIndexOf(u) < cutIndex && !preserved;
+   parentOf(uuid, entry) = boundary → undefined; preserved →
+   parentOfPreserved(...).uuid; else effectiveParent with orphan redirect
+   (parent deleted && entry user/assistant && tail exists →
+   preservedTail); leaf = single dangling tip over SURVIVORS (preserved ∪
+   uuids at/after cutIndex; boundaries skipped as edge sources) when
+   relink ran, else nearest user/assistant walk from last surviving
+   entry (deleted → stop); chain walk from leaf, boundaries/deleted end
+   it, viaBoundary iff preserved. Tips analysis is REQUIRED (file ending
+   at up_to summary: leaf = preserved tail, not derivable from last
+   entry) but only over survivors, not the file.
+5. buildTree parentKey: always `formatTreeNodeRef(...)`, viaBoundary set
+   conditionally (never assume format({uuid}) === uuid).
+6. display-tree: delete `walked`, iterate `onWalk` (same membership).
+   DisplayTree becomes a CLASS: public parentMap, PRIVATE visibleRowOf,
+   method taking TreeNodeRef → TreeNodeRef | undefined (visible → itself;
+   hidden → nearest visible ancestor's ref; explicit null → undefined;
+   absent from tree → itself so stale-leaf handling still warns). Callers
+   migrate: interactive-mode visibleRow closure deleted, format/tree.ts
+   leaf-marker mapping, tree-selector cursor; tests use the method.
+7. sdk-render `pathUpToBoundary(path, leaf: TreeNodeRef | undefined)`
+   (match via treeNodeRefsEqual) — revert my string-ification.
+8. tree-selector: DELETE `boundaryToUndo`; summary picks are ordinary
+   user-row picks; only actual boundary rows undo. Update spec criterion
+   5 (currently says summary-row picks = boundary undo) + tests.
+9. set-context final-entry validation: dedupe first — build
+   firstIndexOf(uuid→first index); a later entry only invalidates if it
+   IS a first occurrence (kills both re-persisted target copies and
+   re-persisted earlier-sibling copies). Add earlier-sibling test.
+10. COMMENT AUDIT (all files from this implementation): no step-number
+    jargon ("Step 3/4/5/6"), no implementation narration, no restating
+    effectiveParent's rule in comments; explain what + non-obvious why.
+    Keep probe ids (P10, P3 m4) with "see file comment" pattern. Keep
+    Anton's trimmed docstrings.
+11. Kept-as-is pending Anton: anchor-in-list rejection stays (no probe
+    observed the binary allowing it; inferred cycle from decompiled pass
+    order); invalid/empty-list boundaries stay visible (spec Edge cases:
+    wipe is a real event). Remove each TDC comment as its item lands.
+12. Test fallout from the normalization: "no metadata anywhere → no
+    transform" loader test flips to the named-divergence behavior (only
+    metadata-less boundaries → cut at the last one); metadata-less
+    parsing test now expects the wipe shape; ground-truth section and
+    success criterion 1 get the divergence note.
+
+Order: loader.ts rewrite + tests → build-tree → display-tree + consumers
+(format/tree, tree-selector, interactive-mode) → sdk-render →
+set-context → comment audit → spec criterion 5 + this entry → treefmt ×2
+→ presubmit.
+
 - [x] `src/core/tree/` scaffolding: move `nodes.ts`, port `loader.ts` with
       dump-cited tests
 - [x] `tree/build-tree.ts` + tests (native shapes, stacked boundaries, corrupt
