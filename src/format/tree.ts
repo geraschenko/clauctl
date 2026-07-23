@@ -8,8 +8,8 @@
  */
 
 import type { UUID } from "node:crypto";
-import { buildDisplayTree } from "../core/build-display-tree.ts";
-import { buildTree } from "../core/build-tree.ts";
+import { buildTree } from "../core/tree/build-tree.ts";
+import { toDisplayTree } from "../core/tree/display-tree.ts";
 import { entriesByUuid, type SessionEntry } from "../core/session-file.ts";
 import {
   treeChildren,
@@ -18,7 +18,7 @@ import {
   parseTreeNodeRef,
   type ParentMap,
   type SessionSnapshot,
-} from "../core/tree.ts";
+} from "../core/tree/nodes.ts";
 import { toLayoutTree } from "./generated/flat-tree.ts";
 import { extractTextContent, oneLine, truncateText } from "./generated/text.ts";
 import {
@@ -267,15 +267,13 @@ export function formatTreeNodeLine(
 /** Whole-input formatter for `format tree`: builds the tree from the
  * snapshot's entries, adapts it to LayoutNode<SessionEntry>[], calls
  * flattenVisibleTree, renders lines + the cursor line. `raw` mode renders
- * buildTree's output verbatim; every other mode renders the linearized
- * display tree, with the leaf marker mapped through `representativeOf`
- * when the leaf occurrence is hidden (the `[cursor: …]` line keeps the
- * true leaf uuid). Layout ids are the tree keys. Unique layout ids are a
- * checked precondition of the synced layout: `flattenVisibleTree` throws
- * on duplicates as a backstop (the tree builders throw first, with the
- * clearer message). Relink diagnostics are declared-ignored: interleaving
- * them with the rendered tree would corrupt the output, and invalid
- * relinks still render (un-relinked). */
+ * buildTree's output verbatim; every other mode renders the display tree,
+ * with the leaf marker mapped through `visibleRowOf` when the leaf
+ * occurrence is hidden (the `[cursor: …]` line keeps the true leaf uuid;
+ * a null-mapped leaf renders no marker). Layout ids are the tree keys.
+ * Relink diagnostics are declared-ignored: interleaving them with the
+ * rendered tree would corrupt the output, and invalid relinks still
+ * render (un-relinked). */
 export function formatSessionSnapshot(
   snapshot: SessionSnapshot,
   options: TreeFormatOptions,
@@ -283,18 +281,19 @@ export function formatSessionSnapshot(
   const entryOf = entriesByUuid(snapshot.entries);
   const leafId =
     snapshot.leaf === null ? null : formatTreeNodeRef(snapshot.leaf);
+  const fullTree = buildTree(snapshot.entries, () => {});
   let parentMap: ParentMap;
   let currentLeafId: string | null;
   if (options.filter === "raw") {
-    parentMap = buildTree(snapshot.entries, () => {});
+    parentMap = fullTree;
     currentLeafId = leafId;
   } else {
-    const displayTree = buildDisplayTree(snapshot.entries, () => {});
+    const displayTree = toDisplayTree(fullTree, snapshot.entries);
     parentMap = displayTree.parentMap;
     currentLeafId =
       leafId === null || parentMap.has(leafId)
         ? leafId
-        : (displayTree.representativeOf.get(leafId) ?? null);
+        : (displayTree.visibleRowOf.get(leafId) ?? null);
   }
   const toolNames = collectToolNames(snapshot.entries);
   const finalIds = collectFinalAssistantIds(

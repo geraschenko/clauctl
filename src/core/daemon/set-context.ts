@@ -12,13 +12,9 @@
 
 import type { UUID } from "node:crypto";
 import type { NonNullableUsage } from "@anthropic-ai/claude-agent-sdk";
-import {
-  effectiveChain,
-  effectiveTreeNodeChain,
-  summaryOf,
-} from "../effective-chain.ts";
+import { loadedContext, loadedContextUuids } from "../tree/loader.ts";
 import type { SetContextRequest, SetContextResult } from "../sdk-socket.ts";
-import type { TreeNodeRef } from "../tree.ts";
+import type { TreeNodeRef } from "../tree/nodes.ts";
 import {
   appendSessionEntries,
   buildBoundaryEntries,
@@ -98,6 +94,9 @@ export function createSetContextHandler(
     // target: it keeps the chain answer-terminated with whole API messages —
     // resumeSessionAt and getSessionMessages behavior for mid-message
     // siblings (e.g. a thinking entry) is untested.
+    // Re-persisted copies of the target itself (same uuid — a legal file
+    // shape; see cli-history-repersistence FINDINGS) share its message.id
+    // and are not later siblings.
     const apiMessageId = (target.message as { id?: string } | undefined)?.id;
     if (
       apiMessageId !== undefined &&
@@ -105,6 +104,7 @@ export function createSetContextHandler(
         .slice(targetIndex + 1)
         .some(
           (entry) =>
+            entry.uuid !== target.uuid &&
             (entry.message as { id?: string } | undefined)?.id === apiMessageId,
         )
     ) {
@@ -113,16 +113,17 @@ export function createSetContextHandler(
       );
     }
 
-    // The desired context per occurrence flavor, one effectiveChain call
+    // The desired context per occurrence flavor, one loadedContext call
     // either way. viaBoundary absent — "context as it was when the target
     // first appeared": loader semantics on the file truncated just after
     // the target. viaBoundary present — a prefix of the context that
-    // boundary installed: the chain of the file truncated after the
-    // boundary's block (its summary entry if present, else the boundary
-    // itself), cut at the target uuid.
+    // boundary installed: the chain of the file truncated at the NEXT
+    // compact_boundary (or EOF), cut at the target uuid — the target is an
+    // assistant entry, never the summary, so any post-block turns the
+    // truncation keeps are discarded by the cut.
     let desired: UUID[];
     if (rewindTo.viaBoundary === undefined) {
-      desired = effectiveChain(entries.slice(0, targetIndex + 1), deps.log);
+      desired = loadedContextUuids(entries.slice(0, targetIndex + 1), deps.log);
     } else {
       const boundaryIndex = entries.findIndex(
         (entry) => entry.uuid === rewindTo.viaBoundary,
@@ -135,13 +136,13 @@ export function createSetContextHandler(
           `set-context: rewindTo.viaBoundary ${rewindTo.viaBoundary} does not name a compact_boundary entry`,
         );
       }
-      const summaryUuid = summaryOf(entries, boundaryIndex)?.uuid;
-      const blockEnd =
-        summaryUuid === undefined
-          ? boundaryIndex
-          : entries.findIndex((entry) => entry.uuid === summaryUuid);
-      const installedChain = effectiveChain(
-        entries.slice(0, blockEnd + 1),
+      const nextBoundaryOffset = entries
+        .slice(boundaryIndex + 1)
+        .findIndex((entry) => entry.subtype === "compact_boundary");
+      const installedChain = loadedContextUuids(
+        nextBoundaryOffset === -1
+          ? entries
+          : entries.slice(0, boundaryIndex + 1 + nextBoundaryOffset),
         deps.log,
       );
       const targetPosition = installedChain.indexOf(rewindTo.uuid);
@@ -152,7 +153,7 @@ export function createSetContextHandler(
       }
       desired = installedChain.slice(0, targetPosition + 1);
     }
-    const activeRefs = effectiveTreeNodeChain(entries, deps.log);
+    const activeRefs = loadedContext(entries, deps.log);
     const active = activeRefs.map((ref) => ref.uuid);
     const targetPosition = active.indexOf(rewindTo.uuid);
 
@@ -287,7 +288,7 @@ export function createSetContextHandler(
         // effective chain, not `expected` — identical on success, and on a
         // verification failure get-messages still reflects the loader's
         // actual view.
-        const effectiveRefs = effectiveTreeNodeChain(
+        const effectiveRefs = loadedContext(
           readSessionEntries(filePath),
           deps.log,
         );
@@ -355,7 +356,7 @@ export function createSetContextHandler(
           anchor,
           logicalParentUuid:
             logicalTipOverride ??
-            effectiveChain(entries, deps.log).at(-1) ??
+            loadedContextUuids(entries, deps.log).at(-1) ??
             null,
           version: events.agentState.claudeCodeVersion,
           preTokens: preTokensOf(events.agentState.lastUsage),

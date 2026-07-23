@@ -17,7 +17,7 @@ import {
   type SDKUserMessage,
 } from "@anthropic-ai/claude-agent-sdk";
 import { INITIAL_AGENT_STATE } from "../agent-state.ts";
-import type { SessionSnapshot } from "../tree.ts";
+import type { SessionSnapshot } from "../tree/nodes.ts";
 import type { PersistedOptions } from "../options.ts";
 import {
   readSessionEntries,
@@ -26,6 +26,7 @@ import {
 } from "../session-file.ts";
 import type { SdkEvent, SdkRequestRecord } from "../sdk-socket.ts";
 import { EventHub } from "./event-hub.ts";
+import { startupOverride } from "./get-messages.ts";
 import {
   createRequestHandler,
   type RequestHandlerDeps,
@@ -34,6 +35,10 @@ import { RESPONSE_SENT, type SdkConnection } from "./sdk-server.ts";
 import type { TurnQueue } from "./turn-queue.ts";
 
 const uuid = (): UUID => randomUUID();
+
+const failOnInvalid = (message: string): never => {
+  throw new Error(`unexpected onInvalid: ${message}`);
+};
 
 // --- entry builders ------------------------------------------------------------
 
@@ -874,6 +879,45 @@ test("startup after the window closed passes get-messages through", async () => 
   );
 });
 
+// A re-persisted copy of the target itself shares its message.id; only a
+// genuine later sibling (same API message, different entry) invalidates it.
+test("rewind to an assistant with a re-persisted later copy succeeds", async () => {
+  const f = fixture();
+  const sid = f.sessionId;
+  const u1 = userEntry(null, sid);
+  const a1 = assistantEntry(u1.uuid, sid);
+  const u2 = userEntry(a1.uuid, sid);
+  const a2 = assistantEntry(u2.uuid, sid);
+  f.writeEntries([u1, a1, u2, a2, u1, a1]);
+  const result = await f.handle({
+    type: "set-context",
+    rewindTo: { uuid: a1.uuid },
+    id: "c1",
+  });
+  assert.deepEqual(result, {});
+  assert.deepEqual(f.restarts, [{ resume: f.sessionId, at: a1.uuid }]);
+});
+
+// P10: after an empty-uuids wipe the first real prompt parents onto the
+// boundary itself, so parentage alone cannot distinguish it from a summary —
+// only the isCompactSummary child leaves the window open.
+test("an empty-uuids wipe's first real turn closes the synthesis window (P10)", () => {
+  const sid = uuid();
+  const u1 = userEntry(null, sid);
+  const a1 = assistantEntry(u1.uuid, sid);
+  const wipe = boundaryEntry({ sessionId: sid, uuids: [], anchor: "own" });
+  const withSummary = [u1, a1, wipe, summaryEntry(wipe.uuid, sid)];
+  assert.equal(
+    startupOverride(withSummary, undefined, failOnInvalid)?.kind,
+    "synthesize",
+  );
+  const firstPrompt = userEntry(wipe.uuid, sid, "first post-wipe prompt");
+  assert.equal(
+    startupOverride([u1, a1, wipe, firstPrompt], undefined, failOnInvalid),
+    undefined,
+  );
+});
+
 test("rewind to a member of a boundary's preserved uuids resurrects the summarized region", async () => {
   const f = fixture();
   const sid = f.sessionId;
@@ -1200,6 +1244,40 @@ test("viaBoundary rewind into a superseded boundary's chain appends a prefix bou
     id: "g1",
   })) as SessionSnapshot;
   assert.deepEqual(snapshot.leaf, event.leaf);
+});
+
+test("viaBoundary rewind ignores post-block turns before the next boundary", async () => {
+  const f = fixture();
+  const { u1, a1, u2, a2 } = linearSession(f);
+  const first = boundaryEntry({
+    sessionId: f.sessionId,
+    uuids: [u1.uuid, a1.uuid],
+    anchor: "own",
+  });
+  // Turns on the first boundary's installed chain, before the second
+  // boundary supersedes it: the truncate-at-next-boundary file slice keeps
+  // them, the cut at the target discards them.
+  const p1 = userEntry(a1.uuid, f.sessionId, "post-block turn");
+  const p2 = assistantEntry(p1.uuid, f.sessionId);
+  const second = boundaryEntry({
+    sessionId: f.sessionId,
+    uuids: [p1.uuid, p2.uuid],
+    anchor: "own",
+  });
+  f.writeEntries([u1, a1, u2, a2, first, p1, p2, second]);
+
+  await f.handle({
+    type: "set-context",
+    rewindTo: { uuid: a1.uuid, viaBoundary: first.uuid },
+    id: "c1",
+  });
+  const appended = readSessionEntries(f.file).at(-1)!;
+  assert.equal(appended.subtype, "compact_boundary");
+  assert.deepEqual(
+    (appended.compactMetadata as { preservedMessages: { uuids: string[] } })
+      .preservedMessages.uuids,
+    [u1.uuid, a1.uuid],
+  );
 });
 
 test("viaBoundary rewind validates the boundary and the chain membership", async () => {

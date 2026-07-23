@@ -31,7 +31,7 @@ import {
   type InferFlags,
 } from "../generated/cli.ts";
 import { INITIAL_AGENT_STATE } from "../agent-state.ts";
-import { seedFromEntries } from "../effective-chain.ts";
+import { seedFromEntries } from "../session-seed.ts";
 import { invariantOptions, settingsSeed } from "../options.ts";
 import {
   agentDirPath,

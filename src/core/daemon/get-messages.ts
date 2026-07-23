@@ -10,17 +10,13 @@
  */
 
 import type { UUID } from "node:crypto";
-import {
-  effectiveChain,
-  summaryOf,
-  type OnInvalid,
-} from "../effective-chain.ts";
+import { loadedContextUuids, type OnInvalid } from "../tree/loader.ts";
 import {
   entryToSessionMessage,
   type SessionEntry,
   type SessionMessageOnWire,
 } from "../session-file.ts";
-import type { TreeNodeRef } from "../tree.ts";
+import type { TreeNodeRef } from "../tree/nodes.ts";
 
 /**
  * One override slot for get-messages, replaced by each successful
@@ -65,15 +61,19 @@ function synthesizeWindowChain(
   if (boundaryIndex === -1) {
     return undefined;
   }
-  const summaryUuid = summaryOf(entries, boundaryIndex)?.uuid;
+  // The boundary's summary is its isCompactSummary child (either anchor
+  // shape); any OTHER post-boundary user/assistant turn closes the window.
+  // Parentage alone cannot identify the summary: after an empty-uuids wipe
+  // the first real prompt also parents onto the boundary (P10).
+  const boundaryUuid = entries[boundaryIndex]!.uuid;
   const windowClosed = entries
     .slice(boundaryIndex + 1)
     .some(
       (entry) =>
         (entry.type === "user" || entry.type === "assistant") &&
-        entry.uuid !== summaryUuid,
+        !(entry.isCompactSummary === true && entry.parentUuid === boundaryUuid),
     );
-  return windowClosed ? undefined : effectiveChain(entries, onInvalid);
+  return windowClosed ? undefined : loadedContextUuids(entries, onInvalid);
 }
 
 /** The get-messages response for a synthesize override: the chain's entries

@@ -6,7 +6,7 @@ import type {
   SDKMessage,
   SDKUserMessage,
 } from "@anthropic-ai/claude-agent-sdk";
-import type { PathNode } from "../core/tree.ts";
+import type { PathNode } from "../core/tree/nodes.ts";
 import { TranscriptRenderer } from "./transcript.ts";
 
 // The Edit view's expanded diff reads pi's theme singleton; the TUI

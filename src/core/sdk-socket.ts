@@ -18,7 +18,7 @@ import type {
   Settings,
 } from "@anthropic-ai/claude-agent-sdk";
 import type { AgentState } from "./agent-state.ts";
-import type { TreeNodeRef } from "./tree.ts";
+import type { TreeNodeRef } from "./tree/nodes.ts";
 
 export const SDK_SOCKET_PROTOCOL = "clauctl-sdk-socket";
 export const SDK_SOCKET_VERSION = 1;

@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
 import type { UUID } from "node:crypto";
 import { test } from "node:test";
-import { buildDisplayTree } from "../../core/build-display-tree.ts";
-import { buildTree } from "../../core/build-tree.ts";
+import { buildTree } from "../../core/tree/build-tree.ts";
+import { toDisplayTree } from "../../core/tree/display-tree.ts";
 import { entriesByUuid, type SessionEntry } from "../../core/session-file.ts";
-import type { TreeNodeRef } from "../../core/tree.ts";
+import type { TreeNodeRef } from "../../core/tree/nodes.ts";
 import { resolveTreePick, TreeSelectorComponent } from "./tree-selector.ts";
 
 function uuid(n: number): UUID {
@@ -87,7 +87,7 @@ const ENTRIES = [
 ];
 const ENTRY_OF = entriesByUuid(ENTRIES);
 const PARENT_MAP = buildTree(ENTRIES, failOnInvalid);
-const DISPLAY_TREE = buildDisplayTree(ENTRIES, failOnInvalid);
+const DISPLAY_TREE = toDisplayTree(PARENT_MAP, ENTRIES);
 const LEAF: TreeNodeRef = { uuid: uuid(3), viaBoundary: BOUNDARY };
 
 function resolve(pick: TreeNodeRef): unknown {
@@ -151,9 +151,10 @@ test("resolveTreePick: summary pick is the same undo, no editorText", () => {
   });
 });
 
-// A from-shape summary's display row is the relinked occurrence S@B — its
-// pick is the same boundary undo, keyed off the entry, not the occurrence.
-test("resolveTreePick: from-shape relinked summary pick undoes its boundary", () => {
+// A from-shape summary's single occurrence is raw (the anchor-child rule
+// places it under the relinked tail) — its pick is the same boundary undo,
+// keyed off the entry, not the occurrence.
+test("resolveTreePick: from-shape summary pick undoes its boundary", () => {
   const entries = [
     userEntry(1, "hello"),
     assistantEntry(2, "reply", 1),
@@ -164,7 +165,7 @@ test("resolveTreePick: from-shape relinked summary pick undoes its boundary", ()
     buildTree(entries, failOnInvalid),
     entries,
     entriesByUuid(entries),
-    { uuid: uuid(4), viaBoundary: uuid(3) },
+    { uuid: uuid(4) },
     failOnInvalid,
   );
   assert.deepEqual(action, {
@@ -181,8 +182,8 @@ test("resolveTreePick: no assistant ancestor is a newRoot pick", () => {
 });
 
 // The pre-boundary context tip can itself be a relinked occurrence of an
-// older boundary — the undo resolves it via the pre-boundary effective
-// chain, not raw ancestors of logicalParentUuid.
+// older boundary — the undo resolves it via the pre-boundary loaded
+// context, not raw ancestors of logicalParentUuid.
 test("resolveTreePick: boundary undo lands on an older boundary's relinked tip", () => {
   const entries = [
     userEntry(1, "hello"),
@@ -289,7 +290,7 @@ function makeSelector(): {
   return { selector, picks, cancels };
 }
 
-test("selector shows the display rows with the leaf's representative pre-selected", () => {
+test("selector shows the display rows with the leaf's visible row pre-selected", () => {
   const { selector } = makeSelector();
   const summaries = renderedRows(selector).map((row) =>
     row.replace(/^[\s│├└─*•]*/u, ""),
@@ -305,8 +306,8 @@ test("selector shows the display rows with the leaf's representative pre-selecte
     "compaction: summary text",
     "assistant: answer two",
   ]);
-  // Initial selection: the hidden relinked leaf's representative, the
-  // summary row (block tail).
+  // Initial selection: the hidden relinked leaf's nearest visible row, the
+  // summary row.
   assert.match(selectedRow(selector)!, /\* compaction: summary text$/u);
 });
 

@@ -17,8 +17,8 @@ import {
   type Query,
   type SDKUserMessage,
 } from "@anthropic-ai/claude-agent-sdk";
-import { treeNodeRefsEqual, type SessionSnapshot } from "../tree.ts";
-import { effectiveTreeNodeChain } from "../effective-chain.ts";
+import { treeNodeRefsEqual, type SessionSnapshot } from "../tree/nodes.ts";
+import { loadedContext } from "../tree/loader.ts";
 import { settingsSeed, type PersistedOptions } from "../options.ts";
 import {
   readEntriesAfterStreamFlush,
@@ -331,10 +331,10 @@ export function createRequestHandler(
           const active = freshOverride();
           const chain =
             active?.kind === "filterTail"
-              ? effectiveTreeNodeChain(entries, deps.log).filter(
+              ? loadedContext(entries, deps.log).filter(
                   (ref) => !active.droppedUuids.has(ref.uuid),
                 )
-              : effectiveTreeNodeChain(entries, deps.log);
+              : loadedContext(entries, deps.log);
           const snapshot: SessionSnapshot = {
             entries,
             leaf: chain.at(-1) ?? null,

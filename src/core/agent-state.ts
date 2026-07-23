@@ -41,7 +41,7 @@ import type {
   SDKUserMessage,
 } from "@anthropic-ai/claude-agent-sdk";
 import type { SdkEvent } from "./sdk-socket.ts";
-import type { TreeNodeRef } from "./tree.ts";
+import type { TreeNodeRef } from "./tree/nodes.ts";
 
 export type AgentActivity = "idle" | "pending" | "working" | "compacting";
 
@@ -95,7 +95,7 @@ export const INITIAL_AGENT_STATE: AgentState = {
  * the numeric token counters are defaulted to 0 (arithmetic over them never
  * sees a hole); other null fields are dropped rather than given made-up
  * non-null values. Also used to coerce usage objects read back from session
- * file entries (effective-chain.ts seedFromEntries).
+ * file entries (session-seed.ts seedFromEntries).
  */
 export function toNonNullableUsage(
   usage: SDKAssistantMessage["message"]["usage"],

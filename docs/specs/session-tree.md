@@ -96,8 +96,8 @@ re-persisted copies (see Edge cases and
    (abort — no rewrite AND no cut), anchor-child reparent, chain rewrite,
    orphan reparent, single-tip and multi-tip leaf selection. Scope:
    `preservedMessages` boundaries; deliberate divergences (preserved-list
-   duplicate rejection, legacy segments, usage zeroing) are named in Edge
-   cases.
+   duplicate rejection, anchor-in-list rejection, legacy segments, usage
+   zeroing) are named in Edge cases.
 2. A native up_to compaction of a linear conversation renders linearly
    (default filter modes) — see the concrete example below. Several
    stacked compactions render as one straight line.
@@ -121,7 +121,8 @@ re-persisted copies (see Edge cases and
    preserved tip). A leaf whose `visibleRowOf` entry is null renders no
    marker.
 8. Diagnostics: invalid relinks (missing preserved uuid, duplicates
-   WITHIN a preserved list), dangling anchors, and parent cycles report
+   WITHIN a preserved list, an anchor among the preserved uuids), dangling
+   anchors, and parent cycles report
    through `OnInvalid` and degrade per the Edge cases. Duplicate raw
    uuids in the file are tolerated silently — re-persisted entries, a
    legal CLI file shape (see Edge cases): first-wins for tree edges,
@@ -239,10 +240,11 @@ export function compactBoundaryAt(
 /** Step-3 validation, written once: the reason this boundary's relink
  *  must not apply — a preserved uuid naming no file entry
  *  (loader-observed; anywhere in the file, NOT just earlier — the loader
- *  validates against the complete map) or a duplicated uuid
- *  (probe-observed, P3 m4) — or undefined when the relink applies.
- *  loadedContext aborts its transform on it; buildTree emits no block;
- *  both report it through their onInvalid. */
+ *  validates against the complete map), a duplicated uuid
+ *  (probe-observed, P3 m4), or the anchor appearing among the preserved
+ *  uuids (deliberate divergence; see Edge cases) — or undefined when the
+ *  relink applies. loadedContext aborts its transform on it; buildTree
+ *  emits no block; both report it through their onInvalid. */
 export function invalidRelinkReason(
   fileUuids: ReadonlySet<UUID>,
   boundary: CompactBoundary,
@@ -297,12 +299,16 @@ reformulate onto `loadedContextUuids`:
   NEXT `compact_boundary` (or EOF) instead of at the boundary's block
   end; the existing cut-at-target slice discards any post-block turns
   (the target is an assistant entry, never the summary).
-- `get-messages.ts` (synthesis window): open iff the last user/assistant
-  entry in file order has `parentUuid === lastBoundary.uuid` — the
-  summary parents onto the boundary in both shapes, and every
-  window-closing turn parents onto the loaded tip, which is never the
-  boundary (verify both reformulations against the existing fixtures
-  during implementation).
+- `get-messages.ts` (synthesis window): closed iff a POST-boundary
+  user/assistant entry exists that is not the boundary's summary, where
+  the summary is identified as `isCompactSummary === true &&
+  parentUuid === lastBoundary.uuid`. Parentage alone cannot identify the
+  summary: after an empty-uuids wipe the first REAL prompt also parents
+  onto the boundary (P10). (Two drafts corrected during implementation —
+  "last user/assistant in file order" misread a no-summary boundary with
+  no post entries as closed; "parentUuid !== boundary closes" misread the
+  post-wipe prompt as a summary — both caught by verifying against
+  fixtures per this bullet's original instruction; see WORK LOG.)
 
 `seedFromEntries` moves to `src/core/session-seed.ts` unchanged except for
 calling `loadedContext`.
@@ -428,10 +434,11 @@ graph TD
 ## Cost
 
 - Compute/memory: each layer parses boundaries once per invocation and
-  runs in O(n) with small maps (the display transform needs a child-count
-  pass before pruning — forward block references mean rows are NOT
-  strictly children-after-parents in materialization order). Negligible
-  at session-file scale.
+  runs in O(n) with small maps (display pruning marks every strict
+  ancestor of every plain row, each walk stopping at the first
+  already-marked node — forward block references mean rows are NOT
+  strictly children-after-parents in materialization order, so no single
+  ordered sweep works). Negligible at session-file scale.
 - The real cost is **regression surface**: this rewrites the shipped
   `effective-chain.ts`/`build-tree.ts` semantics and discards most of the
   uncommitted boundary-display-linearization implementation. Mitigations:
@@ -444,7 +451,8 @@ graph TD
 - **Empty `uuids`**: valid; rules no-op (children of the anchor stay put),
   the cut still deletes everything before the boundary (P10).
 - **Invalid relink** (`invalidRelinkReason` set — a preserved uuid naming
-  no file entry, or a duplicated uuid): the boundary emits no block,
+  no file entry, a duplicated uuid, or the anchor appearing among the
+  preserved uuids): the boundary emits no block,
   stays at its logicalParentUuid anchor, remains visible, and — distinct
   from a metadata-less boundary — ABORTS `loadedContext`'s transform
   (no cut; pre-boundary entries stay loadable-in-principle, though the
@@ -500,8 +508,14 @@ graph TD
   `compactBoundaryAt` — walk tail→head over raw parentUuid and yield
   ordinary `preservedMessages`); preserved lists containing duplicate
   uuids are rejected where the 2.1.170 binary shows no check (P3 m4
-  observed the skip on 2.1.195); any wire-protocol or set-context
-  change.
+  observed the skip on 2.1.195); an anchor appearing among the preserved
+  uuids is rejected where the binary proceeds — its sequential
+  rewrite-then-reparent passes self-parent the chain there (a parent
+  cycle), and the rejection is also what makes our
+  apply-on-raw-parents-then-override order equivalent to the binary's
+  sequential order everywhere the relink applies (real files never take
+  the shape: the anchor is the summary or the boundary's own uuid, never
+  preserved history); any wire-protocol or set-context change.
 
 # IMPLEMENTATION IDEAS
 
@@ -521,10 +535,10 @@ graph TD
 - `reloadHistory`'s raced-leaf fallback (leaf ref in neither `parentMap`
   nor `visibleRowOf`): keep today's semantics — warn and replay the full
   path — expressed in display rows.
-- Nearest-visible-ancestor + pruning needs a child-count (or inverted
-  children) pass first — forward block references mean materialization
-  order is NOT children-after-parents, so a single ordered sweep is not
-  sufficient.
+- Nearest-visible-ancestor + pruning cannot be a single ordered sweep —
+  forward block references mean materialization order is NOT
+  children-after-parents. Implemented as ancestor marking (pruning) and
+  memoized path compression (ancestor resolution), both O(n).
 - Leaf selection (step 6) has imprecise corners in our transcription:
   which entry kinds act as explicit leaf markers, uuid-less entries,
   a boundary as the sole dangling tip, cycles. Re-dump the transform's
@@ -547,15 +561,98 @@ graph TD
 tasks, mark completed ones with [x], document decisions and problems
 encountered.
 
-- [ ] `src/core/tree/` scaffolding: move `nodes.ts`, port `loader.ts` with
+- [x] `src/core/tree/` scaffolding: move `nodes.ts`, port `loader.ts` with
       dump-cited tests
-- [ ] `tree/build-tree.ts` + tests (native shapes, stacked boundaries, corrupt
+- [x] `tree/build-tree.ts` + tests (native shapes, stacked boundaries, corrupt
       shapes)
-- [ ] `display-tree.ts` + tests (success criteria 2, 3, and the examples)
-- [ ] Consumers: `format/tree.ts`, tree-selector, reloadHistory; delete
+- [x] `display-tree.ts` + tests (success criteria 2, 3, and the examples)
+- [x] Consumers: `format/tree.ts`, tree-selector, reloadHistory; delete
       `dedupedPathNodes`, `validRelink`, `summaryOf`, old modules;
       reformulate the two `summaryOf` call sites per Type design
-- [ ] Presubmit + full test suite
+- [x] Presubmit + the post-implementation critical review
+
+## 2026-07-22 — post-implementation review round
+
+`npm run presubmit` green. Reviewer 8a0b9e57 (revived from the spec
+review) reviewed the implementation; accepted findings, all fixed:
+
+1. **anchor ∈ uuids breaks the rule-ordering equivalence** — the binary's
+   sequential anchor-child pass sees post-rewrite parents, so an anchor
+   among the preserved uuids self-parents the chain (a cycle) where our
+   raw-parents-then-override order does not. Resolved by REJECTING the
+   shape: a third `invalidRelinkReason` (named divergence like the P3 m4
+   duplicate rejection — real files never take the shape; the rejection
+   is also what makes the ordering equivalence hold everywhere the relink
+   applies). Edge cases updated; regression tests.
+2. **`toDisplayTree` duplicate guard** now first-wins over ALL
+   uuid-bearing entries, matching `buildTree` exactly (previously only
+   valid-non-empty first occurrences were guarded, so a divergent later
+   boundary copy could be processed). Regression test.
+3. **Display pruning rewritten to ancestor-marking**: mark every strict
+   ancestor of every plain row, each walk stopping at the first
+   already-marked node — O(n) as the Cost section claims (the
+   per-candidate DFS was O(candidates × n)); the marks double as the
+   cycle guard and the children map is gone.
+4. **Synthesis window vs P10**: after an empty-uuids wipe the first REAL
+   prompt also parents onto the boundary, so parentage alone
+   misclassified it as a summary. Corrected formula: the window stays
+   open only for the boundary's `isCompactSummary` child; any other
+   post-boundary user/assistant closes it. Type design bullet updated
+   (second correction); test.
+5. **TUI `visibleRow`**: an explicit null mapping (rootless hidden leaf)
+   now renders no path, per the documented `visibleRowOf` contract —
+   previously `?? id` swallowed the null and triggered the raced-leaf
+   warning.
+6. **set-context final-entry validation** exempts re-persisted copies of
+   the target itself (same uuid shares message.id — legal file shape).
+   Test.
+7. Restored direct `session-seed.test.ts` (five tests from the deleted
+   effective-chain suite); added the viaBoundary-rewind post-block-turns
+   fixture; fixed the `buildTree` forward-reference doc wording (only
+   the up_to anchor's raw occurrence is a genuine forward reference).
+
+Round 2: reviewer confirmed all six resolved and flagged one more —
+`nearestVisibleAncestor` walked the hidden chain per row (O(m²) over an
+m-row hidden block). Fixed with memoized path compression (each node
+walked at most once; the whole transform is O(n)). Spec brought in line:
+criteria 1 and 8 and the Type design `invalidRelinkReason` comment now
+name the anchor-in-list rejection; the Implementation Ideas
+child-count note replaced by the ancestor-marking/path-compression
+description.
+
+Open item, needs Anton: the **leaf-marker predicate re-dump**
+(IMPLEMENTATION IDEAS) was not done — leaf selection matches the old
+effective-chain fixtures on native shapes, but the imprecise corners
+(explicit leaf-marker entry kinds, uuid-less trailing entries, a boundary
+as sole dangling tip) remain unpinned against the binary's caller at
+byte ~242272200.
+
+## 2026-07-22 — implementation (tasks 1–4 done)
+
+All four build tasks landed: `src/core/tree/{nodes,loader,build-tree,
+display-tree}.ts` (+tests), `src/core/session-seed.ts`; deleted
+`effective-chain.ts`, old `build-tree.ts`, `build-display-tree.ts`,
+`tree.ts` (+their tests); all consumers migrated. tsc, eslint, treefmt,
+and the full suite (417 tests) are green. Duplicate-tolerance verified
+against a copy of the real re-persisted session (237 dup uuids, no throw,
+one raw occurrence per uuid, no diagnostics); copy deleted, nothing
+committed. Collateral done: `entriesByUuid`/`format/input.ts` comments,
+P2 d scope note, re-persist-block fixture test, duplicate-throw tests
+flipped.
+
+One spec deviation found during fixture verification (the spec's own
+"verify both reformulations" instruction): the get-messages synthesis
+window formula "open iff the LAST user/assistant entry parents onto the
+boundary" is wrong for a no-summary boundary with no post entries (the
+last user/assistant is then pre-boundary → would read closed; the
+startup-inside-window fixture requires open). Implemented instead:
+window CLOSED iff a POST-boundary user/assistant entry exists whose
+parentUuid !== boundary.uuid — same spirit (no summaryOf; the summary is
+whatever post-boundary entry parents onto the boundary), fixture-exact.
+
+`npm run presubmit` green (417/417). Type design get-messages bullet
+updated to the corrected formula (superseded again by the review round's
+finding 4 above).
 
 ## 2026-07-22 — approved for implementation
 

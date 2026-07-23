@@ -8,11 +8,8 @@
 
 import type { UUID } from "node:crypto";
 import { Container, matchesKey, type Focusable } from "@earendil-works/pi-tui";
-import type { DisplayTree } from "../../core/build-display-tree.ts";
-import {
-  effectiveTreeNodeChain,
-  type OnInvalid,
-} from "../../core/effective-chain.ts";
+import type { DisplayTree } from "../../core/tree/display-tree.ts";
+import { loadedContext, type OnInvalid } from "../../core/tree/loader.ts";
 import type { SessionEntry } from "../../core/session-file.ts";
 import {
   treeChildren,
@@ -21,7 +18,7 @@ import {
   pathToLeaf,
   type ParentMap,
   type TreeNodeRef,
-} from "../../core/tree.ts";
+} from "../../core/tree/nodes.ts";
 import { toLayoutTree } from "../../format/generated/flat-tree.ts";
 import { extractTextContent } from "../../format/generated/text.ts";
 import {
@@ -45,10 +42,11 @@ export type TreePickAction =
   | { kind: "newRoot"; editorText?: string };
 
 /** The boundary a pick undoes: the picked boundary itself, or the picked
- *  summary's parent boundary. A malformed summary (isCompactSummary whose
- *  parent is not a boundary — corrupt or hand-crafted file) yields
- *  undefined and falls back to ordinary user-row pick semantics. */
-// TDC: I haven't thought throught this carefully, but I suspect that the introduction of this function is slop introduced by using the wrong parent map.
+ *  summary's parent boundary — a UX affordance (boundary-row and
+ *  summary-row picks are the same action), not loader modeling. A
+ *  malformed summary (isCompactSummary whose parent is not a boundary —
+ *  corrupt or hand-crafted file) yields undefined and falls back to
+ *  ordinary user-row pick semantics. */
 function boundaryToUndo(
   picked: SessionEntry | undefined,
   entryOf: ReadonlyMap<UUID, SessionEntry>,
@@ -70,7 +68,7 @@ function boundaryToUndo(
  * FULL tree + editorText = the user text (so editing a post-compaction
  * message stays inside the compacted context); boundary and summary picks
  * are the same action, "undo the boundary": rewind to the last assistant
- * ref on the pre-boundary effective chain (the true pre-boundary context
+ * ref of the pre-boundary loaded context (the true pre-boundary context
  * tip, correct even when that tip is a relinked occurrence of an older
  * boundary), no editorText; no assistant found → newRoot (sent as
  * {uuids: []}). The ancestor is not re-resolved to the final entry of its
@@ -80,7 +78,7 @@ function boundaryToUndo(
  * (reachable via the current-leaf filter exemption) omits editorText.
  */
 export function resolveTreePick(
-  parentMap: ParentMap,
+  fullTree: ParentMap,
   entries: SessionEntry[],
   entryOf: ReadonlyMap<UUID, SessionEntry>,
   pick: TreeNodeRef,
@@ -91,7 +89,7 @@ export function resolveTreePick(
     const boundaryIndex = entries.findIndex(
       (entry) => entry.uuid === undoneBoundaryUuid,
     );
-    const rewindTo = effectiveTreeNodeChain(
+    const rewindTo = loadedContext(
       entries.slice(0, boundaryIndex),
       onInvalid,
     ).findLast((ref) => entryOf.get(ref.uuid)?.type === "assistant");
@@ -99,7 +97,7 @@ export function resolveTreePick(
       ? { kind: "newRoot" }
       : { kind: "rewind", rewindTo };
   }
-  const path = pathToLeaf(parentMap, entryOf, pick);
+  const path = pathToLeaf(fullTree, entryOf, pick);
   const picked = path.at(-1);
   if (picked?.entry.type === "assistant") {
     return { kind: "rewind", rewindTo: pick };
@@ -161,16 +159,17 @@ export class TreeSelectorComponent extends Container implements Focusable {
     onCancel: () => void,
   ) {
     super();
-    const { parentMap, representativeOf } = displayTree;
+    const { parentMap, visibleRowOf } = displayTree;
     this.roots = toLayoutTree(parentMap, (id) =>
       entryOf.get(parseTreeNodeRef(id).uuid)!,
     );
-    // A leaf whose occurrence is hidden marks its display representative.
+    // A hidden leaf occurrence marks its nearest visible row (null → no
+    // marker, matching filtered-leaf behavior).
     const leafId = leaf === null ? null : formatTreeNodeRef(leaf);
     this.currentLeafId =
       leafId === null || parentMap.has(leafId)
         ? leafId
-        : (representativeOf.get(leafId) ?? null);
+        : (visibleRowOf.get(leafId) ?? null);
     this.toolNames = collectToolNames([...entryOf.values()]);
     this.finalIds = collectFinalAssistantIds(
       parentMap,

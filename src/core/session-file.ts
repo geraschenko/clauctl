@@ -124,9 +124,10 @@ export function readSessionEntries(filePath: string): SessionEntry[] {
   return entries;
 }
 
-/** Entry lookup by uuid; last entry wins on a duplicate uuid. Duplicate
- *  *detection* is buildTree's job (it throws), and consumers build the
- *  tree from the same entries before using this lookup. */
+/** Entry lookup by uuid; last entry wins on a duplicate uuid, matching the
+ *  loader's uuid-keyed map. Duplicated uuids are a legal file shape — the
+ *  CLI re-persists dropped-from-context history (see
+ *  docs/derisk/cli-history-repersistence/FINDINGS.md). */
 export function entriesByUuid(
   entries: readonly SessionEntry[],
 ): Map<UUID, SessionEntry> {

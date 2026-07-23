@@ -40,7 +40,7 @@ import {
   type SdkRequest,
   type SetContextRequest,
 } from "./sdk-socket.ts";
-import { parseTreeNodeRef } from "./tree.ts";
+import { parseTreeNodeRef } from "./tree/nodes.ts";
 import { oneOf, UsageError } from "./generated/util.ts";
 
 const SOCKET_CONNECT_DEADLINE_MS = 5_000;

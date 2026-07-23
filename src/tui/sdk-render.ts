@@ -13,7 +13,6 @@
  * a StreamingMessage is created at each `message_start`.
  */
 
-import type { UUID } from "node:crypto";
 import type {
   BetaRawMessageStreamEvent,
   BetaStopReason,
@@ -23,7 +22,7 @@ import type {
   SDKMessage,
   SDKUserMessage,
 } from "@anthropic-ai/claude-agent-sdk";
-import type { PathNode, TreeNodeRef } from "../core/tree.ts";
+import { formatTreeNodeRef, type PathNode } from "../core/tree/nodes.ts";
 import type {
   RenderAssistant,
   RenderBlock,
@@ -221,24 +220,22 @@ export function toolResultsOf(message: SDKUserMessage): RenderToolResult[] {
 }
 
 /**
- * The replayable portion of a root-to-leaf tree path: everything at/before
- * the leaf occurrence (the state fold's current leaf — the last transcript
- * entry reflected on the event stream before the subscriber's snapshot).
- * An undefined leaf means nothing was emitted this daemon lifetime → the
- * whole path replays.
+ * The replayable portion of a root-to-leaf display path: everything
+ * at/before the live leaf's visible row (the state fold's current leaf —
+ * the last transcript entry reflected on the event stream before the
+ * subscriber's snapshot — mapped by the caller to the display row that
+ * carries it). An undefined row means nothing was emitted this daemon
+ * lifetime → the whole path replays.
  *
- * After the match, only *ordinary raw* occurrences are dropped — those are
- * the entries whose live events render them. `viaBoundary` occurrences
- * always replay (relinked entries never stream), so attaching right after a
- * native compaction does not truncate the preserved substructure that
- * follows the raw summary node. Post-cut boundaries and their raw summaries
- * also always replay: it keeps a compaction segment structurally complete
- * (banner before its installed context), and a summary's live `user` event
- * renders no text (the sdkMessage user case only resolves tool results), so
- * replay is the only way its text appears. Their buffered events
- * release-dedupe by uuid like any other replayed entry.
+ * After the match, only boundary banners and their summaries are kept —
+ * ordinary rows are the entries whose live events render them, but keeping
+ * these keeps a compaction segment structurally complete (banner before its
+ * installed context), and a summary's live `user` event renders no text
+ * (the sdkMessage user case only resolves tool results), so replay is the
+ * only way its text appears. Their buffered events release-dedupe by uuid
+ * like any other replayed entry.
  *
- * A leaf missing from the path means the read raced a writer: either a
+ * A row missing from the path means the read raced a writer: either a
  * context change moved the leaf between snapshot and read (resolved by the
  * buffered contextChanged's reload), or a genuine invariant violation. The
  * cut is impossible either way, so the whole path replays with
@@ -246,14 +243,13 @@ export function toolResultsOf(message: SDKUserMessage): RenderToolResult[] {
  */
 export function pathUpToBoundary(
   path: PathNode[],
-  leaf: TreeNodeRef | undefined,
+  leafRowId: string | undefined,
 ): { nodes: PathNode[]; boundaryMissing: boolean } {
-  if (leaf === undefined) {
+  if (leafRowId === undefined) {
     return { nodes: path, boundaryMissing: false };
   }
   const matchIndex = path.findIndex(
-    (node) =>
-      node.ref.uuid === leaf.uuid && node.ref.viaBoundary === leaf.viaBoundary,
+    (node) => formatTreeNodeRef(node.ref) === leafRowId,
   );
   if (matchIndex === -1) {
     return { nodes: path, boundaryMissing: true };
@@ -265,41 +261,12 @@ export function pathUpToBoundary(
         .slice(matchIndex + 1)
         .filter(
           (node) =>
-            node.ref.viaBoundary !== undefined ||
             node.entry.subtype === "compact_boundary" ||
             node.entry.isCompactSummary === true,
         ),
     ],
     boundaryMissing: false,
   };
-}
-
-// TDC: I'm pretty sure we should delete this function.
-/**
- * Drops relinked path nodes whose uuid already rendered earlier in the same
- * replay — a boundary's preserved messages appear once (their pre-boundary
- * raw occurrence), not again below the banner. The seen set covers EVERY
- * uuid-bearing node (including e.g. local_command system entries that
- * entryToSessionMessage rejects but appendPathNode renders), and the dedupe
- * is per-uuid, not per-shape: it also covers up_to boundaries whose raw and
- * relinked occurrences share the path. Boundary banners and summary entries
- * are unaffected (their uuids appear once), as are preserved messages whose
- * only path occurrence is relinked.
- */
-export function dedupedPathNodes(nodes: PathNode[]): PathNode[] {
-  const renderedUuids = new Set<UUID>();
-  const deduped: PathNode[] = [];
-  for (const node of nodes) {
-    if (
-      node.ref.viaBoundary !== undefined &&
-      renderedUuids.has(node.ref.uuid)
-    ) {
-      continue;
-    }
-    renderedUuids.add(node.ref.uuid);
-    deduped.push(node);
-  }
-  return deduped;
 }
 
 /**

@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import type { UUID } from "node:crypto";
 import { test } from "node:test";
-import { buildTree } from "../core/build-tree.ts";
-import { parseTreeNodeRef, type SessionSnapshot } from "../core/tree.ts";
-import { effectiveTreeNodeChain } from "../core/effective-chain.ts";
+import { buildTree } from "../core/tree/build-tree.ts";
+import { parseTreeNodeRef, type SessionSnapshot } from "../core/tree/nodes.ts";
+import { loadedContext } from "../core/tree/loader.ts";
 import { entriesByUuid, type SessionEntry } from "../core/session-file.ts";
 import {
   formatSessionSnapshot,
@@ -191,9 +191,9 @@ test("a filter-hidden representative row drops the marker", () => {
   assert.equal(output, "• 00000001 user: Start\n" + `[cursor: ${uuid(2)}]\n`);
 });
 
-// End-to-end over effectiveTreeNodeChain (the get-entries handler's leaf
+// End-to-end over loadedContext (the get-entries handler's leaf
 // composition): a fresh up_to compaction renders linear, the `*` lands on
-// the summary row (the hidden relinked leaf's representative), and the
+// the summary row (the hidden relinked leaf's visible row), and the
 // cursor line keeps the true leaf uuid — marker row and cursor uuid
 // legitimately differ.
 test("a compacted session renders linear with the leaf marker on the summary", () => {
@@ -220,7 +220,7 @@ test("a compacted session renders linear with the leaf marker on the summary", (
   const entries = [start, reply, boundary, summary];
   const input: SessionSnapshot = {
     entries,
-    leaf: effectiveTreeNodeChain(entries, failOnInvalid).at(-1) ?? null,
+    leaf: loadedContext(entries, failOnInvalid).at(-1) ?? null,
   };
   assert.equal(
     render(input, { filter: "all" }),
@@ -276,9 +276,10 @@ test("an up_to compaction with a follow-up turn renders as one linear chain", ()
 });
 
 // From-shape boundary with a summary: the display forks at the rewind
-// target, and the summary row (a relinked occurrence) carries the `~` mark
-// under the branch connectors.
-test("a from-shape summary row renders with ~ under connectors", () => {
+// target; the summary's single occurrence is raw (the anchor-child rule
+// places it under the relinked tail), so no row carries `~` outside raw
+// mode (criterion 4).
+test("a from-shape summary row renders under the boundary without ~", () => {
   const boundaryUuid = uuid(6);
   const input: SessionSnapshot = {
     entries: [
@@ -313,7 +314,7 @@ test("a from-shape summary row renders with ~ under connectors", () => {
     "• 00000001 user: Start\n" +
       "• 00000002 assistant: First reply\n" +
       "├─ • 00000006 [compaction: 4k tokens]\n" +
-      "│     • ~00000007 compaction: Recap of the abandoned tail\n" +
+      "│     • 00000007 compaction: Recap of the abandoned tail\n" +
       "│     * 00000008 user: New direction\n" +
       "└─ 00000004 user: Abandoned\n" +
       "      00000005 assistant: Abandoned reply\n" +
@@ -546,11 +547,13 @@ test("a leaf matching no occurrence renders no markers but keeps the cursor", ()
   );
 });
 
-test("a duplicated raw uuid fails loudly", () => {
+test("a duplicated raw uuid renders once, silently (first-wins)", () => {
+  // Re-persisted copies are a legal CLI file shape (see
+  // docs/derisk/cli-history-repersistence/FINDINGS.md).
   const entry = userEntry(uuid(1), "hello");
-  assert.throws(
-    () => render({ entries: [entry, { ...entry }], leaf: null }),
-    /duplicate occurrence .* corrupt/,
+  assert.equal(
+    render({ entries: [entry, { ...entry }], leaf: null }),
+    "00000001 user: hello\n[cursor: null]\n",
   );
 });
 

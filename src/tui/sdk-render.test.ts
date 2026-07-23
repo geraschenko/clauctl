@@ -8,10 +8,9 @@ import type {
   SDKUserMessage,
 } from "@anthropic-ai/claude-agent-sdk";
 import type { SessionEntry } from "../core/session-file.ts";
-import type { PathNode } from "../core/tree.ts";
+import type { PathNode } from "../core/tree/nodes.ts";
 import {
   beginMessage,
-  dedupedPathNodes,
   foldStreamEvent,
   pathUpToBoundary,
   releaseDedupeUuid,
@@ -275,141 +274,43 @@ function pathUuids(nodes: PathNode[]): UUID[] {
   return nodes.map((node) => node.ref.uuid);
 }
 
-test("pathUpToBoundary drops raw occurrences after the leaf occurrence", () => {
+test("pathUpToBoundary drops ordinary rows after the leaf row", () => {
   const path = [
     pathNode("user", uuid(1)),
     pathNode("assistant", uuid(2)),
     pathNode("user", uuid(3)),
     pathNode("assistant", uuid(4)),
   ];
-  const result = pathUpToBoundary(path, { uuid: uuid(2) });
+  const result = pathUpToBoundary(path, uuid(2));
   assert.deepEqual(pathUuids(result.nodes), [uuid(1), uuid(2)]);
   assert.equal(result.boundaryMissing, false);
 });
 
-test("pathUpToBoundary matches the exact occurrence, not the first uuid hit", () => {
-  const boundary = uuid(9);
-  const path = [
-    pathNode("user", uuid(1)),
-    pathNode("system", boundary, { subtype: "compact_boundary" }),
-    pathNode("user", uuid(8), { isCompactSummary: true, parentUuid: boundary }),
-    pathNode("user", uuid(1), {}, boundary),
-    pathNode("assistant", uuid(4)),
-  ];
-  const result = pathUpToBoundary(path, {
-    uuid: uuid(1),
-    viaBoundary: boundary,
-  });
-  assert.deepEqual(pathUuids(result.nodes), [
-    uuid(1),
-    boundary,
-    uuid(8),
-    uuid(1),
-  ]);
-  assert.equal(result.boundaryMissing, false);
-});
-
-test("pathUpToBoundary keeps a post-cut boundary segment with retained relinks", () => {
+test("pathUpToBoundary keeps post-leaf boundary and summary rows", () => {
   // A native compaction landed between the state snapshot and the tree
-  // read: the leaf is the raw pre-compaction assistant, and the path
-  // continues boundary → summary → relinked preserved entries. The whole
-  // segment replays, in path order, so the banner precedes its context.
+  // read: the leaf is the pre-compaction assistant, and the display path
+  // continues boundary → summary. Both replay (the banner keeps the
+  // segment structurally complete; the summary's live user event renders
+  // no text), the ordinary row after them drops (its live events render).
   const boundary = uuid(9);
   const path = [
     pathNode("user", uuid(1)),
     pathNode("assistant", uuid(2)),
     pathNode("system", boundary, { subtype: "compact_boundary" }),
     pathNode("user", uuid(8), { isCompactSummary: true, parentUuid: boundary }),
-    pathNode("user", uuid(1), {}, boundary),
-    pathNode("assistant", uuid(2), {}, boundary),
+    pathNode("assistant", uuid(4)),
   ];
-  const result = pathUpToBoundary(path, { uuid: uuid(2) });
+  const result = pathUpToBoundary(path, uuid(2));
   assert.deepEqual(pathUuids(result.nodes), [
     uuid(1),
     uuid(2),
     boundary,
     uuid(8),
-    uuid(1),
-    uuid(2),
   ]);
   assert.equal(result.boundaryMissing, false);
 });
 
-test("pathUpToBoundary keeps a post-cut boundary and summary even without relinks", () => {
-  // The banner's live event dedupes by uuid, and the summary's live user
-  // event renders no text — replay is the only way the summary appears.
-  // The ordinary raw entry after them still drops (its live events render).
-  const boundary = uuid(9);
-  const path = [
-    pathNode("user", uuid(1)),
-    pathNode("system", boundary, { subtype: "compact_boundary" }),
-    pathNode("user", uuid(8), { isCompactSummary: true, parentUuid: boundary }),
-    pathNode("assistant", uuid(4)),
-  ];
-  const result = pathUpToBoundary(path, { uuid: uuid(1) });
-  assert.deepEqual(pathUuids(result.nodes), [uuid(1), boundary, uuid(8)]);
-  assert.equal(result.boundaryMissing, false);
-});
-
-test("dedupedPathNodes drops relinked duplicates, keeps banner and summary", () => {
-  // A boundary rewind's path: the abandoned tail renders, the banner and
-  // relinked summary render, but the preserved messages (raw occurrences
-  // earlier on the same path) do not render a second time.
-  const boundary = uuid(9);
-  const path = [
-    pathNode("user", uuid(1)),
-    pathNode("assistant", uuid(2)),
-    pathNode("user", uuid(4)),
-    pathNode("assistant", uuid(5)),
-    pathNode("system", boundary, { subtype: "compact_boundary" }),
-    pathNode(
-      "user",
-      uuid(8),
-      { isCompactSummary: true, parentUuid: boundary },
-      boundary,
-    ),
-    pathNode("user", uuid(1), {}, boundary),
-    pathNode("assistant", uuid(2), {}, boundary),
-    pathNode("user", uuid(7)),
-  ];
-  assert.deepEqual(pathUuids(dedupedPathNodes(path)), [
-    uuid(1),
-    uuid(2),
-    uuid(4),
-    uuid(5),
-    boundary,
-    uuid(8),
-    uuid(7),
-  ]);
-});
-
-test("dedupedPathNodes covers entries entryToSessionMessage rejects", () => {
-  // local_command system entries never convert to session messages but
-  // appendPathNode renders them — the dedupe must still catch their
-  // relinked duplicates.
-  const boundary = uuid(9);
-  const path = [
-    pathNode("system", uuid(1), { subtype: "local_command" }),
-    pathNode("system", boundary, { subtype: "compact_boundary" }),
-    pathNode("system", uuid(1), { subtype: "local_command" }, boundary),
-  ];
-  assert.deepEqual(pathUuids(dedupedPathNodes(path)), [uuid(1), boundary]);
-});
-
-test("dedupedPathNodes keeps messages whose only occurrence is relinked", () => {
-  // Fresh attach after an up_to compaction: the preserved entries appear
-  // on the path only below the banner — they render once, untouched.
-  const boundary = uuid(9);
-  const path = [
-    pathNode("system", boundary, { subtype: "compact_boundary" }),
-    pathNode("user", uuid(8), { isCompactSummary: true, parentUuid: boundary }),
-    pathNode("user", uuid(4), {}, boundary),
-    pathNode("assistant", uuid(5), {}, boundary),
-  ];
-  assert.deepEqual(dedupedPathNodes(path), path);
-});
-
-test("pathUpToBoundary without a leaf returns the whole path", () => {
+test("pathUpToBoundary without a leaf row returns the whole path", () => {
   const path = [pathNode("user", uuid(1))];
   assert.deepEqual(pathUpToBoundary(path, undefined), {
     nodes: path,
@@ -417,9 +318,9 @@ test("pathUpToBoundary without a leaf returns the whole path", () => {
   });
 });
 
-test("pathUpToBoundary with an absent leaf returns everything, flagged", () => {
+test("pathUpToBoundary with an absent leaf row returns everything, flagged", () => {
   const path = [pathNode("user", uuid(1))];
-  assert.deepEqual(pathUpToBoundary(path, { uuid: uuid(7) }), {
+  assert.deepEqual(pathUpToBoundary(path, uuid(7)), {
     nodes: path,
     boundaryMissing: true,
   });

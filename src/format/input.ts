@@ -4,8 +4,8 @@
  * output, so a swapped pipe is a one-line fix instead of silence.
  */
 
-import { seedFromEntries } from "../core/effective-chain.ts";
-import type { SessionSnapshot } from "../core/tree.ts";
+import { seedFromEntries } from "../core/session-seed.ts";
+import type { SessionSnapshot } from "../core/tree/nodes.ts";
 import { parseJsonlInput } from "../core/generated/read-input.ts";
 import { UsageError } from "../core/generated/util.ts";
 import type { SessionEntry } from "../core/session-file.ts";
@@ -108,9 +108,6 @@ const NOT_A_SNAPSHOT =
  * chain-tip leaf when a chain ends in a non-conversational entry; for file
  * rendering the conversational cursor is the useful one. Tail-shaped input →
  * cross-pointing UsageError; anything else → generic NOT_A_SNAPSHOT.
- * Tree-level corruption (duplicate occurrence keys) is not the parser's
- * job: buildTree throws later, and format commands let that error surface
- * loudly.
  */
 export function parseSessionSnapshot(input: string): SessionSnapshot {
   const document = parseWholeDocument(input);

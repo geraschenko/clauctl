@@ -37,20 +37,22 @@ import {
   type AgentState,
 } from "../core/agent-state.ts";
 import type { UUID } from "node:crypto";
-import { buildDisplayTree } from "../core/build-display-tree.ts";
-import { buildTree } from "../core/build-tree.ts";
+import { buildTree } from "../core/tree/build-tree.ts";
+import { toDisplayTree } from "../core/tree/display-tree.ts";
 import {
   entriesByUuid,
   entryToSessionMessage,
   type SessionEntry,
 } from "../core/session-file.ts";
 import {
+  formatTreeNodeRef,
+  parseTreeNodeRef,
   pathToLeaf,
   type ParentMap,
   type PathNode,
   type SessionSnapshot,
   type TreeNodeRef,
-} from "../core/tree.ts";
+} from "../core/tree/nodes.ts";
 import { SdkSocketClient, type SdkEvent } from "../core/sdk-socket.ts";
 import { findFd, TuiAutocompleteProvider } from "./autocomplete.ts";
 import { FooterComponent } from "./components/footer.ts";
@@ -61,12 +63,7 @@ import {
   resolveTreePick,
   TreeSelectorComponent,
 } from "./components/tree-selector.ts";
-import {
-  dedupedPathNodes,
-  pathUpToBoundary,
-  releaseDedupeUuid,
-  userText,
-} from "./sdk-render.ts";
+import { pathUpToBoundary, releaseDedupeUuid, userText } from "./sdk-render.ts";
 import { TranscriptRenderer } from "./transcript.ts";
 import { getEditorTheme, theme, type ThemeColor } from "./theme.ts";
 
@@ -306,16 +303,14 @@ class InteractiveMode {
 
   /**
    * (Re)build the transcript from the session snapshot: fetch get-entries,
-   * build the tree locally, render
-   * the root-to-leaf path cut at the state fold's leaf occurrence
-   * (pathUpToBoundary — the entries after it arrive as live events), then
-   * the delivered-but-unconfirmed prompts, then release the buffered live
-   * events. Called on attach (constructor) and on every contextChanged
-   * (redraw). Each message renders once: relinked duplicates of already-
-   * rendered messages are dropped (dedupedPathNodes) — a boundary's
-   * preserved messages appear in the raw pre-boundary history only, not
-   * again below the banner; path-vs-buffer duplication is deduped
-   * separately (replayedUuids, during the release loop).
+   * build the display tree locally, render the root-to-leaf display path
+   * cut at the state fold's leaf row (pathUpToBoundary — the entries after
+   * it arrive as live events), then the delivered-but-unconfirmed prompts,
+   * then release the buffered live events. Called on attach (constructor)
+   * and on every contextChanged (redraw). Each message renders once by
+   * construction — a display path has no duplicates; path-vs-buffer
+   * duplication is deduped separately (replayedUuids, during the release
+   * loop).
    *
    * When the leaf is missing from the path, exactly-once is unachievable:
    * the whole path replays behind a warning banner — unless a buffered
@@ -338,16 +333,40 @@ class InteractiveMode {
       const data = await this.client.request({ type: "get-entries" });
       const snapshot = data as SessionSnapshot;
       const entryOf = entriesByUuid(snapshot.entries);
-      const parentMap = buildTree(snapshot.entries, (message) =>
+      const fullTree = buildTree(snapshot.entries, (message) =>
         this.addBanner(message),
       );
-      const path = pathToLeaf(parentMap, entryOf, snapshot.leaf);
+      const displayTree = toDisplayTree(fullTree, snapshot.entries);
+      // History renders the display path: leaves map to the visible row
+      // that carries them (a hidden relinked leaf renders as its summary
+      // row's line). An explicit null mapping (rootless hidden chain)
+      // renders no path, matching filtered-leaf behavior; an unmapped row
+      // falls through unresolved so the raced-leaf handling below still
+      // warns.
+      const visibleRow = (
+        leaf: TreeNodeRef | undefined,
+      ): string | undefined => {
+        if (leaf === undefined) {
+          return undefined;
+        }
+        const id = formatTreeNodeRef(leaf);
+        if (displayTree.parentMap.has(id)) {
+          return id;
+        }
+        const mapped = displayTree.visibleRowOf.get(id);
+        return mapped === null ? undefined : (mapped ?? id);
+      };
+      const leafRow = visibleRow(snapshot.leaf ?? undefined);
+      const path = pathToLeaf(
+        displayTree.parentMap,
+        entryOf,
+        leafRow === undefined ? null : parseTreeNodeRef(leafRow),
+      );
       const { nodes, boundaryMissing } = pathUpToBoundary(
         path,
-        this.agentState.leaf,
+        visibleRow(this.agentState.leaf),
       );
-      // TDC: Something is deeply wrong here. This is _repeating_ the buildDisplayTree logic instead of using it. We should be using buildDisplayTree instead of buildTree. The display tree is the order in which we render messages, not just what we display in the tree selector. Then we should not need to dedupe here and can delete dedubedPathNodes entirely.
-      for (const node of dedupedPathNodes(nodes)) {
+      for (const node of nodes) {
         this.renderPathNode(node, replayed);
       }
       if (
@@ -580,27 +599,25 @@ class InteractiveMode {
       return;
     }
     this.treeSelectorPending = true;
-    // .catch (not a rejection handler) so a buildTree throw on a corrupt
-    // session lands in the banner instead of an unhandled rejection.
     void this.client
       .request({ type: "get-entries" })
       .then((data) => {
         const snapshot = data as SessionSnapshot;
         const entryOf = entriesByUuid(snapshot.entries);
-        const parentMap = buildTree(snapshot.entries, (message) =>
+        const fullTree = buildTree(snapshot.entries, (message) =>
           this.addBanner(message),
         );
-        // The rows come from the display tree; the full tree is needed
-        // solely by resolveTreePick. Diagnostics are silenced here — the
-        // buildTree call above already bannered the same ones.
-        const displayTree = buildDisplayTree(snapshot.entries, () => {});
+        // The rows come from the display tree; picks resolve on the FULL
+        // tree (a picked row's context path — e.g. the nearest assistant
+        // ancestor of a post-compaction user row — runs through relinked
+        // occurrences the display tree hides).
+        const displayTree = toDisplayTree(fullTree, snapshot.entries);
         const selector = new TreeSelectorComponent(
           snapshot.leaf,
           displayTree,
           entryOf,
           (pick) =>
-            // TDC: is using the parent map from buildTree instead of buildDisplayTree _correct_ here? If so, we should explain why.
-            this.confirmTreePick(parentMap, snapshot.entries, entryOf, pick),
+            this.confirmTreePick(fullTree, snapshot.entries, entryOf, pick),
           () => this.closeTreeSelector(),
         );
         this.treeSelectorPending = false;
@@ -618,7 +635,7 @@ class InteractiveMode {
 
   /** The selector stays dumb; the busy gate and the request live here. */
   private confirmTreePick(
-    parentMap: ParentMap,
+    fullTree: ParentMap,
     entries: SessionEntry[],
     entryOf: ReadonlyMap<UUID, SessionEntry>,
     pick: TreeNodeRef,
@@ -631,7 +648,7 @@ class InteractiveMode {
       return;
     }
     const action = resolveTreePick(
-      parentMap,
+      fullTree,
       entries,
       entryOf,
       pick,
