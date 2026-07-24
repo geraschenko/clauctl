@@ -127,8 +127,8 @@ function queryingCount(state: AgentState): number {
  * defensive two-clause definition is kept in case the fold's beliefs and the
  * stream ever disagree.
  */
-export const isBusy = (state: AgentState): boolean =>
-  state.activity !== "idle" || queryingCount(state) > 0;
+export const isIdle = (state: AgentState): boolean =>
+  state.activity === "idle" && queryingCount(state) === 0;
 
 function withObservedPermissionMode(
   state: AgentState,
@@ -150,10 +150,10 @@ export function nextAgentState(state: AgentState, event: SdkEvent): AgentState {
         ...state.queuedMessages,
         { id: event.id, message: event.message },
       ];
-      // Gated on activity, not !isBusy: idle is the only activity a queued
+      // Gated on activity, not isIdle: idle is the only activity a queued
       // message changes, and if the activity invariant were ever violated
       // (idle with querying messages queued), setting pending repairs it
-      // where an isBusy gate would preserve the corruption.
+      // where an isIdle gate would preserve the corruption.
       return isQuerying(event.message) && state.activity === "idle"
         ? { ...state, activity: "pending", queuedMessages }
         : { ...state, queuedMessages };

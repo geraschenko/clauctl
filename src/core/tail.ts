@@ -21,16 +21,14 @@ import { oneTarget, type CommandContext } from "./generated/targets.ts";
 import { fileExists, UsageError } from "./generated/util.ts";
 import { archivedPath, isPidAlive, sdkSocketPath } from "./registry.ts";
 import { connectWithRetry } from "./sdk-socket.ts";
-import { runStream } from "./streaming.ts";
+import { runStream } from "./generated/stream-driver.ts";
 import {
   parseUntilCondition,
   secondsToTimerMs,
   UNTIL_COMPLETIONS,
   UNTIL_USAGE,
-  untilMetAtSeed,
-  untilMetByEvent,
-  untilQuietMs,
-} from "./until.ts";
+} from "./generated/until-engine.ts";
+import { untilMetAtSeed, untilMetByEvent, untilQuietMs } from "./until.ts";
 
 const SOCKET_CONNECT_DEADLINE_MS = 5_000;
 
@@ -74,7 +72,7 @@ async function tail(this: CommandContext, flags: TailFlags): Promise<void> {
     this.process.stdout.write(`${JSON.stringify(record)}\n`);
   };
   try {
-    const outcome = await runStream(
+    const { outcome } = await runStream(
       client,
       {
         onSeed: (snapshot) => {

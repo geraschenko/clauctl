@@ -6,6 +6,7 @@
 
 import {
   Container,
+  getKeybindings,
   SelectList,
   Text,
   type Focusable,
@@ -38,8 +39,14 @@ export class ModelSelectorComponent extends Container implements Focusable {
     this.selectList.onSelect = (item) =>
       onSelect(modelsByValue.get(item.value)!);
     this.selectList.onCancel = onCancel;
+    const cancelKey =
+      getKeybindings().getKeys("tui.select.cancel")[0] ?? "escape";
     this.addChild(
-      new Text(theme.fg("accent", "select model (esc to cancel)"), 1, 0),
+      new Text(
+        theme.fg("accent", `select model (${cancelKey} to cancel)`),
+        1,
+        0,
+      ),
     );
     this.addChild(this.selectList);
   }

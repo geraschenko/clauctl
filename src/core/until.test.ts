@@ -5,15 +5,8 @@ import type {
   SDKUserMessage,
 } from "@anthropic-ai/claude-agent-sdk";
 import { INITIAL_AGENT_STATE, type AgentState } from "./agent-state.ts";
-import { UsageError } from "./generated/util.ts";
 import type { SdkEvent } from "./sdk-socket.ts";
-import {
-  parseUntilCondition,
-  secondsToTimerMs,
-  untilMetAtSeed,
-  untilMetByEvent,
-  untilQuietMs,
-} from "./until.ts";
+import { untilMetAtSeed, untilMetByEvent } from "./until.ts";
 
 const idleState = INITIAL_AGENT_STATE;
 const workingState: AgentState = {
@@ -41,63 +34,9 @@ const assistantEvent: SdkEvent = {
   message: { type: "assistant" } as SDKMessage,
 };
 
-// --- parseUntilCondition -----------------------------------------------------
-
-test("parseUntilCondition accepts the three condition kinds", () => {
-  assert.deepEqual(parseUntilCondition("turn-end"), { kind: "turn-end" });
-  assert.deepEqual(parseUntilCondition("idle"), { kind: "idle" });
-  assert.deepEqual(parseUntilCondition("no-activity:1.5"), {
-    kind: "no-activity",
-    idleMs: 1500,
-  });
-  assert.deepEqual(parseUntilCondition("no-activity:0"), {
-    kind: "no-activity",
-    idleMs: 0,
-  });
-});
-
-test("parseUntilCondition rejects malformed conditions as usage errors", () => {
-  for (const bad of [
-    "bogus",
-    "no-activity",
-    "no-activity:",
-    "no-activity:-1",
-    "no-activity:abc",
-    "no-activity:1s",
-    "",
-  ]) {
-    assert.throws(() => parseUntilCondition(bad), UsageError, bad);
-  }
-});
-
-test("parseUntilCondition rejects over-timer-max no-activity durations", () => {
-  assert.throws(
-    () => parseUntilCondition("no-activity:9999999999"),
-    UsageError,
-  );
-});
-
-// --- secondsToTimerMs --------------------------------------------------------
-
-test("secondsToTimerMs converts valid durations, including zero", () => {
-  assert.equal(secondsToTimerMs(0), 0);
-  assert.equal(secondsToTimerMs(1.5), 1500);
-  assert.equal(secondsToTimerMs(2147483), 2147483000);
-});
-
-test("secondsToTimerMs rejects non-finite and over-timer-max values", () => {
-  assert.throws(() => secondsToTimerMs(Infinity), UsageError);
-  assert.throws(() => secondsToTimerMs(NaN), UsageError);
-  assert.throws(() => secondsToTimerMs(2 ** 31), UsageError); // ms overflows
-});
-
-// --- untilQuietMs ------------------------------------------------------------
-
-test("untilQuietMs is the no-activity window and undefined otherwise", () => {
-  assert.equal(untilQuietMs({ kind: "no-activity", idleMs: 500 }), 500);
-  assert.equal(untilQuietMs({ kind: "turn-end" }), undefined);
-  assert.equal(untilQuietMs({ kind: "idle" }), undefined);
-});
+// Grammar, duration, and generic checker behavior are covered by the synced
+// generated/until-engine.test.ts; these tests pin the clauctl instantiation:
+// the SdkEvent/AgentState predicates.
 
 // --- untilMetAtSeed ----------------------------------------------------------
 

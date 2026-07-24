@@ -10,10 +10,19 @@
 import { readFile } from "node:fs/promises";
 import type { Options, Query, Settings } from "@anthropic-ai/claude-agent-sdk";
 import type {
+  FlagSettings,
   SdkControlMutation,
   SdkControlRead,
   SdkRequest,
 } from "./sdk-socket.ts";
+
+const EFFORT_LEVELS: ReadonlySet<string> = new Set([
+  "low",
+  "medium",
+  "high",
+  "xhigh",
+  "max",
+]);
 
 // Record (not Set) so a new SdkControlMutation variant is a compile error here.
 const MUTATION_TYPES: Record<SdkControlMutation["type"], true> = {
@@ -84,8 +93,30 @@ export async function applyMutation(
         mutation.maxThinkingTokens,
         mutation.thinkingDisplay,
       );
-    case "apply-flag-settings":
-      return await query.applyFlagSettings(mutation.settings);
+    case "apply-flag-settings": {
+      // The CLI runtime accepts anything here and silently drops unknown
+      // levels into the settings cascade, so the daemon is the backstop for
+      // every socket client (the TUI additionally validates per-model before
+      // sending). The throw rejects the request before the SDK call; the
+      // request handler emits controlApplied and persists only after a
+      // successful apply, so the fold never sees garbage. Only effortLevel
+      // is validated — the one key FlagSettings widens beyond the SDK type.
+      const { effortLevel } = mutation.settings;
+      if (
+        effortLevel !== undefined &&
+        effortLevel !== null &&
+        !EFFORT_LEVELS.has(effortLevel)
+      ) {
+        throw new Error(
+          `invalid effortLevel ${JSON.stringify(effortLevel)}; valid: ${[...EFFORT_LEVELS].join(", ")}`,
+        );
+      }
+      // FlagSettings widens effortLevel to include "max", which the SDK's
+      // parameter type omits but the runtime accepts (see FlagSettings).
+      return await query.applyFlagSettings(
+        mutation.settings as Parameters<Query["applyFlagSettings"]>[0],
+      );
+    }
     case "set-mcp-servers":
       return await query.setMcpServers(mutation.servers);
     case "toggle-mcp-server":
@@ -212,7 +243,7 @@ export async function runRead(
  */
 async function mergeFlagSettings(
   current: Options["settings"],
-  applied: { [K in keyof Settings]?: Settings[K] | null },
+  applied: FlagSettings,
 ): Promise<Settings> {
   const base: Record<string, unknown> =
     typeof current === "string"

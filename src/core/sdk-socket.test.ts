@@ -1,7 +1,17 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import { test } from "node:test";
-import { parseSetContextRequest } from "./sdk-socket.ts";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { after, test } from "node:test";
+import type { SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
+import { INITIAL_AGENT_STATE, type AgentState } from "./agent-state.ts";
+import { RESPONSE_SENT, startSdkServer } from "./daemon/sdk-server.ts";
+import {
+  parseSetContextRequest,
+  SdkSocketClient,
+  type SdkEvent,
+} from "./sdk-socket.ts";
 
 test("parseSetContextRequest accepts boundary mode with all fields", () => {
   const uuids = [randomUUID(), randomUUID()];
@@ -101,4 +111,80 @@ test("parseSetContextRequest rejects malformed fields", () => {
       }),
     /mutually exclusive/,
   );
+});
+
+// --- client fold ownership ---------------------------------------------------
+
+const dir = mkdtempSync(join(tmpdir(), "clauctl-sdk-socket-"));
+after(() => rmSync(dir, { recursive: true, force: true }));
+
+const queryingMessage: SDKUserMessage = {
+  type: "user",
+  message: { role: "user", content: "hi" },
+  parent_tool_use_id: null,
+};
+
+test("subscribe seeds the client fold and delivers (event, post-fold state) pairs", async () => {
+  const socketPath = join(dir, "sdk.sock");
+  const queuedEvent: SdkEvent = {
+    kind: "userMessageQueued",
+    id: 1,
+    message: queryingMessage,
+  };
+  const dequeuedEvent: SdkEvent = {
+    kind: "userMessageDequeued",
+    delivery: "turn",
+    ids: [1],
+  };
+  const server = startSdkServer(socketPath, (request, connection) => {
+    if (request.type === "subscribe") {
+      // One write: the seed response and both events reach the client in a
+      // single chunk, so all three lines dispatch before the subscribe
+      // promise settles — the window the client-owned fold must handle.
+      connection.write(
+        [
+          JSON.stringify({
+            id: request.id,
+            ok: true,
+            data: INITIAL_AGENT_STATE,
+          }),
+          JSON.stringify({ event: queuedEvent }),
+          JSON.stringify({ event: dequeuedEvent }),
+          "",
+        ].join("\n"),
+      );
+      return Promise.resolve(RESPONSE_SENT);
+    }
+    return Promise.resolve("ok");
+  });
+  try {
+    const client = await SdkSocketClient.connect(socketPath);
+    try {
+      const pairs: Array<{ event: SdkEvent; state: AgentState }> = [];
+      const seed = await client.subscribe((event, state) => {
+        pairs.push({ event, state });
+      });
+      // The seed is the response's state, not the live folded state — the
+      // caller's view starts where the delivered events advance from.
+      assert.deepEqual(seed, INITIAL_AGENT_STATE);
+      // Both same-chunk events were delivered before the promise settled,
+      // each with the state after folding it.
+      assert.equal(pairs.length, 2);
+      assert.equal(pairs[0]!.event.kind, "userMessageQueued");
+      assert.equal(pairs[0]!.state.activity, "pending");
+      assert.deepEqual(
+        pairs[0]!.state.queuedMessages.map((entry) => entry.id),
+        [1],
+      );
+      assert.deepEqual(pairs[1]!.state.queuedMessages, []);
+      await assert.rejects(
+        client.subscribe(() => {}),
+        /already subscribed/,
+      );
+    } finally {
+      client.close();
+    }
+  } finally {
+    server.close();
+  }
 });

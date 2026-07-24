@@ -407,6 +407,38 @@ test("apply-flag-settings effortLevel null emits the resolved post-clear level",
   assert.equal(applied.request.settings.effortLevel, "max");
 });
 
+test("apply-flag-settings rejects an unknown effortLevel; no controlApplied is emitted", async () => {
+  let applied = 0;
+  const claudeQuery: Partial<Query> = {
+    applyFlagSettings: async () => {
+      applied += 1;
+    },
+  };
+  const f = fixture({ claudeQuery });
+  await assert.rejects(
+    f.handle({
+      type: "apply-flag-settings",
+      settings: { effortLevel: "superduper" },
+      id: "f1",
+    } as unknown as SdkRequestRecord),
+    /invalid effortLevel "superduper"; valid: low, medium, high, xhigh, max/,
+  );
+  assert.equal(applied, 0);
+  assert.equal(f.emitted.length, 0);
+  assert.equal(f.persisted.length, 0);
+  // "max" is outside the SDK's Settings type but valid on the wire.
+  await f.handle({
+    type: "apply-flag-settings",
+    settings: { effortLevel: "max" },
+    id: "f2",
+  });
+  assert.equal(applied, 1);
+  assert.deepEqual(
+    f.emitted.map((event) => event.kind),
+    ["controlApplied"],
+  );
+});
+
 test("apply-flag-settings effortLevel null stays null when no tier specifies one", async () => {
   const claudeQuery: Partial<Query> = {
     applyFlagSettings: async () => undefined,

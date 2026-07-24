@@ -7,7 +7,7 @@ import type {
 import {
   type AgentState,
   INITIAL_AGENT_STATE,
-  isBusy,
+  isIdle,
   nextAgentState,
 } from "./agent-state.ts";
 import type { SdkEvent } from "./sdk-socket.ts";
@@ -64,21 +64,21 @@ test("initial state is idle with empty arrays", () => {
   assert.deepEqual(INITIAL_AGENT_STATE.queuedMessages, []);
   assert.deepEqual(INITIAL_AGENT_STATE.deliveredMessages, []);
   assert.deepEqual(INITIAL_AGENT_STATE.observedPermissionModes, []);
-  assert.equal(isBusy(INITIAL_AGENT_STATE), false);
+  assert.equal(isIdle(INITIAL_AGENT_STATE), true);
 });
 
 test("querying message queued while idle → pending", () => {
   const state = run([queued(1)]);
   assert.equal(state.activity, "pending");
   assert.deepEqual(queuedIds(state), [1]);
-  assert.equal(isBusy(state), true);
+  assert.equal(isIdle(state), false);
 });
 
 test("non-querying message queued while idle stays idle", () => {
   const state = run([queued(1, { shouldQuery: false })]);
   assert.equal(state.activity, "idle");
   assert.deepEqual(queuedIds(state), [1]);
-  assert.equal(isBusy(state), false);
+  assert.equal(isIdle(state), true);
 });
 
 test("turn dequeue removes the entry without changing activity", () => {

@@ -21,16 +21,14 @@ import {
 import { oneTarget, type CommandContext } from "./generated/targets.ts";
 import { isPidAlive, sdkSocketPath } from "./registry.ts";
 import { connectWithRetry } from "./sdk-socket.ts";
-import { runStream } from "./streaming.ts";
+import { runStream } from "./generated/stream-driver.ts";
 import {
   parseUntilCondition,
   secondsToTimerMs,
   UNTIL_COMPLETIONS,
   UNTIL_USAGE,
-  untilMetAtSeed,
-  untilMetByEvent,
-  untilQuietMs,
-} from "./until.ts";
+} from "./generated/until-engine.ts";
+import { untilMetAtSeed, untilMetByEvent, untilQuietMs } from "./until.ts";
 
 const SOCKET_CONNECT_DEADLINE_MS = 5_000;
 
@@ -64,7 +62,7 @@ export async function wait(
     SOCKET_CONNECT_DEADLINE_MS,
   );
   try {
-    const outcome = await runStream(
+    const { outcome } = await runStream(
       client,
       {
         onSeed: (seed) => untilMetAtSeed(condition, seed),

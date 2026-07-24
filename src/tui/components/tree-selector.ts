@@ -7,7 +7,12 @@
  */
 
 import type { UUID } from "node:crypto";
-import { Container, matchesKey, type Focusable } from "@earendil-works/pi-tui";
+import {
+  Container,
+  getKeybindings,
+  matchesKey,
+  type Focusable,
+} from "@earendil-works/pi-tui";
 import type { DisplayTree } from "../../core/tree/display-tree.ts";
 import {
   loadedContext,
@@ -286,8 +291,14 @@ export class TreeSelectorComponent extends Container implements Focusable {
 
   override render(width: number): string[] {
     const lines: string[] = [];
+    const keybindings = getKeybindings();
+    const confirmKey = keybindings.getKeys("tui.select.confirm")[0] ?? "enter";
+    const cancelKey = keybindings.getKeys("tui.select.cancel")[0] ?? "escape";
     lines.push(
-      theme.fg("accent", "pick a tree entry (enter to rewind, esc to cancel)"),
+      theme.fg(
+        "accent",
+        `pick a tree entry (${confirmKey} to rewind, ${cancelKey} to cancel)`,
+      ),
     );
     if (this.visibleRows.length === 0) {
       lines.push(theme.fg("dim", "(no matching entries)"));
@@ -320,32 +331,36 @@ export class TreeSelectorComponent extends Container implements Focusable {
   }
 
   handleInput(data: string): void {
+    // Command chords resolve through the global registry (tui.select.*);
+    // search editing (backspace, printable input) is text editing and stays
+    // on hard-coded keys.
+    const keybindings = getKeybindings();
     const rowCount = this.visibleRows.length;
-    if (matchesKey(data, "up")) {
+    if (keybindings.matches(data, "tui.select.up")) {
       if (rowCount > 0) {
         this.selectedIndex =
           this.selectedIndex === 0 ? rowCount - 1 : this.selectedIndex - 1;
       }
-    } else if (matchesKey(data, "down")) {
+    } else if (keybindings.matches(data, "tui.select.down")) {
       if (rowCount > 0) {
         this.selectedIndex =
           this.selectedIndex === rowCount - 1 ? 0 : this.selectedIndex + 1;
       }
-    } else if (matchesKey(data, "pageUp")) {
+    } else if (keybindings.matches(data, "tui.select.pageUp")) {
       this.selectedIndex = Math.max(0, this.selectedIndex - MAX_VISIBLE_ROWS);
-    } else if (matchesKey(data, "pageDown")) {
+    } else if (keybindings.matches(data, "tui.select.pageDown")) {
       this.selectedIndex = Math.min(
         Math.max(0, rowCount - 1),
         this.selectedIndex + MAX_VISIBLE_ROWS,
       );
-    } else if (matchesKey(data, "enter") || matchesKey(data, "return")) {
+    } else if (keybindings.matches(data, "tui.select.confirm")) {
       const selected = this.visibleRows[this.selectedIndex];
       if (selected !== undefined) {
         // Layout ids ARE formatTreeNodeRef output, so the pick recovers the
         // occurrence directly — no parallel bookkeeping.
         this.onSelect(parseTreeNodeRef(selected.node.id));
       }
-    } else if (matchesKey(data, "escape")) {
+    } else if (keybindings.matches(data, "tui.select.cancel")) {
       if (this.searchQuery !== "") {
         this.searchQuery = "";
         this.applyFilter();
