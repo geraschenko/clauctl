@@ -92,16 +92,24 @@ wipe `{anchorUuid: boundary, uuids: []}` at parse time (the SDK documents
 absent `preservedMessages` as "unset when compaction summarizes
 everything") instead of modeling step 1's metadata scan-back. Equivalent
 everywhere except one named divergence — a file where NO boundary carries
-metadata (see Edge cases).
+metadata (see Edge cases). An INVALID preserved list (step 3) degrades to
+the same wipe shape instead of aborting — a second named divergence (see
+Edge cases). Step 6's tips analysis is implemented as a single climb from
+the last surviving entry to the nearest user/assistant, treating the
+boundary and its anchor as "the relinked chain's tail is the tip" —
+equivalent for every native shape (the anchor case IS the
+file-ends-at-up_to-summary case), and it excludes trailing system entries
+from the context even when they are the sole dangling tip.
 
 ## Success criteria
 
 1. `loadedContext` reproduces the transform's observable outcomes, each
    as a test case: metadata-less boundary (normalized to a wipe — one
    named divergence when NO boundary carries metadata; see Edge cases),
-   valid empty list (pure wipe), missing preserved uuid (abort — no
-   rewrite AND no cut), anchor-child reparent, chain rewrite, orphan
-   reparent, single-tip and multi-tip leaf selection. Scope:
+   valid empty list (pure wipe), invalid preserved list (degraded to a
+   wipe — a named divergence; see Edge cases), anchor-child reparent,
+   chain rewrite, orphan reparent, leaf climb (file ending at the
+   boundary, at an up_to summary, and at trailing system entries). Scope:
    `preservedMessages` boundaries; deliberate divergences (preserved-list
    duplicate rejection, anchor-in-list rejection, legacy segments, usage
    zeroing) are named in Edge cases.
@@ -254,9 +262,9 @@ export function compactBoundaryAt(
  *  earlier — the loader validates against the complete map), a
  *  duplicated uuid (probe-observed, P3 m4), or the anchor appearing
  *  among the preserved uuids (deliberate divergence; see Edge cases) —
- *  or undefined when the relink applies. loadedContext aborts its
- *  transform on it; buildTree emits no block; both report it through
- *  their onInvalid. */
+ *  or undefined when the relink applies. loadedContext degrades the
+ *  boundary to a full wipe (named divergence; see Edge cases); buildTree
+ *  emits no block; both report it through their onInvalid. */
 export function invalidRelinkReason(
   fileUuids: ReadonlySet<UUID>,
   boundary: CompactBoundary,
@@ -266,13 +274,14 @@ export function invalidRelinkReason(
  *  relink in effect): parentUuid == anchorUuid (uuids non-empty) →
  *  uuids.last(); otherwise the raw parent, which for a compact_boundary
  *  entry with no parentUuid is its logicalParentUuid (where the boundary
- *  event happened). THE anchor-child rule — the only place it is
- *  written; uuids[0] is exempt (its parent is parentOfPreserved's
- *  business). */
+ *  event happened). A parent among the preserved uuids is returned as
+ *  its relinked occurrence (viaBoundary set). THE anchor-child rule —
+ *  the only place it is written; uuids[0] is exempt (its parent is
+ *  parentOfPreserved's business). */
 export function effectiveParent(
   boundary: CompactBoundary | undefined,
   entry: SessionEntry,
-): UUID | undefined;
+): TreeNodeRef | undefined;
 
 /** Parent ref of uuids[index] inside the relinked chain: {anchorUuid}
  *  (bare — the anchor is not itself preserved) for index 0,
@@ -284,9 +293,10 @@ export function parentOfPreserved(
 
 /** Our best estimate of the context the NEXT appended message will see:
  *  the loader transform of the current file — the last boundary's relink
- *  and cut, leaf selection (single dangling tip of the surviving
- *  relation, else nearest user/assistant at-or-above the last surviving
- *  entry), then the parent walk from the leaf. A trailing boundary is
+ *  and cut, leaf selection (climb from the last surviving entry to the
+ *  nearest user/assistant; reaching the boundary or its anchor means the
+ *  relinked chain's tail is the loaded tip), then the parent walk from
+ *  the leaf. A trailing boundary is
  *  honored even though the binary applies it only on the next load,
  *  because that next load is exactly what the next appended message
  *  gets. Estimate: downstream request normalization (tool-pair
@@ -471,12 +481,15 @@ graph TD
   the cut still deletes everything before the boundary (P10).
 - **Invalid relink** (`invalidRelinkReason` set — a preserved uuid naming
   no file entry, a duplicated uuid, or the anchor appearing among the
-  preserved uuids): the boundary emits no block,
-  stays at its logicalParentUuid anchor, remains visible, and ABORTS
-  `loadedContext`'s transform (no cut; pre-boundary entries stay
-  loadable-in-principle, though the walk still ends at the boundary).
-  Validation is against uuids anywhere in the file (loader-faithful),
-  not "earlier entries" as the old code required.
+  preserved uuids): in the tree domain the boundary emits no block, stays
+  at its logicalParentUuid anchor, and remains visible. In
+  `loadedContext` it DEGRADES TO A FULL WIPE (`onInvalid` reports it,
+  surfaced as a banner) — a named divergence: the binary aborts the whole
+  transform and loads raw parents, which resurrects pre-boundary context
+  wherever a surviving entry raw-parents into it; cutting instead errs in
+  the safe direction on a corrupt file. Validation is against uuids
+  anywhere in the file (loader-faithful), not "earlier entries" as the
+  old code required.
 - **Metadata-less boundaries normalize to a wipe** at parse time, so no
   code path handles "no relink instruction". Equivalent to the binary
   except when NO boundary in the file carries `preservedMessages`: the
@@ -553,10 +566,11 @@ graph TD
   the cut set for orphan reparenting. Whichever formulation stays closest
   to auditable-against-the-dump wins; a literal map-rewrite port is
   acceptable if clearer.
-- Tip selection is ground-truthed (step 6) — the dangling-tip analysis
-  replaces the current `summaryOf`-based special-casing outright. Verify
-  against the existing effective-chain test fixtures that outcomes match
-  on native shapes before deleting the old code.
+- Tip selection is ground-truthed (step 6) but implemented as the single
+  leaf climb (see Ground truth's divergence paragraph), which replaced
+  both the `summaryOf`-based special-casing and an interim dangling-tip
+  analysis. Verify against the loader test fixtures that outcomes match
+  on native shapes.
 - `reloadHistory`'s raced-leaf fallback (leaf ref in neither `parentMap`
   nor `visibleRowOf`): keep today's semantics — warn and replay the full
   path — expressed in display rows.
@@ -585,6 +599,40 @@ graph TD
 **Instructions**: Update this section during each work session. Add new
 tasks, mark completed ones with [x], document decisions and problems
 encountered.
+
+## 2026-07-23 — Anton's review round (61c8fe6), IMPLEMENTED
+
+TDC comments in 61c8fe6, all on `loader.ts` (his direct edits kept: the
+`summaryChainUuids` NOTE, the inline orphan-reparent comment, the
+`parentOfPreserved` wording). Decisions, agreed in conversation:
+
+- [x] Spec citations must name the file: "see the spec's Edge cases" →
+      "see Edge cases in docs/specs/session-tree.md" everywhere (a source
+      file cannot be assumed to belong to a single spec).
+- [x] Invalid preserved list: DEGRADE the boundary to a full wipe
+      `{anchorUuid: boundary, uuids: []}` instead of the binary-faithful
+      abort-to-raw-walk. Discussed at length: the abort is genuinely what the
+      binary does (no cut — a surviving entry raw-parenting into pre-boundary
+      history resurrects it), and no wipe placement reproduces it; Anton
+      chose the divergence — the safe direction for a corrupt file, kills
+      `cutApplies`, and `onInvalid` still banners it. Second named
+      divergence recorded in Ground truth + Edge cases; the two abort tests
+      now assert `[u2]` instead of walk-through `[u1, a1, u2]`.
+- [x] `preservedTail` is the anchor when uuids is empty (as a
+      `TreeNodeRef`; for a wipe that is the boundary itself, so orphan
+      reparent lands there and the chain stays empty).
+- [x] Tips analysis replaced by Anton's single leaf climb: from the last
+      surviving entry to the nearest user/assistant; reaching the boundary
+      (file ends at it — fixes the fallback hole he flagged) or its anchor
+      (file ends at an up_to summary) yields the relinked chain's tail.
+      Supplemented with the nearest-user/assistant climb his sketch omitted
+      (native files end with `turn_duration` system entries). Verified
+      case-by-case against all loader fixtures. `relinked` died with the
+      tips pass.
+- [x] `effectiveParent` returns `TreeNodeRef | undefined` (decorating a
+      preserved parent with viaBoundary itself) and `loadedContext`'s
+      `parentOf` is ref→ref; the chain walk pushes refs directly and
+      `buildTree` dropped its `preservedSet` re-decoration.
 
 ## 2026-07-23 — Anton's review round (c76f468), IMPLEMENTED
 

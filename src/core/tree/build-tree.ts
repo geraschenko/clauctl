@@ -17,9 +17,9 @@ import {
 } from "./loader.ts";
 
 /** Every occurrence: raw entries under their parents as interpreted
- *  through the latest boundary encountered so far (effectiveParent,
- *  decorated to `uuid@B` keys when the parent uuid is among that
- *  boundary's preserved uuids), plus each valid boundary's relinked block
+ *  through the latest boundary encountered so far (effectiveParent, which
+ *  yields `uuid@B` refs when the parent uuid is among that boundary's
+ *  preserved uuids), plus each valid boundary's relinked block
  *  `uuids[i]@B → parentOfPreserved(i)` at the boundary's file position
  *  (the block's one genuine forward reference is the up_to anchor's raw
  *  occurrence, which arrives after the boundary; a final pass nulls
@@ -30,7 +30,8 @@ import {
  *  key is first-wins: the repeat entry is skipped entirely — no edge
  *  overwrite, no re-emitted block, and a re-appended boundary entry does
  *  not become the latest boundary. Silent — a legal CLI file shape (the
- *  CLI re-persists dropped history; see the spec's Edge cases). */
+ *  CLI re-persists dropped history; see Edge cases in
+ *  docs/specs/session-tree.md). */
 export function buildTree(
   entries: SessionEntry[],
   onInvalid: OnInvalid,
@@ -48,8 +49,7 @@ export function buildTree(
    *  applied (valid, non-empty): a boundary with no applicable relink ends
    *  the previous boundary's effect and contributes no rules, which this
    *  represents as undefined. */
-  let latest:
-    { boundary: CompactBoundary; preservedSet: ReadonlySet<UUID> } | undefined;
+  let latest: CompactBoundary | undefined;
 
   for (const [index, entry] of entries.entries()) {
     if (entry.uuid === undefined) {
@@ -59,16 +59,11 @@ export function buildTree(
     if (parentMap.has(key)) {
       continue; // a re-persisted copy, skipped entirely (first-wins)
     }
-    const parentUuid = effectiveParent(latest?.boundary, entry);
-    const parentKey =
-      parentUuid === undefined
-        ? null
-        : formatTreeNodeRef(
-            latest !== undefined && latest.preservedSet.has(parentUuid)
-              ? { uuid: parentUuid, viaBoundary: latest.boundary.uuid }
-              : { uuid: parentUuid },
-          );
-    parentMap.set(key, parentKey);
+    const parentRef = effectiveParent(latest, entry);
+    parentMap.set(
+      key,
+      parentRef === undefined ? null : formatTreeNodeRef(parentRef),
+    );
     if (entry.subtype !== "compact_boundary") {
       continue;
     }
@@ -88,7 +83,7 @@ export function buildTree(
       );
     }
     if (preservedUuids.length > 0) {
-      latest = { boundary, preservedSet: new Set(preservedUuids) };
+      latest = boundary;
     }
   }
 

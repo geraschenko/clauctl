@@ -29,8 +29,9 @@ export interface CompactBoundary {
  *  file corruption). Absent preservedMessages ("unset when compaction
  *  summarizes everything" per the SDK; also legacy segment-only boundaries)
  *  normalizes to the equivalent wipe `{anchorUuid: boundary, uuids: []}` —
- *  nothing pre-boundary survives either way (see the spec's Edge cases for
- *  the one divergence this creates). Present-but-malformed metadata throws:
+ *  nothing pre-boundary survives either way (see Edge cases in
+ *  docs/specs/session-tree.md for the divergence this creates).
+ *  Present-but-malformed metadata throws:
  *  that is file corruption, not a shape any producer writes. */
 export function compactBoundaryAt(
   entries: SessionEntry[],
@@ -67,8 +68,8 @@ export function compactBoundaryAt(
 
 /** The reason this boundary's relink must not apply, or undefined when it
  *  is valid. Validation is anywhere-in-file: a preserved uuid may name an
- *  entry after the boundary (see the spec's Edge cases). */
-// TDC: you can't say "see the spec's Edge cases" ... you have to say which spec. We have lots of specs, and the reader doesn't know which you're talking about. Give the file path. Note that there are going to be lots of specs that touch lots of files. You cannot assume that this file is associated with a single spec. It's not.
+ *  entry after the boundary (see Edge cases in
+ *  docs/specs/session-tree.md). */
 export function invalidRelinkReason(
   fileUuids: ReadonlySet<UUID>,
   boundary: CompactBoundary,
@@ -93,31 +94,39 @@ export function invalidRelinkReason(
 }
 
 /** Loader parent of `entry` under `boundary`'s relink (undefined = no
- *  relink in effect). A compact_boundary entry with no raw parent hangs off
- *  its logicalParentUuid — where the boundary event happened. The
- *  anchor-child rule is written ONLY here: a child of the anchor lands on
- *  the preserved tail; uuids[0] is exempt (its parent is
+ *  relink in effect). A parent among the preserved uuids is that uuid's
+ *  relinked occurrence (viaBoundary set). A compact_boundary entry with no
+ *  raw parent hangs off its logicalParentUuid — where the boundary event
+ *  happened. The anchor-child rule is written ONLY here: a child of the
+ *  anchor lands on the preserved tail; uuids[0] is exempt (its parent is
  *  parentOfPreserved's business — in the binary the chain rewrite has
  *  already run when the anchor-child pass looks, so it never matches). */
 export function effectiveParent(
   boundary: CompactBoundary | undefined,
   entry: SessionEntry,
-): UUID | undefined {
+): TreeNodeRef | undefined {
   const rawParent =
     entry.parentUuid ??
     (entry.subtype === "compact_boundary"
       ? entry.logicalParentUuid
       : undefined) ??
     undefined;
-  if (
-    boundary !== undefined &&
-    boundary.preservedMessages.uuids.length > 0 &&
-    rawParent === boundary.preservedMessages.anchorUuid &&
-    entry.uuid !== boundary.preservedMessages.uuids[0]
-  ) {
-    return boundary.preservedMessages.uuids.at(-1);
+  if (rawParent === undefined) {
+    return undefined;
   }
-  return rawParent;
+  const preserved = boundary?.preservedMessages;
+  if (
+    preserved !== undefined &&
+    preserved.uuids.length > 0 &&
+    rawParent === preserved.anchorUuid &&
+    entry.uuid !== preserved.uuids[0]
+  ) {
+    return { uuid: preserved.uuids.at(-1)!, viaBoundary: boundary!.uuid };
+  }
+  if (preserved !== undefined && preserved.uuids.includes(rawParent)) {
+    return { uuid: rawParent, viaBoundary: boundary!.uuid };
+  }
+  return { uuid: rawParent };
 }
 
 /** Parent ref of uuids[index] inside the relinked chain: uuids[0] hangs off
@@ -149,7 +158,7 @@ export function parentOfPreserved(
  *  "failure modes") is out of scope. An element carries viaBoundary iff
  *  its uuid is among the boundary's preserved uuids. Duplicated raw uuids
  *  are last-wins, matching the loader's uuid-keyed map (legal re-persisted
- *  copies; see the spec's Edge cases). */
+ *  copies; see Edge cases in docs/specs/session-tree.md). */
 export function loadedContext(
   entries: SessionEntry[],
   onInvalid: OnInvalid,
@@ -166,57 +175,68 @@ export function loadedContext(
   const cutIndex = entries.findLastIndex(
     (entry) => entry.subtype === "compact_boundary" && entry.uuid !== undefined,
   );
-  // TDC: If there's something wrong with the boundary, we can't just pretend it doesn't exist. That's certainly not what the loader does. I think we should probably return an error/undefined in that situation. Running the subsequent parentOf calculation as if there were no boundary is simply wrong. This also simplifies things, because we don't have anything conditional on cutApplies below.
-  const boundary =
+  let boundary =
     cutIndex === -1 ? undefined : compactBoundaryAt(entries, cutIndex);
-  // An invalid preserved list aborts the whole transform — no relink AND no
-  // cut; the walk sees raw parents only.
-  let cutApplies = false;
   if (boundary !== undefined) {
-    const abortReason = invalidRelinkReason(new Set(byUuid.keys()), boundary);
-    if (abortReason === undefined) {
-      cutApplies = true;
-    } else {
-      onInvalid(`boundary ${boundary.uuid}: relink skipped — ${abortReason}`);
+    const invalidReason = invalidRelinkReason(new Set(byUuid.keys()), boundary);
+    if (invalidReason !== undefined) {
+      // Deliberate divergence (see Edge cases in docs/specs/session-tree.md):
+      // the binary aborts the whole transform and loads raw parents,
+      // resurrecting pre-boundary context; we treat the boundary as a full
+      // wipe instead — the safe direction for a corrupt file.
+      onInvalid(
+        `boundary ${boundary.uuid}: invalid preservedMessages (${invalidReason}) — treating the boundary as a full context wipe`,
+      );
+      boundary = {
+        uuid: boundary.uuid,
+        preservedMessages: { anchorUuid: boundary.uuid, uuids: [] },
+      };
     }
   }
-  const preservedUuids = cutApplies ? boundary!.preservedMessages.uuids : [];
+  const preservedUuids = boundary?.preservedMessages.uuids ?? [];
   const preservedIndex = new Map(
     preservedUuids.map((preservedUuid, index) => [preservedUuid, index]),
   );
-  const preservedTail = preservedUuids.at(-1);  // TDC: this should be the anchor if uuids is empty.
-  const relinked = preservedUuids.length > 0;  // TDC: I don't understand the point of this constant.
+  /** The tip of the relinked chain — the anchor itself when nothing was
+   *  preserved (a wipe's anchor is the boundary, so the chain is empty). */
+  const preservedTail: TreeNodeRef | undefined =
+    boundary === undefined
+      ? undefined
+      : preservedUuids.length > 0
+        ? { uuid: preservedUuids.at(-1)!, viaBoundary: boundary.uuid }
+        : { uuid: boundary.preservedMessages.anchorUuid };
 
   /** Cut away by the boundary: last occurrence before it and not preserved. */
   const deleted = (uuid: UUID): boolean => {
     const lastIndex = lastIndexOf.get(uuid);
     return (
-      cutApplies &&
       lastIndex !== undefined &&
       lastIndex < cutIndex &&
       !preservedIndex.has(uuid)
     );
   };
 
-  /** The transformed relation, one uuid at a time (must exist in byUuid).
-   *  Boundaries end chains: their logical anchoring is tree-domain
-   *  placement, not a loaded edge. */
-  // TDC: why not just have parentOf take a TreeNodeRef and return a TreeNodeRef? You can make effectiveParent return a TreeNodeRef as well. It makes everything much easier to understand.
-  const parentOf = (uuid: UUID): UUID | undefined => {
-    const entry = byUuid.get(uuid)!;
+  /** A ref's loaded occurrence: relinked when its uuid is preserved. */
+  const refOf = (uuid: UUID): TreeNodeRef =>
+    preservedIndex.has(uuid) ? { uuid, viaBoundary: boundary!.uuid } : { uuid };
+
+  /** The transformed relation (ref.uuid must exist in byUuid). Boundaries
+   *  end chains: their logical anchoring is tree-domain placement, not a
+   *  loaded edge. */
+  const parentOf = (ref: TreeNodeRef): TreeNodeRef | undefined => {
+    const entry = byUuid.get(ref.uuid)!;
     if (entry.subtype === "compact_boundary") {
       return undefined;
     }
-    const index = preservedIndex.get(uuid);
+    const index = preservedIndex.get(ref.uuid);
     if (index !== undefined) {
-      return parentOfPreserved(boundary!, index).uuid;
+      return parentOfPreserved(boundary!, index);
     }
-    const parent = effectiveParent(cutApplies ? boundary : undefined, entry);
+    const parent = effectiveParent(boundary, entry);
     if (
       parent !== undefined &&
-      deleted(parent) &&
-      (entry.type === "user" || entry.type === "assistant") &&
-      preservedTail !== undefined
+      deleted(parent.uuid) &&
+      (entry.type === "user" || entry.type === "assistant")
     ) {
       // A surviving turn whose parent was cut is attached to the preserved
       // tail. This should never happen in a well-formed session file.
@@ -225,52 +245,40 @@ export function loadedContext(
     return parent;
   };
 
-  let leaf: UUID | undefined;
-  if (relinked) {
-    // TDC: I think this is technically correct, but needlessly complicated and confusing. I disagree with your claim that the relinked leaf cannot be derived from the last file entry with a uuid. The algorithm I expect is this: look at the last entry of the file with a uuid. Since the boundary has a uuid, this entry must be equal or later than the boundary. If it's the boundary, the leaf node is entry.uuid@boundary.uuid (there cannot be an anchor which should be the leaf because that would have to come _after_ the boundary, and it hasn't). If it's something other than the boundary, check if it's the boundary's anchor. If so, the leaf is preservedTail. If not, it's the leaf. Whatever leaf you found, walk backwards from there to construct loadedContext.
-    // The relinked leaf is not derivable from the last file entry (a file
-    // ending at an up_to summary has the preserved tail as its true tip):
-    // it is the single dangling tip of the surviving relation, when there
-    // is exactly one.
-    const survivors = [...byUuid.keys()].filter((uuid) => !deleted(uuid));
-    const parents = new Set<UUID | undefined>();
-    for (const uuid of survivors) {
-      if (byUuid.get(uuid)!.subtype !== "compact_boundary") {
-        parents.add(parentOf(uuid));
-      }
+  // Leaf selection: climb from the last surviving entry to the nearest
+  // user/assistant. Reaching the boundary (the file ends at it) or its
+  // anchor (the file ends at an up_to summary, whose preserved uuids are
+  // PRESENTED after it) means the relinked chain's tail is the loaded tip.
+  let leaf: TreeNodeRef | undefined;
+  const lastSurviving = entries.findLast(
+    (entry) => entry.uuid !== undefined && !deleted(entry.uuid),
+  )?.uuid;
+  let climb = lastSurviving === undefined ? undefined : refOf(lastSurviving);
+  const climbed = new Set<UUID>();
+  while (climb !== undefined) {
+    if (climbed.has(climb.uuid)) {
+      onInvalid(
+        `leaf walk revisited ${climb.uuid} — parent cycle in the session file; stopping`,
+      );
+      break;
     }
-    const tips = survivors.filter((uuid) => !parents.has(uuid));
-    if (tips.length === 1) {
-      leaf = tips[0];
+    climbed.add(climb.uuid);
+    const entry = byUuid.get(climb.uuid);
+    if (entry === undefined || deleted(climb.uuid)) {
+      break;
     }
-  }
-  if (leaf === undefined) {
-    // TDC: I don't think this computes the correct leaf if the boundary is the final entry in the session file.
-    // Nearest user/assistant at-or-above the last surviving entry.
-    let current = entries.findLast(
-      (entry) => entry.uuid !== undefined && !deleted(entry.uuid),
-    )?.uuid;
-    const walked = new Set<UUID>();
-    while (current !== undefined) {
-      if (walked.has(current)) {
-        onInvalid(
-          `leaf walk revisited ${current} — parent cycle in the session file; stopping`,
-        );
-        current = undefined;
-        break;
-      }
-      walked.add(current);
-      const entry = byUuid.get(current);
-      if (entry === undefined || deleted(current)) {
-        current = undefined;
-        break;
-      }
-      if (entry.type === "user" || entry.type === "assistant") {
-        break;
-      }
-      current = parentOf(current);
+    if (
+      entry.subtype === "compact_boundary" ||
+      climb.uuid === boundary?.preservedMessages.anchorUuid
+    ) {
+      leaf = preservedTail;
+      break;
     }
-    leaf = current;
+    if (entry.type === "user" || entry.type === "assistant") {
+      leaf = climb;
+      break;
+    }
+    climb = parentOf(climb);
   }
 
   const chain: TreeNodeRef[] = [];
@@ -279,26 +287,22 @@ export function loadedContext(
   const walked = new Set<UUID>();
   let current = leaf;
   while (current !== undefined) {
-    if (walked.has(current)) {
+    if (walked.has(current.uuid)) {
       onInvalid(
-        `loadedContext walk revisited ${current} — parent cycle in the session file; stopping`,
+        `loadedContext walk revisited ${current.uuid} — parent cycle in the session file; stopping`,
       );
       break;
     }
-    walked.add(current);
-    const entry = byUuid.get(current);
+    walked.add(current.uuid);
+    const entry = byUuid.get(current.uuid);
     if (
       entry === undefined ||
-      deleted(current) ||
+      deleted(current.uuid) ||
       entry.subtype === "compact_boundary"
     ) {
       break;
     }
-    chain.push(
-      preservedIndex.has(current)
-        ? { uuid: current, viaBoundary: boundary!.uuid }
-        : { uuid: current },
-    );
+    chain.push(current);
     current = parentOf(current);
   }
   chain.reverse();

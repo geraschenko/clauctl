@@ -216,7 +216,8 @@ test("invalidRelinkReason: missing uuid, P3 m4 duplicate, valid otherwise", () =
     /anchorUuid appears/,
   );
   // Validation is anywhere-in-file, not earlier-entries-only: a preserved
-  // uuid naming a LATER entry is valid (see the spec's Edge cases).
+  // uuid naming a LATER entry is valid (see Edge cases in
+  // docs/specs/session-tree.md).
   assert.equal(invalidRelinkReason(fileUuids, valid), undefined);
 });
 
@@ -230,16 +231,21 @@ test("effectiveParent: the anchor-child rule, uuids[0] exempt", () => {
     0,
   );
   const anchorChild = userEntry(anchor, sid);
-  assert.equal(effectiveParent(boundary, anchorChild), u2.uuid);
+  assert.deepEqual(effectiveParent(boundary, anchorChild), {
+    uuid: u2.uuid,
+    viaBoundary: boundary.uuid,
+  });
   // No relink in effect: the raw parent, always.
-  assert.equal(effectiveParent(undefined, anchorChild), anchor);
+  assert.deepEqual(effectiveParent(undefined, anchorChild), { uuid: anchor });
   // uuids[0] keeps its raw parent even when it points at the anchor.
-  assert.equal(
-    effectiveParent(boundary, { ...u1, parentUuid: anchor }),
-    anchor,
-  );
-  // Anything not referencing the anchor keeps its raw parent.
-  assert.equal(effectiveParent(boundary, u2), u1.uuid);
+  assert.deepEqual(effectiveParent(boundary, { ...u1, parentUuid: anchor }), {
+    uuid: anchor,
+  });
+  // A raw parent among the preserved uuids is its relinked occurrence.
+  assert.deepEqual(effectiveParent(boundary, u2), {
+    uuid: u1.uuid,
+    viaBoundary: boundary.uuid,
+  });
 });
 
 test("effectiveParent: a compact_boundary entry hangs off its logicalParentUuid", () => {
@@ -251,12 +257,12 @@ test("effectiveParent: a compact_boundary entry hangs off its logicalParentUuid"
     anchor: "own",
     logicalParentUuid: tip,
   });
-  assert.equal(effectiveParent(undefined, entry), tip);
+  assert.deepEqual(effectiveParent(undefined, entry), { uuid: tip });
   // A raw parent, when present, wins over the logical anchor.
   const rawParent = uuid();
-  assert.equal(
+  assert.deepEqual(
     effectiveParent(undefined, { ...entry, parentUuid: rawParent }),
-    rawParent,
+    { uuid: rawParent },
   );
   // Non-boundary entries never use logicalParentUuid.
   const user = { ...userEntry(null, sid), logicalParentUuid: tip };
@@ -303,8 +309,8 @@ test("a metadata-less boundary cuts like a wipe (named divergence)", () => {
   assert.deepEqual(loadedContextUuids([u1, a1, bare], failOnInvalid), []);
   // The binary loads a file with NO metadata-bearing boundary untransformed;
   // our normalization cuts at the last boundary instead (hand-crafted/legacy
-  // files only — see the spec's Edge cases). The post-boundary turn's parent
-  // is cut, so it stands alone.
+  // files only — see Edge cases in docs/specs/session-tree.md). The
+  // post-boundary turn's parent is cut, so it stands alone.
   const u2 = userEntry(a1.uuid, sid);
   assert.deepEqual(loadedContextUuids([u1, a1, bare, u2], failOnInvalid), [
     u2.uuid,
@@ -325,8 +331,8 @@ test("a trailing metadata-less boundary supersedes an earlier metadata boundary,
   const bare = bareBoundaryEntry(sid);
   const entries = [u1, a1, withMeta, bare];
   assert.deepEqual(loadedContextUuids(entries, failOnInvalid), []);
-  // A post-boundary turn whose parent was cut stays a lone orphan (orphan
-  // reparent needs a non-empty preserved list).
+  // A post-boundary turn whose parent was cut reparents onto the wipe's
+  // tail — the boundary itself — so it stands alone.
   const u2 = userEntry(a1.uuid, sid);
   assert.deepEqual(loadedContextUuids([...entries, u2], failOnInvalid), [
     u2.uuid,
@@ -341,9 +347,9 @@ test("P10: a trailing valid empty-uuids boundary wipes the context", () => {
   assert.deepEqual(loadedContextUuids([u1, a1, wipe], failOnInvalid), []);
 });
 
-// --- loadedContext: abort ----------------------------------------------------
+// --- loadedContext: invalid boundary degrades to a wipe -----------------------
 
-test("a missing preserved uuid aborts the whole transform — no rewrite AND no cut", () => {
+test("a missing preserved uuid degrades the boundary to a wipe (named divergence)", () => {
   const sid = uuid();
   const u1 = userEntry(null, sid);
   const a1 = assistantEntry(u1.uuid, sid);
@@ -363,16 +369,17 @@ test("a missing preserved uuid aborts the whole transform — no rewrite AND no 
     { uuid: summaryUuid },
   ]);
   assert.match(invalidMessages[0]!, /names no file entry/);
-  // No cut: a post-abort turn parenting into pre-boundary history walks
-  // straight through it.
+  // The binary aborts the transform and loads raw parents, which would give
+  // [u1, a1, u2] here; degrading to a wipe cuts pre-boundary history
+  // instead, so the turn reparents onto the boundary and stands alone.
   const u2 = userEntry(a1.uuid, sid);
   assert.deepEqual(
     loadedContextUuids([u1, a1, boundary, summary, u2], collectInvalid),
-    [u1.uuid, a1.uuid, u2.uuid],
+    [u2.uuid],
   );
 });
 
-test("P3 m4: a duplicated uuid in the preserved list aborts the same way", () => {
+test("P3 m4: a duplicated uuid in the preserved list degrades the same way", () => {
   const sid = uuid();
   const u1 = userEntry(null, sid);
   const a1 = assistantEntry(u1.uuid, sid);
@@ -393,7 +400,7 @@ test("P3 m4: a duplicated uuid in the preserved list aborts the same way", () =>
   assert.match(invalidMessages[0]!, /duplicated uuid/);
 });
 
-test("an anchor among the preserved uuids aborts the same way (deliberate divergence)", () => {
+test("an anchor among the preserved uuids degrades the same way", () => {
   const sid = uuid();
   const u1 = userEntry(null, sid);
   const a1 = assistantEntry(u1.uuid, sid);
@@ -406,20 +413,20 @@ test("an anchor among the preserved uuids aborts the same way (deliberate diverg
   });
   const u2 = userEntry(a1.uuid, sid);
   const invalidMessages: string[] = [];
-  // No rewrite AND no cut: the post-boundary turn walks straight through
-  // pre-boundary history.
+  // The wipe cuts pre-boundary history; the post-boundary turn reparents
+  // onto the boundary and stands alone.
   assert.deepEqual(
     loadedContextUuids([u1, a1, boundary, u2], (message) =>
       invalidMessages.push(message),
     ),
-    [u1.uuid, a1.uuid, u2.uuid],
+    [u2.uuid],
   );
   assert.match(invalidMessages[0]!, /anchorUuid appears/);
 });
 
 // --- loadedContext: the rules -------------------------------------------------
 
-test("up_to shape: chain rewrite hangs the preserved uuids under the summary; single-tip leaf", () => {
+test("up_to shape: chain rewrite hangs the preserved uuids under the summary; the tail is the leaf", () => {
   const sid = uuid();
   const u1 = userEntry(null, sid);
   const a1 = assistantEntry(u1.uuid, sid);
@@ -433,8 +440,8 @@ test("up_to shape: chain rewrite hangs the preserved uuids under the summary; si
   });
   const summary = summaryEntry(boundary.uuid, sid, summaryUuid);
   const base = [u1, a1, u2, a2, boundary, summary];
-  // The file ends at the summary, but the leaf is the preserved tail: the
-  // chain rewrite leaves exactly one dangling tip.
+  // The file ends at the summary — the anchor — so the leaf is the
+  // preserved tail: the preserved uuids are PRESENTED after the summary.
   assert.deepEqual(loadedContext(base, failOnInvalid), [
     { uuid: summaryUuid },
     { uuid: u2.uuid, viaBoundary: boundary.uuid },
@@ -544,7 +551,7 @@ test("orphan reparent lands a surviving turn on the preserved tail", () => {
 
 // --- loadedContext: leaf selection ------------------------------------------
 
-test("multiple tips fall back to the last file entry; trailing system entries are not the leaf", () => {
+test("the leaf climb starts at the last file entry and skips trailing system entries", () => {
   const sid = uuid();
   const u1 = userEntry(null, sid);
   const a1 = assistantEntry(u1.uuid, sid);
@@ -555,10 +562,10 @@ test("multiple tips fall back to the last file entry; trailing system entries ar
     anchor: summaryUuid,
   });
   const summary = summaryEntry(boundary.uuid, sid, summaryUuid);
-  // Two branches off the preserved tail: two dangling tips.
+  // Two branches off the preserved tail: the later one wins.
   const u2a = userEntry(a1.uuid, sid);
   const u2b = userEntry(a1.uuid, sid);
-  // A trailing system entry: the walk climbs to the nearest user/assistant.
+  // A trailing system entry: the climb finds the nearest user/assistant.
   const duration: SessionEntry = {
     uuid: uuid(),
     parentUuid: u2b.uuid,
