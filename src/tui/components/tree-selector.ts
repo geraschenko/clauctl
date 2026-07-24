@@ -58,6 +58,10 @@ function summaryChainUuids(
   entryOf: ReadonlyMap<UUID, SessionEntry>,
   onInvalid: OnInvalid,
 ): UUID[] | undefined {
+  // NOTE: For an "up_to" summary, the summary appears in the assistant's
+  // context _before_ the preserved uuids. However, it's presented to the user
+  // as appearing _after_ the preserved uuids. So if the user picks the summary,
+  // their expectation is that the perserved uuids remain in context.
   const summaryIndex = entries.findIndex(
     (entry) => entry.uuid === summary.uuid,
   );

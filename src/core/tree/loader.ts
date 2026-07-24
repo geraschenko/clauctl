@@ -68,6 +68,7 @@ export function compactBoundaryAt(
 /** The reason this boundary's relink must not apply, or undefined when it
  *  is valid. Validation is anywhere-in-file: a preserved uuid may name an
  *  entry after the boundary (see the spec's Edge cases). */
+// TDC: you can't say "see the spec's Edge cases" ... you have to say which spec. We have lots of specs, and the reader doesn't know which you're talking about. Give the file path. Note that there are going to be lots of specs that touch lots of files. You cannot assume that this file is associated with a single spec. It's not.
 export function invalidRelinkReason(
   fileUuids: ReadonlySet<UUID>,
   boundary: CompactBoundary,
@@ -120,8 +121,8 @@ export function effectiveParent(
 }
 
 /** Parent ref of uuids[index] inside the relinked chain: uuids[0] hangs off
- *  the anchor (a bare ref — the anchor is not itself preserved), later
- *  entries chain onto their predecessor's relinked occurrence. Throws on an
+ *  the anchor (a bare ref — the anchor is not itself in uuids), later entries
+ *  chain onto their predecessor's relinked occurrence. Throws on an
  *  out-of-range index (caller bug). */
 export function parentOfPreserved(
   boundary: CompactBoundary,
@@ -165,6 +166,7 @@ export function loadedContext(
   const cutIndex = entries.findLastIndex(
     (entry) => entry.subtype === "compact_boundary" && entry.uuid !== undefined,
   );
+  // TDC: If there's something wrong with the boundary, we can't just pretend it doesn't exist. That's certainly not what the loader does. I think we should probably return an error/undefined in that situation. Running the subsequent parentOf calculation as if there were no boundary is simply wrong. This also simplifies things, because we don't have anything conditional on cutApplies below.
   const boundary =
     cutIndex === -1 ? undefined : compactBoundaryAt(entries, cutIndex);
   // An invalid preserved list aborts the whole transform — no relink AND no
@@ -182,8 +184,8 @@ export function loadedContext(
   const preservedIndex = new Map(
     preservedUuids.map((preservedUuid, index) => [preservedUuid, index]),
   );
-  const preservedTail = preservedUuids.at(-1);
-  const relinked = preservedUuids.length > 0;
+  const preservedTail = preservedUuids.at(-1);  // TDC: this should be the anchor if uuids is empty.
+  const relinked = preservedUuids.length > 0;  // TDC: I don't understand the point of this constant.
 
   /** Cut away by the boundary: last occurrence before it and not preserved. */
   const deleted = (uuid: UUID): boolean => {
@@ -198,9 +200,8 @@ export function loadedContext(
 
   /** The transformed relation, one uuid at a time (must exist in byUuid).
    *  Boundaries end chains: their logical anchoring is tree-domain
-   *  placement, not a loaded edge — letting it contribute would make the
-   *  preserved tail everyone's parent and break single-tip leaf detection.
-   *  A surviving turn whose parent was cut lands on the preserved tail. */
+   *  placement, not a loaded edge. */
+  // TDC: why not just have parentOf take a TreeNodeRef and return a TreeNodeRef? You can make effectiveParent return a TreeNodeRef as well. It makes everything much easier to understand.
   const parentOf = (uuid: UUID): UUID | undefined => {
     const entry = byUuid.get(uuid)!;
     if (entry.subtype === "compact_boundary") {
@@ -217,6 +218,8 @@ export function loadedContext(
       (entry.type === "user" || entry.type === "assistant") &&
       preservedTail !== undefined
     ) {
+      // A surviving turn whose parent was cut is attached to the preserved
+      // tail. This should never happen in a well-formed session file.
       return preservedTail;
     }
     return parent;
@@ -224,6 +227,7 @@ export function loadedContext(
 
   let leaf: UUID | undefined;
   if (relinked) {
+    // TDC: I think this is technically correct, but needlessly complicated and confusing. I disagree with your claim that the relinked leaf cannot be derived from the last file entry with a uuid. The algorithm I expect is this: look at the last entry of the file with a uuid. Since the boundary has a uuid, this entry must be equal or later than the boundary. If it's the boundary, the leaf node is entry.uuid@boundary.uuid (there cannot be an anchor which should be the leaf because that would have to come _after_ the boundary, and it hasn't). If it's something other than the boundary, check if it's the boundary's anchor. If so, the leaf is preservedTail. If not, it's the leaf. Whatever leaf you found, walk backwards from there to construct loadedContext.
     // The relinked leaf is not derivable from the last file entry (a file
     // ending at an up_to summary has the preserved tail as its true tip):
     // it is the single dangling tip of the surviving relation, when there
@@ -241,6 +245,7 @@ export function loadedContext(
     }
   }
   if (leaf === undefined) {
+    // TDC: I don't think this computes the correct leaf if the boundary is the final entry in the session file.
     // Nearest user/assistant at-or-above the last surviving entry.
     let current = entries.findLast(
       (entry) => entry.uuid !== undefined && !deleted(entry.uuid),
