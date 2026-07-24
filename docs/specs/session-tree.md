@@ -293,10 +293,10 @@ export function parentOfPreserved(
 
 /** Our best estimate of the context the NEXT appended message will see:
  *  the loader transform of the current file — the last boundary's relink
- *  and cut, leaf selection (climb from the last surviving entry to the
- *  nearest user/assistant; reaching the boundary or its anchor means the
- *  relinked chain's tail is the loaded tip), then the parent walk from
- *  the leaf. A trailing boundary is
+ *  and cut, then ONE walk from the last surviving entry: climb silently
+ *  to the nearest user/assistant, then append until a boundary ends the
+ *  chain; reaching the boundary or its anchor before appending starts
+ *  redirects to the relinked chain's tail. A trailing boundary is
  *  honored even though the binary applies it only on the next load,
  *  because that next load is exactly what the next appended message
  *  gets. Estimate: downstream request normalization (tool-pair
@@ -599,6 +599,26 @@ graph TD
 **Instructions**: Update this section during each work session. Add new
 tasks, mark completed ones with [x], document decisions and problems
 encountered.
+
+## 2026-07-23 — Anton's review round (4a4d321), IMPLEMENTED
+
+- [x] Producer-drift alarm: a boundary carrying a raw `parentUuid`
+      banners through `onInvalid` (the walk treats boundaries as chain ends
+      BECAUSE the CLI writes them parentless; a raw parent means the relink
+      model needs re-deriving). Placed at the boundary parse site, not in
+      `parentOf`'s boundary branch as the TDC suggested — that branch is
+      unreachable from the walk (it breaks at boundaries before calling
+      `parentOf`), so a banner there would be dead code.
+- [x] The leaf climb and the chain walk merged into one walk (climb
+      silently to the nearest user/assistant, then append until a boundary
+      ends the chain). Two subtleties beyond the TDC's sketch: the
+      boundary/anchor redirect applies mid-climb, checked BEFORE the
+      user/assistant test (the up_to summary is a user entry); and the
+      redirect makes the walk legitimately revisit the anchor (climb passes
+      through the summary, append returns to push it), so the cycle guard
+      resets at the redirect and the redirect is once-only (a hand-crafted
+      all-system preserved chain would otherwise loop tail → anchor →
+      redirect forever).
 
 ## 2026-07-23 — Anton's review round (61c8fe6), IMPLEMENTED
 

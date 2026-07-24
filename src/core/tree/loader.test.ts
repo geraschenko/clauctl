@@ -616,6 +616,26 @@ test("duplicated raw uuids (re-persisted copies) are tolerated silently, last-wi
 
 // --- loadedContext: corruption -------------------------------------------------
 
+test("a boundary with a raw parentUuid is reported as producer drift", () => {
+  const sid = uuid();
+  const u1 = userEntry(null, sid);
+  const a1 = assistantEntry(u1.uuid, sid);
+  const boundary = {
+    ...boundaryEntry({ sessionId: sid, uuids: [a1.uuid], anchor: "own" }),
+    parentUuid: a1.uuid,
+  };
+  const invalidMessages: string[] = [];
+  // The transform itself still runs — the banner is a drift alarm, not
+  // a degradation.
+  assert.deepEqual(
+    loadedContextUuids([u1, a1, boundary], (message) =>
+      invalidMessages.push(message),
+    ),
+    [a1.uuid],
+  );
+  assert.match(invalidMessages[0]!, /raw parentUuid/);
+});
+
 test("a parentUuid cycle is reported and the walk stops", () => {
   const sid = uuid();
   const u1 = userEntry(null, sid);

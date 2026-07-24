@@ -178,6 +178,15 @@ export function loadedContext(
   let boundary =
     cutIndex === -1 ? undefined : compactBoundaryAt(entries, cutIndex);
   if (boundary !== undefined) {
+    // The walk treats boundaries as chain ends because the CLI writes them
+    // with a null parentUuid (their placement is logicalParentUuid, a
+    // tree-domain concern). A raw parent here means the producer changed
+    // and the relink model needs re-deriving against the new binary.
+    if (entries[cutIndex]!.parentUuid != null) {
+      onInvalid(
+        `boundary ${boundary.uuid} has a raw parentUuid — unexpected producer behavior; the loaded context may be wrong`,
+      );
+    }
     const invalidReason = invalidRelinkReason(new Set(byUuid.keys()), boundary);
     if (invalidReason !== undefined) {
       // Deliberate divergence (see Edge cases in docs/specs/session-tree.md):
@@ -226,7 +235,6 @@ export function loadedContext(
   const parentOf = (ref: TreeNodeRef): TreeNodeRef | undefined => {
     const entry = byUuid.get(ref.uuid)!;
     if (entry.subtype === "compact_boundary") {
-      // TDC: maybe it's worth making an assertion here that entry.parentUuid is null, or showing a banner if it's not true, because if that ever changes, it means that claude code has started doing something weird and we need to update our relinking algorithm.
       return undefined;
     }
     const index = preservedIndex.get(ref.uuid);
@@ -246,48 +254,26 @@ export function loadedContext(
     return parent;
   };
 
-  // Leaf selection: climb from the last surviving entry to the nearest
-  // user/assistant. Reaching the boundary (the file ends at it) or its
-  // anchor (the file ends at an up_to summary, whose preserved uuids are
-  // PRESENTED after it) means the relinked chain's tail is the loaded tip.
-  let leaf: TreeNodeRef | undefined;
-  const lastSurviving = entries.findLast(
-    (entry) => entry.uuid !== undefined && !deleted(entry.uuid),
-  )?.uuid;
-  // TDC: It feels like we're unnecessarily implementing the climb twice here. Instead, we should start at lastSurviving, climb until we get to a user-or-assistant, start appending to the chain, continue climbing (and appending) until done, break. Return reversed chain. Can you combine these two climbs like that? I think the only thing we have to change about initialization is that if last_surviving is a boundary, we must *immediately* replace it with preservedTail. After that I think the climb logic should be identical.
-  let climb = lastSurviving === undefined ? undefined : refOf(lastSurviving);
-  const climbed = new Set<UUID>();
-  while (climb !== undefined) {
-    if (climbed.has(climb.uuid)) {
-      onInvalid(
-        `leaf walk revisited ${climb.uuid} — parent cycle in the session file; stopping`,
-      );
-      break;
-    }
-    climbed.add(climb.uuid);
-    const entry = byUuid.get(climb.uuid);
-    if (entry === undefined || deleted(climb.uuid)) {
-      break;
-    }
-    if (
-      entry.subtype === "compact_boundary" ||
-      climb.uuid === boundary?.preservedMessages.anchorUuid
-    ) {
-      leaf = preservedTail;
-      break;
-    }
-    if (entry.type === "user" || entry.type === "assistant") {
-      leaf = climb;
-      break;
-    }
-    climb = parentOf(climb);
-  }
-
+  // One walk from the last surviving entry: climb silently to the nearest
+  // user/assistant (trailing system entries are not context), then append
+  // every entry until a boundary ends the chain. Reaching the boundary
+  // (the file ends at it) or its anchor (the file ends at an up_to
+  // summary, whose preserved uuids are PRESENTED after it) before
+  // appending starts means the relinked chain's tail is the loaded tip —
+  // redirect there. At most once: the appended chain legitimately returns
+  // to the anchor (up_to appends the summary after the preserved uuids),
+  // so the cycle guard restarts at the redirect and the redirect must not
+  // re-fire.
   const chain: TreeNodeRef[] = [];
   // Cycle guard: raw parentUuid pointers are unvalidated, so a corrupt
   // file can loop the walk.
-  const walked = new Set<UUID>();
-  let current = leaf;
+  let walked = new Set<UUID>();
+  let appending = false;
+  let redirected = false;
+  const lastSurviving = entries.findLast(
+    (entry) => entry.uuid !== undefined && !deleted(entry.uuid),
+  )?.uuid;
+  let current = lastSurviving === undefined ? undefined : refOf(lastSurviving);
   while (current !== undefined) {
     if (walked.has(current.uuid)) {
       onInvalid(
@@ -297,14 +283,32 @@ export function loadedContext(
     }
     walked.add(current.uuid);
     const entry = byUuid.get(current.uuid);
-    if (
-      entry === undefined ||
-      deleted(current.uuid) ||
-      entry.subtype === "compact_boundary"
-    ) {
+    if (entry === undefined || deleted(current.uuid)) {
       break;
     }
-    chain.push(current);
+    if (
+      !appending &&
+      !redirected &&
+      (entry.subtype === "compact_boundary" ||
+        current.uuid === boundary?.preservedMessages.anchorUuid)
+    ) {
+      if (preservedUuids.length === 0) {
+        break; // a wipe: nothing survives the boundary
+      }
+      redirected = true;
+      current = preservedTail;
+      walked = new Set();
+      continue;
+    }
+    if (entry.subtype === "compact_boundary") {
+      break;
+    }
+    if (entry.type === "user" || entry.type === "assistant") {
+      appending = true;
+    }
+    if (appending) {
+      chain.push(current);
+    }
     current = parentOf(current);
   }
   chain.reverse();
