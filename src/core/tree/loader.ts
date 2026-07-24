@@ -226,6 +226,7 @@ export function loadedContext(
   const parentOf = (ref: TreeNodeRef): TreeNodeRef | undefined => {
     const entry = byUuid.get(ref.uuid)!;
     if (entry.subtype === "compact_boundary") {
+      // TDC: maybe it's worth making an assertion here that entry.parentUuid is null, or showing a banner if it's not true, because if that ever changes, it means that claude code has started doing something weird and we need to update our relinking algorithm.
       return undefined;
     }
     const index = preservedIndex.get(ref.uuid);
@@ -253,6 +254,7 @@ export function loadedContext(
   const lastSurviving = entries.findLast(
     (entry) => entry.uuid !== undefined && !deleted(entry.uuid),
   )?.uuid;
+  // TDC: It feels like we're unnecessarily implementing the climb twice here. Instead, we should start at lastSurviving, climb until we get to a user-or-assistant, start appending to the chain, continue climbing (and appending) until done, break. Return reversed chain. Can you combine these two climbs like that? I think the only thing we have to change about initialization is that if last_surviving is a boundary, we must *immediately* replace it with preservedTail. After that I think the climb logic should be identical.
   let climb = lastSurviving === undefined ? undefined : refOf(lastSurviving);
   const climbed = new Set<UUID>();
   while (climb !== undefined) {
