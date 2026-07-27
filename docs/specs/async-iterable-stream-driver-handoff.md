@@ -94,6 +94,15 @@ Callers would then import `./generated/streaming/driver.ts`. Confirm the final
 layout against pictl's implemented relative imports before changing the sync
 set; do not guess ahead of the upstream implementation.
 
+The current sync rewriter only rewrites `./` imports and operates over one flat
+file list. Pictl's planned `driver.ts` import of `../until-engine.ts` therefore
+passes through unchanged and correctly resolves from `generated/streaming/` to
+`generated/until-engine.ts`; `driver.test.ts` keeps its in-set `./driver.ts`
+import. Verify both cases with an early sync test. If canonical `driver.ts`
+ever gains another `./` sibling import, add that sibling to the streaming sync
+set or generalize the rewriter before syncing it—the current rule would rewrite
+it into the wrong generated directory.
+
 ### `src/core/sdk-socket.ts`
 
 Replace callback subscription with an atomic subscription result:
@@ -113,8 +122,12 @@ export class SdkSocketClient {
 Clauctl's wire ordering is favorable: the daemon writes the subscribe response
 before attaching the event sink. Install the client-side event queue before
 sending the subscribe request and capture the response's `AgentState` as the
-seed. Fold each later event synchronously through `nextAgentState`, enqueue
-`{ event, state }` with that post-fold snapshot, and yield pairs FIFO.
+seed. Events cannot precede that response by daemon protocol. An event line
+observed before the seed is dropped rather than folded into nothing; it signals
+a daemon protocol violation, not a client race. Preserve this explicit pre-seed
+guard when changing the role of `foldedState`. Fold each event after seeding
+synchronously through `nextAgentState`, enqueue `{ event, state }` with that
+post-fold snapshot, and yield pairs FIFO.
 
 On socket close after seeding, stop accepting events, drain the already queued
 pairs, then end the iterable. Returning the iterator for condition, quiet,
@@ -157,6 +170,11 @@ tree, not a substitute for that search during implementation.
 
 ## Stream behavior
 
+The migration deliberately changes three behaviors: close drains queued events,
+deadline expiry awaits the in-flight handler and flushes before rejecting, and
+the quiet timer is disarmed while a handler runs. These are test changes, not
+claims of compatibility with the old push driver.
+
 - Subscribe seed prints/checks before any queued live event.
 - Event processing is FIFO and asynchronous `onEvent` calls are serialized.
 - Every event is evaluated against its own post-fold `AgentState` snapshot.
@@ -165,8 +183,9 @@ tree, not a substitute for that search during implementation.
 - Seed satisfaction precedes timer setup.
 - Subscribe latency does not count toward deadline or quiet timeout.
 - Deadline wins an equal-delay tie with the quiet timer.
-- Quiet timeout is armed only while no handler is in flight and resets after
-  processing, not merely receipt.
+- Quiet timeout is cleared when a handler starts and re-armed after it completes,
+  not merely on receipt. Handler execution counts as activity, so slow handlers
+  postpone `no-activity` completion compared with the old driver.
 - Condition, quiet, and deadline settlement return the iterator and drop its
   queued events without closing the socket. First settlement wins; `onEnd`
   runs at most once after the source is stopped or exhausted.
@@ -175,8 +194,9 @@ tree, not a substitute for that search during implementation.
 - Socket close after seed drains queued events before iterable exhaustion. A
   queued satisfying event produces `done`; otherwise the driver runs `onEnd`
   and reports `closed`.
-- Bare `clauctl tail | slow-consumer` therefore waits for stdout processing and
-  emits every received event before successful close settlement.
+- Bare `clauctl tail | slow-consumer` hands every received event to Node stdout
+  before successful close settlement. Because writes do not await backpressure,
+  the process may remain alive afterward while Node flushes buffered output.
 - Socket close before seed is the client-owned subscription error
   `sdk socket closed before the subscribe seed`.
 - `onSeed`/`onEvent` failure rejects without `onEnd`; `onEnd` failure rejects a
@@ -186,16 +206,19 @@ tree, not a substitute for that search during implementation.
 ## Tests
 
 - Sync script copies the new canonical driver and test from pictl.
-- Generated driver tests pass unchanged in semantics after adapting their fake
-  client to async iteration.
+- Pictl rewrites the canonical driver tests for paired async iteration,
+  close-drain, deadline-flush, quiet-disarm, and `onEnd` ordering; clauctl syncs
+  those revised tests verbatim rather than adapting them locally.
 - `sdk-socket.test.ts` covers atomic seed ordering, post-fold state pairing,
   events queued around seed resolution, FIFO iteration, iterator return,
   close-queue draining, close-before-seed, and duplicate subscription.
-- Tail tests prove snapshot-before-events ordering, satisfying-event output,
-  complete queued output after close, and a queued satisfying event winning
-  over close.
-- Wait and lifecycle tests preserve timeout behavior and cover queued condition
-  satisfaction after close.
+- Clauctl's own tail tests prove snapshot-before-events ordering, satisfying-event
+  output, complete queued output after close, and a queued satisfying event
+  winning over close.
+- Clauctl's own sdk-socket, wait, and lifecycle tests are updated where their
+  close and timer assertions encode the old semantics; they cover queued
+  condition satisfaction after close and quiet time beginning after handler
+  completion.
 - Full clauctl presubmit passes after running the sync script.
 
 ## Cost
@@ -203,6 +226,11 @@ tree, not a substitute for that search during implementation.
 - Event queues consume `O(burst)` memory when producers outrun handlers.
 - Close drain performs `O(queue length)` residual handler work. Bare tail has no
   deadline; an until stream keeps its deadline armed during the drain.
+- Tail writes do not await Node stdout backpressure. With a stalled pipe reader,
+  queue draining can shift data into Node's writable buffer, grow memory, and
+  leave process completion waiting indefinitely for stdout to flush. This is
+  the chosen Unix-pipe behavior; a dead reader is handled separately by the
+  normal broken-pipe path.
 - Each event is folded once client-side before its pair is queued; the driver
   does not duplicate that fold.
 - Deadline cleanup awaits at most one in-flight handler plus `onEnd`; a hung
@@ -238,6 +266,7 @@ tree, not a substitute for that search during implementation.
 - [x] Record why pictl's streaming refactor makes clauctl's sync set stale.
 - [x] Identify current generated-driver callers and the sdk.sock subscription seam.
 - [x] Incorporate the final shared interface and settlement semantics agreed with pictl.
+- [x] Record pre-seed protocol handling, quiet-timer change, revised test ownership, stalled-pipe cost, and nested sync constraints.
 - [ ] Wait for pictl's async-iterable driver implementation to land.
 - [ ] Update sync paths and regenerate the driver/tests.
 - [ ] Adapt `SdkSocketClient` to atomic seed plus async events.
