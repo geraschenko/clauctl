@@ -47,6 +47,7 @@ type TailFlags = InferFlags<typeof tailFlags>;
 async function tail(this: CommandContext, flags: TailFlags): Promise<void> {
   const condition = flags.until;
   if (flags.timeout !== undefined && condition === undefined) {
+    // TDC: wait, this seems wrong. --timeout without --until seems totally fine. What's wrong with truncating at the timeout?
     // --timeout bounds the wait for a condition; without --until there is no
     // condition and it would silently truncate an endless stream.
     throw new UsageError("--timeout requires --until");
