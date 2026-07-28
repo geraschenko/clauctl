@@ -173,29 +173,29 @@ export async function runInteractive(
   );
   setKeybindings(keybindings);
   keybindingWarnings.push(...conflictWarnings(keybindings));
-  const buffered: Array<[SdkEvent, AgentState]> = [];
-  let handleEvent = (event: SdkEvent, state: AgentState): void => {
-    buffered.push([event, state]);
-  };
-  const seedState = await client.subscribe((event, state) =>
-    handleEvent(event, state),
-  );
+  const { seed, events } = await client.subscribe();
   const ui = new TUI(new ProcessTerminal());
   const interactiveMode = new InteractiveMode(
     ui,
     client,
-    seedState,
+    seed,
     managed,
     keybindingWarnings,
   );
-  handleEvent = (event, state) => interactiveMode.handleEvent(event, state);
-  for (const [event, state] of buffered.splice(0)) {
-    interactiveMode.handleEvent(event, state);
-  }
+  // Events arriving while the UI is built wait in the queue; the pump starts
+  // only once there is something to hand them to. Racing it propagates a
+  // handler failure, which would otherwise be an unhandled rejection.
+  const pump = (async () => {
+    for await (const { event, state } of events) {
+      interactiveMode.handleEvent(event, state);
+    }
+  })();
   ui.start();
   try {
-    await Promise.race([interactiveMode.done, client.waitClosed()]);
+    await Promise.race([interactiveMode.done, client.waitClosed(), pump]);
   } finally {
+    // The mode is about to be disposed, so drop anything still queued.
+    events.cancel();
     ui.stop();
     interactiveMode.dispose();
     client.close();

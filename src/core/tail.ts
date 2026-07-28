@@ -21,7 +21,7 @@ import { oneTarget, type CommandContext } from "./generated/targets.ts";
 import { fileExists, UsageError } from "./generated/util.ts";
 import { archivedPath, isPidAlive, sdkSocketPath } from "./registry.ts";
 import { connectWithRetry } from "./sdk-socket.ts";
-import { runStream } from "./generated/stream-driver.ts";
+import { runStream } from "./generated/streaming/driver.ts";
 import {
   parseUntilCondition,
   secondsToTimerMs,
@@ -47,7 +47,8 @@ type TailFlags = InferFlags<typeof tailFlags>;
 async function tail(this: CommandContext, flags: TailFlags): Promise<void> {
   const condition = flags.until;
   if (flags.timeout !== undefined && condition === undefined) {
-    // A bare timeout on an endless stream would be a silent exit-3 sleep.
+    // --timeout bounds the wait for a condition; without --until there is no
+    // condition and it would silently truncate an endless stream.
     throw new UsageError("--timeout requires --until");
   }
   // Validated before the dormancy check and connection: a malformed flag is
@@ -90,7 +91,8 @@ async function tail(this: CommandContext, flags: TailFlags): Promise<void> {
       timeoutMs,
     );
     // Without --until, following until close is the command's whole job;
-    // with it, close before the condition is a failure.
+    // with it, close before the condition is a failure. A timeout is not:
+    // tail was asked to watch for a bounded time, and it did.
     if (outcome === "closed" && condition !== undefined) {
       throw new Error("sdk socket closed before condition met");
     }

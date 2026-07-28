@@ -18,6 +18,11 @@ import type {
   Settings,
 } from "@anthropic-ai/claude-agent-sdk";
 import { nextAgentState, type AgentState } from "./agent-state.ts";
+import { AsyncQueue } from "./generated/streaming/async-queue.ts";
+import type {
+  StreamEvent,
+  StreamSubscription,
+} from "./generated/streaming/driver.ts";
 import type { TreeNodeRef } from "./tree/nodes.ts";
 
 export const SDK_SOCKET_PROTOCOL = "clauctl-sdk-socket";
@@ -285,13 +290,19 @@ interface PendingRequest {
   reject: (error: Error) => void;
 }
 
+/** What `subscribe` hands the stream driver: the state before any delivered
+ *  event, plus the queue of (event, post-fold state) pairs. */
+export type SdkEventSubscription = StreamSubscription<SdkEvent, AgentState>;
+
 export class SdkSocketClient {
   private readonly socket: Socket;
   private readonly pending = new Map<string, PendingRequest>();
   private readonly closedPromise: Promise<void>;
   private requestCounter = 0;
   private closed = false;
-  private onEvent: ((event: SdkEvent, state: AgentState) => void) | undefined;
+  // Installed by subscribe(), before the request goes out; until then event
+  // lines have nowhere to go. Doubles as the single-subscription guard.
+  private events: AsyncQueue<StreamEvent<SdkEvent, AgentState>> | undefined;
   // The client-owned fold: seeded from the subscribe response at dispatch,
   // advanced by nextAgentState per event line. undefined until subscribed.
   private foldedState: AgentState | undefined;
@@ -307,6 +318,9 @@ export class SdkSocketClient {
           pending.reject(error);
         }
         this.pending.clear();
+        // close, not cancel: the daemon is gone, but events already received
+        // are still real and a consumer must see them.
+        this.events?.close();
         resolve();
       });
     });
@@ -370,10 +384,11 @@ export class SdkSocketClient {
   }
 
   // Routes structurally: records with an `id` resolve pending requests,
-  // records with an `event` fold and go to onEvent — so onEvent never sees
-  // responses. Lines dispatch synchronously in wire order, so the fold seeds
-  // at the subscribe response's line, strictly before any event line (the
-  // daemon writes the seed response before attaching the event sink).
+  // records with an `event` fold and go to the event queue — so a subscriber
+  // never sees responses. Lines dispatch synchronously in wire order, so the
+  // fold seeds at the subscribe response's line, strictly before any event
+  // line (the daemon writes the seed response before attaching the event
+  // sink).
   private dispatchLine(line: string): void {
     let record: { id?: string; event?: SdkEvent };
     try {
@@ -386,7 +401,7 @@ export class SdkSocketClient {
       // fold into nothing.
       if (this.foldedState !== undefined) {
         this.foldedState = nextAgentState(this.foldedState, record.event);
-        this.onEvent?.(record.event, this.foldedState);
+        this.events?.push({ event: record.event, state: this.foldedState });
       }
       return;
     }
@@ -430,32 +445,40 @@ export class SdkSocketClient {
    * Turn this connection into a subscriber: the client owns the fold. It
    * seeds its state from the subscribe response and folds every subsequent
    * event through `nextAgentState` — the same fold the daemon runs, so its
-   * state always matches the daemon's — delivering each event together with
+   * state always matches the daemon's — queueing each event together with
    * the state after folding it. The (event, state) pair keeps a consumer's
    * view aligned with the event it is processing even when the client's live
    * state runs ahead. Single-use per client; requests may still be sent on a
    * subscribed connection.
    *
-   * Resolves with the seed itself (the state before any delivered event),
-   * not the live folded state: response resolution is a microtask while
-   * onEvent is called synchronously from the data handler, so onEvent may
-   * fire before the returned promise settles, and a caller that needs strict
-   * output ordering (tail) gates on the seed those events advanced from.
+   * The returned seed is the state before any queued event, not the live
+   * folded state: events are queued synchronously from the data handler while
+   * this promise settles on a microtask, so events can already be queued when
+   * it resolves, and a consumer that needs strict output ordering (tail)
+   * reports the seed those events advanced from first.
    */
-  async subscribe(
-    onEvent: (event: SdkEvent, state: AgentState) => void,
-  ): Promise<AgentState> {
-    if (this.onEvent !== undefined) {
+  async subscribe(): Promise<SdkEventSubscription> {
+    if (this.events !== undefined) {
       throw new Error("sdk socket client is already subscribed");
     }
-    this.onEvent = onEvent;
+    const events = new AsyncQueue<StreamEvent<SdkEvent, AgentState>>();
+    this.events = events;
     const { id, response } = this.sendRequest({ type: "subscribe" });
     this.subscribeRequestId = id;
-    const result = await response;
+    let result: SdkResponse;
+    try {
+      result = await response;
+    } catch (error) {
+      // Pending requests reject with the generic close error; without a seed
+      // there is no subscription to hand back, so name that specifically.
+      throw this.closed
+        ? new Error("sdk socket closed before the subscribe seed")
+        : error;
+    }
     if (!result.ok) {
       throw new Error(`daemon rejected subscribe: ${result.error}`);
     }
-    return result.data as AgentState;
+    return { seed: result.data as AgentState, events };
   }
 
   /** Resolves when the daemon closes the socket. */

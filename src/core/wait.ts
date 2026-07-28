@@ -21,12 +21,13 @@ import {
 import { oneTarget, type CommandContext } from "./generated/targets.ts";
 import { isPidAlive, sdkSocketPath } from "./registry.ts";
 import { connectWithRetry } from "./sdk-socket.ts";
-import { runStream } from "./generated/stream-driver.ts";
+import { runStream } from "./generated/streaming/driver.ts";
 import {
   parseUntilCondition,
   secondsToTimerMs,
   UNTIL_COMPLETIONS,
   UNTIL_USAGE,
+  UntilTimeoutError,
 } from "./generated/until-engine.ts";
 import { untilMetAtSeed, untilMetByEvent, untilQuietMs } from "./until.ts";
 
@@ -73,6 +74,11 @@ export async function wait(
     );
     if (outcome === "closed") {
       throw new Error("sdk socket closed before condition met");
+    }
+    // wait's whole job is the condition holding, so running out of time is a
+    // failure — the exit-3 path.
+    if (outcome === "timeout") {
+      throw new UntilTimeoutError(`condition not met within ${flags.timeout}s`);
     }
   } finally {
     client.close();

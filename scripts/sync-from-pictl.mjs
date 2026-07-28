@@ -35,11 +35,16 @@ function defaultPictlDir() {
 const pictlDir = process.env.PICTL_DIR ?? defaultPictlDir();
 
 // Each set syncs one pictl source directory into one generated/ directory;
-// import rewriting (below) is scoped to the set's own file list.
+// import rewriting (below) is scoped to the set's own file list. `outsidePrefix`
+// is the rewrite for a "./" import of a file outside the set: it holds only
+// where the generated directory is a direct child of the source directory's
+// clauctl counterpart, so a set whose output nests deeper leaves it undefined
+// and any such import is a sync error.
 const SYNC_SETS = [
   {
     sourceDir: join(pictlDir, "src", "core"),
     outDir: join(repoRoot, "src", "core", "generated"),
+    outsidePrefix: "../",
     files: [
       "ansi.ts",
       "attach.ts",
@@ -50,8 +55,6 @@ const SYNC_SETS = [
       "pty-screen.ts",
       "pty-screen.test.ts",
       "read-input.ts",
-      "stream-driver.ts",
-      "stream-driver.test.ts",
       "targets.ts",
       "tty-protocol.ts",
       "tty-protocol.test.ts",
@@ -64,8 +67,21 @@ const SYNC_SETS = [
     ],
   },
   {
+    // pictl's streaming/ holds both the repo-agnostic driver and pictl's own
+    // stream/message-record code; only the former is shared.
+    sourceDir: join(pictlDir, "src", "core", "streaming"),
+    outDir: join(repoRoot, "src", "core", "generated", "streaming"),
+    files: [
+      "async-queue.ts",
+      "async-queue.test.ts",
+      "driver.ts",
+      "driver.test.ts",
+    ],
+  },
+  {
     sourceDir: join(pictlDir, "src", "format"),
     outDir: join(repoRoot, "src", "format", "generated"),
+    outsidePrefix: "../",
     files: [
       "flat-tree.ts",
       "flat-tree.test.ts",
@@ -85,12 +101,20 @@ function transform(source, syncSet, fileName) {
     .replaceAll("pictl", "clauctl")
     .replaceAll("PICTL", "CLAUCTL")
     .replaceAll("Pictl", "Clauctl")
-  // generated/ sits one level below the source directory's counterpart, so
-  // relative imports that point outside the shared set gain a "../"; imports
-  // within the set stay "./".
-  out = out.replace(/from "\.\/([^"]+)"/g, (match, imported) =>
-    syncSet.files.includes(imported) ? match : `from "../${imported}"`,
-  );
+  // Imports within the set stay "./"; ones pointing outside it are rewritten
+  // to the set's counterpart directory, if it has one.
+  out = out.replace(/from "\.\/([^"]+)"/g, (match, imported) => {
+    if (syncSet.files.includes(imported)) {
+      return match;
+    }
+    if (syncSet.outsidePrefix === undefined) {
+      throw new Error(
+        `${fileName} imports ./${imported}, which is outside the sync set for ` +
+          `${syncSet.outDir} and has no valid path from it; add it to the set`,
+      );
+    }
+    return `from "${syncSet.outsidePrefix}${imported}"`;
+  });
   // Keep generated files formatted: the rename changes line lengths, and a
   // treefmt pass rewrapping them would otherwise fight --check.
   return execFileSync(

@@ -1,7 +1,7 @@
 /*
  * clauctl's instantiation of the shared `--until` checkers (the grammar and
  * generic engine live in generated/until-engine.ts), consumed through
- * runStream (generated/stream-driver.ts) by `wait`, `tail --until`, and
+ * runStream (generated/streaming/driver.ts) by `wait`, `tail --until`, and
  * archive's polite stop. Condition semantics here:
  *
  * - turn-end: the next `sdkMessage` event whose message is a `result` — a

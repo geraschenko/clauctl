@@ -31,7 +31,7 @@ import {
 } from "./registry.ts";
 import { connectWithRetry } from "./sdk-socket.ts";
 import { launchDaemon } from "./spawn.ts";
-import { runStream } from "./generated/stream-driver.ts";
+import { runStream } from "./generated/streaming/driver.ts";
 import {
   secondsToTimerMs,
   UntilTimeoutError,
@@ -221,6 +221,13 @@ async function stopRunningAgent(
     );
     if (outcome === "closed") {
       throw new Error("sdk socket closed while waiting for idle");
+    }
+    // Signalled as UntilTimeoutError so callers can distinguish "never went
+    // idle" from a transport failure and word their own message.
+    if (outcome === "timeout") {
+      throw new UntilTimeoutError(
+        `agent still busy after ${timeoutMs! / 1000}s`,
+      );
     }
   } finally {
     client.close();

@@ -2,7 +2,7 @@
 
 ## Status
 
-Ready to implement. Pictl landed the upstream change in `fe2e4c2`; its
+Implemented; see the work log. Pictl landed the upstream change in `fe2e4c2`; its
 canonical spec is pictl's `docs/specs/format-messages-from-entries.md`. The
 interface below is transcribed from the landed
 `pictl/src/core/streaming/driver.ts` and `async-queue.ts`, not from the
@@ -93,14 +93,14 @@ list.
    Callers decide whether that is a failure (see "Timeout policy").
 2. **Quiet timing is based on arrival, not processing.** The driver subscribes
    via `events.onPush(...)` and resets the quiet timer when an event is
-   *enqueued*; previously it reset when a handler call completed. So
+   _enqueued_; previously it reset when a handler call completed. So
    `--until no-activity:<secs>` now means "nothing arrived for N seconds", and
    a handler slower than `quietMs` no longer postpones quiet completion.
 3. **A cutoff drains rather than stops.** Quiet and timeout call
    `events.close()`, which rejects new events but leaves the backlog to drain
    through `onEvent`. A queued event that satisfies the condition overrides a
    pending cutoff and produces `done`. The deadline therefore bounds when event
-   *acceptance* stops, not when `runStream` returns.
+   _acceptance_ stops, not when `runStream` returns.
 4. **Socket close drains its queue.** Close after seeding calls
    `events.close()`, so already-received events are still processed and can
    satisfy the condition. Previously they were dropped and the stream reported
@@ -227,9 +227,17 @@ precedes settlement. It needs neither `onStop` nor `onEnd` until it grows
 buffered formatting. Its `closed` handling is unchanged: success without
 `--until`, `sdk socket closed before condition met` with one.
 
+`src/tui/interactive-mode.ts` subscribes without the driver: it is the fourth
+caller, and the only one that used the callback directly. Its buffer-then-swap
+trick (collect events into an array until `InteractiveMode` exists, then
+re-point the callback) exists only because a callback cannot wait; the queue
+buffers by construction, so the whole dance collapses into starting a pump
+loop once the UI is built.
+
 Search for all imports of `generated/stream-driver.ts`, `StreamClient`,
-`StreamHandler`, `StreamResult`, and `runStream`; the three files above are
-evidence from the current tree, not a substitute for that search.
+`StreamHandler`, `StreamResult`, and `runStream`, and for `.subscribe(`; the
+files above are evidence from the current tree, not a substitute for that
+search.
 
 ## Stream behavior
 
@@ -248,7 +256,7 @@ evidence from the current tree, not a substitute for that search.
   `done`, otherwise `closed`.
 - Condition satisfaction cancels the queue, dropping anything still queued.
 - `onSeed`/`onEvent` failure rejects without running `onEnd`.
-- `StreamResult.state` is the state paired with the last *completed* event, or
+- `StreamResult.state` is the state paired with the last _completed_ event, or
   the seed if none completed.
 - Socket close before seed is the client-owned subscription error.
 - Requests remain possible while subscribed.
@@ -260,18 +268,21 @@ evidence from the current tree, not a substitute for that search.
 - The synced driver/queue tests carry pictl's semantics; clauctl does not adapt
   them locally.
 - `sdk-socket.test.ts`: atomic seed ordering, post-fold state pairing, FIFO
-  iteration, close draining the backlog, close-before-seed rejection,
-  duplicate subscription, and requests while subscribed. Existing assertions
-  encoding dropped-on-close behavior are updated.
-- `tail`: snapshot-before-events ordering, satisfying-event output, complete
-  queued output after close, a queued satisfying event winning over close, and
-  `--until` + `--timeout` exiting 0 with the events observed so far.
-- `wait` and `lifecycle`: timeout produces `UntilTimeoutError` (exit 3, and
-  `still busy...` respectively), and an event satisfying the condition while a
-  cutoff drains succeeds.
+  iteration, close draining a genuine backlog (the close is awaited before the
+  first pull — see "Problems Encountered"), close-before-seed rejection, and
+  duplicate subscription.
+- `stream-commands.test.ts` (new): `tail` snapshot-before-events ordering and
+  satisfying-event output; an event delivered as the daemon hangs up still
+  satisfying `--until`; a close with nothing to satisfy it failing; expired
+  `--timeout` exiting 0 for `tail` and 3 for `wait`; `tail --timeout 0` as a
+  snapshot-only watch.
 - Any test asserting quiet timing across a slow handler moves to the
   arrival-based semantics.
 - Full presubmit passes after running the sync script.
+
+Not covered: `archive`'s timeout path and `runInteractive`'s pump. The first
+would SIGTERM the test process (see "Implementation-Time Decisions"); the
+second needs a TTY and had no coverage under the callback either.
 
 ## Cost
 
@@ -309,9 +320,9 @@ evidence from the current tree, not a substitute for that search.
   and pushing; the driver owns pulling, settlement, and cancellation.
 - Producer close drains, consumer cancel drops. Keep that distinction explicit
   in `SdkSocketClient`'s comments.
-- Check that `--timeout 0` falls out sensibly for `tail` (immediate cutoff,
-  snapshot plus whatever is already queued, exit 0) rather than specifying it
-  separately.
+- `--timeout 0` falls out of the driver for `tail` as an immediate cutoff:
+  snapshot plus whatever is already queued, exit 0. Asserted rather than
+  specified separately.
 
 # WORK LOG
 
@@ -326,7 +337,56 @@ evidence from the current tree, not a substitute for that search.
       and `AsyncQueue` replaced a bare `AsyncIterable`.
 - [x] Settle the timeout policy per caller: `tail` succeeds, `wait` and
       `lifecycle` fail. `query` is not a `runStream` caller.
-- [ ] Update sync paths, add the streaming set, delete the old generated driver.
-- [ ] Adapt `SdkSocketClient` to seed plus `AsyncQueue`.
-- [ ] Adapt tail, wait, and lifecycle outcome handling.
-- [ ] Run focused tests and full presubmit.
+- [x] Update sync paths, add the streaming set, delete the old generated driver.
+- [x] Adapt `SdkSocketClient` to seed plus `AsyncQueue`.
+- [x] Adapt tail, wait, and lifecycle outcome handling.
+- [x] Adapt the TUI's direct subscription (not anticipated by the spec).
+- [x] Run focused tests and full presubmit (472 tests, green).
+
+## Implementation-Time Decisions
+
+**The sync rewriter now rejects an unrepresentable import rather than
+mis-rewriting it.** Each sync set carries an `outsidePrefix`; the two flat sets
+set it to `"../"`, and the nested `streaming` set leaves it undefined, so a
+`./` import of a file outside that set throws during sync. The spec only asked
+that this be verified by an early sync run, but "verify once" does not survive
+the next pictl refactor: the failure mode is a silently wrong relative path in
+generated code. Alternative considered: computing the prefix from directory
+depth. Rejected — depth is not the problem. `src/core/streaming`'s parent
+(`src/core`) has no counterpart reachable from `generated/streaming` at all,
+so there is no correct rewrite to compute.
+
+**`stopRunningAgent` still signals with `UntilTimeoutError`.** It converts
+`outcome === "timeout"` into the same exception `archive` already catches and
+rewords, rather than returning the outcome to its caller. The throw/catch round
+trip is slightly indirect, but `archive` owns the "not archived" wording and
+`stopRunningAgent` owns the idle wait; moving the decision would have pushed
+archive-specific phrasing down into the stop routine.
+
+**The TUI drives its queue with a pump promise included in the shutdown race.**
+`runInteractive` starts `for await (...) interactiveMode.handleEvent(...)`
+after constructing the mode and races that promise alongside
+`interactiveMode.done` and `client.waitClosed()`. Racing it is what keeps a
+handler failure from becoming an unhandled rejection — under the old callback
+it threw synchronously into the socket data listener. `finally` cancels the
+queue before disposing the mode, so a drain cannot deliver events to a disposed
+UI.
+
+**Command-level settlement tests run the real `app`.** `stream-commands.test.ts`
+stands up a temp registry plus a fake sdk.sock server and invokes
+`runCliApp(app, ...)`, because the outcome→exit-code mapping under test lives in
+`app.ts`'s `determineExitCode`, not in the commands. `archive` is deliberately
+not covered there: its success path SIGTERMs the recorded daemon pid, which in
+this harness is the test process itself. Covering it needs a real subprocess.
+
+## Problems Encountered
+
+**The first two drain tests were vacuous.** Both the sdk-socket test and the
+command-level test passed unchanged when `close()` was swapped for `cancel()`
+in the socket's close handler. Consuming immediately after the daemon's `end()`
+never produces a backlog: the queued value is handed to a pending `next()`
+within microtasks, while `close` on the socket is a macrotask behind it. The
+sdk-socket test now awaits `client.waitClosed()` before iterating, which does
+fail under `cancel()`. The command-level case cannot manufacture a backlog at
+all — `tail`'s handler is a synchronous write — so it is documented as covering
+the hand-up ordering only, with the backlog case owned by the socket test.
