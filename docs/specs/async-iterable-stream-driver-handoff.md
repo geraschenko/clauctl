@@ -116,9 +116,12 @@ list.
 Anton's criterion: a timeout is a failure only when the requested work was not
 accomplished.
 
-- **`tail` — success (exit 0).** `tail --until <cond> --timeout <secs>` asks to
-  observe the stream for a bounded period; reaching the bound delivered that
-  observation.
+- **`tail` — success (exit 0).** `tail --timeout <secs>` asks to observe the
+  stream for a bounded period; reaching the bound delivered that observation.
+  This also removes tail's `--timeout requires --until` usage error: that
+  restriction existed because the old driver made a bare deadline a silent
+  exit-3 sleep. With timeout as a success outcome, a bare `--timeout` is just
+  a bounded tail.
 - **`wait` — failure (exit 3).** `wait --until <cond>` asks to block until the
   condition holds; a timeout means it never held. Construct
   ``new UntilTimeoutError(`condition not met within ${flags.timeout}s`)``,
@@ -274,8 +277,8 @@ search.
 - `stream-commands.test.ts` (new): `tail` snapshot-before-events ordering and
   satisfying-event output; an event delivered as the daemon hangs up still
   satisfying `--until`; a close with nothing to satisfy it failing; expired
-  `--timeout` exiting 0 for `tail` and 3 for `wait`; `tail --timeout 0` as a
-  snapshot-only watch.
+  `--timeout` exiting 0 for `tail` and 3 for `wait`; `tail --timeout` without
+  `--until` as a bounded watch; `tail --timeout 0` as a snapshot-only watch.
 - Any test asserting quiet timing across a slow handler moves to the
   arrival-based semantics.
 - Full presubmit passes after running the sync script.
@@ -341,7 +344,9 @@ second needs a TTY and had no coverage under the callback either.
 - [x] Adapt `SdkSocketClient` to seed plus `AsyncQueue`.
 - [x] Adapt tail, wait, and lifecycle outcome handling.
 - [x] Adapt the TUI's direct subscription (not anticipated by the spec).
-- [x] Run focused tests and full presubmit (472 tests, green).
+- [x] Drop tail's `--timeout requires --until` guard, which the new timeout
+      semantics made obsolete (review comment).
+- [x] Run focused tests and full presubmit (478 tests, green).
 
 ## Implementation-Time Decisions
 

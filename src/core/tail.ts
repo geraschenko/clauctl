@@ -1,7 +1,9 @@
 /**
  * `clauctl tail` — the raw sdk.sock stream watcher: subscribes, prints the
  * snapshot record, then each SdkEventRecord line until the daemon closes the
- * socket, the user interrupts, or (with `--until`) the condition is met.
+ * socket, the user interrupts, `--timeout` expires, or (with `--until`) the
+ * condition is met. Every one of those but a close with an unmet `--until`
+ * exits 0: tail was asked to watch, and it watched.
  *
  * TODO: Raw JSONL is the only mode in this phase; when the formatted tail lands
  * (Phase 3+) this behavior moves behind `tail --raw`.
@@ -18,7 +20,7 @@ import {
   type InferFlags,
 } from "./generated/cli.ts";
 import { oneTarget, type CommandContext } from "./generated/targets.ts";
-import { fileExists, UsageError } from "./generated/util.ts";
+import { fileExists } from "./generated/util.ts";
 import { archivedPath, isPidAlive, sdkSocketPath } from "./registry.ts";
 import { connectWithRetry } from "./sdk-socket.ts";
 import { runStream } from "./generated/streaming/driver.ts";
@@ -46,12 +48,6 @@ type TailFlags = InferFlags<typeof tailFlags>;
 
 async function tail(this: CommandContext, flags: TailFlags): Promise<void> {
   const condition = flags.until;
-  if (flags.timeout !== undefined && condition === undefined) {
-    // TDC: wait, this seems wrong. --timeout without --until seems totally fine. What's wrong with truncating at the timeout?
-    // --timeout bounds the wait for a condition; without --until there is no
-    // condition and it would silently truncate an endless stream.
-    throw new UsageError("--timeout requires --until");
-  }
   // Validated before the dormancy check and connection: a malformed flag is
   // a usage error regardless of the agent's state.
   const timeoutMs =

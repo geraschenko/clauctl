@@ -195,6 +195,22 @@ test("tail treats an expired --timeout as success, wait as exit 3", async () => 
   });
 });
 
+test("tail --timeout without --until is a bounded watch", async () => {
+  await withAgent(BUSY_STATE, [RESULT_EVENT], false, async (agentId) => {
+    const result = await runCommand([
+      "tail",
+      "-t",
+      agentId,
+      "--timeout",
+      "0.05",
+    ]);
+    // No condition to meet: the deadline simply ends an otherwise endless
+    // stream, after everything seen so far has been printed.
+    assert.equal(result.exitCode, 0);
+    assert.equal(result.stdout.length, 2);
+  });
+});
+
 test("tail --timeout 0 is a snapshot-only watch, not an error", async () => {
   await withAgent(BUSY_STATE, [], false, async (agentId) => {
     const result = await runCommand([
