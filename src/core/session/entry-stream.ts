@@ -34,24 +34,17 @@ import {
   type SessionEntry,
 } from "./file.ts";
 
-/** Fold state derivable from entries alone. There is deliberately no
- *  `history` field: under history:"emit" the initial extent's canonical
- *  entries are pushed as ordinary events (already queued when subscribe()
- *  resolves), so consumers handle history and live appends uniformly and no
- *  state carries an entry array. */
+/** Fold state derivable from entries alone. */
 export interface EntryStreamState {
   /** The resumable cursor: uuid of the newest first-occurrence uuid-bearing
-   *  entry at or before this state's position in the stream. In the seed
-   *  that is the emission start point — undefined at file start, `since`
-   *  when a cursor was given, the scanned extent's tip under
-   *  history:"skip". */
+   *  entry at or before this state's position in the stream — undefined at file
+   *  start. */
   readonly leaf?: UUID;
-  /** Every uuid observed in the file — including occurrences suppressed from
-   *  canonical output and uuids before `since`. Monotone; a live view of the
-   *  client's dedup set shared by reference, not a per-event snapshot: a
-   *  retained state object sees later additions. Membership tests can at
-   *  worst fire a condition slightly early; acceptable because copying per
-   *  event would be O(uuids) per entry. */
+  /** Every uuid observed in the file, including uuids before `since`. Monotone;
+   * a live view of the client's dedup set shared by reference, not a per-event
+   * snapshot: a retained state object sees later additions. Membership tests
+   * can at worst fire a condition slightly early; acceptable because copying
+   * per event would be O(uuids) per entry. */
   readonly seenUuids: ReadonlySet<UUID>;
 }
 
@@ -118,6 +111,7 @@ export class SessionEntryClient implements StreamClient<
   SessionEntry,
   EntryStreamState
 > {
+  // TDC: Why all the uses of `#` variables here? Elsewhere (e.g. src/core/sdk-socket.ts), we simply use private fields. I'm open to either one being "more correct", but I'd like to be consistent. Please explain the decision to me (in the chat, not here) and present your analysis for what style we should use. To my eye, "private" is more readable.
   readonly #filePath: string;
   readonly #options: EntryClientOptions;
   readonly #events = new AsyncQueue<
@@ -125,6 +119,7 @@ export class SessionEntryClient implements StreamClient<
   >();
   /** Wake tokens from the fs.watch callback; at most one queued (see
    *  #wakePending). `true` because AsyncQueue cannot carry undefined. */
+  // TDC: if there's at most one, why are we using an AsyncQueue for this? Why not just keep wakePending and delete wakes entirely?
   readonly #wakes = new AsyncQueue<true>();
   #wakePending = false;
   #renameSeen = false;

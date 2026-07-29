@@ -84,6 +84,7 @@ export function sessionFilePath(
   return join(configDir, "projects", projectKey(cwd), `${sessionId}.jsonl`);
 }
 
+// TDC: What is 0x0a? I assume this is '\n'? Please use a clear constant, like "NEWLINE". Do we have to worry about '\r\n' vs '\n', or is that automatically stripped during parsing?
 /** Incremental jsonl entry parser. Splits on 0x0a bytes and buffers the
  *  unterminated byte suffix (including a UTF-8 code point split across
  *  chunks) until its newline arrives — a mid-append read can see a partial
@@ -111,7 +112,8 @@ export class SessionEntryParser {
         : Buffer.concat([this.#tornSuffix, chunk]);
     const entries: SessionEntry[] = [];
     let lineStart = 0;
-    for (;;) {
+    for (;;) {  // TDC: I prefer "while true"
+      // TDC: why not data.split('\n') here to extract the lines?
       const newlineIndex = data.indexOf(0x0a, lineStart);
       if (newlineIndex === -1) {
         break;
