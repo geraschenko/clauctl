@@ -61,20 +61,20 @@ export type EntryClientOptions =
  *  like a uuid-less occurrence. */
 class CanonicalEntryFilter {
   readonly seenUuids = new Set<UUID>();
-  #leaf: UUID | undefined;
+  private currentLeaf: UUID | undefined;
   /** The `since` cursor, until its first occurrence is consumed. */
-  #pendingCursor: UUID | undefined;
+  private pendingCursor: UUID | undefined;
 
   constructor(since?: UUID) {
-    this.#pendingCursor = since;
+    this.pendingCursor = since;
   }
 
   get leaf(): UUID | undefined {
-    return this.#leaf;
+    return this.currentLeaf;
   }
 
   get cursorPending(): boolean {
-    return this.#pendingCursor !== undefined;
+    return this.pendingCursor !== undefined;
   }
 
   /** The canonical entry to output, or undefined when suppressed (a
@@ -82,16 +82,16 @@ class CanonicalEntryFilter {
   accept(entry: SessionEntry): SessionEntry | undefined {
     const uuid = typeof entry.uuid === "string" ? entry.uuid : undefined;
     if (uuid === undefined) {
-      return this.#pendingCursor === undefined ? entry : undefined;
+      return this.pendingCursor === undefined ? entry : undefined;
     }
     if (this.seenUuids.has(uuid)) {
       return undefined;
     }
     this.seenUuids.add(uuid);
-    this.#leaf = uuid;
-    if (this.#pendingCursor !== undefined) {
-      if (uuid === this.#pendingCursor) {
-        this.#pendingCursor = undefined;
+    this.currentLeaf = uuid;
+    if (this.pendingCursor !== undefined) {
+      if (uuid === this.pendingCursor) {
+        this.pendingCursor = undefined;
       }
       return undefined;
     }
@@ -111,35 +111,36 @@ export class SessionEntryClient implements StreamClient<
   SessionEntry,
   EntryStreamState
 > {
-  // TDC: Why all the uses of `#` variables here? Elsewhere (e.g. src/core/sdk-socket.ts), we simply use private fields. I'm open to either one being "more correct", but I'd like to be consistent. Please explain the decision to me (in the chat, not here) and present your analysis for what style we should use. To my eye, "private" is more readable.
-  readonly #filePath: string;
-  readonly #options: EntryClientOptions;
-  readonly #events = new AsyncQueue<
+  private readonly filePath: string;
+  private readonly options: EntryClientOptions;
+  private readonly events = new AsyncQueue<
     StreamEvent<SessionEntry, EntryStreamState>
   >();
-  /** Wake tokens from the fs.watch callback; at most one queued (see
-   *  #wakePending). `true` because AsyncQueue cannot carry undefined. */
-  // TDC: if there's at most one, why are we using an AsyncQueue for this? Why not just keep wakePending and delete wakes entirely?
-  readonly #wakes = new AsyncQueue<true>();
-  #wakePending = false;
-  #renameSeen = false;
-  #watcher: FSWatcher | undefined;
-  #fd: number | undefined;
+  /** Wake tokens from the fs.watch callback. The queue (not a bare flag) is
+   *  what the follow loop parks on — a boolean cannot wake an awaiting
+   *  consumer. wakePending caps it at one queued token, coalescing callback
+   *  bursts into one drain. `true` because AsyncQueue cannot carry
+   *  undefined. */
+  private readonly wakes = new AsyncQueue<true>();
+  private wakePending = false;
+  private renameSeen = false;
+  private watcher: FSWatcher | undefined;
+  private fd: number | undefined;
   /** dev/ino of the opened file, for replacement detection on rename. */
-  #identity: { dev: number; ino: number } | undefined;
+  private identity: { dev: number; ino: number } | undefined;
   /** File bytes consumed so far (the parser holds any torn suffix). */
-  #offset = 0;
-  #parser: SessionEntryParser;
-  #filter: CanonicalEntryFilter;
-  #failure: Error | undefined;
-  #subscribed = false;
-  #closed = false;
+  private offset = 0;
+  private parser: SessionEntryParser;
+  private filter: CanonicalEntryFilter;
+  private streamFailure: Error | undefined;
+  private subscribed = false;
+  private closed = false;
 
   constructor(filePath: string, options: EntryClientOptions) {
-    this.#filePath = filePath;
-    this.#options = options;
-    this.#parser = new SessionEntryParser(filePath);
-    this.#filter = new CanonicalEntryFilter(
+    this.filePath = filePath;
+    this.options = options;
+    this.parser = new SessionEntryParser(filePath);
+    this.filter = new CanonicalEntryFilter(
       options.history === "emit" ? options.since : undefined,
     );
   }
@@ -148,7 +149,7 @@ export class SessionEntryClient implements StreamClient<
    *  replacement, watcher/read/stat error, or a malformed terminated line
    *  during follow. undefined while healthy or after a clean close(). */
   get failure(): Error | undefined {
-    return this.#failure;
+    return this.streamFailure;
   }
 
   /** Rejects on a missing/unreadable file, a malformed terminated line in
@@ -157,45 +158,45 @@ export class SessionEntryClient implements StreamClient<
   async subscribe(): Promise<
     StreamSubscription<SessionEntry, EntryStreamState>
   > {
-    if (this.#subscribed) {
+    if (this.subscribed) {
       throw new Error("SessionEntryClient allows one subscribe() per client");
     }
-    this.#subscribed = true;
+    this.subscribed = true;
     try {
-      this.#watcher = watch(this.#filePath, (eventType) => {
+      this.watcher = watch(this.filePath, (eventType) => {
         if (eventType === "rename") {
-          this.#renameSeen = true;
+          this.renameSeen = true;
         }
-        if (!this.#wakePending) {
-          this.#wakePending = true;
-          this.#wakes.push(true);
+        if (!this.wakePending) {
+          this.wakePending = true;
+          this.wakes.push(true);
         }
       });
-      this.#watcher.on("error", (error) => this.#fail(error));
-      this.#fd = openSync(this.#filePath, "r");
-      const stat = fstatSync(this.#fd);
-      this.#identity = { dev: stat.dev, ino: stat.ino };
-      const emit = this.#options.history === "emit";
+      this.watcher.on("error", (error) => this.fail(error));
+      this.fd = openSync(this.filePath, "r");
+      const stat = fstatSync(this.fd);
+      this.identity = { dev: stat.dev, ino: stat.ino };
+      const emit = this.options.history === "emit";
       const since =
-        this.#options.history === "emit" ? this.#options.since : undefined;
-      this.#consumeBytes(stat.size, emit);
-      if (this.#filter.cursorPending) {
+        this.options.history === "emit" ? this.options.since : undefined;
+      this.consumeBytes(stat.size, emit);
+      if (this.filter.cursorPending) {
         throw new Error(
-          `since cursor ${since} does not match any entry in ${this.#filePath}`,
+          `since cursor ${since} does not match any entry in ${this.filePath}`,
         );
       }
       const seed: EntryStreamState = {
-        leaf: emit ? since : this.#filter.leaf,
-        seenUuids: this.#filter.seenUuids,
+        leaf: emit ? since : this.filter.leaf,
+        seenUuids: this.filter.seenUuids,
       };
       // Catches bytes that became visible during setup even if their
       // notification coalesced with an event before the initial read.
-      if (!this.#wakePending) {
-        this.#wakePending = true;
-        this.#wakes.push(true);
+      if (!this.wakePending) {
+        this.wakePending = true;
+        this.wakes.push(true);
       }
-      void this.#follow();
-      return { seed, events: this.#events };
+      void this.follow();
+      return { seed, events: this.events };
     } catch (error) {
       this.close();
       throw error;
@@ -206,99 +207,100 @@ export class SessionEntryClient implements StreamClient<
    *  Commands call it in `finally`, exactly as tail closes its sdk.sock
    *  client. */
   close(): void {
-    if (this.#closed) {
+    if (this.closed) {
       return;
     }
-    this.#closed = true;
-    this.#watcher?.close();
-    if (this.#fd !== undefined) {
-      closeSync(this.#fd);
-      this.#fd = undefined;
+    this.closed = true;
+    this.watcher?.close();
+    if (this.fd !== undefined) {
+      closeSync(this.fd);
+      this.fd = undefined;
     }
-    this.#wakes.close();
-    this.#events.close();
+    this.wakes.close();
+    this.events.close();
   }
 
-  #fail(error: unknown): void {
-    if (this.#closed) {
+  private fail(error: unknown): void {
+    if (this.closed) {
       return;
     }
-    this.#failure = error instanceof Error ? error : new Error(String(error));
+    this.streamFailure =
+      error instanceof Error ? error : new Error(String(error));
     this.close();
   }
 
   /** One wake per park: capture/reset flags before draining, so a watcher
    *  callback during the drain queues the next token. Notifications are
    *  wakeups only — each drain reads all bytes currently available. */
-  async #follow(): Promise<void> {
+  private async follow(): Promise<void> {
     try {
-      for await (const _token of this.#wakes) {
-        this.#wakePending = false;
-        const sawRename = this.#renameSeen;
-        this.#renameSeen = false;
+      for await (const _token of this.wakes) {
+        this.wakePending = false;
+        const sawRename = this.renameSeen;
+        this.renameSeen = false;
         if (sawRename) {
-          this.#verifyIdentity();
+          this.verifyIdentity();
         }
-        const size = fstatSync(this.#fd!).size;
-        if (size < this.#offset) {
+        const size = fstatSync(this.fd!).size;
+        if (size < this.offset) {
           throw new Error(
-            `${this.#filePath} truncated below the consumed byte extent ` +
-              `(${size} < ${this.#offset}); a Claude session file only grows`,
+            `${this.filePath} truncated below the consumed byte extent ` +
+              `(${size} < ${this.offset}); a Claude session file only grows`,
           );
         }
-        this.#consumeBytes(size, true);
+        this.consumeBytes(size, true);
       }
     } catch (error) {
-      this.#fail(error);
+      this.fail(error);
     }
   }
 
   /** The path must still name the file we opened; a replaced or removed file
    *  is unrecoverable (restarting from byte zero would duplicate uuid-less
    *  entries and conceal data loss). */
-  #verifyIdentity(): void {
-    const stat = statSync(this.#filePath, { throwIfNoEntry: false });
+  private verifyIdentity(): void {
+    const stat = statSync(this.filePath, { throwIfNoEntry: false });
     if (
       stat === undefined ||
-      stat.dev !== this.#identity!.dev ||
-      stat.ino !== this.#identity!.ino
+      stat.dev !== this.identity!.dev ||
+      stat.ino !== this.identity!.ino
     ) {
-      throw new Error(`${this.#filePath} was replaced or removed`);
+      throw new Error(`${this.filePath} was replaced or removed`);
     }
   }
 
   /** Read [#offset, end), parse, filter, and (when emitting) push canonical
    *  entries paired with their post-fold state. */
-  #consumeBytes(end: number, emit: boolean): void {
-    if (end <= this.#offset) {
+  private consumeBytes(end: number, emit: boolean): void {
+    if (end <= this.offset) {
       return;
     }
-    const length = end - this.#offset;
+    const length = end - this.offset;
     const buffer = Buffer.alloc(length);
     let bytesRead = 0;
     while (bytesRead < length) {
       const n = readSync(
-        this.#fd!,
+        this.fd!,
         buffer,
         bytesRead,
         length - bytesRead,
-        this.#offset + bytesRead,
+        this.offset + bytesRead,
       );
       if (n === 0) {
         break;
       }
       bytesRead += n;
     }
-    this.#offset += bytesRead;
+    this.offset += bytesRead;
     const chunk = bytesRead === length ? buffer : buffer.subarray(0, bytesRead);
-    for (const entry of this.#parser.push(chunk)) {
-      const accepted = this.#filter.accept(entry);
+    for (const entry of this.parser.push(chunk)) {
+      const accepted = this.filter.accept(entry);
       if (accepted !== undefined && emit) {
-        this.#events.push({
+        this.events.push({
           event: accepted,
           state: {
-            leaf: this.#filter.leaf,
-            seenUuids: this.#filter.seenUuids,
+            leaf: this.filter.leaf,
+            seenUuids: this.filter.seenUuids,
           },
         });
       }

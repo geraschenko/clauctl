@@ -481,6 +481,14 @@ encountered.
       duplicates from the derisk findings; on a /tmp copy, a real
       appendSessionEntries() write was observed live exactly once and
       waitForEntry resolved on it.
+- [x] 2026-07-29: Owner review round 2 (TDC comments, `49af854`): converted
+      `#` private fields to the `private` keyword for consistency with the
+      rest of the codebase (getter-backed fields renamed: `currentLeaf`,
+      `streamFailure`); `0x0a` replaced with a `NEWLINE` constant and the
+      parser comment now covers CRLF (tolerated: the retained `\r` is JSON
+      whitespace) and why splitting happens on bytes rather than
+      `String.split`; `for (;;)` → `while (true)`; wake-queue comment now
+      explains why a queue backs the single pending token.
 - [ ] Owner review of the implementation.
 
 ## Implementation-Time Decisions

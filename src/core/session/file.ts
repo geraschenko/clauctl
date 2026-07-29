@@ -84,41 +84,43 @@ export function sessionFilePath(
   return join(configDir, "projects", projectKey(cwd), `${sessionId}.jsonl`);
 }
 
-// TDC: What is 0x0a? I assume this is '\n'? Please use a clear constant, like "NEWLINE". Do we have to worry about '\r\n' vs '\n', or is that automatically stripped during parsing?
-/** Incremental jsonl entry parser. Splits on 0x0a bytes and buffers the
- *  unterminated byte suffix (including a UTF-8 code point split across
- *  chunks) until its newline arrives — a mid-append read can see a partial
- *  final line, and once the newline is on disk the whole record before it is
- *  too. Blank/whitespace-only lines are skipped but still counted, so
- *  file:line in errors stays correct. A malformed TERMINATED line, or a
- *  terminated line whose value is not an object, is real corruption:
- *  silently dropping it would let chain computation and file mutation
- *  proceed against incomplete history, so it throws instead. */
+const NEWLINE = "\n".charCodeAt(0);
+
+/** Incremental jsonl entry parser. Splits on raw NEWLINE bytes — never
+ *  decoding first, so a UTF-8 code point split across chunks stays intact in
+ *  the buffered suffix — and holds the unterminated byte suffix until its
+ *  newline arrives: a mid-append read can see a partial final line, and once
+ *  the newline is on disk the whole record before it is too. Both writers
+ *  terminate records with bare LF; a CRLF file would still parse, since the
+ *  retained '\r' is JSON whitespace. Blank/whitespace-only lines are skipped
+ *  but still counted, so file:line in errors stays correct. A malformed
+ *  TERMINATED line, or a terminated line whose value is not an object, is
+ *  real corruption: silently dropping it would let chain computation and
+ *  file mutation proceed against incomplete history, so it throws instead. */
 export class SessionEntryParser {
-  readonly #filePath: string;
-  #tornSuffix = Buffer.alloc(0);
-  #lineNumber = 0;
+  private readonly filePath: string;
+  private tornSuffix = Buffer.alloc(0);
+  private lineNumber = 0;
 
   constructor(filePath: string) {
-    this.#filePath = filePath;
+    this.filePath = filePath;
   }
 
   /** Complete entries terminated within this chunk (prefixed by any retained
    *  torn suffix). */
   push(chunk: Buffer): SessionEntry[] {
     const data =
-      this.#tornSuffix.length === 0
+      this.tornSuffix.length === 0
         ? chunk
-        : Buffer.concat([this.#tornSuffix, chunk]);
+        : Buffer.concat([this.tornSuffix, chunk]);
     const entries: SessionEntry[] = [];
     let lineStart = 0;
-    for (;;) {  // TDC: I prefer "while true"
-      // TDC: why not data.split('\n') here to extract the lines?
-      const newlineIndex = data.indexOf(0x0a, lineStart);
+    while (true) {
+      const newlineIndex = data.indexOf(NEWLINE, lineStart);
       if (newlineIndex === -1) {
         break;
       }
-      this.#lineNumber += 1;
+      this.lineNumber += 1;
       const line = data.toString("utf8", lineStart, newlineIndex);
       lineStart = newlineIndex + 1;
       if (line.trim() === "") {
@@ -129,7 +131,7 @@ export class SessionEntryParser {
         parsed = JSON.parse(line);
       } catch {
         throw new Error(
-          `${this.#filePath}:${this.#lineNumber}: malformed session file line`,
+          `${this.filePath}:${this.lineNumber}: malformed session file line`,
         );
       }
       if (
@@ -138,14 +140,14 @@ export class SessionEntryParser {
         Array.isArray(parsed)
       ) {
         throw new Error(
-          `${this.#filePath}:${this.#lineNumber}: session file line is not an object`,
+          `${this.filePath}:${this.lineNumber}: session file line is not an object`,
         );
       }
       entries.push(parsed as SessionEntry);
     }
     // Copied, not a subarray view: a view would pin the (possibly whole-file)
     // parent buffer for the lifetime of the torn suffix.
-    this.#tornSuffix =
+    this.tornSuffix =
       lineStart === data.length
         ? Buffer.alloc(0)
         : Buffer.from(data.subarray(lineStart));
