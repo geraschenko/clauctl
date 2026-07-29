@@ -1,6 +1,6 @@
 # Canonical session-entry stream
 
-> Status: **design approved in discussion, doc awaiting owner review**;
+> Status: **implemented, awaiting owner review of the implementation**;
 > replaces the earlier draft of the same name.
 > This is Spec 1 from
 > [prompt-tail-parity-overview.md](prompt-tail-parity-overview.md). It defines
@@ -41,7 +41,7 @@ sdk.sock subscription — a `StreamClient` driven by the existing generated
   is retained in position.
 - **Cursor** (`since`): a UUID identifying the retained first occurrence of an
   entry. Output starts after it. Deduplication scans from the beginning
-  *before* applying `since`, so a re-persisted copy of pre-cursor history can
+  _before_ applying `since`, so a re-persisted copy of pre-cursor history can
   never leak into output. A cursor absent from the file is an error naming the
   UUID and file — never "from the beginning".
 
@@ -65,7 +65,7 @@ loader, not canonical output.
    lifecycle code.
 4. `waitForEntry()` no longer re-reads the whole file per wake; live following
    costs O(new bytes) per wake.
-5. Tree display uses the original occurrence's placement *and* payload
+5. Tree display uses the original occurrence's placement _and_ payload
    (`entriesByUuid` becomes first-wins); `loadedContext()` behavior is
    unchanged.
 6. Torn lines, truncation, replacement, watcher failure, and malformed
@@ -473,5 +473,27 @@ encountered.
       kept `waitForEntry` separate from `readEntriesAfterStreamFlush`
       (get-messages is a wait-only consumer; a one-pass merge would drop the
       post-leaf tail).
-- [ ] Owner review of this revision.
-- [ ] Implementation (not started).
+- [x] Owner review of this revision (approved 2026-07-29).
+- [x] 2026-07-29: Implementation, following the Implementation sequence.
+      Full presubmit passes (509 tests). Live smoke tests: streamed
+      history:"emit" output matches canonicalizeEntries(readSessionEntries())
+      on two real session files, including the one with 237 re-persisted
+      duplicates from the derisk findings; on a /tmp copy, a real
+      appendSessionEntries() write was observed live exactly once and
+      waitForEntry resolved on it.
+- [ ] Owner review of the implementation.
+
+## Implementation-Time Decisions
+
+- **`readSessionEntries` tightened on an unterminated final line**: the old
+  implementation skipped an unterminated tail only when JSON.parse failed, so
+  a complete-JSON-but-unterminated final line was _included_; the parser
+  buffers any unterminated suffix, so such a line is now skipped until its
+  newline lands. This is the spec's "an unterminated suffix is not an entry"
+  rule (both writers terminate every record in the same write, so the case is
+  a mid-append read either way).
+- **Wake tokens are `AsyncQueue<true>`**: the generated AsyncQueue treats a
+  dequeued `undefined` as "empty", so a `void` queue cannot carry tokens.
+- **`seedFromEntries` keeps its inline last-wins uuid map**: it resolves
+  `loadedContext` refs, which is loader-domain (the deliberate last-wins
+  exception), so it was not switched to the now-first-wins `entriesByUuid`.

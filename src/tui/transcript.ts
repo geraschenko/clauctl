@@ -33,7 +33,7 @@ import type {
   SDKUserMessage,
   SessionMessage,
 } from "@anthropic-ai/claude-agent-sdk";
-import { entryToSessionMessage } from "../core/session-file.ts";
+import { entryToSessionMessage } from "../core/session/file.ts";
 import type { PathNode } from "../core/tree/nodes.ts";
 import { AssistantMessageComponent } from "./components/assistant-message.ts";
 import { ToolExecutionComponent } from "./components/tool-execution.ts";

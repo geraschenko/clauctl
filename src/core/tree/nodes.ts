@@ -7,7 +7,7 @@
  */
 
 import type { UUID } from "node:crypto";
-import type { SessionEntry } from "../session-file.ts";
+import type { SessionEntry } from "../session/file.ts";
 import type { ParentMap } from "../../format/generated/flat-tree.ts";
 
 export type { ParentMap };

@@ -5,7 +5,7 @@
  */
 
 import type { UUID } from "node:crypto";
-import type { SessionEntry } from "../session-file.ts";
+import type { SessionEntry } from "../session/file.ts";
 import { formatTreeNodeRef, type ParentMap } from "./nodes.ts";
 import {
   compactBoundaryAt,

@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { randomUUID, type UUID } from "node:crypto";
 import { test } from "node:test";
-import { seedFromEntries } from "./session-seed.ts";
-import type { SessionEntry } from "./session-file.ts";
+import { seedFromEntries } from "./seed.ts";
+import type { SessionEntry } from "./file.ts";
 
 const uuid = (): UUID => randomUUID();
 

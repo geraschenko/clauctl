@@ -11,7 +11,7 @@ import type {
   SDKAssistantMessage,
   SDKMessage,
 } from "@anthropic-ai/claude-agent-sdk";
-import type { SessionEntry } from "../core/session-file.ts";
+import type { SessionEntry } from "../core/session/file.ts";
 import { formatSdkMessage, joinChunks, newFormatState } from "./sdk-message.ts";
 import type { FormatState } from "./sdk-message.ts";
 import type { MessageFormatOptions } from "./types.ts";

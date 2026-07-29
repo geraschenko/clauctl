@@ -6,7 +6,7 @@
 import assert from "node:assert/strict";
 import { randomUUID, type UUID } from "node:crypto";
 import { test } from "node:test";
-import type { SessionEntry } from "../session-file.ts";
+import type { SessionEntry } from "../session/file.ts";
 import { buildTree } from "./build-tree.ts";
 import { toDisplayTree } from "./display-tree.ts";
 

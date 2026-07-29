@@ -46,7 +46,7 @@ import {
   entriesByUuid,
   entryToSessionMessage,
   type SessionEntry,
-} from "../core/session-file.ts";
+} from "../core/session/file.ts";
 import {
   pathToLeaf,
   type ParentMap,

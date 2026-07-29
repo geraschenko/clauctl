@@ -7,7 +7,7 @@ import type {
   SDKMessage,
   SDKUserMessage,
 } from "@anthropic-ai/claude-agent-sdk";
-import type { SessionEntry } from "../core/session-file.ts";
+import type { SessionEntry } from "../core/session/file.ts";
 import type { PathNode } from "../core/tree/nodes.ts";
 import {
   beginMessage,

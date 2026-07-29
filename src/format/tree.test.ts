@@ -4,7 +4,7 @@ import { test } from "node:test";
 import { buildTree } from "../core/tree/build-tree.ts";
 import { parseTreeNodeRef, type SessionSnapshot } from "../core/tree/nodes.ts";
 import { loadedContext } from "../core/tree/loader.ts";
-import { entriesByUuid, type SessionEntry } from "../core/session-file.ts";
+import { entriesByUuid, type SessionEntry } from "../core/session/file.ts";
 import {
   formatSessionSnapshot,
   formatTreeNodeLine,

@@ -9,10 +9,10 @@ import type {
   PermissionMode,
   SDKAssistantMessage,
 } from "@anthropic-ai/claude-agent-sdk";
-import { toNonNullableUsage } from "./agent-state.ts";
-import type { SessionEntry } from "./session-file.ts";
-import type { TreeNodeRef } from "./tree/nodes.ts";
-import { loadedContext, type OnInvalid } from "./tree/loader.ts";
+import { toNonNullableUsage } from "../agent-state.ts";
+import type { SessionEntry } from "./file.ts";
+import type { TreeNodeRef } from "../tree/nodes.ts";
+import { loadedContext, type OnInvalid } from "../tree/loader.ts";
 
 /** File-derived AgentState seed values (daemon startup). */
 export interface SessionFileSeed {

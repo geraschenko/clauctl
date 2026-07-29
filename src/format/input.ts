@@ -4,11 +4,11 @@
  * output, so a swapped pipe is a one-line fix instead of silence.
  */
 
-import { seedFromEntries } from "../core/session-seed.ts";
+import { seedFromEntries } from "../core/session/seed.ts";
 import type { SessionSnapshot } from "../core/tree/nodes.ts";
 import { parseJsonlInput } from "../core/generated/read-input.ts";
 import { UsageError } from "../core/generated/util.ts";
-import type { SessionEntry } from "../core/session-file.ts";
+import type { SessionEntry } from "../core/session/file.ts";
 import type { TailRecord } from "./types.ts";
 
 function isRecord(value: unknown): value is Record<string, unknown> {

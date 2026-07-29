@@ -8,7 +8,7 @@
  */
 
 import type { UUID } from "node:crypto";
-import type { SessionEntry } from "../session-file.ts";
+import type { SessionEntry } from "../session/file.ts";
 import type { TreeNodeRef } from "./nodes.ts";
 
 /** Sink for corrupt-session-file diagnostics (an invalid relink, a

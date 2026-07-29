@@ -10,7 +10,7 @@
 import type { UUID } from "node:crypto";
 import { buildTree } from "../core/tree/build-tree.ts";
 import { toDisplayTree } from "../core/tree/display-tree.ts";
-import { entriesByUuid, type SessionEntry } from "../core/session-file.ts";
+import { entriesByUuid, type SessionEntry } from "../core/session/file.ts";
 import {
   treeChildren,
   formatTreeNodeRef,

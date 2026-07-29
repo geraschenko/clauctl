@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
-import type { SessionEntry } from "../core/session-file.ts";
+import type { SessionEntry } from "../core/session/file.ts";
 import { formatSessionEntries } from "./messages.ts";
 import { formatSdkMessage, newFormatState } from "./sdk-message.ts";
 import type { MessageFormatOptions } from "./types.ts";

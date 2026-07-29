@@ -95,7 +95,7 @@ export const INITIAL_AGENT_STATE: AgentState = {
  * the numeric token counters are defaulted to 0 (arithmetic over them never
  * sees a hole); other null fields are dropped rather than given made-up
  * non-null values. Also used to coerce usage objects read back from session
- * file entries (session-seed.ts seedFromEntries).
+ * file entries (session/seed.ts seedFromEntries).
  */
 export function toNonNullableUsage(
   usage: SDKAssistantMessage["message"]["usage"],

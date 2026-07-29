@@ -1,7 +1,7 @@
 # Findings: SessionStore as a persisted-entry observation point
 
-> Probe date: 2026-07-29  
-> SDK: `@anthropic-ai/claude-agent-sdk` 0.3.211  
+> Probe date: 2026-07-29\
+> SDK: `@anthropic-ai/claude-agent-sdk` 0.3.211\
 > bundled Claude Code: 2.1.211
 
 ## Question

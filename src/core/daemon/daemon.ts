@@ -31,7 +31,7 @@ import {
   type InferFlags,
 } from "../generated/cli.ts";
 import { INITIAL_AGENT_STATE } from "../agent-state.ts";
-import { seedFromEntries } from "../session-seed.ts";
+import { seedFromEntries } from "../session/seed.ts";
 import { invariantOptions, settingsSeed } from "../options.ts";
 import {
   agentDirPath,
@@ -44,7 +44,7 @@ import {
   writeAgentRecord,
   type AgentRecord,
 } from "../registry.ts";
-import { readSessionEntries, sessionFilePath } from "../session-file.ts";
+import { readSessionEntries, sessionFilePath } from "../session/file.ts";
 import { type CommandContext } from "../generated/targets.ts";
 import { EventHub } from "./event-hub.ts";
 import { createRequestHandler } from "./request-handlers.ts";

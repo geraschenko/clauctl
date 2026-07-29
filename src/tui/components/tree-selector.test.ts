@@ -3,7 +3,7 @@ import type { UUID } from "node:crypto";
 import { test } from "node:test";
 import { buildTree } from "../../core/tree/build-tree.ts";
 import { toDisplayTree } from "../../core/tree/display-tree.ts";
-import { entriesByUuid, type SessionEntry } from "../../core/session-file.ts";
+import { entriesByUuid, type SessionEntry } from "../../core/session/file.ts";
 import type { TreeNodeRef } from "../../core/tree/nodes.ts";
 import { resolveTreePick, TreeSelectorComponent } from "./tree-selector.ts";
 

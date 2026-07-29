@@ -6,7 +6,7 @@
  */
 
 import type { UUID } from "node:crypto";
-import type { SessionEntry } from "../session-file.ts";
+import type { SessionEntry } from "../session/file.ts";
 import {
   formatTreeNodeRef,
   parseTreeNodeRef,

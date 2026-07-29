@@ -8,10 +8,10 @@
  */
 
 import { randomUUID, type UUID } from "node:crypto";
-import { appendFileSync, existsSync, readFileSync, watch } from "node:fs";
+import { appendFileSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { SessionMessage } from "@anthropic-ai/claude-agent-sdk";
-import type { SetContextResult } from "./sdk-socket.ts";
+import type { SetContextResult } from "../sdk-socket.ts";
 
 /** One parsed jsonl line, verbatim. Known fields typed, everything else kept. */
 export interface SessionEntry {
@@ -84,56 +84,92 @@ export function sessionFilePath(
   return join(configDir, "projects", projectKey(cwd), `${sessionId}.jsonl`);
 }
 
-/** Torn-tail tolerant: a mid-append read can see a partial final line, which
- *  is skipped — recognizable as the file's UNTERMINATED tail (once the
- *  newline is on disk, the whole record before it is too). Anything else — a
- *  malformed terminated line, or a line whose value is not an object — is
- *  real corruption, and silently dropping it would let chain computation and
- *  file mutation proceed against incomplete history, so it throws instead. */
-export function readSessionEntries(filePath: string): SessionEntry[] {
-  const lines = readFileSync(filePath, "utf8").split("\n");
-  const tornTailIndex =
-    lines.length > 0 && lines[lines.length - 1]!.trim() !== ""
-      ? lines.length - 1
-      : -1;
-  const entries: SessionEntry[] = [];
-  for (const [index, line] of lines.entries()) {
-    if (line.trim() === "") {
-      continue;
-    }
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(line);
-    } catch {
-      if (index === tornTailIndex) {
+/** Incremental jsonl entry parser. Splits on 0x0a bytes and buffers the
+ *  unterminated byte suffix (including a UTF-8 code point split across
+ *  chunks) until its newline arrives — a mid-append read can see a partial
+ *  final line, and once the newline is on disk the whole record before it is
+ *  too. Blank/whitespace-only lines are skipped but still counted, so
+ *  file:line in errors stays correct. A malformed TERMINATED line, or a
+ *  terminated line whose value is not an object, is real corruption:
+ *  silently dropping it would let chain computation and file mutation
+ *  proceed against incomplete history, so it throws instead. */
+export class SessionEntryParser {
+  readonly #filePath: string;
+  #tornSuffix = Buffer.alloc(0);
+  #lineNumber = 0;
+
+  constructor(filePath: string) {
+    this.#filePath = filePath;
+  }
+
+  /** Complete entries terminated within this chunk (prefixed by any retained
+   *  torn suffix). */
+  push(chunk: Buffer): SessionEntry[] {
+    const data =
+      this.#tornSuffix.length === 0
+        ? chunk
+        : Buffer.concat([this.#tornSuffix, chunk]);
+    const entries: SessionEntry[] = [];
+    let lineStart = 0;
+    for (;;) {
+      const newlineIndex = data.indexOf(0x0a, lineStart);
+      if (newlineIndex === -1) {
+        break;
+      }
+      this.#lineNumber += 1;
+      const line = data.toString("utf8", lineStart, newlineIndex);
+      lineStart = newlineIndex + 1;
+      if (line.trim() === "") {
         continue;
       }
-      throw new Error(`${filePath}:${index + 1}: malformed session file line`);
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(line);
+      } catch {
+        throw new Error(
+          `${this.#filePath}:${this.#lineNumber}: malformed session file line`,
+        );
+      }
+      if (
+        typeof parsed !== "object" ||
+        parsed === null ||
+        Array.isArray(parsed)
+      ) {
+        throw new Error(
+          `${this.#filePath}:${this.#lineNumber}: session file line is not an object`,
+        );
+      }
+      entries.push(parsed as SessionEntry);
     }
-    if (
-      typeof parsed !== "object" ||
-      parsed === null ||
-      Array.isArray(parsed)
-    ) {
-      throw new Error(
-        `${filePath}:${index + 1}: session file line is not an object`,
-      );
-    }
-    entries.push(parsed as SessionEntry);
+    // Copied, not a subarray view: a view would pin the (possibly whole-file)
+    // parent buffer for the lifetime of the torn suffix.
+    this.#tornSuffix =
+      lineStart === data.length
+        ? Buffer.alloc(0)
+        : Buffer.from(data.subarray(lineStart));
+    return entries;
   }
-  return entries;
 }
 
-/** Entry lookup by uuid; last entry wins on a duplicate uuid, matching the
- *  loader's uuid-keyed map. Duplicated uuids are a legal file shape — the
- *  CLI re-persists dropped-from-context history (see
- *  docs/derisk/cli-history-repersistence/FINDINGS.md). */
+/** One push of the whole file; a torn final line stays buffered in the
+ *  discarded parser and is therefore skipped. */
+export function readSessionEntries(filePath: string): SessionEntry[] {
+  return new SessionEntryParser(filePath).push(readFileSync(filePath));
+}
+
+/** Entry lookup by uuid; the FIRST occurrence wins on a duplicate uuid, so
+ *  displayed position and displayed payload come from the same occurrence.
+ *  Duplicated uuids are a legal file shape — the CLI re-persists
+ *  dropped-from-context history, sometimes with mutated payloads (see
+ *  docs/derisk/cli-history-repersistence/FINDINGS.md). The loader model
+ *  (tree/loader.ts loadedContext) deliberately stays last-wins: it mirrors
+ *  Claude's actual uuid-keyed loading, not canonical display. */
 export function entriesByUuid(
   entries: readonly SessionEntry[],
 ): Map<UUID, SessionEntry> {
   const byUuid = new Map<UUID, SessionEntry>();
   for (const entry of entries) {
-    if (entry.uuid !== undefined) {
+    if (entry.uuid !== undefined && !byUuid.has(entry.uuid)) {
       byUuid.set(entry.uuid, entry);
     }
   }
@@ -234,63 +270,4 @@ export function appendSessionEntries(
     filePath,
     entries.map((entry) => `${JSON.stringify(entry)}\n`).join(""),
   );
-}
-
-/** The file's entries once `leafUuid` (the last transcript entry the caller
- *  has seen reported elsewhere, e.g. on the daemon's event stream) is on
- *  disk — read consistency across the CLI's flush lag. Pass undefined when
- *  there is nothing to wait for. */
-export async function readEntriesAfterStreamFlush(
-  filePath: string,
-  leafUuid: UUID | undefined,
-): Promise<SessionEntry[]> {
-  if (leafUuid !== undefined) {
-    await waitForEntryOnDisk(filePath, leafUuid);
-  }
-  return readSessionEntries(filePath);
-}
-
-/** Resolves when an entry with this uuid is in the file (fs.watch + predicate;
- *  covers the ~100–180 ms flush lag after the SDK result message). */
-export function waitForEntryOnDisk(
-  filePath: string,
-  uuid: UUID,
-  timeoutMs = 10_000,
-): Promise<void> {
-  const entryOnDisk = (): boolean =>
-    existsSync(filePath) &&
-    readSessionEntries(filePath).some((entry) => entry.uuid === uuid);
-  if (entryOnDisk()) {
-    return Promise.resolve();
-  }
-  return new Promise((resolve, reject) => {
-    const watcher = watch(filePath, () => {
-      if (entryOnDisk()) {
-        finish();
-        resolve();
-      }
-    });
-    const timer = setTimeout(() => {
-      finish();
-      reject(
-        new Error(
-          `entry ${uuid} did not appear in ${filePath} within ${timeoutMs}ms`,
-        ),
-      );
-    }, timeoutMs);
-    const finish = (): void => {
-      watcher.close();
-      clearTimeout(timer);
-    };
-    watcher.on("error", (error) => {
-      finish();
-      reject(error);
-    });
-    // The entry may have landed between the initial check and the watch
-    // starting; check once more now that events are flowing.
-    if (entryOnDisk()) {
-      finish();
-      resolve();
-    }
-  });
 }

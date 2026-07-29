@@ -20,12 +20,11 @@ import {
 import { treeNodeRefsEqual, type SessionSnapshot } from "../tree/nodes.ts";
 import { loadedContext } from "../tree/loader.ts";
 import { settingsSeed, type PersistedOptions } from "../options.ts";
+import { readSessionEntries, type SessionEntry } from "../session/file.ts";
 import {
   readEntriesAfterStreamFlush,
-  readSessionEntries,
-  waitForEntryOnDisk,
-  type SessionEntry,
-} from "../session-file.ts";
+  waitForEntry,
+} from "../session/entry-stream.ts";
 import {
   applyMutation,
   isControlMutation,
@@ -280,7 +279,7 @@ export function createRequestHandler(
           const filePath = deps.sessionFilePath(sessionId);
           const leaf = events.agentState.leaf;
           if (leaf !== undefined) {
-            await waitForEntryOnDisk(filePath, leaf.viaBoundary ?? leaf.uuid);
+            await waitForEntry(filePath, leaf.viaBoundary ?? leaf.uuid);
           }
           const active = freshOverride();
           if (active?.kind === "synthesize") {

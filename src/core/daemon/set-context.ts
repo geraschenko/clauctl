@@ -18,10 +18,10 @@ import type { TreeNodeRef } from "../tree/nodes.ts";
 import {
   appendSessionEntries,
   buildBoundaryEntries,
-  readEntriesAfterStreamFlush,
   readSessionEntries,
   type SessionEntry,
-} from "../session-file.ts";
+} from "../session/file.ts";
+import { readEntriesAfterStreamFlush } from "../session/entry-stream.ts";
 import type { GetMessagesOverride } from "./get-messages.ts";
 import type { RequestHandlerDeps } from "./request-handlers.ts";
 import type { RwGate } from "./rw-gate.ts";

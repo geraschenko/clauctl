@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { randomUUID, type UUID } from "node:crypto";
 import { test } from "node:test";
-import { entriesByUuid, type SessionEntry } from "../session-file.ts";
+import { entriesByUuid, type SessionEntry } from "../session/file.ts";
 import {
   treeChildren,
   formatTreeNodeRef,

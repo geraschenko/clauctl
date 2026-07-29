@@ -15,7 +15,7 @@ import {
   entryToSessionMessage,
   type SessionEntry,
   type SessionMessageOnWire,
-} from "../session-file.ts";
+} from "../session/file.ts";
 import type { TreeNodeRef } from "../tree/nodes.ts";
 
 /**
@@ -79,7 +79,7 @@ function synthesizeWindowChain(
 
 /** The get-messages response for a synthesize override: the chain's entries
  *  mapped to SessionMessage shape via entryToSessionMessage
- *  (session-file.ts). Takes pre-read entries — the handler's one
+ *  (session/file.ts). Takes pre-read entries — the handler's one
  *  flush-synced read serves the flush gate and the synthesis. */
 export function synthesizeMessages(
   entries: SessionEntry[],

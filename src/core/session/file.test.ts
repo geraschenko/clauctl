@@ -1,19 +1,20 @@
 import assert from "node:assert/strict";
 import { randomUUID, type UUID } from "node:crypto";
-import { appendFileSync, mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import {
   appendSessionEntries,
   buildBoundaryEntries,
+  entriesByUuid,
   entryToSessionMessage,
   projectKey,
   readSessionEntries,
+  SessionEntryParser,
   sessionFilePath,
-  waitForEntryOnDisk,
   type SessionEntry,
-} from "./session-file.ts";
+} from "./file.ts";
 
 const uuid = (): UUID => randomUUID();
 
@@ -63,6 +64,78 @@ test("readSessionEntries throws on malformed non-final lines and non-object valu
   const nonObject = join(dir, "non-object.jsonl");
   writeFileSync(nonObject, `null\n${JSON.stringify(entry)}\n`);
   assert.throws(() => readSessionEntries(nonObject), /not an object/);
+});
+
+test("SessionEntryParser yields multiple entries from one chunk", () => {
+  const parser = new SessionEntryParser("/s.jsonl");
+  const a = { uuid: uuid(), type: "user" };
+  const b = { type: "summary", note: "no uuid" };
+  const entries = parser.push(
+    Buffer.from(`${JSON.stringify(a)}\n${JSON.stringify(b)}\n`),
+  );
+  assert.deepEqual(entries, [a, b]);
+});
+
+test("SessionEntryParser buffers a line split across pushes", () => {
+  const parser = new SessionEntryParser("/s.jsonl");
+  const entry = { uuid: uuid(), type: "user", custom: { nested: true } };
+  const line = `${JSON.stringify(entry)}\n`;
+  assert.deepEqual(parser.push(Buffer.from(line.slice(0, 10))), []);
+  assert.deepEqual(parser.push(Buffer.from(line.slice(10, 20))), []);
+  assert.deepEqual(parser.push(Buffer.from(line.slice(20))), [entry]);
+});
+
+test("SessionEntryParser reassembles a UTF-8 code point split across pushes", () => {
+  const parser = new SessionEntryParser("/s.jsonl");
+  const entry = { uuid: uuid(), text: "snowman \u{2603} and beyond \u{1f680}" };
+  const bytes = Buffer.from(`${JSON.stringify(entry)}\n`);
+  const rocketStart = bytes.indexOf(Buffer.from("\u{1f680}")) + 2;
+  assert.deepEqual(parser.push(bytes.subarray(0, rocketStart)), []);
+  assert.deepEqual(parser.push(bytes.subarray(rocketStart)), [entry]);
+});
+
+test("SessionEntryParser emits a torn tail once its newline arrives", () => {
+  const parser = new SessionEntryParser("/s.jsonl");
+  const a = { uuid: uuid(), type: "user" };
+  const b = { uuid: uuid(), type: "assistant" };
+  const torn = JSON.stringify(b);
+  assert.deepEqual(
+    parser.push(Buffer.from(`${JSON.stringify(a)}\n${torn.slice(0, 5)}`)),
+    [a],
+  );
+  assert.deepEqual(parser.push(Buffer.from(`${torn.slice(5)}\n`)), [b]);
+});
+
+test("SessionEntryParser counts blank lines toward error line numbers", () => {
+  const parser = new SessionEntryParser("/s.jsonl");
+  const entry = { uuid: uuid() };
+  assert.deepEqual(parser.push(Buffer.from(`${JSON.stringify(entry)}\n\n`)), [
+    entry,
+  ]);
+  assert.throws(
+    () => parser.push(Buffer.from("   \nmalformed\n")),
+    /^Error: \/s\.jsonl:4: malformed session file line$/,
+  );
+});
+
+test("SessionEntryParser throws on a terminated non-object line", () => {
+  const parser = new SessionEntryParser("/s.jsonl");
+  assert.throws(
+    () => parser.push(Buffer.from("[1,2]\n")),
+    /^Error: \/s\.jsonl:1: session file line is not an object$/,
+  );
+});
+
+test("entriesByUuid keeps the first occurrence of a duplicated uuid and skips uuid-less entries", () => {
+  const duplicated = uuid();
+  const first = { uuid: duplicated, type: "user", payload: "original" };
+  const rePersisted = { uuid: duplicated, type: "user", payload: "mutated" };
+  const uuidLess = { type: "summary" };
+  const other = { uuid: uuid(), type: "assistant" };
+  const byUuid = entriesByUuid([first, uuidLess, rePersisted, other]);
+  assert.equal(byUuid.size, 2);
+  assert.equal(byUuid.get(duplicated), first);
+  assert.equal(byUuid.get(other.uuid), other);
 });
 
 test("buildBoundaryEntries with summary, anchor summary (up_to shape)", () => {
@@ -164,28 +237,6 @@ test("appendSessionEntries round-trips through readSessionEntries", () => {
   });
   appendSessionEntries(file, entries);
   assert.deepEqual(readSessionEntries(file), [existing, ...entries]);
-});
-
-test("waitForEntryOnDisk resolves immediately for a present entry", async () => {
-  const file = join(mkdtempSync(join(tmpdir(), "clauctl-sf-")), "s.jsonl");
-  const entry = { uuid: uuid(), type: "user" };
-  writeFileSync(file, `${JSON.stringify(entry)}\n`);
-  await waitForEntryOnDisk(file, entry.uuid);
-});
-
-test("waitForEntryOnDisk resolves once the entry is appended", async () => {
-  const file = join(mkdtempSync(join(tmpdir(), "clauctl-sf-")), "s.jsonl");
-  writeFileSync(file, `${JSON.stringify({ uuid: uuid() })}\n`);
-  const target = uuid();
-  const waiting = waitForEntryOnDisk(file, target);
-  appendFileSync(file, `${JSON.stringify({ uuid: target })}\n`);
-  await waiting;
-});
-
-test("waitForEntryOnDisk rejects on timeout", async () => {
-  const file = join(mkdtempSync(join(tmpdir(), "clauctl-sf-")), "s.jsonl");
-  writeFileSync(file, `${JSON.stringify({ uuid: uuid() })}\n`);
-  await assert.rejects(waitForEntryOnDisk(file, uuid(), 50), /did not appear/);
 });
 
 test("entryToSessionMessage maps user/assistant entries and drops the rest", () => {

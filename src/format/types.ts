@@ -8,5 +8,5 @@ export interface MessageFormatOptions {
 }
 
 /** One line of `format events` input: tail's framing. (`format messages`
- * input lines are core/session-file.ts `SessionEntry`s.) */
+ * input lines are core/session/file.ts `SessionEntry`s.) */
 export type TailRecord = { snapshot: AgentState } | { event: SdkEvent };

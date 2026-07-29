@@ -23,7 +23,7 @@ import {
   readSessionEntries,
   sessionFilePath,
   type SessionEntry,
-} from "../session-file.ts";
+} from "../session/file.ts";
 import type { SdkEvent, SdkRequestRecord } from "../sdk-socket.ts";
 import { EventHub } from "./event-hub.ts";
 import { startupOverride } from "./get-messages.ts";

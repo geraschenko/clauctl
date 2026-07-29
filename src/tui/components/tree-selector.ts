@@ -19,7 +19,7 @@ import {
   loadedContextUuids,
   type OnInvalid,
 } from "../../core/tree/loader.ts";
-import type { SessionEntry } from "../../core/session-file.ts";
+import type { SessionEntry } from "../../core/session/file.ts";
 import {
   treeChildren,
   formatTreeNodeRef,
