@@ -129,25 +129,34 @@ when they need non-default formatting.
 ### Duplicate UUIDs
 
 The Claude CLI can re-persist previous entries with the same UUID. These are
-copies of existing history, not new canonical entries. Entry-producing paths
+copies of existing history, not new canonical positions. Entry-producing paths
 must use one policy:
 
-- first UUID occurrence wins;
-- later entries carrying the same UUID are omitted entirely;
+- the first UUID occurrence determines the entry's position;
+- the last occurrence supplies the entry's content in a canonical historical
+  view;
+- only one entry is emitted for that UUID;
 - every UUID-less entry occurrence is retained;
-- deduplication happens over the complete session append sequence before
-  applying `--since`.
+- canonicalization happens over the complete available session append sequence
+  before applying `--since`.
 
 Applying `--since` first would allow a later re-persisted copy of an earlier
 entry to leak into output. A cursor UUID always identifies the retained first
-occurrence.
+position.
+
+A live follower cannot know that a future append will re-persist an entry whose
+first occurrence it has already emitted. It emits the then-latest content at the
+first position and suppresses later duplicate occurrences; it does not revise
+past output or emit a content-update record. A later historical read uses the
+last content available at read time. This temporal difference is accepted:
+observed re-persistence preserves semantic entry content even when serialization
+or sidecar fields are restamped or normalized.
 
 Current clauctl behavior is not fully consistent: tree placement is first-wins,
 while `entriesByUuid` uses the last serialization for payload lookup and
-`get-entries` returns every copy. The first entry-stream spec must decide which
-existing consumers adopt canonical first-wins behavior and pin any deliberate
-exceptions.
-TDC: The semantics is that as far as _positioning_, first-wins, but in terms of _content_, last-wins. Everything should follow this.
+`get-entries` returns every copy. The first entry-stream spec must bring every
+consumer into the first-position/last-content model and test the accepted live
+stream behavior explicitly.
 
 ### UUID-less entries
 
