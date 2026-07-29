@@ -147,6 +147,7 @@ while `entriesByUuid` uses the last serialization for payload lookup and
 `get-entries` returns every copy. The first entry-stream spec must decide which
 existing consumers adopt canonical first-wins behavior and pin any deliberate
 exceptions.
+TDC: The semantics is that as far as _positioning_, first-wins, but in terms of _content_, last-wins. Everything should follow this.
 
 ### UUID-less entries
 
@@ -253,8 +254,7 @@ cursor until a canonical persisted identity is confirmed.
 
 ### `prompt`
 
-`query` is renamed to `prompt`. Backward compatibility is not required unless a
-later spec explicitly adds an alias.
+`query` is renamed to `prompt`. Backward compatibility is not required.
 
 By default, prompt:
 
