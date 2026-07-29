@@ -76,10 +76,14 @@ loader, not canonical output.
 
 ## Type design
 
-TDC: I think it'd be a good idea to make a subdirectory src/core/entries/ or src/core/session/ or something where we put everything related to the entry stream, session file parsing, session-seed.ts, and anything else that interacts with the session file. I want everything that touches the file to be behind a clean abstraction.
+Everything that touches the session file lives behind one directory,
+`src/core/session/`: `session-file.ts` moves to `session/file.ts`,
+`session-seed.ts` to `session/seed.ts`, and the new subscription is
+`session/entry-stream.ts`. Import-site updates are mechanical; no module
+outside the directory reads or writes the file directly (tree construction
+and set-context already consume entries through this layer).
 
-New module `src/core/session-entry-stream.ts`; parser and helper changes in
-`src/core/session-file.ts`. The driver types are the existing generated ones:
+The driver types are the existing generated ones:
 
 ```ts
 // src/core/generated/streaming/driver.ts (existing, unchanged)
@@ -92,7 +96,7 @@ interface StreamClient<TEvent, TState> {
 }
 ```
 
-### `src/core/session-file.ts`
+### `src/core/session/file.ts` (moved from `src/core/session-file.ts`)
 
 ```ts
 /** Incremental JSONL entry parser. Buffers a torn byte suffix (including a
@@ -119,32 +123,31 @@ export function entriesByUuid(
 ): Map<UUID, SessionEntry>;
 
 // waitForEntryOnDisk and readEntriesAfterStreamFlush MOVE OUT of this module
-// (see session-entry-stream.ts below): their reimplementations depend on the
-// stream client, and the file-format module must not depend on the streaming
-// module.
+// (see entry-stream.ts below): their reimplementations depend on the stream
+// client, and the file-format module must not depend on the streaming module.
 ```
 
-### `src/core/session-entry-stream.ts`
+### `src/core/session/entry-stream.ts` (new)
 
 ```ts
 import type { UUID } from "node:crypto";
-import type { SessionEntry } from "./session-file.ts";
+import type { SessionEntry } from "./file.ts";
 import type {
   StreamClient,
   StreamSubscription,
-} from "./generated/streaming/driver.ts";
+} from "../generated/streaming/driver.ts";
 
-/** Fold state derivable from entries alone. */
+/** Fold state derivable from entries alone. There is deliberately no
+ *  `history` field: under history:"emit" the initial extent's canonical
+ *  entries are pushed as ordinary events (already queued when subscribe()
+ *  resolves), so consumers handle history and live appends uniformly and no
+ *  state carries an entry array. */
 export interface EntryStreamState {
-  /** Canonical history at subscription, after `since`; empty under
-   *  history:"skip". Frozen — live events do not append to it, and every
-   *  post-fold state shares this same array by reference. */
-  // TDC: Why does this need to be in any state other than the frist one? For that matter, why does it need to be in the first one? Couldn't we simply have the subscription start emitting entries from the beginning of the file (or from just after `since`)?
-  readonly history: readonly SessionEntry[];
-  /** uuid of the newest first-occurrence UUID-bearing entry observed by the
-   *  scan or follow — the resumable cursor. Under `since` with no newer
-   *  entries this is the cursor itself; under history:"skip" it still
-   *  reflects the scan. */
+  /** The resumable cursor: uuid of the newest first-occurrence UUID-bearing
+   *  entry at or before this state's position in the stream. In the seed
+   *  that is the emission start point — undefined at file start, `since`
+   *  when a cursor was given, the scanned extent's tip under
+   *  history:"skip". Advanced by each emitted UUID-bearing entry. */
   readonly leaf?: UUID;
   /** Every uuid observed in the file — including occurrences suppressed from
    *  canonical output and uuids before `since`. Monotone; a live view of the
@@ -155,17 +158,17 @@ export interface EntryStreamState {
   readonly seenUuids: ReadonlySet<UUID>;
 }
 
-// TDC: Should deduplication be an option here? If the caller wants all raw entries, they can choose not to set deduplication. I'm not sure what should happen to `leaf` in that situation.
 export type EntryClientOptions =
   | { readonly history: "emit"; readonly since?: UUID }
   | { readonly history: "skip" };
 
 /** StreamClient over one existing session file. Installs fs.watch before the
- *  initial stat/read; scans [0, historyEnd) to build the seed (full scan even
- *  under "skip", to seed first-wins dedup and retain a torn suffix); follows
- *  appends incrementally from the retained byte offset, pushing one event per
- *  canonical entry paired with its post-fold state. One subscribe() per
- *  client. */
+ *  initial stat/read; scans [0, historyEnd) before subscribe() resolves —
+ *  also under "skip", to seed first-wins dedup and retain a torn suffix —
+ *  queueing the extent's canonical entries as events under "emit"; then
+ *  follows appends incrementally from the retained byte offset. One event
+ *  per canonical entry, paired with its post-fold state; the seed is the
+ *  emission-start state. One subscribe() per client. */
 export class SessionEntryClient
   implements StreamClient<SessionEntry, EntryStreamState>
 {
@@ -199,8 +202,14 @@ export function canonicalizeEntries(
  *  SessionEntryClient with history:"skip" — onSeed/onEvent test
  *  state.seenUuids.has(uuid); outcome "timeout" throws the existing
  *  did-not-appear error; outcome "closed" rethrows client.failure; the
- *  client is closed in `finally`. */
-// TDC: Since this reads the file anyway, would it make sense to remove this function and roll it into readEntriesAfterStreamFlush? Is there any advantage to reading the file _again_ after waitForEntry? Put another way, is there anybody who cares to wait for the entry to be in the file, but doesn't actually care what the file contains otherwise?
+ *  client is closed in `finally`.
+ *
+ *  Deliberately NOT merged into readEntriesAfterStreamFlush: get-messages is
+ *  a wait-only consumer (it waits for the leaf flush, then delegates the
+ *  read to the SDK's getSessionMessages), and a one-pass collect-until-leaf
+ *  merge would change semantics — today's wait-then-read returns the whole
+ *  file at read time, including entries persisted after the leaf, which
+ *  stopping at the leaf uuid would drop. */
 export function waitForEntry(
   filePath: string,
   uuid: UUID,
@@ -232,10 +241,10 @@ request-handlers, set-context) update their imports to the new module.
 ## Data flow
 
 Bytes → `SessionEntryParser` (complete `SessionEntry`s, torn suffix retained)
-→ canonical filter (first-wins, `since`) → either the seed's `history` array
-(subscribe-time scan) or a queue push paired with the folded
-`{ history, leaf, seenUuids }` state (live appends) → `runStream` → command
-handler. The finite path skips the client entirely: `readFileSync` → the same
+→ canonical filter (first-wins, `since`) → queue pushes paired with the
+folded `{ leaf, seenUuids }` state (the initial extent's canonical entries
+under history:"emit", then live appends) → `runStream` → command handler.
+The finite path skips the client entirely: `readFileSync` → the same
 parser → `canonicalizeEntries`. Both paths share the parser and the filter,
 so canonical semantics cannot diverge.
 
@@ -248,12 +257,13 @@ level by awaiting conditions on the entries themselves (e.g. `waitForEntry`).
 
 ## Cost
 
-- Seed `history` materializes canonical history: O(session entries), same as
-  `get-entries` today; shared by reference across all state objects.
+- Under history:"emit" the initial extent's canonical entries sit in the
+  event queue until consumed: O(session entries) buffered, the same order of
+  memory a materialized history array would cost.
 - The dedup set holds every uuid for the subscription lifetime: O(uuids),
   unavoidable given re-persistence; shared (live) by reference via
   `seenUuids`.
-- Per-event fold: O(1) — a new two-reference-plus-string state wrapper.
+- Per-event fold: O(1) — a small state wrapper sharing the set by reference.
 - Subscribe performs one full-file scan (also under `history:"skip"`);
   following costs O(new bytes) per wake.
 - Each `waitForEntry` call opens its own subscription: one full scan, then
@@ -267,7 +277,8 @@ level by awaiting conditions on the entries themselves (e.g. `waitForEntry`).
   the cutoff).
 - **Duplicate uuid appended live**: suppressed, including duplicates of
   entries scanned under `history:"skip"` or before `since`.
-- **`since` equals the newest uuid**: empty history, `leaf` = cursor.
+- **`since` equals the newest uuid**: no history events; the seed's `leaf`
+  is the cursor itself, so the stream stays resumable even with zero output.
 - **UUID-less entries**: always emitted in position; they never advance
   `leaf`, so a session appending only UUID-less records after a cursor
   replays them on the next `since` invocation — accepted rather than adding a
@@ -371,6 +382,14 @@ before a pull remain queued.
 - **`turn-end` from entries**: possibly detectable (UUID-less `result`
   records were observed in session files); verify empirically in the tail
   spec before promising it.
+- **Raw (non-deduplicated) emission option**: deferred — no consumer exists
+  today (`get-entries` is finite-raw, and a one-pass
+  `readEntriesAfterStreamFlush` was rejected for dropping the post-leaf
+  tail). The design keeps it trivially addable because dedup's two roles are
+  separable: tracking (`seenUuids`, `leaf` — always on, semantics unchanged
+  in a raw mode since `leaf` only ever tracks first occurrences) and
+  emission filtering (canonical vs. raw), which is the only thing an option
+  would flip.
 
 ## Testing approach
 
@@ -390,13 +409,14 @@ test timeout may expose a hang.
   lines throw with file:line; unknown fields and malformed `uuid` values
   preserved; `readSessionEntries` behavior unchanged over the parser.
 - **Subscription**: watcher armed before initial read (append racing the
-  scan emitted exactly once); seed carries sliced history and correct
-  `leaf`/`seenUuids`; `history:"skip"` emits nothing but seeds dedup and
-  leaf; duplicate of skipped history appended live stays suppressed; an
-  initially torn line under "skip" emits when completed; one coalesced wake
-  drains multiple writes; a callback during a drain queues the next wake;
-  reads continue from the byte offset; per-event states share the `history`
-  reference; `seenUuids` is a live monotone view.
+  scan emitted exactly once); `history:"emit"` queues the extent's canonical
+  entries (sliced by `since`) before any live append; `history:"skip"` emits
+  nothing from the extent but seeds dedup and the seed's `leaf`; seed `leaf`
+  per mode (undefined / `since` / extent tip); duplicate of skipped history
+  appended live stays suppressed; an initially torn line under "skip" emits
+  when completed; one coalesced wake drains multiple writes; a callback
+  during a drain queues the next wake; reads continue from the byte offset;
+  `seenUuids` is a live monotone view.
 - **Settlement and errors**: driver timeout/quiet/condition-met settle with
   no follower-specific code; `close()` idempotent; truncation, replacement,
   watcher error, and mid-follow corruption set `failure` and close the
@@ -441,5 +461,15 @@ encountered.
       session-entry-stream.ts: their implementations depend on the stream
       client, and the file-format module must not depend on the streaming
       module. Deviation from the discussed layout, flagged for owner review.
-- [ ] Owner review of this document.
+- [x] 2026-07-29: Owner review round 1 (TDC comments, `95ca035`): moved all
+      file-touching modules under `src/core/session/` (file.ts, seed.ts,
+      entry-stream.ts); dropped `history` from `EntryStreamState` — the
+      initial extent's canonical entries are emitted as ordinary events, and
+      the seed's `leaf` is defined as the emission start point so a
+      zero-output `since` stream stays resumable; deferred a raw-emission
+      option (no current consumer; tracking/emission separability recorded);
+      kept `waitForEntry` separate from `readEntriesAfterStreamFlush`
+      (get-messages is a wait-only consumer; a one-pass merge would drop the
+      post-leaf tail).
+- [ ] Owner review of this revision.
 - [ ] Implementation (not started).
