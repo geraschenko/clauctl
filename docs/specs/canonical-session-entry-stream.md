@@ -40,6 +40,7 @@ the canonical entry stream required by prompt and tail.
 3. Preserve every UUID-less occurrence.
 4. Canonicalize duplicate UUIDs as first-position/last-content for historical
    output, with the accepted no-revision behavior after live emission.
+   TDC: Let's look into why last-content was decided in the first place. A simple first-wins for everything seems more logical to me. I remember being confused by this at the time and not really understanding the argument, but I *do* remember there being an argument for it. Have a look at docs/specs/repersisted-duplicates-handoff.md and docs/derisk/cli-history-repersistence/FINDINGS.md, loadedContext in src/core/tree/loader.ts, and docs/specs/session-tree.md.
 5. Apply a UUID cursor only after canonicalization and error when the cursor is
    absent from the selected session.
 6. Follow session rollover while an agent remains live.
@@ -95,6 +96,7 @@ import type { AgentRecord } from "./registry.ts";
 import type { SdkEvent, SdkEventSubscription } from "./sdk-socket.ts";
 import type { SessionEntry } from "./session-file.ts";
 
+// TDC: This interface doesn't look like it has anything to do with session entries. It looks like an attempt to reimplement src/core/until.ts. Why are you proposing this at all? Is this something to do with trying to line up the entries from the file with events in the stream?
 export interface LiveSessionEntrySource {
   /** Exclusively consumed by streamSessionEntries. */
   readonly subscription: SdkEventSubscription;
@@ -108,7 +110,7 @@ export interface LiveSessionEntrySource {
 
 export interface SessionEntryStreamOptions {
   readonly since?: UUID;
-  readonly follow: boolean;
+  readonly follow: boolean;  // TDC: why are we introducing `follow`? I thought we agreed to make this the default and use `--timeout 0` for no-follow.
   /** Present only for a followed live agent. The caller owns the socket. */
   readonly live?: LiveSessionEntrySource;
   /** External normal cutoff (for example a deadline or command failure). */
@@ -128,6 +130,7 @@ requests on the owning `SdkSocketClient` but must not pass the subscription to
 `runStream` or start another iterator over its `AsyncQueue`. Specs 3 and 4 will
 supply their until/turn-end predicates through these callbacks rather than
 split event consumption.
+TDC: huh? why on earth would we not use runStream? The only argument I can imagine is that you want to ignore the sdk stream entirely and just focus on the file stream or something, writing state-tracking logic that is based on entries only. That would be fine, but that's just a different application of runStream. What is the point of reimplementing something we've carefully extracted an abstraction for?
 
 This signature is normative for this phase. Callers consume one entry async
 iterable and do not receive a second record ontology. File-change, lifecycle,
@@ -189,6 +192,7 @@ with the single canonical object would make the last serialization's
 `parentUuid` overwrite first-occurrence tree placement. `format tree` therefore
 continues to consume raw entries/snapshots and applies its existing
 first-placement/last-payload split.
+TDC: Explain this to me. What exactly would go wrong if we ignore repersisted instances of a uuid entirely?
 
 Entry-producing CLI paths introduced by later specs use
 `streamSessionEntries`; they do not print `SessionSnapshot.entries` directly.
@@ -227,6 +231,7 @@ wake; it does not assume one notification per append.
 
 For an existing selected session file:
 
+TDC: Do we really have to implement this tailing logic? Surely there already exists a library for efficiently `tail -f`ing a file. Let's do some research.
 1. Establish observation on the containing directory before inspecting the
    file. Directory observation survives atomic path replacement and also
    supports a session file that does not exist yet.
