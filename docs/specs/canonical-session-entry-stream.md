@@ -1,649 +1,440 @@
 # Canonical session-entry stream
 
-> Status: **draft implementation spec**, revised after owner review. This is
-> Spec 1 from
+> Status: **design approved in discussion, doc awaiting owner review**;
+> replaces the earlier draft of the same name.
+> This is Spec 1 from
 > [prompt-tail-parity-overview.md](prompt-tail-parity-overview.md). It defines
-> fixed-session historical reading and following only. Agent lifecycle,
-> sdk.sock settlement, session rollover, and command behavior remain in the
-> later prompt/tail specs and must compose through the existing `runStream`.
+> the session-entry subscription source only. Agent lifecycle, sdk.sock
+> settlement, session rollover, `--until` wiring, and command behavior belong
+> to later specs and compose through the existing `runStream`.
+
+# SPEC
 
 ## Problem
 
 Claude session entries are newline-delimited JSON objects persisted in a local
-session file. Two writers append to that file:
+session file. Two writers append to it: the Claude subprocess (transcript and
+bookkeeping entries) and clauctl itself (synthetic compact-boundary entries for
+`set-context`). The local file is the entry source of truth — sdk.sock events
+cannot reconstruct entries, and the
+[SessionStore experiment](../derisk/session-store-entry-observation/FINDINGS.md)
+found the SDK's append hook observes only the subprocess writer and
+participates in query resume.
 
-- the Claude subprocess writes transcript and bookkeeping entries;
-- clauctl writes synthetic compact-boundary entries directly for `set-context`.
+Future `tail --type entries` / `prompt --type entries` — and, per the revised
+overview direction, entry-derived message tailing — need to read history and
+follow live appends from that file. Today's `readSessionEntries()` reads a
+whole file; `waitForEntryOnDisk()` re-reads the entire file on every
+filesystem wake. Neither can follow incrementally.
 
-Future `tail --type entries` and `prompt --type entries` need the actual entry
-source. sdk.sock events cannot reconstruct entries, and exact persisted entries
-must not be added to the event protocol.
+This spec adds a session-entry subscription with the same shape as the
+sdk.sock subscription — a `StreamClient` driven by the existing generated
+`runStream` — plus the pure canonical-filtering core shared by finite reads.
 
-The current `readSessionEntries()` reads a whole file. It tolerates an
-unterminated final line, but cannot incrementally follow appends or preserve a
-history/follow byte cutoff. A first draft of this spec mixed file following with
-sdk.sock lifecycle, timeout, rollover, registry observation, and condition
-settlement. That duplicated `runStream` and produced a second streaming engine.
-This revision keeps the module at the file seam.
+## Definitions
 
-## Goals
+- **Raw entries**: the file's append sequence, verbatim, duplicates included.
+  `readSessionEntries()` and `SessionSnapshot.entries` stay raw.
+- **Canonical entries**: the raw sequence after first-wins UUID deduplication.
+  The first occurrence of a UUID supplies both position and content; every
+  later occurrence carrying that UUID is omitted; every UUID-less occurrence
+  is retained in position.
+- **Cursor** (`since`): a UUID identifying the retained first occurrence of an
+  entry. Output starts after it. Deduplication scans from the beginning
+  *before* applying `since`, so a re-persisted copy of pre-cursor history can
+  never leak into output. A cursor absent from the file is an error naming the
+  UUID and file — never "from the beginning".
 
-1. Define one canonical duplicate policy for entry output and tree payloads.
-2. Read canonical history, optionally after a UUID cursor.
-3. Follow one existing session file from an exact initial byte cutoff.
-4. Preserve every UUID-less occurrence.
-5. Parse complete JSONL records incrementally and retain a torn final line until
-   it is completed.
-6. Let a caller establish a graceful final byte cutoff and drain through it.
-7. Use Node's filesystem primitives rather than reimplement file watching or
-   adopting an off-the-shelf tail package with incompatible semantics.
-8. Leave sdk.sock subscription, timeout/until, dormancy, and rollover with the
-   modules that already own those concerns.
+The Claude CLI legitimately re-persists prior entries under the same UUID
+(see [cli-history-repersistence](../derisk/cli-history-repersistence/FINDINGS.md)).
+In the observed production session, 73 of 237 duplicate pairs differed —
+changed `toolUseResult`, zeroed usage, materialized `parentUuid` links — so
+the later copy is not demonstrably fresher, and first-wins preserves the entry
+as it originally happened. The one deliberate exception: `loadedContext()`
+stays last-wins internally because it models Claude's actual UUID-keyed
+loader, not canonical output.
 
-## Non-goals
+## Success criteria
 
-- Consuming `SdkEventSubscription` or replacing `runStream`.
-- Defining `tail`, `prompt`, `--timeout 0`, or `--until` behavior.
-- Selecting an agent's current session or waiting for `agent.json` updates.
-- Following session rollover. One follower instance follows one file.
-- Watching a not-yet-created session file.
-- Recovering from truncation or replacement.
-- Installing the SDK's alpha `SessionStore`.
-- Adding exact entry records to sdk.sock.
-- Formatting entries, messages, events, or trees.
-- A cursor for UUID-less entries.
+1. An append racing initial history capture is neither lost nor emitted twice.
+2. Canonical history and live following use first-wins UUID semantics while
+   preserving every UUID-less occurrence; `since` cannot be bypassed by a
+   later duplicate copy; a missing cursor rejects without partial output.
+3. `runStream` drives the subscription exactly as it drives sdk.sock:
+   timeout, quiet, and condition-met settlement need no follower-specific
+   lifecycle code.
+4. `waitForEntry()` no longer re-reads the whole file per wake; live following
+   costs O(new bytes) per wake.
+5. Tree display uses the original occurrence's placement *and* payload
+   (`entriesByUuid` becomes first-wins); `loadedContext()` behavior is
+   unchanged.
+6. Torn lines, truncation, replacement, watcher failure, and malformed
+   terminated lines have explicit tested behavior.
+7. No timer polling: filesystem observation is event-driven (`fs.watch`), and
+   tests synchronize on observable conditions, not sleeps.
+8. Full presubmit passes.
 
-## Source decision
+## Type design
 
-The local session JSONL file is the entry source of truth.
+New module `src/core/session-entry-stream.ts`; parser and helper changes in
+`src/core/session-file.ts`. The driver types are the existing generated ones:
 
-The focused SDK experiment is recorded in
-[session-store-entry-observation/FINDINGS.md](../derisk/session-store-entry-observation/FINDINGS.md).
-`SessionStore.append()` was a strong ordered observer for the probed subprocess
-writes, but:
+```ts
+// src/core/generated/streaming/driver.ts (existing, unchanged)
+interface StreamSubscription<TEvent, TState> {
+  readonly seed: TState;
+  readonly events: AsyncQueue<StreamEvent<TEvent, TState>>;
+}
+interface StreamClient<TEvent, TState> {
+  subscribe(): Promise<StreamSubscription<TEvent, TState>>;
+}
+```
 
-- clauctl's direct synthetic writes bypass it;
-- supplying a SessionStore participates in query resume through `load()`;
-- dormant history still comes from the local file;
-- snapshot/callback overlap is especially ambiguous for UUID-less entries.
+### `src/core/session-file.ts`
 
-Following the file observes both writers and gives the history/live cutoff in
-the same byte coordinate system. SessionStore is therefore not installed.
+```ts
+/** Incremental JSONL entry parser. Buffers a torn byte suffix (including a
+ *  UTF-8 code point split across chunks) until its terminating newline
+ *  arrives. Splits on 0x0a bytes only; skips blank/whitespace-only lines;
+ *  throws with file:line context on a malformed terminated line or a
+ *  terminated non-object value. Unknown fields pass through verbatim. */
+export class SessionEntryParser {
+  constructor(filePath: string);
+  /** Complete entries terminated within this chunk (plus any retained
+   *  suffix). */
+  push(chunk: Buffer): SessionEntry[];
+}
 
-## Duplicate UUID policy
+/** Unchanged signature and semantics; reimplemented over SessionEntryParser
+ *  (one push of the whole file; a torn final line stays buffered and is
+ *  therefore skipped). Stays sync. */
+export function readSessionEntries(filePath: string): SessionEntry[];
 
-The Claude CLI can re-persist entries already present in the file. The observed
-production session contained 237 duplicated UUIDs immediately before a later
-compaction. These are copies of existing history, not new canonical entries.
+/** CHANGED: last-wins → first-wins (set only when absent), so displayed
+ *  position and displayed payload come from the same occurrence. */
+export function entriesByUuid(
+  entries: readonly SessionEntry[],
+): Map<UUID, SessionEntry>;
 
-### Canonical and display policy: first occurrence wins
+// waitForEntryOnDisk and readEntriesAfterStreamFlush MOVE OUT of this module
+// (see session-entry-stream.ts below): their reimplementations depend on the
+// stream client, and the file-format module must not depend on the streaming
+// module.
+```
 
-For canonical entry output:
-
-- emit the first occurrence of each UUID;
-- ignore every later occurrence carrying that UUID entirely;
-- preserve every UUID-less occurrence;
-- perform deduplication before applying `since`.
-
-The same first-occurrence payload policy applies to tree/history display.
-`entriesByUuid()` changes from last-wins to first-wins. `buildTree()` already
-uses first-wins placement, so the displayed position and displayed payload now
-come from the same occurrence. This supersedes the payload-lookup decision in
-[repersisted-duplicates-handoff.md](repersisted-duplicates-handoff.md) and the
-corresponding duplicate edge case in [session-tree.md](session-tree.md); their
-loader-specific last-wins analysis remains valid.
-
-This policy is intentionally simpler than the earlier
-“first-position/last-content” proposal. The later copy is not demonstrably
-fresher or better. In the observed session:
-
-- 73 of the 237 duplicate pairs differed;
-- 50 had changed `toolUseResult`;
-- one had changed `message` data, including zeroed usage;
-- two had materialized different `parentUuid` links;
-- other copies were restamped or normalized.
-
-Using the later payload can therefore degrade display data and combine content
-from one occurrence with placement from another. Ignoring the copy preserves
-the entry as it originally happened.
-
-### Loader-model exception
-
-`loadedContext()` remains last-wins internally. It models Claude's actual
-load-time UUID map, not canonical output or display. Its last-wins map and
-`lastIndexOf` calculations are documented loader fidelity in
-[session-tree.md](session-tree.md).
-
-This is a semantic exception, not an inconsistent entry policy:
-
-- canonical entry producer: first occurrence;
-- tree placement and payload lookup: first occurrence;
-- raw session snapshot: every occurrence;
-- Claude loader model: whatever Claude loads, currently last occurrence.
-
-On the real 237-duplicate session, removing duplicate occurrences before
-calling `loadedContext()` produced the same current 152-entry context as the raw
-last-wins loader model. That observation supports first-wins display but does
-not justify changing the loader model: another legal shape could make the
-loader's result differ.
-
-### Raw snapshots remain raw
-
-`readSessionEntries()` and `SessionSnapshot.entries` continue to preserve the
-raw append sequence, including duplicates. Tree construction, loader modeling,
-set-context, and forensic inspection need the source file shape.
-
-Consumers must choose deliberately:
-
-- canonical entry output uses the new canonical reader/follower;
-- tree structure uses `buildTree(rawEntries)`;
-- tree payload lookup uses first-wins `entriesByUuid(rawEntries)`;
-- loader behavior uses `loadedContext(rawEntries, ...)`.
-
-`get-entries` therefore remains a raw snapshot command; later entry-stream
-commands must not print `SessionSnapshot.entries` directly.
-
-## Cursor semantics
-
-A cursor is a UUID in the selected session file.
-
-To apply `since`:
-
-1. Scan raw entries from the beginning while recording UUIDs already seen.
-2. The first occurrence equal to `since` establishes the cursor position.
-3. Emit canonical entries after that position.
-4. Continue suppressing every UUID already seen before or after the cursor.
-
-This prevents a re-persisted copy of an entry before the cursor from leaking
-into output. A later physical copy never creates a canonical position.
-
-A missing cursor is an error naming the UUID and file. It never means “from the
-beginning.” No entry is emitted before a supplied cursor is found, so a missing
-cursor fails without partial output.
-
-UUID-less entries after the cursor are emitted. They cannot advance a UUID
-cursor, so a later invocation can replay trailing UUID-less entries if no newer
-UUID-bearing entry exists. This limitation is accepted.
-
-## Module interface
-
-Add `src/core/session-entry-stream.ts`.
-
-The public shape should be equivalent to:
+### `src/core/session-entry-stream.ts`
 
 ```ts
 import type { UUID } from "node:crypto";
 import type { SessionEntry } from "./session-file.ts";
+import type {
+  StreamClient,
+  StreamSubscription,
+} from "./generated/streaming/driver.ts";
 
-export interface SessionEntryFollower extends AsyncIterable<SessionEntry> {
-  /** Resolves after the initial file extent has been scanned and emitted or
-   *  deliberately skipped. Rejects on parse/cursor/file errors. Iteration must
-   *  have started for this promise to make progress. */
-  readonly historyDone: Promise<void>;
-
-  /** Capture the current EOF, stop accepting later appends, drain complete
-   *  entries through that byte, and finish iteration. Idempotent. */
-  stop(): Promise<void>;
+/** Fold state derivable from entries alone. */
+export interface EntryStreamState {
+  /** Canonical history at subscription, after `since`; empty under
+   *  history:"skip". Frozen — live events do not append to it, and every
+   *  post-fold state shares this same array by reference. */
+  readonly history: readonly SessionEntry[];
+  /** uuid of the newest first-occurrence UUID-bearing entry observed by the
+   *  scan or follow — the resumable cursor. Under `since` with no newer
+   *  entries this is the cursor itself; under history:"skip" it still
+   *  reflects the scan. */
+  readonly leaf?: UUID;
+  /** Every uuid observed in the file — including occurrences suppressed from
+   *  canonical output and uuids before `since`. Monotone; a live view of the
+   *  client's dedup set shared by reference, not a per-event snapshot: a
+   *  retained state object sees later additions. Membership tests can at
+   *  worst fire a condition slightly early; acceptable because copying per
+   *  event would be O(uuids) per entry. */
+  readonly seenUuids: ReadonlySet<UUID>;
 }
 
-export function readCanonicalSessionEntries(
-  filePath: string,
-  since?: UUID,
-): AsyncIterable<SessionEntry>;
+export type EntryClientOptions =
+  | { readonly history: "emit"; readonly since?: UUID }
+  | { readonly history: "skip" };
 
-export async function openSessionEntryFollower(
+/** StreamClient over one existing session file. Installs fs.watch before the
+ *  initial stat/read; scans [0, historyEnd) to build the seed (full scan even
+ *  under "skip", to seed first-wins dedup and retain a torn suffix); follows
+ *  appends incrementally from the retained byte offset, pushing one event per
+ *  canonical entry paired with its post-fold state. One subscribe() per
+ *  client. */
+export class SessionEntryClient
+  implements StreamClient<SessionEntry, EntryStreamState>
+{
+  constructor(filePath: string, options: EntryClientOptions);
+  /** Rejects on a missing/unreadable file, a malformed terminated line in
+   *  the initial extent, or a `since` cursor absent from that extent (no
+   *  partial output). */
+  subscribe(): Promise<StreamSubscription<SessionEntry, EntryStreamState>>;
+  /** Why the event queue closed, when not a clean close(): truncation,
+   *  replacement, watcher/read/stat error, or a malformed terminated line
+   *  during follow. undefined while healthy or after a clean close(). */
+  readonly failure: Error | undefined;
+  /** Release the watcher and file handle; closes the event queue. Idempotent.
+   *  Commands call it in `finally`, exactly as tail closes its sdk.sock
+   *  client. */
+  close(): void;
+}
+
+/** First-wins + since slicing over already-read raw entries; throws when
+ *  `since` is absent. The finite path for dormant agents / --timeout 0:
+ *  canonicalizeEntries(readSessionEntries(path), since). Batch wrapper over
+ *  the internal incremental filter the client also uses. */
+export function canonicalizeEntries(
+  entries: readonly SessionEntry[],
+  since?: UUID,
+): SessionEntry[];
+
+/** MOVED here from session-file.ts and RENAMED from waitForEntryOnDisk (the
+ *  subscription hides the disk backing, and this is a stream operation);
+ *  same signature and error behavior. Implemented as runStream over a
+ *  SessionEntryClient with history:"skip" — onSeed/onEvent test
+ *  state.seenUuids.has(uuid); outcome "timeout" throws the existing
+ *  did-not-appear error; outcome "closed" rethrows client.failure; the
+ *  client is closed in `finally`. */
+export function waitForEntry(
   filePath: string,
-  options:
-    | { readonly history: "emit"; readonly since?: UUID }
-    | { readonly history: "skip" },
-): Promise<SessionEntryFollower>;
+  uuid: UUID,
+  timeoutMs?: number,
+): Promise<void>;
+
+/** MOVED here from session-file.ts, unchanged name and signature; now calls
+ *  waitForEntry then readSessionEntries. */
+export function readEntriesAfterStreamFlush(
+  filePath: string,
+  leafUuid: UUID | undefined,
+): Promise<SessionEntry[]>;
 ```
 
-The finite reader captures its EOF when iteration begins and never reads beyond
-that extent. Its behavior is:
-
-- without `since`, emit incrementally as complete canonical entries parse;
-- with `since`, emit nothing until the cursor is found;
-- if the captured extent ends without the cursor, reject without output;
-- first-wins state spans the complete captured extent.
-
-Follower ownership:
-
-- `openSessionEntryFollower()` establishes observation and captures the initial
-  extent before resolving;
-- exactly one consumer iterates it;
-- the caller starts iteration before awaiting `historyDone`;
-- `stop()` is graceful and resolves only after the consumer has drained the
-  frozen extent;
-- iterator `return()` is immediate consumer cancellation: discard pending
-  output and close the watcher/file handle;
-- follower errors reject iteration, `historyDone` when still pending, and
-  `stop()`.
-
-`history: "emit"` is for live tail: scan from byte zero, emit canonical history,
-then follow.
-
-`history: "skip"` is for prompt observation windows: scan the initial extent to
-seed the seen-UUID set and retain any torn suffix, but emit nothing from that
-extent. New unique entries and UUID-less occurrences are emitted after
-`historyDone`. Scanning rather than merely seeking to EOF prevents a later
-re-persisted copy of old history from appearing as a new canonical entry.
-
-Finite/history-only callers use `readCanonicalSessionEntries()`; they do not
-open a follower with a hidden `follow: false` option. In particular,
-`--timeout 0` remains command policy, not a file-source mode.
-
-## Follower algorithm
-
-The follower handles one existing append-only file. Session selection, missing
-file creation, and switching to another session are caller concerns.
-
-### Observation before snapshot
-
-Use callback `watch()` from `node:fs` with the existing generated
-`AsyncQueue` as a latched wake bridge:
-
-1. Construct the watcher with its permanent callback before reading or statting
-   the file.
-2. The callback records whether any `rename` was observed and pushes one typed
-   wake token into `AsyncQueue` when no token is already pending.
-3. Open the file and record its file-handle identity.
-4. Capture `historyEnd = fileHandle.stat().size`.
-5. Read exactly `[0, historyEnd)`.
-
-The callback remains installed continuously. If an append races the snapshot,
-its token is either delivered to a parked queue consumer or retained in the
-queue. Notifications are wakeups only; after each wake, inspect the file and
-drain all bytes currently available.
-
-Coalesce redundant wakes with a boolean rather than queueing one token per
-filesystem event. When consuming a token, capture/reset the accumulated event
-flags and clear the boolean before statting or reading. A callback arriving
-during that drain then queues the next token. This is the only notification
-state needed; do not recreate the first draft's generation counters,
-filesystem adapter hierarchy, or lifecycle coordinator.
-
-### Byte reading and JSONL parsing
-
-Track a byte offset, not a JavaScript string index.
-
-- Read appended byte ranges from the retained file handle.
-- Split only on byte `0x0a` (`\n`). JSON strings cannot contain a literal
-  unescaped newline, so each newline terminates one record.
-- Decode and parse only complete line buffers. This naturally handles a UTF-8
-  code point split across read chunks.
-- Ignore blank/whitespace-only lines, matching `readSessionEntries()`.
-- A complete malformed JSON line or non-object JSON value is corruption and
-  rejects with `file:line` context.
-- Preserve unknown fields verbatim as `SessionEntry` already does.
-
-If the current extent ends without a newline, retain that byte suffix. Advance
-the file offset past the bytes already retained; when more bytes arrive,
-concatenate them to the suffix rather than rereading old bytes. Parse it only
-once a newline arrives.
-
-At a graceful final cutoff, an unterminated suffix is not an entry and is
-omitted. Do not wait on a timer for it.
-
-### Deduplication
-
-Maintain a `Set<string>` of UUID values encountered while scanning.
-
-- An entry with a string `uuid` not in the set: record and, if in the output
-  region, emit it.
-- An entry with a string `uuid` already in the set: suppress it.
-- An entry without a string UUID: preserve every occurrence.
-
-Do not add stricter entry-schema validation in this phase. Existing raw parsing
-accepts any object and preserves unknown producer fields; cursor input itself is
-already a UUID type. A malformed/non-string `uuid` field therefore has no stable
-cursor identity and is preserved like a UUID-less occurrence rather than
-silently discarded.
-
-### Wake/drain loop
-
-After the initial scan, stat and drain once before parking; this catches bytes
-that became visible during setup even if the host coalesced their notification
-with an earlier event.
-
-Then consume wake tokens:
-
-1. capture/reset the coalesced event flags and make the queue eligible for the
-   next callback token;
-2. if `rename` was observed, verify the watched path still names the retained
-   file identity;
-3. stat the retained file handle;
-4. reject if its size is below the consumed/retained byte offset;
-5. drain through the captured size;
-6. repeat immediately if another token arrived during the drain, otherwise park
-   on the queue.
-
-One notification can represent any number of appends. A wake never corresponds
-to one line or one write.
-
-### Graceful stop
-
-`stop()` establishes a source cutoff independently of consumer speed:
-
-1. on the first call, stat the retained file handle and freeze that size as
-   `finalEnd`;
-2. close the filesystem watcher and cancel the internal wake queue so a parked
-   consumer resumes without accepting later notifications;
-3. let iteration drain exactly through `finalEnd`;
-4. omit an unterminated suffix and close the file handle;
-5. resolve `stop()` when iteration finishes.
-
-An append after `finalEnd` is outside this follower. Repeated `stop()` calls
-return the same promise.
-
-The cutoff is the EOF observed by the stop operation's stat. An operating-system
-write can race that stat; whichever side of the observed size it lands on
-determines whether it is included. No stronger atomic relation exists between
-an independent file writer and sdk.sock.
-
-### Truncation, replacement, and watcher failure
-
-Session files are expected to be append-only.
-
-- If retained-handle size becomes smaller than the byte extent already
-  observed, reject as truncation.
-- If the watcher reports `rename`, stat the path and compare its identity with
-  the retained handle. Removal or a different identity rejects as replacement.
-- A watcher error, read/stat error, or unexpected EOF rejects.
-- Do not restart from byte zero: that would duplicate UUID-less entries and
-  conceal data loss.
-
-After `stop()` freezes `finalEnd`, drain only the retained handle. Path changes
-after that cutoff are outside the source and do not retroactively fail the
-stream.
-
-Node documents platform/filesystem caveats for `fs.watch`. clauctl supports
-ordinary local session files. It does not add sleep polling to compensate for
-notification mechanisms that the host filesystem does not support reliably.
-
-## Why not an off-the-shelf tail package?
-
-This decision was researched during owner review because byte-positioned
-following is common functionality. The leading relevant npm packages were
-inspected at their published versions, not rejected from descriptions alone.
-
-### `@logdna/tail-file` 4.0.2
-
-Strengths:
-
-- maintained through 2024;
-- typed;
-- byte-positioned `Readable` with backpressure;
-- keeps an old file handle through log rotation.
-
-Rejected because:
-
-- it polls file size on a timer (default 1000 ms; retry default 200 ms);
-- polling pauses under backpressure;
-- truncation and replacement restart from byte zero instead of failing;
-- graceful quit performs another poll rather than exposing the exact cutoff
-  contract needed by `runStream.onStop`.
-
-The timer-driven design conflicts with this project's “await the condition, not
-the clock” policy and would add latency to entry streaming.
-
-### `tail` 2.2.6
-
-Strengths:
-
-- widely used and based on `fs.watch` by default;
-- line splitting and from-beginning support.
-
-Rejected because:
-
-- its initial forced size read happens before watcher installation, leaving a
-  history/follow gap;
-- rename recovery waits on a one-second timer;
-- truncation resets its cursor rather than failing;
-- it is an old CommonJS/event-emitter interface without bundled TypeScript
-  declarations.
-
-### `tail-file-stream` 0.2.0
-
-Strengths:
-
-- small, typed, and maintained through 2024;
-- `Readable` byte stream with explicit start offsets and `fs.watch`.
-
-Rejected because its `_read()` first observes EOF and only then installs a
-one-shot `watcher.once("change")`. An append between those operations can lose
-the only wakeup and leave unread bytes parked until another append. It also does
-not define the truncation/replacement failure semantics needed here.
-
-### `tail-file` 1.4.16
-
-Strengths:
-
-- uses directory `fs.watch` without a normal polling interval;
-- handles missing files and log rotation extensively.
-
-Rejected because it is a large rotation/recovery module centered on character
-positions, secondary log files, restart events, and starting-line search. Its
-truncation/rotation behavior intentionally restarts, while a Claude session
-file violation must fail. Adapting it would retain more irrelevant machinery
-than the small fixed-file follower requires.
-
-### Chokidar 5.0.0
-
-Chokidar is a maintained cross-platform watcher, not a tail reader. It would
-normalize file notifications but clauctl would still own byte offsets, reads,
-torn lines, final cutoffs, and replacement policy. Its `awaitWriteFinish`
-feature polls for size stability and would unnecessarily delay complete JSONL
-records. Adding it does not remove the core implementation.
-
-### Node promise-watcher probe
-
-The initial revision proposed `fs.promises.watch()` as an intrinsically queued
-source. A focused probe on Node 23.11.1 falsified that assumption: after one
-`next()` resolved, an append performed while no next call was pending did not
-survive for the subsequent `next()`. Its `maxQueue`/`overflow` options do not
-remove the need to keep iteration continuously armed.
-
-A carefully re-armed promise iterator could still work, but the invariant is
-fragile and adds no value here. A permanent callback listener plus the existing
-`AsyncQueue` states the actual requirement directly: callbacks push; one
-consumer pulls; values arriving before a pull remain queued.
-
-### Decision
-
-Use existing Node/project primitives:
-
-- callback `fs.watch()` supplies permanent filesystem observation;
-- the already-shipped generated `AsyncQueue` latches/coalesces wakeups and
-  supports parked-consumer cancellation;
-- `FileHandle` supplies stable byte-positioned reads and stats;
-- the clauctl-specific remainder is the JSONL parser, first-wins filter, cursor
-  scan, and graceful cutoff.
-
-This is narrower than the packages above, avoids a new dependency, and does not
-implement a general log rotation or SDK lifecycle system.
-
-## Composition with `runStream` (later specs)
-
-This section constrains later integration so Spec 1 is not accidentally grown
-back into a second lifecycle engine.
-
-For a live entry tail:
-
-- the command passes its `SdkSocketClient` to `runStream`;
-- `onSeed` selects the seed session, opens a follower with
-  `history: "emit"`, starts consuming it, and awaits `historyDone`;
-- sdk.sock events arriving during history remain queued by the existing
-  `AsyncQueue`;
-- `onEvent` handles command conditions and, when `state.sessionId` changes,
-  gracefully stops the old fixed-file follower before opening the new session
-  from its beginning;
-- `onStop` calls the current follower's `stop()` and awaits its consumer pump;
-- `onEnd` flushes the record writer/formatter;
-- the tail spec must account for `runStream`'s timeout/quiet behavior: `onStop`
-  starts at source cutoff while already-queued sdk.sock events still drain, so
-  follower rollover and finalization must be serialized rather than assuming no
-  `onEvent` can run after `onStop` begins;
-- daemon socket close remains a `runStream` outcome, not a filesystem event.
-
-For streaming prompt entries:
-
-- subscribe first through `runStream`;
-- `onSeed` opens `history: "skip"` and awaits `historyDone` before the prompt is
-  submitted;
-- the prompt spec defines turn-end/queue semantics;
-- `runStream.onStop` freezes and drains the follower.
-
-For `tail --timeout 0` or a dormant/archived agent:
-
-- call `readCanonicalSessionEntries()` on the selected latest session;
-- do not open a follower merely to disable it;
-- no command revives an agent for history.
-
-The tail/prompt specs still must settle session-file selection, rollover path
-resolution, missing files, daemon-close classification, and exact command
-settlement. Those are intentionally absent from this fixed-file module.
-
-## Existing code changes
-
-### `src/core/session-file.ts`
-
-- Keep `SessionEntry` and raw `readSessionEntries()` semantics.
-- Change `entriesByUuid()` to first-wins (`set` only when absent) and update its
-  comment/tests.
-- Keep `appendSessionEntries()`, `readEntriesAfterStreamFlush()`, and
-  `waitForEntryOnDisk()` unchanged.
-- Factor shared complete-line object validation only if it makes both raw and
-  incremental paths clearer; do not force the whole-file reader through the
-  follower.
-
-### `src/core/tree/loader.ts`
-
-No behavior change. Keep and document its loader-specific last-wins exception.
-Tests continue to pin loader fidelity.
-
-### `src/core/session-entry-stream.ts`
-
-Own only:
-
-- finite canonical history and cursor scanning;
-- one-file watch-before-read setup;
-- byte offsets and torn JSONL suffixes;
-- first-wins filtering;
-- graceful final cutoff and immediate iterator cancellation;
-- append-only violation/error handling.
-
-It does not import sdk.sock, `AgentState`, registry, until conditions, or
-`runStream`.
-
-## Tests
-
-Tests synchronize on watcher installation, queued wake tokens, yielded records,
-`historyDone`, and `stop()` settlement. A bounded test timeout may expose a
-hang; elapsed sleeps are not the coordination mechanism.
-
-### Canonical history
-
-- unique UUID entries preserve order and payload;
-- duplicate UUID entries emit only the first payload;
-- a later copy with changed parent/message/tool result is ignored;
-- every UUID-less occurrence is retained in position;
-- `since` starts after the first occurrence and suppresses later copies;
-- UUID-less entries after `since` are emitted;
-- missing `since` rejects without partial output;
-- `entriesByUuid()` is first-wins;
-- `buildTree(raw)` plus `entriesByUuid(raw)` uses one first occurrence for both
-  placement and payload;
-- `loadedContext(raw)` retains its existing last-wins tests.
-
-### Watch-before-read and appends
-
-- observation is armed before the initial stat/read;
-- an append racing the initial scan is emitted exactly once;
-- a callback token queued before the drain loop parks is not lost;
-- a callback arriving during a drain queues the next coalesced wake;
-- one coalesced wake drains multiple writes/lines;
-- appends continue from the exact byte offset, not by rereading history;
-- watcher error rejects.
-
-### JSONL parsing
-
-- multiple lines in one byte chunk;
-- one line split across several reads;
-- a multibyte UTF-8 character split across reads;
-- a torn initial tail completes after a later append;
-- graceful stop omits a still-torn tail;
-- blank lines are ignored but line numbers remain correct;
-- malformed complete JSON and non-object JSON reject with file/line context;
-- unknown fields and non-string/malformed `uuid` values are preserved.
-
-### Start modes and settlement
-
-- `history: "emit"` emits canonical history before followed entries;
-- `history: "skip"` emits no history but seeds deduplication;
-- a duplicate old UUID appended after `history: "skip"` remains suppressed;
-- an initially torn line under `history: "skip"` emits when completed because
-  it was not yet an entry at the initial cutoff;
-- `historyDone` settles only after the initial extent is processed;
-- `stop()` freezes EOF, excludes a later append, drains prior complete entries,
-  and is idempotent;
-- stopping while consumer output is paused does not move the frozen cutoff;
-- iterator `return()` cancels without requiring a graceful drain.
-
-### File violations
-
-- truncation below the observed byte position rejects;
-- removal/replacement before stop rejects;
-- path replacement after stop's frozen cutoff does not invalidate retained
-  handle draining;
-- unexpected EOF and read/stat failures reject.
-
-### Integration/regression
-
-- a real `appendSessionEntries()` synthetic write is observed;
-- a live smoke test observes ordinary subprocess entries without SessionStore;
-- existing session-tree, set-context, get-entries, and TUI tests pass after
-  `entriesByUuid()` becomes first-wins;
-- `npm run presubmit` passes.
-
-## Success criteria
-
-1. An append racing initial history is neither lost nor emitted twice.
-2. Canonical history and live following use first-wins UUID semantics while
-   preserving every UUID-less occurrence.
-3. `since` cannot be bypassed by a later duplicate copy.
-4. A caller can freeze EOF and await a complete final drain without involving
-   sdk.sock logic.
-5. Torn lines, truncation, replacement, watcher failure, and malformed complete
-   lines have explicit tested behavior.
-6. Tree display uses the original occurrence's placement and payload, while
-   `loadedContext()` remains loader-faithful.
-7. The implementation uses permanent `fs.watch` observation plus the existing
-   `AsyncQueue`, rather than timer polling or a second stream driver.
-8. Full presubmit passes.
+Internal (not exported): the stateful first-wins/`since` filter
+(`accept(entry): SessionEntry | undefined` plus cursor-scan state) shared by
+`canonicalizeEntries` and the client's scan-and-follow loop, and the
+watch/wake/read loop described under Implementation ideas.
+
+Dependency relationships: `SessionEntryClient` uses `SessionEntryParser`, the
+canonical filter, `fs.watch`, and the generated `AsyncQueue`; `waitForEntry`
+uses `runStream` + `SessionEntryClient`; `readSessionEntries` uses
+`SessionEntryParser`. Dependencies point one way — the stream module imports
+the file module, never the reverse — and nothing here imports sdk.sock,
+`AgentState`, registry, until conditions, or command code. The
+`waitForEntryOnDisk`/`readEntriesAfterStreamFlush` call sites (daemon
+request-handlers, set-context) update their imports to the new module.
+
+## Data flow
+
+Bytes → `SessionEntryParser` (complete `SessionEntry`s, torn suffix retained)
+→ canonical filter (first-wins, `since`) → either the seed's `history` array
+(subscribe-time scan) or a queue push paired with the folded
+`{ history, leaf, seenUuids }` state (live appends) → `runStream` → command
+handler. The finite path skips the client entirely: `readFileSync` → the same
+parser → `canonicalizeEntries`. Both paths share the parser and the filter,
+so canonical semantics cannot diverge.
+
+Cutoff semantics are the driver's queue-close, identical to sdk.sock:
+already-pushed entries drain; bytes not yet read at cutoff are excluded.
+There is no follower-owned stat-and-drain stop — no atomic cutoff relation
+exists with an independent file writer anyway, and flush-lag concerns (the
+CLI writes entries ~100–180 ms after the sdk result) are solved at command
+level by awaiting conditions on the entries themselves (e.g. `waitForEntry`).
+
+## Cost
+
+- Seed `history` materializes canonical history: O(session entries), same as
+  `get-entries` today; shared by reference across all state objects.
+- The dedup set holds every uuid for the subscription lifetime: O(uuids),
+  unavoidable given re-persistence; shared (live) by reference via
+  `seenUuids`.
+- Per-event fold: O(1) — a new two-reference-plus-string state wrapper.
+- Subscribe performs one full-file scan (also under `history:"skip"`);
+  following costs O(new bytes) per wake.
+- Each `waitForEntry` call opens its own subscription: one full scan, then
+  incremental — strictly better than today's whole-file re-read per wake.
+
+## Edge cases
+
+- **Torn tail at seed**: an unterminated suffix at `historyEnd` is not an
+  entry; it stays buffered and, once completed by a later append, is emitted
+  as a live event (also under `history:"skip"` — it was not yet an entry at
+  the cutoff).
+- **Duplicate uuid appended live**: suppressed, including duplicates of
+  entries scanned under `history:"skip"` or before `since`.
+- **`since` equals the newest uuid**: empty history, `leaf` = cursor.
+- **UUID-less entries**: always emitted in position; they never advance
+  `leaf`, so a session appending only UUID-less records after a cursor
+  replays them on the next `since` invocation — accepted rather than adding a
+  second cursor type.
+- **Malformed or non-string `uuid` field**: no stricter schema validation in
+  this phase; such an entry has no stable cursor identity and is preserved
+  like a UUID-less occurrence.
+- **Blank lines**: skipped; file line numbers in errors stay correct.
+- **Malformed terminated line / terminated non-object**: corruption —
+  subscribe rejects (initial extent) or `failure` + queue close (follow).
+- **Truncation** (size below the observed byte extent), **replacement**
+  (`rename` event whose path no longer matches the retained file identity),
+  **watcher/read/stat error**: `failure` + queue close. Never restart from
+  byte zero — that would duplicate UUID-less entries and conceal data loss.
+- **Wake coalescing**: one notification can represent any number of appends;
+  a wake never corresponds to one line or one write.
+
+## Non-goals
+
+- Consuming sdk.sock or replacing/altering `runStream` and `AsyncQueue`.
+- Defining `tail`/`prompt` behavior, `--timeout 0`, or `--until` wiring
+  (including the idle-leaf mechanism — see Implementation ideas).
+- Session selection, rollover, or watching a not-yet-created file. One client
+  follows one existing file.
+- Recovering from truncation or replacement.
+- Installing the SDK's alpha `SessionStore`; adding entry records to sdk.sock.
+- Formatting entries, messages, events, or trees.
+- A cursor for UUID-less entries.
+- Making `readSessionEntries()` async or changing its callers' semantics
+  (daemon seed, set-context, get-entries all want the raw sequence).
+
+# IMPLEMENTATION IDEAS
+
+## Watch/wake/read loop
+
+Observation is installed before the first read so no append can fall between
+snapshot and follow:
+
+1. Construct the `fs.watch` callback watcher first. The callback records
+   whether a `rename` was observed and pushes one wake token into an internal
+   `AsyncQueue` when none is pending (a coalescing boolean — no generation
+   counters, no adapter hierarchy).
+2. Open the file handle and record its identity; `historyEnd = stat().size`;
+   read exactly `[0, historyEnd)` through the parser/filter to build the seed.
+3. After the seed, stat-and-drain once before parking — catches bytes that
+   became visible during setup even if their notification coalesced with an
+   earlier event.
+4. Loop: consume a wake token (capture/reset flags first, so a callback
+   during the drain queues the next token); on `rename`, verify path identity
+   against the retained handle; stat; reject if size shrank below the
+   consumed offset; read new bytes from the retained byte offset; parse,
+   filter, fold, push; park when no token is pending.
+
+Track a byte offset, never a string index. Concatenate new bytes to a
+retained torn suffix rather than rereading old bytes. Notifications are
+wakeups only — after each wake, drain all bytes currently available.
+
+Pushes to a queue the driver has already closed are ignored by `AsyncQueue`;
+the client keeps its resources until `close()`, which commands call in
+`finally`.
+
+## Why not an off-the-shelf tail package
+
+Researched at published versions during the previous draft's review; retained
+because the conclusion carries forward:
+
+- `@logdna/tail-file` 4.0.2 — polls size on a timer (1000 ms default);
+  truncation/replacement restart from byte zero.
+- `tail` 2.2.6 — initial read precedes watcher installation (history/follow
+  gap); rename recovery on a one-second timer; truncation resets the cursor.
+- `tail-file-stream` 0.2.0 — `_read()` observes EOF and only then installs a
+  one-shot `watcher.once("change")`; an append between those can lose the
+  only wakeup.
+- `tail-file` 1.4.16 — a large rotation/recovery module centered on character
+  positions and restart-on-truncate; a Claude session violation must fail.
+- Chokidar 5.0.0 — a watcher, not a tail reader; byte offsets, torn lines,
+  and cutoff policy would remain ours; `awaitWriteFinish` polls.
+- `fs.promises.watch()` — a Node 23.11.1 probe falsified its queueing: an
+  append while no `next()` was pending did not survive to the next `next()`.
+
+Callback `fs.watch` + the existing generated `AsyncQueue` states the actual
+requirement directly: callbacks push, one consumer pulls, values arriving
+before a pull remain queued.
+
+## Notes for later specs (recorded here so they are not lost)
+
+- **Messages from entries**: the overview's dual-adapter design (entry-derived
+  history + event-derived live, with a handoff) is superseded in intent:
+  clauctl has the session file locally, so `tail --type messages` can be the
+  entry subscription plus an entry→message projection — no seam, trivial
+  cursors. Sub-second file lag was judged acceptable. Transient-only facts
+  remain the domain of `--type events`. The overview needs updating.
+- **`--until idle` via idle-leaf**: entries alone cannot express idle, but a
+  side sdk.sock subscription can record `AgentState.leaf` when activity
+  reaches idle; the entry handler stops when that uuid is observed
+  (`seenUuids` membership — which also covers the inverse race where the leaf
+  entry hits disk before the sdk reports idle). Relies on the observed (not
+  contractual) invariant that the session file lags the sdk stream; state the
+  invariant where implemented. Pure command-level composition; nothing needed
+  from this module.
+- **`turn-end` from entries**: possibly detectable (UUID-less `result`
+  records were observed in session files); verify empirically in the tail
+  spec before promising it.
+
+## Testing approach
+
+Tests synchronize on observable conditions — subscribe resolution, queue
+pushes, `runStream` outcomes, `failure` — never elapsed sleeps; a bounded
+test timeout may expose a hang.
+
+- **Canonical semantics** (pure, via `canonicalizeEntries` and the filter):
+  order/payload preservation; first-wins with changed later copies ignored;
+  UUID-less retention; `since` slicing, post-cursor duplicate suppression,
+  UUID-less-after-cursor emission; missing cursor throws without output;
+  `entriesByUuid` first-wins; `buildTree(raw)` + `entriesByUuid(raw)` agree
+  on one occurrence; `loadedContext` keeps its last-wins tests.
+- **Parser**: multiple lines per chunk; one line across several pushes; a
+  multibyte UTF-8 character split across pushes; torn tail completing later;
+  blank lines with correct line numbers; malformed/non-object terminated
+  lines throw with file:line; unknown fields and malformed `uuid` values
+  preserved; `readSessionEntries` behavior unchanged over the parser.
+- **Subscription**: watcher armed before initial read (append racing the
+  scan emitted exactly once); seed carries sliced history and correct
+  `leaf`/`seenUuids`; `history:"skip"` emits nothing but seeds dedup and
+  leaf; duplicate of skipped history appended live stays suppressed; an
+  initially torn line under "skip" emits when completed; one coalesced wake
+  drains multiple writes; a callback during a drain queues the next wake;
+  reads continue from the byte offset; per-event states share the `history`
+  reference; `seenUuids` is a live monotone view.
+- **Settlement and errors**: driver timeout/quiet/condition-met settle with
+  no follower-specific code; `close()` idempotent; truncation, replacement,
+  watcher error, and mid-follow corruption set `failure` and close the
+  queue; subscribe rejects on missing file/cursor/corrupt initial extent.
+- **Integration**: a real `appendSessionEntries()` synthetic write is
+  observed live; `waitForEntry` resolves across the CLI flush lag and
+  rejects on timeout; existing session-tree, set-context, get-entries, and
+  TUI tests pass after `entriesByUuid` becomes first-wins;
+  `npm run presubmit` passes.
 
 ## Implementation sequence
 
-1. Change `entriesByUuid()` to first-wins and update tree/display regression
-   tests.
-2. Implement the pure/incremental line parser and canonical first-wins filter.
-3. Implement finite history plus `since`.
-4. Implement fixed-file watch-before-read following with `fs.watch()` and the
-   existing `AsyncQueue`.
-5. Add graceful stop/cancellation and append-only violation handling.
-6. Run focused tests after each logical change, then full presubmit.
-7. Run the ordinary-write and synthetic-write live smoke tests.
-8. Record implementation-time decisions and verification below.
+1. `entriesByUuid` first-wins + regression tests.
+2. `SessionEntryParser`; reimplement `readSessionEntries` over it.
+3. Canonical filter + `canonicalizeEntries` (pure, tested first).
+4. `SessionEntryClient` (watch-before-read, wake loop, fold, failure/close).
+5. `waitForEntry` via `runStream`; `readEntriesAfterStreamFlush` over it;
+   rename call sites.
+6. Focused tests per step, then full presubmit and the live smoke test.
 
-## Work log
+# WORK LOG
 
-- [x] SessionStore observation experiment completed; selected the local file as
-      source of truth.
-- [x] Owner review rejected the first draft's duplicate policy and duplicated
-      SDK lifecycle/coordinator design (`fca061d`).
-- [x] Researched five off-the-shelf tail/watch options; none supplies the needed
-      no-gap, no-polling, append-only, graceful-cutoff contract.
-- [x] Revised duplicate policy to first-wins for canonical output and display,
-      retaining last-wins only inside the Claude loader model.
-- [ ] Owner review of this revision.
-- [ ] Implementation.
+**Instructions**: Update this section during each work session. Add new
+tasks, mark completed ones with [x], document decisions and problems
+encountered.
+
+- [x] 2026-07-29: Restarted from the earlier draft after owner review;
+      re-derisked its premises. Kept: file as source of truth, first-wins
+      policy and loader exception, watch-before-read, no off-the-shelf tail,
+      no second lifecycle engine. Replaced: the bespoke
+      `historyDone`/`stop()` follower interface with a `StreamClient`
+      subscription driven by `runStream` (seed carries canonical history;
+      cutoff is queue-close, stat-and-drain stop dropped); until-condition
+      support moved wholesale to the tail spec (idle-leaf mechanism recorded
+      above); state kept minimal (`history`, `leaf`, `seenUuids` — the
+      shared-reference caveat is deliberate and documented).
+- [x] 2026-07-29: Direction change recorded for the overview: live messages
+      to be projected from entries (no entry/event handoff), pending an
+      overview rewrite in a later session.
+- [x] 2026-07-29: Critique pass moved `waitForEntry` /
+      `readEntriesAfterStreamFlush` from session-file.ts to
+      session-entry-stream.ts: their implementations depend on the stream
+      client, and the file-format module must not depend on the streaming
+      module. Deviation from the discussed layout, flagged for owner review.
+- [ ] Owner review of this document.
+- [ ] Implementation (not started).
