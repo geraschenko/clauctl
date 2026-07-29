@@ -5,6 +5,12 @@
 > proposed sequence of follow-up specs. Each phase below gets its own spec and
 > review before implementation. Return here when beginning a later phase so its
 > spec is based on the whole plan rather than only the previous phase.
+>
+> Rewritten 2026-07-29 after Spec 1
+> ([canonical-session-entry-stream.md](canonical-session-entry-stream.md)) was
+> implemented: messages are now projected from entries only, which removed the
+> dual-adapter design, the history/live handoff, and most cursor machinery from
+> the earlier revision of this document.
 
 ## Goal
 
@@ -21,9 +27,6 @@ model as pictl:
   and then continue following;
 - make all non-tree format conversions consume and emit incrementally.
 
-This is a multi-spec effort because the three observable data types come from
-separate sources and are not mutually convertible.
-
 ## Ontology
 
 The names describe what the records _are_, not where a command happens to use
@@ -37,10 +40,13 @@ as what the assistant sees. A message stream may also contain explicitly typed
 control records needed to explain changes such as navigation, compaction, or
 model selection; controls are not mislabeled as messages.
 
-Messages are a projection. They may be derived from persisted entries or from
-live events where the source exposes equivalent context-facing information.
-The two projections need semantic parity where their sources contain the same
-facts, but exact equivalence is impossible for source-specific facts.
+In clauctl, messages are a projection of persisted entries — the only
+projection. Both history and live output come from the same entry stream
+through the same entry→message conversion; there is no event-derived message
+path and therefore no history/live seam. The cost is that live message output
+lags the sdk stream by the CLI's persistence delay (observed ~100–180 ms),
+which was judged acceptable. Facts that are never persisted remain the domain
+of `--type events`.
 
 ### Entries
 
@@ -59,11 +65,14 @@ scope and is not an acceptable implementation strategy.
 
 Events are records observed across sdk.sock: the subscription snapshot and the
 augmented `SdkEvent` stream. They include live SDK messages and daemon-known
-queue, control, interrupt, and context-change facts. Events include transient
-facts that are not persisted.
+queue, control, interrupt, and context-change facts — including transient facts
+that are never persisted.
 
-`events` replaces the proposed CLI name `raw`. Events are formatted by default
-like the other types; `--json` emits their canonical JSONL framing.
+`--type events` is a required part of the surface, not a convenience: sdk.sock
+can only be treated as 100% internal if the full event stream is accessible and
+the full public command surface is exposed through the sdk server. clauctl
+users must never have to speak to the socket directly. Events are formatted by
+default like the other types; `--json` emits their canonical JSONL framing.
 
 ### Trees
 
@@ -78,25 +87,18 @@ before emitting the final tree.
 
 ## Conversion graph
 
-For both clauctl and pictl, events and entries are sibling sources that can each
-project to messages:
-
 ```text
-entries ────────> messages <──────── events
+entries ────────> messages
    │
    └────────────> tree
+
+events            (no conversions; formatted directly)
 ```
 
-There is no `events -> entries` conversion in either project:
-
-- pictl events lack persisted entry IDs and other entry information;
-- clauctl events carry many message UUIDs but still lack complete persisted
-  entry records.
-
-The implementations should expose explicit source adapters into common message
-records rather than fabricate entries from events. Event-to-message and
-entry-to-message adapters share downstream formatting, not an artificial
-intermediate source type.
+There is no `events -> messages` conversion in clauctl and no
+`events -> entries` conversion in either project. pictl retains its own two
+message adapters (entries and events); that asymmetry is pictl's design and is
+not imported here.
 
 ## Format command contract
 
@@ -106,17 +108,17 @@ The JSON input accepted by each formatter follows the conversion graph:
 | ----------------- | ---------------------------- |
 | `format events`   | events                       |
 | `format entries`  | entries                      |
-| `format messages` | messages, entries, events    |
+| `format messages` | messages, entries            |
 | `format tree`     | entries or an entry snapshot |
 
 Each formatter invocation consumes one homogeneous canonical input ontology.
 `format messages`, `format entries`, and `format events` parse and emit
 incrementally: they do not buffer the complete input until EOF, but bounded
-conversion state and deferred emission are allowed. State such as tool-use IDs,
-model state, and duplicate UUID tracking is retained across records and flushed
-at EOF. `format tree` is the deliberate whole-input exception described above.
+conversion state and deferred emission are allowed. State such as tool-use IDs
+and duplicate UUID tracking is retained across records and flushed at EOF.
+`format tree` is the deliberate whole-input exception described above.
 
-Prompt and tail must call the same adapters and record formatters as the
+Prompt and tail must call the same projection and record formatters as the
 standalone `format` commands. Default output for a finite command should be
 byte-equivalent to its `--json` output passed through the corresponding
 formatter with default options.
@@ -124,136 +126,99 @@ formatter with default options.
 Finer formatting options remain on `format`; callers request JSONL and pipe it
 when they need non-default formatting.
 
-## Canonical entry stream
+## Canonical entry stream (Spec 1 — implemented)
 
-### Duplicate UUIDs
+The entry source shared by everything above is specified and implemented in
+[canonical-session-entry-stream.md](canonical-session-entry-stream.md):
+`SessionEntryClient` (a `StreamClient` over one session file, watch-before-read,
+byte-offset incremental follow, driven by the existing generated `runStream`)
+and `canonicalizeEntries` for finite reads. Summary of the canonical semantics,
+normative text in the spec:
 
-The Claude CLI can re-persist previous entries with the same UUID. These are
-copies of existing history, not new canonical positions. Canonical entry
-producers use one first-wins policy:
+- **First-wins UUID deduplication**: the CLI re-persists prior entries under
+  the same UUID; the first occurrence supplies both position and content, later
+  occurrences are omitted, and deduplication scans from the file start before
+  applying `since`. `loadedContext()` stays last-wins because it models
+  Claude's actual UUID-keyed loader, not canonical output.
+- **UUID-less entries** (`queue-operation`, `last-prompt`, `mode`,
+  `file-history-*`, titles, …) are legitimate and retained in position. They
+  cannot advance a UUID cursor; a session appending only UUID-less records
+  after a cursor replays them on the next `since` invocation — accepted rather
+  than adding a second cursor type. Known types may receive concise entry
+  summaries; unknown types degrade to a generic summary rather than
+  disappearing.
+- **A missing cursor is an error** naming the UUID and file — never "from the
+  beginning".
+- **Truncation, replacement, and corruption fail the stream**; it never
+  restarts from byte zero.
 
-- the first UUID occurrence supplies both position and content;
-- later occurrences carrying that UUID are omitted entirely;
-- every UUID-less entry occurrence is retained;
-- deduplication scans from the beginning before applying `--since`.
+### Cost: full-file reads
 
-Applying `--since` first would allow a later re-persisted copy of an earlier
-entry to leak into output. A cursor UUID always identifies the retained first
-occurrence. First-wins is incremental: once an entry is emitted, no future copy
-can revise it.
+Every subscription (and every finite read) scans the whole session file, so
+file-derived display costs O(file bytes) per invocation and grows with session
+length. Accepted for now; if it becomes expensive, the escape hatch is a
+daemon-maintained entry stream that serves the latest entries to observers
+without each one re-reading the file. Cross that bridge when we come to it —
+nothing in the command surface would change.
 
-Later re-persisted payloads are not demonstrably fresher. In the observed
-production file they included materialized parent links, normalized tool
-results, and degraded usage data. Canonical output and tree display therefore
-preserve the entry as it originally happened. `entriesByUuid` becomes
-first-wins to match `buildTree`'s existing first-wins placement.
+## Message projection
 
-Raw `SessionSnapshot.entries` and `readSessionEntries()` still retain every
-occurrence for tree construction, loader modeling, set-context, and forensic
-inspection. `loadedContext()` remains a deliberate last-wins exception because
-it models Claude's actual UUID-keyed loader rather than canonical output.
+One entry→message projection serves history, live following, and prompt
+output. `entryToSessionMessage` (the SDK-compatible mapping) is its core; the
+message-projection spec extends it with the typed control records (compaction
+boundaries, navigation, model changes) and decides which bookkeeping entries
+surface as controls versus being dropped from message output.
 
-### UUID-less entries
+Echoed/queued/steered user input, previously the hard case of the dual-adapter
+design, mostly dissolves: input appears in message output when the CLI persists
+its user entry. Queue submission and dequeue are visible as UUID-less
+`queue-operation` entries (enqueue carries the text); whether the message
+formatter renders them (e.g. as a queued-input control) or drops them is a
+Spec 2 decision, not an architectural one.
 
-UUID-less entries are legitimate and remain visible in entry output. Observed
-categories include:
+## Turn-end signal
 
-- queue/cursor bookkeeping: `queue-operation`, `last-prompt`;
-- mode/configuration: `mode`, `permission-mode`, `agent-setting`;
-- presentation metadata: `ai-title`, `custom-title`, `agent-name`;
-- file checkpointing: `file-history-snapshot`, `file-history-delta`;
-- session/worktree metadata: `pr-link`, `worktree-state`;
-- other observed records such as `started` and `result`.
+`prompt` streams until the prompted turn ends. The turn-end signal comes from
+the sdk.sock `result` event, not from entries: prompt already holds a socket
+subscription to submit through, and the socket is authoritative. A user
+interrupt counts as turn-end.
 
-Known types may receive concise entry summaries; unknown types degrade to a
-generic summary rather than disappearing.
-
-A UUID-less entry cannot advance a UUID cursor. If a session appends only
-UUID-less records after a cursor, a later invocation or reconnection resumed
-from that UUID can replay those trailing records. This limitation is accepted
-in preference to introducing a second cursor type.
-
-### Reading and following entries
-
-`tail --type entries` must read and then follow the underlying session entry
-source; it cannot use sdk.sock events as a substitute. The selected mechanism is
-the fixed-file, byte-positioned local JSONL follower specified in
-[canonical-session-entry-stream.md](canonical-session-entry-stream.md). The
-[SessionStore experiment](../derisk/session-store-entry-observation/FINDINGS.md)
-found that its append hook is a strong subprocess-write observer, but direct
-file following retains one source of truth for subprocess and clauctl synthetic
-writes, dormant history, and the history/live byte cutoff without participating
-in query resume.
-
-The follower installs a permanent `fs.watch()` callback before its initial file
-read and latches coalesced wakes through the existing `AsyncQueue`. It does not
-sleep-poll and does not consume sdk.sock. Agent lifecycle, timeout/until
-settlement, and session rollover remain owned by the existing `runStream` and
-the later command specs. `runStream` hooks start, switch, and gracefully stop
-fixed-file followers; no second streaming engine is introduced.
-
-## Message sources and the history/live seam
-
-Messages have two adapters:
-
-- persisted entry -> message/control records, used for historical replay;
-- sdk.sock event -> message/control records, used for live observation.
-
-For `tail --type messages`, history is projected from entries and subsequent
-live activity is projected from events. The follow-up spec must define the
-handoff so no context-facing message is lost or shown twice. Unless a source
-provides an atomic equivalent, tail must establish and buffer live event
-observation before taking the history snapshot; the subscription snapshot
-participates in overlap reconciliation. Exact persisted entries are not
-required on sdk.sock, but overlapping event- and entry-derived representations
-need stable matching or an ordered cutoff.
-
-Echoed/queued user messages are the difficult case: daemon queue events do not
-necessarily carry the eventual persisted UUID, and a demoted steer may persist
-as a queued-command attachment rather than an ordinary user entry. The message
-projection spec must define when such input is emitted and how historical and
-live adapters produce semantically compatible records.
-
-`prompt --type messages` subscribes before submitting the prompt and uses the
-event adapter for live output. `prompt --type entries` observes the session
-entry source across the prompt. `prompt --type events` emits sdk.sock events.
-Concurrent activity from other clients may appear in any prompt stream; prompt
-is an observation window, not an ownership filter.
+Empirical findings (2026-07-29, this project's transcripts), recorded so the
+alternative is not re-derived: turn-end is _nearly_ detectable from entries —
+`result` records are not persisted, but every persisted assistant entry carries
+the response's final `message.stop_reason` (observed: 5432 `tool_use`,
+515 `end_turn`, 5 `stop_sequence`, 2 `null`), so a non-`tool_use` stop_reason
+marks the turn's last response. The edge cases decided against it: interrupts
+leave no terminal assistant entry (only a user entry containing
+"[Request interrupted by user]"), and the rare `null` stop_reasons are
+unexplained. Displaying from entries while settling from the socket is the same
+split `--until idle` uses.
 
 ## Cursor model
 
-Canonical JSON records should carry their natural identities rather than adding
-a synthetic final cursor record:
-
-- UUID-bearing entries expose `uuid`;
-- clauctl message records should retain their source entry/message UUID when
-  known;
-- event records expose message UUIDs and context-change leaves where available.
+Canonical JSON records carry their natural identities rather than a synthetic
+final cursor record: entries expose `uuid`, and message records retain their
+source entry's UUID. Because every message comes from an entry, a message
+cursor _is_ an entry cursor — no reconciliation between event- and
+entry-derived identities exists or is needed.
 
 Human-readable message formatting hides those IDs, so a finite formatted
-message stream ends with a cursor only when that UUID is known to identify a
-retained canonical entry usable by `tail --since`:
+message stream ends with a cursor line usable by `tail --since`:
 
 ```text
 [cursor: <last-stable-uuid>]
 ```
 
 The standalone streaming formatter emits the same line when it reaches EOF.
-Entry formatting already displays UUIDs where present, and event formatting can
-show the identities carried by its records; whether either also prints a final
-cursor is unnecessary by default and can be settled in its implementation
-spec.
+Entry formatting already displays UUIDs where present; whether it also prints a
+final cursor is unnecessary by default and can be settled in its implementation
+spec. Events carry no resumable identity — sdk.sock has no historical event
+log — so event output has no cursor and `--since` is rejected for events.
 
 An indefinitely followed stream has no natural EOF and therefore emits no
 promised final cursor when externally interrupted. `--timeout 0`, a met
 `--until`, or a successful finite prompt gives the formatter a normal flush
 point.
-
-The message-projection spec must establish how event observations become known
-to identify retained canonical entries before their UUIDs can be printed as
-resumable cursors. The exact fallback when the newest context-facing record has
-no such UUID, especially an echoed user message, may retain the previous stable
-cursor until a canonical persisted identity is confirmed.
 
 ## Command behavior
 
@@ -263,9 +228,12 @@ cursor until a canonical persisted identity is confirmed.
 
 By default, prompt:
 
-1. subscribes before submitting input so a fast turn cannot be missed;
+1. subscribes — sdk.sock (turn-end signal, and the event stream when
+   `--type events`) and the session entry stream (`history:"skip"`, when
+   displaying messages or entries) — before submitting input, so a fast turn
+   cannot be missed;
 2. submits the prompt;
-3. streams until the prompted turn ends;
+3. streams until the prompted turn ends (sdk.sock `result`; interrupt counts);
 4. formats messages unless another type or `--json` is selected;
 5. flushes any formatted cursor on finite completion.
 
@@ -273,7 +241,9 @@ By default, prompt:
 without streamed output. `--detach` combined with flags expressing an intent to
 wait is a usage error. The prompt spec must define `--no-query`, queue priority,
 and already-busy-agent behavior explicitly rather than assuming every accepted
-input produces its own result.
+input produces its own result. Concurrent activity from other clients may
+appear in any prompt stream; prompt is an observation window, not an ownership
+filter.
 
 ### `tail`
 
@@ -293,11 +263,16 @@ clauctl tail [--type messages|entries|events]
 - `--since <uuid>` starts after the retained first occurrence of that UUID.
 - `--since` applies to messages and entries and is rejected for events because
   sdk.sock has no historical event log.
-- entries follow the session entry source.
+- messages and entries both follow the session entry stream; messages apply the
+  projection.
 - events follow sdk.sock and have no historical backlog. Whether
   `events --timeout 0` emits the subscription snapshot, emits nothing, or is
   rejected is deferred to the tail spec.
-- messages replay entry-derived history and then follow event-derived messages.
+- `--until idle` composes the entry stream with a side sdk.sock subscription:
+  the side subscription records the idle leaf, and the entry handler stops when
+  that UUID is observed in `seenUuids` (which also covers the leaf entry
+  hitting disk before the sdk reports idle). Pure command-level composition;
+  details in the tail spec.
 
 Dormant or archived agents:
 
@@ -308,8 +283,8 @@ Dormant or archived agents:
 Session rollover and a cursor not present in the current session need explicit
 behavior in the tail spec. At minimum, a missing cursor must be an error rather
 than silently meaning “from the beginning.” The same spec must classify an
-active-to-dormant transition during the history/live handoff or later follow as
-normal finite completion, retryable loss, or an error.
+active-to-dormant transition during a follow as normal finite completion,
+retryable loss, or an error.
 
 ## Pictl symmetry
 
@@ -326,56 +301,43 @@ from clauctl implementation specs.
 
 ## Follow-up sequence
 
-### Spec 1: canonical session-entry stream
+### Spec 1: canonical session-entry stream — **implemented**
 
-The focused SessionStore experiment is complete; see its
-[findings](../derisk/session-store-entry-observation/FINDINGS.md). The resulting
-spec must cover:
-
-- the selected fixed-file read/follow mechanism and off-the-shelf library
-  research;
-- watch-before-read and graceful final-cutoff ordering;
-- torn tails, replacement, and truncation;
-- first-wins UUID deduplication for canonical output and tree payloads, with the
-  loader-model exception documented;
-- UUID-less entry preservation;
-- `since` slicing and missing-cursor errors;
-- incremental tests driven by observable conditions rather than sleeps.
-
-This foundation should be useful independently of prompt/tail formatting.
+See [canonical-session-entry-stream.md](canonical-session-entry-stream.md):
+`src/core/session/` (file.ts with `SessionEntryParser` and first-wins
+`entriesByUuid`; entry-stream.ts with `SessionEntryClient`,
+`canonicalizeEntries`, `waitForEntry`).
 
 ### Spec 2: streaming conversions and formatters
 
 Specify:
 
 - canonical message and control record types;
-- provenance and stable matching fields required by resumable cursors and the
-  later tail history/live handoff;
-- entry-to-message and event-to-message adapters;
-- echoed/queued/steered user-message semantics;
-- the subscription snapshot's canonical event representation and ordering;
+- the entry→message projection (extending `entryToSessionMessage` with control
+  records; queued/steered input rendering);
 - incremental JSONL decoders and writers;
 - `format entries`;
-- incremental `format messages` and `format events`;
+- incremental `format messages` and `format events` (event formatting only —
+  no event→message adapter exists);
 - EOF cursor formatting;
 - the buffered `format tree` exception and expanded accepted inputs.
 
 ### Spec 3: tail parity
 
-Build tail on the canonical entry stream, message adapters, format writers, and
-existing generic stream driver. Specify all type/JSON/since/timeout/until,
-dormancy and active-to-dormant transitions, rollover, and history/live handoff
-behavior. For entry mode, account explicitly for the driver's cutoff semantics:
-`onStop` begins while sdk.sock events already accepted into its queue continue
-draining, so follower rollover and finalization must be serialized. Classify
-every settlement path as graceful completion or external / transport
-interruption so formatter flushing and cursor emission follow mechanically.
+Build tail on the canonical entry stream, the message projection, format
+writers, and the existing generic stream driver. Specify all
+type/JSON/since/timeout/until behavior — including the `--until idle`
+composition above — plus dormancy and active-to-dormant transitions and
+rollover. Classify every settlement path as graceful completion or external /
+transport interruption so formatter flushing and cursor emission follow
+mechanically.
 
 ### Spec 4: prompt parity
 
-Rename query, add subscribe-before-submit streaming, default turn-end behavior,
-`--detach`, output selection, prompt-specific queue/no-query semantics, and
-session selection or rollover while the submitted prompt is being observed.
+Rename query, add subscribe-before-submit streaming, default turn-end behavior
+(sdk.sock `result`; interrupt counts as turn-end), `--detach`, output
+selection, prompt-specific queue/no-query semantics, and session selection or
+rollover while the submitted prompt is being observed.
 
 ### Spec 5: pictl event terminology and formatting
 
@@ -384,10 +346,12 @@ formatting without claiming that pictl events can reconstruct entries.
 
 ## Non-goals of this overview
 
-- Selecting SessionStore versus filesystem following without an experiment.
+- Fabricating persisted entries from sdk.sock messages, or an event→message
+  adapter in clauctl.
 - Defining every session-file entry formatter.
-- Fabricating persisted entries from sdk.sock messages.
 - Adding a second cursor-position type.
 - Making tree output incrementally revise already-emitted lines.
 - Preserving the `query` command name by default.
 - Implementing clauctl and pictl changes in one cross-repository spec.
+- The daemon-maintained entry stream (the large-file escape hatch) — deferred
+  until file-derived display is measurably expensive.
