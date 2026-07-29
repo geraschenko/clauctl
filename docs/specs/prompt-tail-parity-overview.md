@@ -157,11 +157,13 @@ last content available at read time. This temporal difference is accepted:
 observed re-persistence preserves semantic entry content even when serialization
 or sidecar fields are restamped or normalized.
 
-Current clauctl behavior is not fully consistent: tree placement is first-wins,
-while `entriesByUuid` uses the last serialization for payload lookup and
-`get-entries` returns every copy. The first entry-stream spec must bring every
-consumer into the first-position/last-content model and test the accepted live
-stream behavior explicitly.
+Current clauctl behavior splits the needed facts: tree placement is first-wins,
+`entriesByUuid` uses the last serialization for payload lookup, and
+`get-entries` retains every raw occurrence. The first entry-stream spec must
+bring every canonical entry-producing path into the first-position/last-content
+model and test the accepted live behavior explicitly. Raw session snapshots
+remain raw because tree reconstruction needs both the first and last
+serializations; they are not canonical entry output.
 
 ### UUID-less entries
 
@@ -186,15 +188,14 @@ in preference to introducing a second cursor type.
 ### Reading and following entries
 
 `tail --type entries` must read and then follow the underlying session entry
-source; it cannot use sdk.sock events as a substitute. The implementation
-mechanism remains unresolved:
-
-1. Derisk whether the SDK's `SessionStore.append` is a complete, ordered,
-   SDK-supported observation point for the local session file without changing
-   normal resume/load behavior.
-2. If not, implement a daemon- or client-owned incremental JSONL follower using
-   filesystem notifications, persistent byte position, torn-tail handling, and
-   explicit handling of session replacement, truncation, or file replacement.
+source; it cannot use sdk.sock events as a substitute. The selected mechanism is the client-owned, byte-positioned local JSONL
+follower specified in
+[canonical-session-entry-stream.md](canonical-session-entry-stream.md). The
+[SessionStore experiment](../derisk/session-store-entry-observation/FINDINGS.md)
+found that its append hook is a strong subprocess-write observer, but direct
+file following retains one source of truth for subprocess and clauctl synthetic
+writes, dormant history, and the history/live byte cutoff without participating
+in query resume.
 
 The follower must await actual file changes rather than sleep-polling. It must
 establish observation before taking its initial snapshot so appends cannot fall
@@ -337,8 +338,9 @@ from clauctl implementation specs.
 
 ### Spec 1: canonical session-entry stream
 
-Before drafting, run the focused SessionStore experiment described above. Then
-specify:
+The focused SessionStore experiment is complete; see its
+[findings](../derisk/session-store-entry-observation/FINDINGS.md). The resulting
+spec must cover:
 
 - the selected read/follow mechanism;
 - watch-before-read and flush ordering;
