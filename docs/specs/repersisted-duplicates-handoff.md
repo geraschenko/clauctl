@@ -1,5 +1,12 @@
 # Handoff: tolerate CLI-re-persisted duplicate uuids in `buildTree`
 
+> Historical handoff. Its duplicate-tolerance diagnosis and first-occurrence
+> tree placement remain valid. The last-wins display-payload decision is
+> superseded by
+> [canonical-session-entry-stream.md](canonical-session-entry-stream.md):
+> canonical output and `entriesByUuid` are first-wins; only the Claude loader
+> model remains last-wins.
+
 For the agent refactoring `buildTree`: fold this into the refactor. The
 symptom, diagnosis, and agreed _semantics_ below are settled with Anton;
 the implementation details are deliberately left open so they can follow

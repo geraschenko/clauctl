@@ -129,41 +129,29 @@ when they need non-default formatting.
 ### Duplicate UUIDs
 
 The Claude CLI can re-persist previous entries with the same UUID. These are
-copies of existing history, not new canonical positions. Entry-producing paths
-must use one policy:
+copies of existing history, not new canonical positions. Canonical entry
+producers use one first-wins policy:
 
-- the first UUID occurrence determines the entry's position;
-- the last occurrence supplies the entry's content in a canonical historical
-  view;
-- only one entry is emitted for that UUID;
+- the first UUID occurrence supplies both position and content;
+- later occurrences carrying that UUID are omitted entirely;
 - every UUID-less entry occurrence is retained;
-- canonicalization happens over the complete available session append sequence
-  before applying `--since`.
+- deduplication scans from the beginning before applying `--since`.
 
 Applying `--since` first would allow a later re-persisted copy of an earlier
 entry to leak into output. A cursor UUID always identifies the retained first
-position.
+occurrence. First-wins is incremental: once an entry is emitted, no future copy
+can revise it.
 
-Historical entry producers that can inspect the complete available file perform
-this canonicalization before streaming their output, so downstream incremental
-formatters receive the last-known content at the first position without needing
-to buffer the whole input.
+Later re-persisted payloads are not demonstrably fresher. In the observed
+production file they included materialized parent links, normalized tool
+results, and degraded usage data. Canonical output and tree display therefore
+preserve the entry as it originally happened. `entriesByUuid` becomes
+first-wins to match `buildTree`'s existing first-wins placement.
 
-A live follower cannot know that a future append will re-persist an entry whose
-first occurrence it has already emitted. It emits the then-latest content at the
-first position and suppresses later duplicate occurrences; it does not revise
-past output or emit a content-update record. A later historical read uses the
-last content available at read time. This temporal difference is accepted:
-observed re-persistence preserves semantic entry content even when serialization
-or sidecar fields are restamped or normalized.
-
-Current clauctl behavior splits the needed facts: tree placement is first-wins,
-`entriesByUuid` uses the last serialization for payload lookup, and
-`get-entries` retains every raw occurrence. The first entry-stream spec must
-bring every canonical entry-producing path into the first-position/last-content
-model and test the accepted live behavior explicitly. Raw session snapshots
-remain raw because tree reconstruction needs both the first and last
-serializations; they are not canonical entry output.
+Raw `SessionSnapshot.entries` and `readSessionEntries()` still retain every
+occurrence for tree construction, loader modeling, set-context, and forensic
+inspection. `loadedContext()` remains a deliberate last-wins exception because
+it models Claude's actual UUID-keyed loader rather than canonical output.
 
 ### UUID-less entries
 
@@ -188,8 +176,8 @@ in preference to introducing a second cursor type.
 ### Reading and following entries
 
 `tail --type entries` must read and then follow the underlying session entry
-source; it cannot use sdk.sock events as a substitute. The selected mechanism is the client-owned, byte-positioned local JSONL
-follower specified in
+source; it cannot use sdk.sock events as a substitute. The selected mechanism is
+the fixed-file, byte-positioned local JSONL follower specified in
 [canonical-session-entry-stream.md](canonical-session-entry-stream.md). The
 [SessionStore experiment](../derisk/session-store-entry-observation/FINDINGS.md)
 found that its append hook is a strong subprocess-write observer, but direct
@@ -197,10 +185,12 @@ file following retains one source of truth for subprocess and clauctl synthetic
 writes, dormant history, and the history/live byte cutoff without participating
 in query resume.
 
-The follower must await actual file changes rather than sleep-polling. It must
-establish observation before taking its initial snapshot so appends cannot fall
-between history and follow. This synchronization is an implementation detail;
-it need not appear as a boundary record in user output.
+The follower installs a permanent `fs.watch()` callback before its initial file
+read and latches coalesced wakes through the existing `AsyncQueue`. It does not
+sleep-poll and does not consume sdk.sock. Agent lifecycle, timeout/until
+settlement, and session rollover remain owned by the existing `runStream` and
+the later command specs. `runStream` hooks start, switch, and gracefully stop
+fixed-file followers; no second streaming engine is introduced.
 
 ## Message sources and the history/live seam
 
@@ -342,14 +332,14 @@ The focused SessionStore experiment is complete; see its
 [findings](../derisk/session-store-entry-observation/FINDINGS.md). The resulting
 spec must cover:
 
-- the selected read/follow mechanism;
-- watch-before-read and flush ordering;
-- torn tails, replacement, truncation, and session rollover;
-- first-position/last-content UUID canonicalization and its accepted live-stream
-  caveat;
+- the selected fixed-file read/follow mechanism and off-the-shelf library
+  research;
+- watch-before-read and graceful final-cutoff ordering;
+- torn tails, replacement, and truncation;
+- first-wins UUID deduplication for canonical output and tree payloads, with the
+  loader-model exception documented;
 - UUID-less entry preservation;
 - `since` slicing and missing-cursor errors;
-- live and dormant adapters behind one small interface;
 - incremental tests driven by observable conditions rather than sleeps.
 
 This foundation should be useful independently of prompt/tail formatting.
@@ -375,9 +365,11 @@ Specify:
 Build tail on the canonical entry stream, message adapters, format writers, and
 existing generic stream driver. Specify all type/JSON/since/timeout/until,
 dormancy and active-to-dormant transitions, rollover, and history/live handoff
-behavior. Classify every settlement path as graceful completion or external /
-transport interruption so formatter flushing and cursor emission follow
-mechanically.
+behavior. For entry mode, account explicitly for the driver's cutoff semantics:
+`onStop` begins while sdk.sock events already accepted into its queue continue
+draining, so follower rollover and finalization must be serialized. Classify
+every settlement path as graceful completion or external / transport
+interruption so formatter flushing and cursor emission follow mechanically.
 
 ### Spec 4: prompt parity
 

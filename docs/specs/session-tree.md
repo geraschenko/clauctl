@@ -144,8 +144,10 @@ from the context even when they are the sole dangling tip.
    anchors, and parent cycles report
    through `OnInvalid` and degrade per the Edge cases. Duplicate raw
    uuids in the file are tolerated silently — re-persisted entries, a
-   legal CLI file shape (see Edge cases): first-wins for tree edges,
-   last-wins for content and `loadedContext`.
+   legal CLI file shape (see Edge cases): first-wins for tree edges and
+   displayed content; last-wins only inside `loadedContext`, matching the
+   Claude loader. The display-payload amendment is specified in
+   `docs/specs/canonical-session-entry-stream.md`.
 
 ## Concrete examples
 
@@ -504,17 +506,17 @@ graph TD
 - **Duplicate raw uuids in the file**: not corruption — the CLI
   re-persists dropped-from-context history immediately before a later
   /compact, with relinks materialized into raw `parentUuid` pointers
-  (`docs/derisk/cli-history-repersistence/FINDINGS.md`). Content lookups
-  (`entriesByUuid`) and the `loadedContext` transform are last-wins,
-  matching the loader's uuid-keyed map. Edges (`buildTree`) are
-  FIRST-wins: a copy is re-persisted under a different latest boundary
-  than its original, so replaying its edges would reinterpret them — a
-  problem the loader never faces (it never recomputes context further
-  back than the file's current last boundary) — and the copies'
-  materialized parents under last-wins would make display rule 1
-  (boundary → raw `uuids.last()`) cyclic on the observed file shape.
-  Skipped silently, no `onInvalid`: a report would fire on every fetch
-  of a legal file.
+  (`docs/derisk/cli-history-repersistence/FINDINGS.md`). Tree edges
+  (`buildTree`) and displayed payload lookups (`entriesByUuid`) are
+  first-wins: a copy can carry degraded sidecar data and is re-persisted
+  under a different latest boundary, so replaying either its payload or
+  edge would reinterpret the original entry. The `loadedContext`
+  transform remains last-wins to match the loader's uuid-keyed map; it is
+  a model of Claude loading, not display canonicalization. Last-wins
+  edges would also make display rule 1 (boundary → raw `uuids.last()`)
+  cyclic on the observed file shape. Skipped silently, no `onInvalid`: a
+  report would fire on every fetch of a legal file. See
+  `docs/specs/canonical-session-entry-stream.md` for the amendment.
 - **Up_to anchor entry never arrives** (corrupt): the block's forward
   anchor reference dangles; the final `buildTree` pass nulls it (block
   becomes a root fork), `onInvalid` reports it.
