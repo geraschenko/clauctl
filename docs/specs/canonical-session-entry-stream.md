@@ -429,13 +429,15 @@ test timeout may expose a hang.
 
 ## Implementation sequence
 
-1. `entriesByUuid` first-wins + regression tests.
-2. `SessionEntryParser`; reimplement `readSessionEntries` over it.
-3. Canonical filter + `canonicalizeEntries` (pure, tested first).
-4. `SessionEntryClient` (watch-before-read, wake loop, fold, failure/close).
-5. `waitForEntry` via `runStream`; `readEntriesAfterStreamFlush` over it;
-   rename call sites.
-6. Focused tests per step, then full presubmit and the live smoke test.
+1. Mechanical move: `session-file.ts` → `src/core/session/file.ts`,
+   `session-seed.ts` → `src/core/session/seed.ts`; update imports only.
+2. `entriesByUuid` first-wins + regression tests.
+3. `SessionEntryParser`; reimplement `readSessionEntries` over it.
+4. Canonical filter + `canonicalizeEntries` (pure, tested first).
+5. `SessionEntryClient` (watch-before-read, wake loop, fold, failure/close).
+6. `waitForEntry` via `runStream`; `readEntriesAfterStreamFlush` over it;
+   move/rename call sites out of file.ts.
+7. Focused tests per step, then full presubmit and the live smoke test.
 
 # WORK LOG
 
