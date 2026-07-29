@@ -76,6 +76,8 @@ loader, not canonical output.
 
 ## Type design
 
+TDC: I think it'd be a good idea to make a subdirectory src/core/entries/ or src/core/session/ or something where we put everything related to the entry stream, session file parsing, session-seed.ts, and anything else that interacts with the session file. I want everything that touches the file to be behind a clean abstraction.
+
 New module `src/core/session-entry-stream.ts`; parser and helper changes in
 `src/core/session-file.ts`. The driver types are the existing generated ones:
 
@@ -137,6 +139,7 @@ export interface EntryStreamState {
   /** Canonical history at subscription, after `since`; empty under
    *  history:"skip". Frozen — live events do not append to it, and every
    *  post-fold state shares this same array by reference. */
+  // TDC: Why does this need to be in any state other than the frist one? For that matter, why does it need to be in the first one? Couldn't we simply have the subscription start emitting entries from the beginning of the file (or from just after `since`)?
   readonly history: readonly SessionEntry[];
   /** uuid of the newest first-occurrence UUID-bearing entry observed by the
    *  scan or follow — the resumable cursor. Under `since` with no newer
@@ -152,6 +155,7 @@ export interface EntryStreamState {
   readonly seenUuids: ReadonlySet<UUID>;
 }
 
+// TDC: Should deduplication be an option here? If the caller wants all raw entries, they can choose not to set deduplication. I'm not sure what should happen to `leaf` in that situation.
 export type EntryClientOptions =
   | { readonly history: "emit"; readonly since?: UUID }
   | { readonly history: "skip" };
@@ -196,6 +200,7 @@ export function canonicalizeEntries(
  *  state.seenUuids.has(uuid); outcome "timeout" throws the existing
  *  did-not-appear error; outcome "closed" rethrows client.failure; the
  *  client is closed in `finally`. */
+// TDC: Since this reads the file anyway, would it make sense to remove this function and roll it into readEntriesAfterStreamFlush? Is there any advantage to reading the file _again_ after waitForEntry? Put another way, is there anybody who cares to wait for the entry to be in the file, but doesn't actually care what the file contains otherwise?
 export function waitForEntry(
   filePath: string,
   uuid: UUID,
