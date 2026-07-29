@@ -144,6 +144,11 @@ Applying `--since` first would allow a later re-persisted copy of an earlier
 entry to leak into output. A cursor UUID always identifies the retained first
 position.
 
+Historical entry producers that can inspect the complete available file perform
+this canonicalization before streaming their output, so downstream incremental
+formatters receive the last-known content at the first position without needing
+to buffer the whole input.
+
 A live follower cannot know that a future append will re-persist an entry whose
 first occurrence it has already emitted. It emits the then-latest content at the
 first position and suppresses later duplicate occurrences; it does not revise
@@ -338,7 +343,8 @@ specify:
 - the selected read/follow mechanism;
 - watch-before-read and flush ordering;
 - torn tails, replacement, truncation, and session rollover;
-- canonical first-wins UUID deduplication;
+- first-position/last-content UUID canonicalization and its accepted live-stream
+  caveat;
 - UUID-less entry preservation;
 - `since` slicing and missing-cursor errors;
 - live and dormant adapters behind one small interface;
