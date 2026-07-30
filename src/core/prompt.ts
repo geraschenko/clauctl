@@ -160,17 +160,15 @@ function opensGate(event: SdkEvent, promptId: number | undefined): boolean {
 
 /** Messages/entries leg: AgentObserver (history "skip") + EntrySink +
  *  UntilSettlement, output and condition checks gated by a closure boolean
- *  flipped by our dequeue event. `submitPrompt` is deferred, not a promise:
- *  a promise would already be in flight when the leg received it, and the
- *  submission must not start until the subscription exists (a fast turn's
- *  dequeue would otherwise be missed). The gate starts open when it returns
- *  no receipt (the `/compact` path). */
+ *  flipped by our dequeue event. `submitPromptFn` is deferred until after the
+ *  subscription is established, so the dequeue cannot be missed. The gate
+ *  starts open when it returns no receipt (the `/compact` path). */
 async function promptObserved(
   context: CommandContext,
   agent: AgentRecord,
   type: "messages" | "entries",
   json: boolean,
-  submitPrompt: () => Promise<number | undefined>,
+  submitPromptFn: () => Promise<number | undefined>,
   condition: UntilCondition,
   timeoutMs: number | undefined,
 ): Promise<void> {
@@ -188,7 +186,7 @@ async function promptObserved(
   > = {
     subscribe: async () => {
       const subscription = await observer.subscribe();
-      promptId = await submitPrompt();
+      promptId = await submitPromptFn();
       gateOpen = promptId === undefined;
       return subscription;
     },
@@ -246,7 +244,7 @@ async function promptEvents(
   context: CommandContext,
   agent: AgentRecord,
   json: boolean,
-  submitPrompt: () => Promise<number | undefined>,
+  submitPromptFn: () => Promise<number | undefined>,
   condition: UntilCondition,
   timeoutMs: number | undefined,
 ): Promise<void> {
@@ -273,7 +271,7 @@ async function promptEvents(
       {
         subscribe: async () => {
           const subscription = await client.subscribe();
-          promptId = await submitPrompt();
+          promptId = await submitPromptFn();
           gateOpen = promptId === undefined;
           return subscription;
         },
