@@ -10,22 +10,13 @@
 import type { AgentState } from "../core/agent-state.ts";
 import type { SdkEvent } from "../core/sdk-socket.ts";
 import { userText } from "../tui/sdk-render.ts";
-import { oneLine, truncateText } from "./generated/text.ts";
 import {
+  annotation,
   formatSdkMessage,
-  joinChunks,
   newFormatState,
   type FormatState,
 } from "./sdk-message.ts";
 import type { MessageFormatOptions, TailRecord } from "./types.ts";
-
-const ANNOTATION_CHARS = 80;
-
-/** `[content]`, one-lined and truncated as a whole so every annotation line
- * caps at the same width regardless of its prefix. */
-function annotation(content: string): string {
-  return `[${truncateText(oneLine(content), ANNOTATION_CHARS)}]`;
-}
 
 function agentStateChunk(
   agentState: AgentState,
@@ -123,19 +114,32 @@ function eventChunks(
   }
 }
 
-/** Whole-input formatter for `format events`. */
-export function formatTailRecords(
-  records: readonly TailRecord[],
-  options: MessageFormatOptions,
-): string {
-  const formatState = newFormatState();
-  const chunks: string[] = [];
-  for (const record of records) {
-    if ("snapshot" in record) {
-      chunks.push(agentStateChunk(record.snapshot, formatState));
-    } else {
-      chunks.push(...eventChunks(record.event, formatState, options));
-    }
+/** Same push/end contract as MessageFormatter over TailRecord; no cursor
+ *  (events carry no resumable identity), so end() is final-newline
+ *  bookkeeping only. */
+export class EventFormatter {
+  private readonly options: MessageFormatOptions;
+  private readonly formatState = newFormatState();
+  private emitted = false;
+
+  constructor(options: MessageFormatOptions) {
+    this.options = options;
   }
-  return joinChunks(chunks);
+
+  push(record: TailRecord): string {
+    const chunks =
+      "snapshot" in record
+        ? [agentStateChunk(record.snapshot, this.formatState)]
+        : eventChunks(record.event, this.formatState, this.options);
+    let output = "";
+    for (const chunk of chunks) {
+      output += this.emitted ? `\n\n${chunk}` : chunk;
+      this.emitted = true;
+    }
+    return output;
+  }
+
+  end(): string {
+    return this.emitted ? "\n" : "";
+  }
 }

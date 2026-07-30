@@ -4,7 +4,7 @@ import type { SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
 import type { AgentState } from "../core/agent-state.ts";
 import { INITIAL_AGENT_STATE } from "../core/agent-state.ts";
 import type { SdkEvent } from "../core/sdk-socket.ts";
-import { formatTailRecords } from "./events.ts";
+import { EventFormatter } from "./events.ts";
 import type { MessageFormatOptions, TailRecord } from "./types.ts";
 
 const OPTIONS: MessageFormatOptions = {
@@ -29,8 +29,14 @@ function event(sdkEvent: SdkEvent): TailRecord {
   return { event: sdkEvent };
 }
 
+/** Concatenated incremental output — what `format events` writes. */
 function format(records: TailRecord[]): string {
-  return formatTailRecords(records, OPTIONS);
+  const formatter = new EventFormatter(OPTIONS);
+  let output = "";
+  for (const record of records) {
+    output += formatter.push(record);
+  }
+  return output + formatter.end();
 }
 
 test("snapshot renders a header with the observed fields", () => {

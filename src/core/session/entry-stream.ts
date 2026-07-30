@@ -52,14 +52,15 @@ export type EntryClientOptions =
   | { readonly history: "emit"; readonly since?: UUID }
   | { readonly history: "skip" };
 
-/** The stateful first-wins/`since` filter shared by canonicalizeEntries and
- *  the client's scan-and-follow loop, so canonical semantics cannot diverge.
+/** The stateful first-wins/`since` filter shared by canonicalizeEntries, the
+ *  client's scan-and-follow loop, and the `format` input pipeline, so
+ *  canonical semantics cannot diverge.
  *  `leaf` advances on every first-occurrence uuid-bearing entry — including
  *  ones suppressed as pre-cursor — so once the cursor is consumed it equals
  *  the cursor itself, and thereafter tracks emitted entries. An entry whose
  *  `uuid` field is not a string has no stable cursor identity and is treated
  *  like a uuid-less occurrence. */
-class CanonicalEntryFilter {
+export class CanonicalEntryFilter {
   readonly seenUuids = new Set<UUID>();
   private currentLeaf: UUID | undefined;
   /** The `since` cursor, until its first occurrence is consumed. */

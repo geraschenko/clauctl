@@ -76,35 +76,9 @@ test("SessionEntryParser yields multiple entries from one chunk", () => {
   assert.deepEqual(entries, [a, b]);
 });
 
-test("SessionEntryParser buffers a line split across pushes", () => {
-  const parser = new SessionEntryParser("/s.jsonl");
-  const entry = { uuid: uuid(), type: "user", custom: { nested: true } };
-  const line = `${JSON.stringify(entry)}\n`;
-  assert.deepEqual(parser.push(Buffer.from(line.slice(0, 10))), []);
-  assert.deepEqual(parser.push(Buffer.from(line.slice(10, 20))), []);
-  assert.deepEqual(parser.push(Buffer.from(line.slice(20))), [entry]);
-});
-
-test("SessionEntryParser reassembles a UTF-8 code point split across pushes", () => {
-  const parser = new SessionEntryParser("/s.jsonl");
-  const entry = { uuid: uuid(), text: "snowman \u{2603} and beyond \u{1f680}" };
-  const bytes = Buffer.from(`${JSON.stringify(entry)}\n`);
-  const rocketStart = bytes.indexOf(Buffer.from("\u{1f680}")) + 2;
-  assert.deepEqual(parser.push(bytes.subarray(0, rocketStart)), []);
-  assert.deepEqual(parser.push(bytes.subarray(rocketStart)), [entry]);
-});
-
-test("SessionEntryParser emits a torn tail once its newline arrives", () => {
-  const parser = new SessionEntryParser("/s.jsonl");
-  const a = { uuid: uuid(), type: "user" };
-  const b = { uuid: uuid(), type: "assistant" };
-  const torn = JSON.stringify(b);
-  assert.deepEqual(
-    parser.push(Buffer.from(`${JSON.stringify(a)}\n${torn.slice(0, 5)}`)),
-    [a],
-  );
-  assert.deepEqual(parser.push(Buffer.from(`${torn.slice(5)}\n`)), [b]);
-});
+// Pure splitting mechanics (torn lines, split UTF-8, blank-line counting)
+// are JsonlDecoder's and tested in core/jsonl.test.ts; these tests cover the
+// parse/validation layer the parser adds on top.
 
 test("SessionEntryParser counts blank lines toward error line numbers", () => {
   const parser = new SessionEntryParser("/s.jsonl");

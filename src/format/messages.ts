@@ -1,94 +1,87 @@
 /**
- * `format messages`: the session-entry stream (get-messages / get-entries
- * output or a raw session file). Individual SDK messages render via the
- * shared sdk-message.ts; this file adds the messages-mode-only inferred
- * change lines and the entry-stream driver. Lenient — verbatim entries drift
- * with Anthropic CLI versions, so unrecognized types are skipped rather than
- * rejected.
+ * Incremental renderer for canonical message records (`format messages` and
+ * the future formatted `tail`/`prompt`). Individual SDK messages render via
+ * the shared sdk-message.ts; this file adds control-record rendering and the
+ * push/end stream driver. Lenient — unknown message types degrade to
+ * formatSdkMessage's generic annotation rather than being rejected.
  */
 
+import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import type {
-  SDKAssistantMessage,
-  SDKMessage,
-} from "@anthropic-ai/claude-agent-sdk";
-import type { SessionEntry } from "../core/session/file.ts";
-import { formatSdkMessage, joinChunks, newFormatState } from "./sdk-message.ts";
-import type { FormatState } from "./sdk-message.ts";
+  MessageControl,
+  MessageRecord,
+} from "../core/session/messages.ts";
+import { annotation, formatSdkMessage, newFormatState } from "./sdk-message.ts";
 import type { MessageFormatOptions } from "./types.ts";
+import { displayUuid } from "./uuid.ts";
 
-/**
- * `[model: old -> new]` inferred from consecutive assistant entries; nothing
- * for the first assistant message. Messages-mode only — in events mode the
- * change is explicit as `controlApplied: set-model`.
- */
-function modelChangeLine(
-  message: SDKAssistantMessage,
-  formatState: FormatState,
-): string | undefined {
-  const model = message.message.model;
-  const previous = formatState.lastModel;
-  formatState.lastModel = model;
-  return previous === undefined || previous === model
-    ? undefined
-    : `[model: ${previous} -> ${model}]`;
+function renderControl(control: MessageControl): string {
+  switch (control.kind) {
+    case "model_changed":
+      return `[model: ${control.from} -> ${control.to}]`;
+    case "permission_mode_changed":
+      return `[permission-mode: ${control.from} -> ${control.to}]`;
+    case "compaction": {
+      const parts = [
+        ...(control.trigger === undefined ? [] : [control.trigger]),
+        ...(control.preTokens === undefined
+          ? []
+          : [`${control.preTokens} preTokens`]),
+      ];
+      return parts.length === 0
+        ? "[compaction]"
+        : `[compaction: ${parts.join(", ")}]`;
+    }
+    case "queued_input":
+      return annotation(`queued: ${control.text}`);
+  }
 }
 
-/**
- * `[permission-mode: old -> new]` deduped from verbatim `permission-mode`
- * entries, which the CLI writes identically every turn. Only reachable on
- * get-entries input — getSessionMessages filters these entries out.
- */
-function permissionModeChangeLine(
-  entry: SessionEntry,
-  formatState: FormatState,
-): string | undefined {
-  const mode = entry.permissionMode;
-  if (typeof mode !== "string") {
-    return undefined;
-  }
-  const previous = formatState.lastPermissionMode;
-  formatState.lastPermissionMode = mode;
-  return previous === undefined || previous === mode
-    ? undefined
-    : `[permission-mode: ${previous} -> ${mode}]`;
-}
+/** Incremental renderer for canonical message records. The concatenation of
+ *  every push() and the final end() return value is the stream's formatted
+ *  output: chunks separated by blank lines, exactly one trailing newline,
+ *  cursor line last — byte-equal to formatting the same finite record
+ *  sequence whole. */
+export class MessageFormatter {
+  private readonly options: MessageFormatOptions;
+  private readonly formatState = newFormatState();
+  private emitted = false;
+  private lastUuid: string | undefined;
 
-/** Whole-input formatter for `format messages`. */
-export function formatSessionEntries(
-  entries: readonly SessionEntry[],
-  options: MessageFormatOptions,
-): string {
-  const formatState = newFormatState();
-  const chunks: string[] = [];
-  for (const entry of entries) {
-    if (entry.type === "permission-mode") {
-      const change = permissionModeChangeLine(entry, formatState);
-      if (change !== undefined) {
-        chunks.push(change);
-      }
-      continue;
-    }
-    if (
-      entry.type !== "user" &&
-      entry.type !== "assistant" &&
-      entry.type !== "system"
-    ) {
-      continue; // unknown session-entry types (attachment, …) are skipped
-    }
-    // A SessionMessage carries every field its SDKMessage variant requires
-    // (`type`, `message`, `uuid`, `session_id`, `parent_tool_use_id`), so
-    // the cast is a narrowing of `message: unknown`, not a fabrication.
-    const message = entry as unknown as SDKMessage;
-    if (message.type === "assistant") {
-      const change = modelChangeLine(message, formatState);
-      if (change !== undefined) {
-        chunks.push(change);
-      }
-    }
-    const chunk = formatSdkMessage(message, formatState, options);
-    if (chunk !== undefined && chunk !== "") {
-      chunks.push(chunk);
-    }
+  constructor(options: MessageFormatOptions) {
+    this.options = options;
   }
-  return joinChunks(chunks);
+
+  /** The record's formatted chunk (with any separator), "" when it renders
+   *  to nothing. Tracks the last uuid consumed regardless of rendering. */
+  push(record: MessageRecord): string {
+    if (typeof record.uuid === "string") {
+      this.lastUuid = record.uuid;
+    }
+    const chunk =
+      record.type === "control"
+        ? renderControl(record.control)
+        : formatSdkMessage(
+            record as SDKMessage,
+            this.formatState,
+            this.options,
+          );
+    if (chunk === undefined || chunk === "") {
+      return "";
+    }
+    const separated = this.emitted ? `\n\n${chunk}` : chunk;
+    this.emitted = true;
+    return separated;
+  }
+
+  /** Flush: the cursor line when any uuid-bearing record was consumed, plus
+   *  final-newline bookkeeping; "" for a stream that rendered nothing and
+   *  carried no uuids. */
+  end(): string {
+    if (this.lastUuid === undefined) {
+      return this.emitted ? "\n" : "";
+    }
+    const cursor = `[cursor: ${displayUuid(this.lastUuid)}]`;
+    return this.emitted ? `\n\n${cursor}\n` : `${cursor}\n`;
+  }
 }

@@ -22,20 +22,25 @@ import type { MessageFormatOptions } from "./types.ts";
 
 /**
  * Mutable rendering context threaded through a whole stream: tool_use id →
- * tool name (results are named by their call), last-seen model / permission
- * mode (for inferred change lines).
+ * tool name (results are named by their call).
  */
 export interface FormatState {
   toolNames: Map<string, string>;
   /** Full text of queued prompts, rendered at their dequeue (events mode);
    * seeded from a snapshot record's queued messages. */
   queuedMessages: Map<number, SDKUserMessage>;
-  lastModel?: string;
-  lastPermissionMode?: string;
 }
 
 export function newFormatState(): FormatState {
   return { toolNames: new Map(), queuedMessages: new Map() };
+}
+
+const ANNOTATION_CHARS = 80;
+
+/** `[content]`, one-lined and truncated as a whole so every annotation line
+ * caps at the same width regardless of its prefix. */
+export function annotation(content: string): string {
+  return `[${truncateText(oneLine(content), ANNOTATION_CHARS)}]`;
 }
 
 function formatToolArguments(args: unknown, maxChars: number): string {
@@ -168,8 +173,4 @@ export function formatSdkMessage(
     default:
       return genericAnnotation(message);
   }
-}
-
-export function joinChunks(chunks: readonly string[]): string {
-  return chunks.length === 0 ? "" : `${chunks.join("\n\n")}\n`;
 }

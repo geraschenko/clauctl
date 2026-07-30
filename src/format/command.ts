@@ -1,5 +1,6 @@
 import { buildRouteMap } from "@stricli/core";
 import {
+  booleanFlag,
   commandNoTarget,
   enumFlag,
   parsedFlag,
@@ -9,13 +10,16 @@ import {
 import { readInputFile } from "../core/generated/read-input.ts";
 import type { CommandContext } from "../core/generated/targets.ts";
 import { UsageError } from "../core/generated/util.ts";
-import { formatTailRecords } from "./events.ts";
+import { CanonicalEntryFilter } from "../core/session/entry-stream.ts";
+import { MessageProjector } from "../core/session/messages.ts";
+import { formatEntryLine, type EntryFormatOptions } from "./entries.ts";
+import { EventFormatter } from "./events.ts";
 import {
-  parseSessionEntries,
+  decodeFormatInput,
+  inputChunks,
   parseSessionSnapshot,
-  parseTailRecords,
 } from "./input.ts";
-import { formatSessionEntries } from "./messages.ts";
+import { MessageFormatter } from "./messages.ts";
 import { FILTER_MODES, formatSessionSnapshot } from "./tree.ts";
 import type { MessageFormatOptions } from "./types.ts";
 
@@ -61,15 +65,62 @@ const filePositional = {
   ],
 } as const;
 
+/** The stream-level kind-mismatch errors (per-record shape errors live in
+ *  decodeFormatInput). */
+function rejectEvents(): never {
+  throw new UsageError(
+    "input looks like tail output; use `clauctl format events`",
+  );
+}
+
+function rejectMessages(): never {
+  throw new UsageError(
+    "input looks like canonical message output; use `clauctl format messages`",
+  );
+}
+
+function rejectEntries(): never {
+  throw new UsageError(
+    "input looks like session-entry output; use `clauctl format messages` or `clauctl format entries`",
+  );
+}
+
 async function formatMessages(
   this: CommandContext,
   flags: FormatFlags,
   file?: string,
 ): Promise<void> {
-  const input = await readInputFile(this, file);
-  this.process.stdout.write(
-    formatSessionEntries(parseSessionEntries(input), formatOptions(flags)),
-  );
+  const input = await decodeFormatInput(inputChunks(this, file));
+  if (input.kind === "empty") {
+    return;
+  }
+  if (input.kind === "events") {
+    rejectEvents();
+  }
+  const formatter = new MessageFormatter(formatOptions(flags));
+  const write = (chunk: string) => {
+    if (chunk !== "") {
+      this.process.stdout.write(chunk);
+    }
+  };
+  if (input.kind === "messages") {
+    for await (const record of input.records) {
+      write(formatter.push(record));
+    }
+  } else {
+    const filter = new CanonicalEntryFilter();
+    const projector = new MessageProjector();
+    for await (const entry of input.records) {
+      const accepted = filter.accept(entry);
+      if (accepted === undefined) {
+        continue;
+      }
+      for (const record of projector.push(accepted)) {
+        write(formatter.push(record));
+      }
+    }
+  }
+  write(formatter.end());
 }
 
 async function formatEvents(
@@ -77,10 +128,64 @@ async function formatEvents(
   flags: FormatFlags,
   file?: string,
 ): Promise<void> {
-  const input = await readInputFile(this, file);
-  this.process.stdout.write(
-    formatTailRecords(parseTailRecords(input), formatOptions(flags)),
-  );
+  const input = await decodeFormatInput(inputChunks(this, file));
+  if (input.kind === "empty") {
+    return;
+  }
+  if (input.kind === "entries") {
+    rejectEntries();
+  }
+  if (input.kind === "messages") {
+    rejectMessages();
+  }
+  const formatter = new EventFormatter(formatOptions(flags));
+  for await (const record of input.records) {
+    const chunk = formatter.push(record);
+    if (chunk !== "") {
+      this.process.stdout.write(chunk);
+    }
+  }
+  const tail = formatter.end();
+  if (tail !== "") {
+    this.process.stdout.write(tail);
+  }
+}
+
+const entriesFlags = {
+  timestamps: booleanFlag("Prefix each line with the entry timestamp"),
+  full: booleanFlag("Append the raw entry JSON after the summary"),
+  width: parsedFlag("Output width", parsePositiveInteger, "num"),
+};
+type EntriesFlags = InferFlags<typeof entriesFlags>;
+
+async function formatEntries(
+  this: CommandContext,
+  flags: EntriesFlags,
+  file?: string,
+): Promise<void> {
+  const input = await decodeFormatInput(inputChunks(this, file));
+  if (input.kind === "empty") {
+    return;
+  }
+  if (input.kind === "events") {
+    rejectEvents();
+  }
+  if (input.kind === "messages") {
+    rejectMessages();
+  }
+  const options: EntryFormatOptions = {
+    timestamps: flags.timestamps ?? false,
+    full: flags.full ?? false,
+    width: flags.width ?? 120,
+  };
+  const filter = new CanonicalEntryFilter();
+  for await (const entry of input.records) {
+    const accepted = filter.accept(entry);
+    if (accepted === undefined) {
+      continue;
+    }
+    this.process.stdout.write(`${formatEntryLine(accepted, options)}\n`);
+  }
 }
 
 const treeFlags = {
@@ -110,7 +215,8 @@ export const formatRoute = {
         messages: commandNoTarget<FormatFlags, [string | undefined]>({
           common: true,
           docs: {
-            brief: "format get-messages or session-file JSONL as plain text",
+            brief:
+              "format session-entry or canonical message JSONL as plain text",
           },
           parameters: { flags: formatFlags, positional: filePositional },
           func: formatMessages,
@@ -120,6 +226,15 @@ export const formatRoute = {
           docs: { brief: "format the tail stream as plain text" },
           parameters: { flags: formatFlags, positional: filePositional },
           func: formatEvents,
+        }),
+        entries: commandNoTarget<EntriesFlags, [string | undefined]>({
+          common: true,
+          docs: {
+            brief:
+              "format get-entries or session-file JSONL as one summary line per entry",
+          },
+          parameters: { flags: entriesFlags, positional: filePositional },
+          func: formatEntries,
         }),
         tree: commandNoTarget<TreeFlags, [string | undefined]>({
           common: true,

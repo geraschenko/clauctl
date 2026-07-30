@@ -163,12 +163,12 @@ export class MessageProjector {
 Projection rules (exhaustive; everything else returns `[]` and is visible
 only via `--type entries`):
 
-| Entry | Projected records |
-| --- | --- |
-| `user`/`assistant` accepted by `entryToSessionMessage` | the message; for assistant, preceded by a `model_changed` control when `message.model` differs from the last seen model (nothing on first sighting) |
-| `permission-mode` (string `permissionMode`) | `permission_mode_changed` when the mode differs from the last seen one (nothing on first sighting) |
-| `system`/`compact_boundary` | `compaction` with the entry's uuid, `compactMetadata.trigger`, `compactMetadata.preTokens` (fields omitted when absent/malformed) |
-| `queue-operation` with `operation === "enqueue"` and string `content` | `queued_input` with the text (dequeue emits nothing — the delivered user message follows as its own entry) |
+| Entry                                                                 | Projected records                                                                                                                                   |
+| --------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `user`/`assistant` accepted by `entryToSessionMessage`                | the message; for assistant, preceded by a `model_changed` control when `message.model` differs from the last seen model (nothing on first sighting) |
+| `permission-mode` (string `permissionMode`)                           | `permission_mode_changed` when the mode differs from the last seen one (nothing on first sighting)                                                  |
+| `system`/`compact_boundary`                                           | `compaction` with the entry's uuid, `compactMetadata.trigger`, `compactMetadata.preTokens` (fields omitted when absent/malformed)                   |
+| `queue-operation` with `operation === "enqueue"` and string `content` | `queued_input` with the text (dequeue emits nothing — the delivered user message follows as its own entry)                                          |
 
 Non-boundary `system` entries are dropped from the projection (approved:
 they remain visible in entries mode; `MessageRecord` stays closed).
@@ -309,7 +309,11 @@ Classification rules, applied to the first complete record:
   that does not parse alone (pretty-printed document): buffer all input,
   validate as the get-entries document → `entries`;
 - object with `type: "control"`, or `type: "user" | "assistant"` with a
-  string `session_id` → `messages`;
+  string `session_id` **and a top-level `parent_tool_use_id`** → `messages`
+  (amended during implementation: real transcripts contain entries carrying
+  snake_case `session_id` alongside camelCase `sessionId`, so `session_id`
+  alone is not a discriminator; `parent_tool_use_id` is always set by
+  `entryToSessionMessage` and never observed top-level on an entry);
 - object with any other string `type` → `entries`;
 - object with exactly one of `snapshot`/`event` keys → `events`;
 - anything else: the existing generic not-recognized UsageError.
@@ -518,4 +522,39 @@ encountered.
 - [x] Owner review of this draft (approved 2026-07-29; leaving `format tree`
       unchanged confirmed correct — the overview's "expanded accepted inputs"
       had already happened).
-- [ ] Implementation (on explicit owner approval).
+- [x] 2026-07-29: Implementation (all 7 sequence steps). Presubmit green
+      (539 tests); live smoke on the duplicate-heavy real session file
+      (429cb369…, 237 duplicated uuids): `format messages <file>` ≡ the same
+      bytes through a 997-byte-chunked pipe, and `format entries <file>` ≡
+      the same entries wrapped as a get-entries document (invariant 4).
+      Record-by-record laziness is pinned by a pull-counting unit test.
+
+## Implementation-Time Decisions
+
+- **`session_id` is not a message discriminator** (spec amendment, flagged
+  for owner review): the first smoke run failed mid-file — real transcripts
+  contain user/assistant **entries** carrying snake_case `session_id`
+  alongside camelCase `sessionId` (1392 such entries across this project's
+  transcripts). Messages are now classified by `type:"control"` or
+  user/assistant with string `session_id` **and** top-level
+  `parent_tool_use_id` — always set by `entryToSessionMessage`, never
+  observed top-level on an entry.
+- **Snapshot-document input to `format events` no longer points at
+  `format tree`**: the document decodes to kind `entries` (its provenance is
+  not tracked), so `format events` rejects it with "use `clauctl format
+  messages` or `clauctl format entries`" — correct guidance now that both
+  accept the document, but a wording change from today's `format tree`
+  pointer.
+- **Torn-only input is `empty`, document parse tried first**: input with no
+  complete line is parsed whole as a document (a get-entries document
+  without a trailing newline is valid input); if that fails, the torn line
+  is dropped per the spec's torn-final-line rule and the kind is `empty`.
+- **`annotation()` moved to sdk-message.ts**: `[queued: …]` must truncate
+  exactly like events annotations, so the helper is shared instead of
+  duplicated or imported from events.ts.
+- **`file-history-delta` summarizes as its `trackingPath`** (a scalar, not a
+  backup dump) rather than a literal count — a delta always covers exactly
+  one file, so a count carries no information.
+- **`joinChunks` removed**: both whole-input drivers were its only callers.
+
+- [ ] Owner review of the implementation.

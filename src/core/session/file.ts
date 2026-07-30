@@ -11,6 +11,7 @@ import { randomUUID, type UUID } from "node:crypto";
 import { appendFileSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { SessionMessage } from "@anthropic-ai/claude-agent-sdk";
+import { JsonlDecoder } from "../jsonl.ts";
 import type { SetContextResult } from "../sdk-socket.ts";
 
 /** One parsed jsonl line, verbatim. Known fields typed, everything else kept. */
@@ -84,23 +85,18 @@ export function sessionFilePath(
   return join(configDir, "projects", projectKey(cwd), `${sessionId}.jsonl`);
 }
 
-const NEWLINE = "\n".charCodeAt(0);
-
-/** Incremental jsonl entry parser. Splits on raw NEWLINE bytes — never
- *  decoding first, so a UTF-8 code point split across chunks stays intact in
- *  the buffered suffix — and holds the unterminated byte suffix until its
- *  newline arrives: a mid-append read can see a partial final line, and once
- *  the newline is on disk the whole record before it is too. Both writers
- *  terminate records with bare LF; a CRLF file would still parse, since the
- *  retained '\r' is JSON whitespace. Blank/whitespace-only lines are skipped
- *  but still counted, so file:line in errors stays correct. A malformed
- *  TERMINATED line, or a terminated line whose value is not an object, is
- *  real corruption: silently dropping it would let chain computation and
- *  file mutation proceed against incomplete history, so it throws instead. */
+/** Incremental jsonl entry parser: JsonlDecoder splitting (torn suffixes
+ *  buffered until their newline arrives — a mid-append read can see a partial
+ *  final line, and once the newline is on disk the whole record before it is
+ *  too) plus session-file validation. Both writers terminate records with
+ *  bare LF; a CRLF file would still parse, since the retained '\r' is JSON
+ *  whitespace. A malformed TERMINATED line, or a terminated line whose value
+ *  is not an object, is real corruption: silently dropping it would let chain
+ *  computation and file mutation proceed against incomplete history, so it
+ *  throws instead. */
 export class SessionEntryParser {
   private readonly filePath: string;
-  private tornSuffix = Buffer.alloc(0);
-  private lineNumber = 0;
+  private readonly decoder = new JsonlDecoder();
 
   constructor(filePath: string) {
     this.filePath = filePath;
@@ -109,29 +105,13 @@ export class SessionEntryParser {
   /** Complete entries terminated within this chunk (prefixed by any retained
    *  torn suffix). */
   push(chunk: Buffer): SessionEntry[] {
-    const data =
-      this.tornSuffix.length === 0
-        ? chunk
-        : Buffer.concat([this.tornSuffix, chunk]);
-    const entries: SessionEntry[] = [];
-    let lineStart = 0;
-    while (true) {
-      const newlineIndex = data.indexOf(NEWLINE, lineStart);
-      if (newlineIndex === -1) {
-        break;
-      }
-      this.lineNumber += 1;
-      const line = data.toString("utf8", lineStart, newlineIndex);
-      lineStart = newlineIndex + 1;
-      if (line.trim() === "") {
-        continue;
-      }
+    return this.decoder.push(chunk).map(({ text, lineNumber }) => {
       let parsed: unknown;
       try {
-        parsed = JSON.parse(line);
+        parsed = JSON.parse(text);
       } catch {
         throw new Error(
-          `${this.filePath}:${this.lineNumber}: malformed session file line`,
+          `${this.filePath}:${lineNumber}: malformed session file line`,
         );
       }
       if (
@@ -140,18 +120,11 @@ export class SessionEntryParser {
         Array.isArray(parsed)
       ) {
         throw new Error(
-          `${this.filePath}:${this.lineNumber}: session file line is not an object`,
+          `${this.filePath}:${lineNumber}: session file line is not an object`,
         );
       }
-      entries.push(parsed as SessionEntry);
-    }
-    // Copied, not a subarray view: a view would pin the (possibly whole-file)
-    // parent buffer for the lifetime of the torn suffix.
-    this.tornSuffix =
-      lineStart === data.length
-        ? Buffer.alloc(0)
-        : Buffer.from(data.subarray(lineStart));
-    return entries;
+      return parsed as SessionEntry;
+    });
   }
 }
 
