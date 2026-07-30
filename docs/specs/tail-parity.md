@@ -433,6 +433,17 @@ encountered.
       matching pictl, with the `MessageFormatOptions` interface kept in
       `format/types.ts` as pictl does. Default `maxToolArgChars` and tree
       width aligned to `DEFAULT_FORMAT_WIDTH` (120 → 100), matching pictl.
+- [x] 2026-07-30: Considered defaulting `--until` to `turn-end`; implemented,
+      then reverted (owner decision). The prompt/tail asymmetry is
+      deliberate: `prompt` is request/response — its stream is scoped to the
+      turn it starts, so `turn-end` is the right default (pictl's prompt has
+      it) — while `tail` is observation, whose natural scope is "as long as
+      I'm watching", so it follows indefinitely without `--until` (as
+      pictl's tail does). A future clauctl prompt-equivalent should default
+      to `turn-end`; tail should not. Kept from the experiment: an e2e test
+      that a condition met at the idle seed drains history through the seed
+      leaf before settling (previously only covered via a mid-stream
+      condition and the UntilSettlement unit test).
 - [ ] Owner review of the implementation.
 
 ## Implementation-Time Decisions

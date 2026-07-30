@@ -302,6 +302,41 @@ test("live messages --since replays only entries after the cursor", async () => 
   });
 });
 
+test("--until turn-end on an idle agent emits history and exits", async () => {
+  const sessions = [
+    {
+      sessionId: "s1",
+      entries: [userEntry(UUID_A, "first"), userEntry(UUID_B, "second")],
+    },
+  ];
+  await withTailAgent(
+    {
+      live: true,
+      seed: { ...INITIAL_AGENT_STATE, leaf: { uuid: UUID_B } },
+      sessions,
+    },
+    async (agentId) => {
+      // The condition is met at the idle seed, which must not bypass
+      // history: catch-up drains the queued entries through the seed leaf
+      // before settling (spec "`--until` settlement and entry catch-up").
+      const result = await runCommand([
+        "tail",
+        "-t",
+        agentId,
+        "--json",
+        "--until",
+        "turn-end",
+      ]);
+      assert.equal(result.proc.exitCode, 0);
+      const uuids = result.stdout
+        .split("\n")
+        .filter((line) => line !== "")
+        .map((line) => (JSON.parse(line) as { uuid?: string }).uuid);
+      assert.deepEqual(uuids, [UUID_A, UUID_B]);
+    },
+  );
+});
+
 test("socket close during a messages follow is conclusive idleness", async () => {
   const sessions = [{ sessionId: "s1", entries: [userEntry(UUID_A, "hello")] }];
   await withTailAgent(
