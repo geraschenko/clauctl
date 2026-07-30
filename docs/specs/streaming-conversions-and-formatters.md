@@ -585,4 +585,5 @@ encountered.
       getters kept), the file joined the sync set, and both
       stream-commands.test.ts and audit-wiring.test.ts now use the shared
       `fakeProcess`.
-- [ ] Owner review of the implementation.
+- [x] Owner review of the implementation (approved 2026-07-30 after two
+      review rounds).
