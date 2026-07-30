@@ -131,6 +131,7 @@ async function submitPrompt(
   );
   try {
     const data = await client.request({
+      // TDC: let's also change the name of the request to "prompt"
       type: "query",
       content,
       ...(flags.priority !== undefined && { priority: flags.priority }),
@@ -168,6 +169,7 @@ async function promptObserved(
   agent: AgentRecord,
   type: "messages" | "entries",
   json: boolean,
+  // TDC: "submit" is a bad name for this thing. It should describe what it is, not what you did to obtain it. Why is it even a thunk which returns a promise rather than a promise itself? I'd expect it to be called something like promptIdPromise. What is idiomatic for stuff like this in typescript?
   submit: () => Promise<number | undefined>,
   condition: UntilCondition,
   timeoutMs: number | undefined,
