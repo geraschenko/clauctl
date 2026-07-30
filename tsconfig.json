@@ -3,13 +3,10 @@
     "target": "es2023",
     "module": "nodenext",
     "moduleResolution": "nodenext",
-    "outDir": "dist",
-    "rootDir": "src",
     "strict": true,
     "rewriteRelativeImportExtensions": true,
-    "declaration": false,
-    "sourceMap": true,
-    "skipLibCheck": true
+    "skipLibCheck": true,
+    "noEmit": true
   },
-  "include": ["src"]
+  "include": ["src", "scripts"]
 }

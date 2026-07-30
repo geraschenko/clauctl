@@ -36,11 +36,11 @@ async function generate(schemas: ToolSchemas): Promise<string> {
   const names = schemas.tools.map((tool) => tool.name);
   const interfaces = await Promise.all(
     schemas.tools.map((tool) =>
-      compile(
-        (tool as { input_schema: Record<string, unknown> }).input_schema,
-        `${tool.name}Input`,
-        { bannerComment: "", format: false, additionalProperties: false },
-      ),
+      compile(tool.input_schema, `${tool.name}Input`, {
+        bannerComment: "",
+        format: false,
+        additionalProperties: false,
+      }),
     ),
   );
   const source = [

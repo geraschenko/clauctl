@@ -59,7 +59,11 @@ const READY_TIMEOUT_MS = 15_000;
 
 /** The raw JSON capture-addon.py writes. */
 interface RawCapture {
-  tools: { name: string; defer_loading?: boolean }[];
+  tools: {
+    name: string;
+    input_schema: Record<string, unknown>;
+    defer_loading?: boolean;
+  }[];
   deferred_tool_roster: string[] | null;
   drift_detected: boolean;
 }
@@ -70,7 +74,11 @@ export interface ToolSchemas {
   /** @anthropic-ai/claude-agent-sdk version bundling that binary; what
    *  `generate.ts --check` compares against (a local file read). */
   sdkVersion: string;
-  tools: { name: string; defer_loading?: boolean }[];
+  tools: {
+    name: string;
+    input_schema: Record<string, unknown>;
+    defer_loading?: boolean;
+  }[];
 }
 
 /** Polls until the proxy accepts TCP connections (mitmdump has no

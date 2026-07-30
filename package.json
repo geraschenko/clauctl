@@ -38,7 +38,7 @@
     "presubmit": "npm run check && npm run lint && node scripts/sync-from-pictl.mjs --check && node scripts/claude-tools/generate.ts --check && treefmt --fail-on-change && npm test"
   },
   "dependencies": {
-    "@anthropic-ai/claude-agent-sdk": "0.3.211",
+    "@anthropic-ai/claude-agent-sdk": "0.3.220",
     "@earendil-works/pi-coding-agent": "0.80.10",
     "@earendil-works/pi-tui": "0.80.10",
     "@stricli/auto-complete": "^1.2.8",

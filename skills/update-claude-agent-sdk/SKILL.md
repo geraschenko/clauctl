@@ -28,6 +28,17 @@ range.
   exclusion rationale at the mapping site.
 - Message-shape changes can affect `src/core/agent-state.ts`,
   `src/core/daemon/queue-model.ts`, `src/format/`, and `src/tui/sdk-render.ts`.
+- `scripts/claude-tools/tool-schemas.json` is stamped with the capturing SDK
+  version and checked by presubmit (`generate.ts --check`), so an SDK bump turns
+  presubmit red until `capture.ts` is rerun. Capture is a live step: it runs the
+  bundled claude through mitmdump with real credentials. A schema diff can also
+  come from account-level feature gates rather than the version change (see
+  capture.ts's header).
+- The TUI parity harness (`scripts/tui-parity`, docs/specs/tui-parity.md) caches
+  native-claude captures keyed to the session content, so after a bump they must
+  be recaptured with `--recapture-claude`. Capture/diff of the existing corpus is
+  free to repeat; only session generation (`tui-parity/generate.ts`) costs API
+  calls. The corpus lives in gitignored `scripts/tui-parity/out/`.
 - Live Claude calls may consume money and alter credentials/config/transcripts.
   Never run them without explicit user approval of the proposed cases and budget.
 - For live tests, use a temporary `CLAUDE_CONFIG_DIR` and copy the active config's
@@ -113,13 +124,44 @@ range.
    - Add or update offline tests for changed project behavior. Do not loosen types,
      cast away a migration error, or remove intentional functionality.
 
-6. Run focused tests while editing, then one final `npm run presubmit`. Do not repeat
+6. Refresh the captured tool schemas — presubmit stays red until
+   `tool-schemas.json`'s recorded sdkVersion matches the new install:
+
+   ```bash
+   node scripts/claude-tools/capture.ts
+   node scripts/claude-tools/generate.ts
+   ```
+
+   Capture is live (see fixed facts): ask before running it, together with or
+   ahead of the step-9 approval, and report that the schema presubmit check
+   cannot pass if it is declined. Review the resulting `tool-schemas.json` and
+   `generated.ts` diff: tools without a bespoke view render through the generic
+   fallback in `src/tui/tool-views/tool-view.ts`, so for each new tool decide
+   whether it needs a bespoke view or the fallback suffices, and flag removed or
+   changed inputs to views that consume them. Attribute a schema diff to gate
+   drift, not the bump, when the tool set changed without a matching
+   binary-version change.
+
+7. When the bundled claude version changed, re-baseline the TUI parity harness
+   against the existing session corpus:
+
+   ```bash
+   node scripts/tui-parity/capture.ts --recapture-claude
+   ```
+
+   This is free to repeat. Treat new diffs as rendering obligations (clauctl
+   rendering or `normalize()` updates); regenerate scenario sessions only when a
+   migration note requires new session content, with the same approval as other
+   live runs. If the local corpus is missing, say so instead of silently
+   regenerating it.
+
+8. Run focused tests while editing, then one final `npm run presubmit`. Do not repeat
    the full suite after every small correction. Treat successful compilation as weak
    evidence for additive SDK or runtime-default changes. Do not use a reviewer by
    default; use one final review only when the migration changes lifecycle, protocol,
    or security-sensitive behavior and the extra scrutiny is worthwhile.
 
-7. Propose a minimal live matrix derived from the migration notes and ask for explicit
+9. Propose a minimal live matrix derived from the migration notes and ask for explicit
    approval before running it. Always include one isolated core smoke because the
    SDK package pins the bundled Claude binary:
 
@@ -144,10 +186,10 @@ range.
    captures—never credentials, tokens, environment dumps, or private config—and
    remove successful temporary agent state.
 
-8. Finish with a migration report containing:
+10. Finish with a migration report containing:
 
-   - old and new exact versions;
-   - notable declaration/runtime changes and their disposition;
-   - updated call sites and adopted/deferred opportunities;
-   - offline and live tests run (or live tests explicitly not run);
-   - unresolved risks, including behavior not represented in declarations.
+- old and new exact versions;
+- notable declaration/runtime changes and their disposition;
+- updated call sites and adopted/deferred opportunities;
+- offline and live tests run (or live tests explicitly not run);
+- unresolved risks, including behavior not represented in declarations.

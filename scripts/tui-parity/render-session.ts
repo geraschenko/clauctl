@@ -18,8 +18,8 @@ import { pathToLeaf } from "../../src/core/tree/nodes.ts";
 import {
   entriesByUuid,
   readSessionEntries,
-} from "../../src/core/session-file.ts";
-import { seedFromEntries } from "../../src/core/session-seed.ts";
+} from "../../src/core/session/file.ts";
+import { seedFromEntries } from "../../src/core/session/seed.ts";
 import { TranscriptRenderer } from "../../src/tui/transcript.ts";
 
 export function renderSessionFile(
