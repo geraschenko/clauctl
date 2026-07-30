@@ -108,6 +108,7 @@ async function formatMessages(
   writeChunk(this, formatter.end());
 }
 
+// TDC: This feels like it logically belongs in core/session/messages, with MessageProjector.
 /** The canonical entries→messages stream conversion: first-wins filter, then
  *  projection. */
 async function* projectEntries(
