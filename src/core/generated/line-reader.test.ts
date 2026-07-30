@@ -1,3 +1,6 @@
+// DO NOT MODIFY — generated from pictl by scripts/sync-from-pictl.mjs.
+// The canonical copy lives in pictl; edit it there and re-run the script.
+
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { LineReader } from "./line-reader.ts";

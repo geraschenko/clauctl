@@ -11,7 +11,7 @@ import { randomUUID, type UUID } from "node:crypto";
 import { appendFileSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { SessionMessage } from "@anthropic-ai/claude-agent-sdk";
-import { LineReader } from "../line-reader.ts";
+import { LineReader } from "../generated/line-reader.ts";
 import type { SetContextResult } from "../sdk-socket.ts";
 
 /** One parsed jsonl line, verbatim. Known fields typed, everything else kept. */

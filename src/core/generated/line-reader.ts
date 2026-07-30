@@ -1,10 +1,9 @@
+// DO NOT MODIFY — generated from pictl by scripts/sync-from-pictl.mjs.
+// The canonical copy lives in pictl; edit it there and re-run the script.
+
 /**
- * Incremental splitting of a byte stream into complete non-blank lines,
- * shared by the session-file parser and the `format` input pipeline.
- * Splitting only — parsing and error wording stay with the callers, whose
- * vocabularies deliberately differ (SessionEntryParser's `file:line:
- * malformed session file line` Error vs format input's `invalid JSONL line
- * N` UsageError).
+ * Incremental splitting of a byte stream into complete non-blank lines.
+ * Splitting only — parsing and error wording stay with the callers.
  */
 
 export type Line = Readonly<{ text: string; lineNumber: number }>;
@@ -13,7 +12,7 @@ const NEWLINE = "\n".charCodeAt(0);
 
 /** Splits on raw NEWLINE bytes — never decoding first, so a UTF-8 code point
  *  split across chunks stays intact in the buffered suffix — and holds the
- *  unterminated byte suffix until its newline arrives: a mid-append read can
+ *  unterminated byte suffix until its newline arrives: a mid-stream read can
  *  see a partial final line, and once the newline lands the whole record
  *  before it has too. Blank/whitespace-only lines are skipped but still
  *  counted, so line numbers in caller errors match the input. */

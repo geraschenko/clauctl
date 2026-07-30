@@ -11,7 +11,7 @@ import { createReadStream } from "node:fs";
 import { parseJsonlInput } from "../core/generated/read-input.ts";
 import type { CommandContext } from "../core/generated/targets.ts";
 import { isRecord, UsageError } from "../core/generated/util.ts";
-import { LineReader, type Line } from "../core/line-reader.ts";
+import { LineReader, type Line } from "../core/generated/line-reader.ts";
 import type { SessionEntry } from "../core/session/file.ts";
 import type { MessageRecord } from "../core/session/messages.ts";
 import { seedFromEntries } from "../core/session/seed.ts";
