@@ -569,4 +569,19 @@ encountered.
       entries input into the message stream, and one loop drives the
       formatter regardless of input kind. Owner's direct edits kept: `format
       entries` width default 100, error-wording tweaks.
+- [x] 2026-07-30: Review round 2 (commit a3d85e6) + pictl ca69c08 dedupe.
+      `projectEntries` moved from format/command.ts to core/session/
+      messages.ts next to `MessageProjector` — it is the canonical
+      entries→messages conversion, and later `tail`/`prompt` consumers
+      belong on the same function. Adopted the newly synced shared helpers:
+      format/tree.ts drops its local `isRecord` (generated/util.ts) and its
+      entry-level `contentBlocks` becomes `recordBlocks` built on generated
+      text.ts `contentBlocks`, with open-coded `.some(type)` checks replaced
+      by `hasContentBlock`; format/entries.ts `messageSummary` uses
+      `contentBlocks` instead of an `Array.isArray` branch. pictl's new
+      core/test-util.ts was evaluated and NOT synced: clauctl's
+      stream-commands tests assert on write-chunk boundaries
+      (`stdout.length`), which a string-accumulating `fakeProcess` cannot
+      express; only audit-wiring.test.ts could adopt it, too little to
+      justify a sync set.
 - [ ] Owner review of the implementation.

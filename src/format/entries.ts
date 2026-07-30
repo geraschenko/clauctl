@@ -8,7 +8,7 @@
 
 import { isRecord } from "../core/generated/util.ts";
 import type { SessionEntry } from "../core/session/file.ts";
-import { oneLine, truncateText } from "./generated/text.ts";
+import { contentBlocks, oneLine, truncateText } from "./generated/text.ts";
 import { displayUuid } from "./uuid.ts";
 
 export type EntryFormatOptions = Readonly<{
@@ -56,10 +56,7 @@ function messageSummary(entry: SessionEntry): string {
   if (typeof content === "string") {
     return content;
   }
-  if (Array.isArray(content)) {
-    return content.map(contentBlockMarker).join(" ");
-  }
-  return "";
+  return contentBlocks(content).map(contentBlockMarker).join(" ");
 }
 
 function stringField(entry: SessionEntry, key: string): string {

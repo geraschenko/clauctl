@@ -19,8 +19,15 @@ import {
   type ParentMap,
   type SessionSnapshot,
 } from "../core/tree/nodes.ts";
+import { isRecord } from "../core/generated/util.ts";
 import { toLayoutTree } from "./generated/flat-tree.ts";
-import { extractTextContent, oneLine, truncateText } from "./generated/text.ts";
+import {
+  contentBlocks,
+  extractTextContent,
+  hasContentBlock,
+  oneLine,
+  truncateText,
+} from "./generated/text.ts";
 import {
   flattenVisibleTree,
   treePrefix,
@@ -42,17 +49,12 @@ export interface TreeFormatOptions {
   width: number;
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
-}
-
 function messageContent(entry: SessionEntry): unknown {
   return isRecord(entry.message) ? entry.message.content : undefined;
 }
 
-function contentBlocks(entry: SessionEntry): Record<string, unknown>[] {
-  const content = messageContent(entry);
-  return Array.isArray(content) ? content.filter(isRecord) : [];
+function recordBlocks(entry: SessionEntry): Record<string, unknown>[] {
+  return contentBlocks(messageContent(entry)).filter(isRecord);
 }
 
 function hasText(entry: SessionEntry): boolean {
@@ -75,8 +77,7 @@ function abnormalStopReason(entry: SessionEntry): string | undefined {
 
 function toolResultOnly(entry: SessionEntry): boolean {
   return (
-    contentBlocks(entry).some((block) => block.type === "tool_result") &&
-    !hasText(entry)
+    hasContentBlock(messageContent(entry), "tool_result") && !hasText(entry)
   );
 }
 
@@ -109,7 +110,7 @@ export function passesFilter(
       return !(
         entry.type === "assistant" &&
         !isCurrentLeaf &&
-        contentBlocks(entry).some((block) => block.type === "tool_use") &&
+        hasContentBlock(messageContent(entry), "tool_use") &&
         !hasText(entry) &&
         abnormalStopReason(entry) === undefined
       );
@@ -149,7 +150,7 @@ export function collectToolNames(
 ): Map<string, string> {
   const toolNames = new Map<string, string>();
   for (const entry of entries) {
-    for (const block of contentBlocks(entry)) {
+    for (const block of recordBlocks(entry)) {
       if (
         block.type === "tool_use" &&
         typeof block.id === "string" &&
@@ -173,7 +174,7 @@ export function entrySummary(
         ? `compaction: ${text}`
         : `user: ${text}`;
     }
-    const results = contentBlocks(entry).filter(
+    const results = recordBlocks(entry).filter(
       (block) => block.type === "tool_result",
     );
     if (results.length > 0) {
@@ -187,7 +188,7 @@ export function entrySummary(
     }
   }
   if (entry.type === "assistant") {
-    const blocks = contentBlocks(entry);
+    const blocks = recordBlocks(entry);
     const parts: string[] = [];
     if (blocks.some((block) => block.type === "thinking")) {
       parts.push("[thinking]");

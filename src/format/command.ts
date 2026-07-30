@@ -11,11 +11,7 @@ import { readInputFile } from "../core/generated/read-input.ts";
 import type { CommandContext } from "../core/generated/targets.ts";
 import { UsageError } from "../core/generated/util.ts";
 import { CanonicalEntryFilter } from "../core/session/entry-stream.ts";
-import type { SessionEntry } from "../core/session/file.ts";
-import {
-  MessageProjector,
-  type MessageRecord,
-} from "../core/session/messages.ts";
+import { projectEntries } from "../core/session/messages.ts";
 import { formatEntryLine, type EntryFormatOptions } from "./entries.ts";
 import { EventFormatter } from "./events.ts";
 import {
@@ -106,22 +102,6 @@ async function formatMessages(
     writeChunk(this, formatter.push(record));
   }
   writeChunk(this, formatter.end());
-}
-
-// TDC: This feels like it logically belongs in core/session/messages, with MessageProjector.
-/** The canonical entries→messages stream conversion: first-wins filter, then
- *  projection. */
-async function* projectEntries(
-  entries: AsyncIterable<SessionEntry>,
-): AsyncIterable<MessageRecord> {
-  const filter = new CanonicalEntryFilter();
-  const projector = new MessageProjector();
-  for await (const entry of entries) {
-    const accepted = filter.accept(entry);
-    if (accepted !== undefined) {
-      yield* projector.push(accepted);
-    }
-  }
 }
 
 function writeChunk(context: CommandContext, chunk: string): void {

@@ -9,6 +9,7 @@
  */
 
 import type { UUID } from "node:crypto";
+import { CanonicalEntryFilter } from "./entry-stream.ts";
 import {
   entryToSessionMessage,
   type SessionEntry,
@@ -137,6 +138,21 @@ export class MessageProjector {
       }
       default:
         return [];
+    }
+  }
+}
+
+/** The canonical entries→messages stream conversion: first-wins filter, then
+ *  projection. */
+export async function* projectEntries(
+  entries: AsyncIterable<SessionEntry>,
+): AsyncIterable<MessageRecord> {
+  const filter = new CanonicalEntryFilter();
+  const projector = new MessageProjector();
+  for await (const entry of entries) {
+    const accepted = filter.accept(entry);
+    if (accepted !== undefined) {
+      yield* projector.push(accepted);
     }
   }
 }
