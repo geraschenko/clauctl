@@ -30,8 +30,7 @@ import {
   UntilTimeoutError,
 } from "./generated/until-engine.ts";
 import { untilMetAtSeed, untilMetByEvent, untilQuietMs } from "./until.ts";
-
-const SOCKET_CONNECT_DEADLINE_MS = 5_000;
+import { SOCKET_CONNECT_DEADLINE_MS } from "./generated/constants.ts";
 
 const waitFlags = {
   until: requiredParsedFlag(

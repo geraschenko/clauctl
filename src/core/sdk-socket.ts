@@ -24,6 +24,7 @@ import type {
   StreamSubscription,
 } from "./generated/streaming/driver.ts";
 import type { TreeNodeRef } from "./tree/nodes.ts";
+import { UUID_PATTERN } from "./uuid.ts";
 
 export const SDK_SOCKET_PROTOCOL = "clauctl-sdk-socket";
 export const SDK_SOCKET_VERSION = 1;
@@ -170,9 +171,6 @@ export interface SetContextResult {
   boundaryUuid?: UUID;
   summaryUuid?: UUID;
 }
-
-const UUID_PATTERN =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function assertUuid(value: unknown, label: string): UUID {
   if (typeof value !== "string" || !UUID_PATTERN.test(value)) {

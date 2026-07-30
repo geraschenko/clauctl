@@ -13,7 +13,17 @@ import type {
 } from "../core/session/messages.ts";
 import { annotation, formatSdkMessage, newFormatState } from "./sdk-message.ts";
 import type { MessageFormatOptions } from "./types.ts";
-import { displayUuid } from "./uuid.ts";
+import { displayUuid } from "../core/uuid.ts";
+import { DEFAULT_FORMAT_WIDTH } from "../core/generated/constants.ts";
+
+/** The defaults `format messages`/`format events` apply for omitted flags,
+ *  and everything tail renders with — shared so tail's formatted output is
+ *  byte-equal to its `--json` output piped through `format`. */
+export const DEFAULT_MESSAGE_FORMAT_OPTIONS: MessageFormatOptions = {
+  toolResults: "summary",
+  maxToolArgChars: DEFAULT_FORMAT_WIDTH,
+  maxErrorLines: 10,
+};
 
 function renderControl(control: MessageControl): string {
   switch (control.kind) {

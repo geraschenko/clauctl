@@ -7,6 +7,7 @@ import {
   stringArg,
   type InferFlags,
 } from "../core/generated/cli.ts";
+import { DEFAULT_FORMAT_WIDTH } from "../core/generated/constants.ts";
 import { readInputFile } from "../core/generated/read-input.ts";
 import type { CommandContext } from "../core/generated/targets.ts";
 import { UsageError } from "../core/generated/util.ts";
@@ -23,12 +24,12 @@ import {
   inputChunks,
   parseSessionSnapshot,
 } from "./input.ts";
-import { MessageFormatter } from "./messages.ts";
-import { FILTER_MODES, formatSessionSnapshot } from "./tree.ts";
 import {
   DEFAULT_MESSAGE_FORMAT_OPTIONS,
-  type MessageFormatOptions,
-} from "./types.ts";
+  MessageFormatter,
+} from "./messages.ts";
+import { FILTER_MODES, formatSessionSnapshot } from "./tree.ts";
+import type { MessageFormatOptions } from "./types.ts";
 
 function parsePositiveInteger(input: string): number {
   const value = Number(input);
@@ -194,7 +195,7 @@ async function formatTree(
   this.process.stdout.write(
     formatSessionSnapshot(parseSessionSnapshot(input), {
       filter: flags.filter ?? "conversation",
-      width: flags.width ?? 120,
+      width: flags.width ?? DEFAULT_FORMAT_WIDTH,
     }),
   );
 }

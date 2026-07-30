@@ -9,7 +9,8 @@
 import { isRecord } from "../core/generated/util.ts";
 import type { SessionEntry } from "../core/session/file.ts";
 import { contentBlocks, oneLine, truncateText } from "./generated/text.ts";
-import { displayUuid } from "./uuid.ts";
+import { displayUuid } from "../core/uuid.ts";
+import { DEFAULT_FORMAT_WIDTH } from "../core/generated/constants.ts";
 
 export type EntryFormatOptions = Readonly<{
   /** Prefix each line with the entry timestamp. */
@@ -25,7 +26,7 @@ export type EntryFormatOptions = Readonly<{
 export const DEFAULT_ENTRY_FORMAT_OPTIONS: EntryFormatOptions = {
   timestamps: false,
   full: false,
-  width: 100,
+  width: DEFAULT_FORMAT_WIDTH,
 };
 
 /** Full-uuid width; blank-padded for uuid-less entries so columns align. */

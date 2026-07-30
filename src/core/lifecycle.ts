@@ -38,8 +38,8 @@ import {
   type UntilCondition,
 } from "./generated/until-engine.ts";
 import { untilMetAtSeed, untilMetByEvent } from "./until.ts";
+import { SOCKET_CONNECT_DEADLINE_MS } from "./generated/constants.ts";
 
-const SOCKET_CONNECT_DEADLINE_MS = 5_000;
 const SIGKILL_ESCALATION_MS = 5_000;
 const PROCESS_EXIT_DEADLINE_MS = 10_000;
 

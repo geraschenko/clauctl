@@ -14,11 +14,17 @@ export interface CapturedProcess {
   stderr: string;
 }
 
-export function fakeProcess(env: NodeJS.ProcessEnv = {}): CapturedProcess {
+export function fakeProcess(
+  env: NodeJS.ProcessEnv = {},
+  stdinChunks: readonly string[] = [],
+): CapturedProcess {
   const stdoutChunks: string[] = [];
   const stderrChunks: string[] = [];
   const proc = {
     env,
+    stdin: (async function* () {
+      yield* stdinChunks;
+    })(),
     stdout: {
       write: (chunk: string) => {
         stdoutChunks.push(chunk);

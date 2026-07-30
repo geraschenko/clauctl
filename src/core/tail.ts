@@ -24,11 +24,11 @@ import {
   formatEntryLine,
 } from "../format/entries.ts";
 import { EventFormatter } from "../format/events.ts";
-import { MessageFormatter } from "../format/messages.ts";
 import {
   DEFAULT_MESSAGE_FORMAT_OPTIONS,
-  type TailRecord,
-} from "../format/types.ts";
+  MessageFormatter,
+} from "../format/messages.ts";
+import type { TailRecord } from "../format/types.ts";
 import {
   AgentObserver,
   type AgentObservation,
@@ -67,8 +67,8 @@ import {
 import { readSessionEntries, type SessionEntry } from "./session/file.ts";
 import { MessageProjector } from "./session/messages.ts";
 import { untilMetAtSeed, untilMetByEvent, untilQuietMs } from "./until.ts";
-
-const SOCKET_CONNECT_DEADLINE_MS = 5_000;
+import { SOCKET_CONNECT_DEADLINE_MS } from "./generated/constants.ts";
+import { parseUuidFlag } from "./uuid.ts";
 
 /** Bound on the entry catch-up after `--until` fires: the target leaf must
  *  be consumed as an entry observation within this window, or the tail fails
@@ -77,17 +77,6 @@ export const CATCHUP_TIMEOUT_MS = 10_000;
 
 const TAIL_TYPES = ["messages", "entries", "events"] as const;
 type TailType = (typeof TAIL_TYPES)[number];
-
-// TDC: we're redefining this constant in multiple places. Let's move it to src/core/uuid.ts (merge with src/format/uuid.ts). The parse function should go there too.
-const UUID_PATTERN =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
-function parseUuidFlag(input: string): UUID {
-  if (!UUID_PATTERN.test(input)) {
-    throw new UsageError(`invalid uuid: ${input}`);
-  }
-  return input as UUID;
-}
 
 const tailFlags = {
   type: enumFlag("Stream type (default messages)", TAIL_TYPES),

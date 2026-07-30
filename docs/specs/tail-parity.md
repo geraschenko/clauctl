@@ -422,6 +422,17 @@ encountered.
       entries in order with zero duplicate uuids; formatted
       `--until turn-end` on a busy turn settled after the assistant entry
       flushed, cursor line emitted, exit 0.
+- [x] 2026-07-30: Review round 1 (Anton's d972c98) addressed:
+      `SOCKET_CONNECT_DEADLINE_MS` now comes from pictl's
+      `src/core/constants.ts`, added to the sync list (5 local copies
+      removed; `DEFAULT_ENTRY_FORMAT_OPTIONS.width` wired to its
+      `DEFAULT_FORMAT_WIDTH`); `UUID_PATTERN`, `parseUuidFlag`, and
+      `displayUuid` merged into new `src/core/uuid.ts` (tail.ts,
+      sdk-socket.ts, tree/nodes.ts, and `src/format/uuid.ts` deduped);
+      `DEFAULT_MESSAGE_FORMAT_OPTIONS` moved to `format/messages.ts`
+      matching pictl, with the `MessageFormatOptions` interface kept in
+      `format/types.ts` as pictl does. Default `maxToolArgChars` and tree
+      width aligned to `DEFAULT_FORMAT_WIDTH` (120 → 100), matching pictl.
 - [ ] Owner review of the implementation.
 
 ## Implementation-Time Decisions

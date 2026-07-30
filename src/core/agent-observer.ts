@@ -35,9 +35,7 @@ import {
   type EntryStreamState,
 } from "./session/entry-stream.ts";
 import { projectKey, type SessionEntry } from "./session/file.ts";
-
-// TDC: this should be in a src/core/constants.ts file. We can add constants.ts to the pictl sync list if appropriate.
-const SOCKET_CONNECT_DEADLINE_MS = 5_000;
+import { SOCKET_CONNECT_DEADLINE_MS } from "./generated/constants.ts";
 
 /** Bound on awaiting a session file's creation (initial open and rollover):
  *  a never-created file fails with a diagnosis rather than hanging. */

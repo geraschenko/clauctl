@@ -51,6 +51,7 @@ const SYNC_SETS = [
       "audit.ts",
       "cli.ts",
       "completion.ts",
+      "constants.ts",
       "line-reader.ts",
       "line-reader.test.ts",
       "pty.ts",

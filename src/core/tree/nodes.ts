@@ -9,6 +9,7 @@
 import type { UUID } from "node:crypto";
 import type { SessionEntry } from "../session/file.ts";
 import type { ParentMap } from "../../format/generated/flat-tree.ts";
+import { UUID_PATTERN } from "../uuid.ts";
 
 export type { ParentMap };
 
@@ -56,9 +57,6 @@ export function formatTreeNodeRef(ref: TreeNodeRef): string {
     ? ref.uuid
     : `${ref.uuid}@${ref.viaBoundary}`;
 }
-
-const UUID_PATTERN =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** Inverse of formatTreeNodeRef; throws on malformed input. */
 export function parseTreeNodeRef(text: string): TreeNodeRef {
