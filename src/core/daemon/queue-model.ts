@@ -44,7 +44,7 @@ export interface QueueTransition {
 }
 
 /** An acceptance additionally names the id it assigned — the receipt the
- *  query response carries back to the submitting client. */
+ *  prompt response carries back to the submitting client. */
 export interface AcceptTransition extends QueueTransition {
   id: number;
 }

@@ -234,7 +234,7 @@ export function createRequestHandler(
             message: { role: "user", content },
             parent_tool_use_id: null,
             // SDK 0.3.211 treats absent origin as unattributed at strict
-            // human-input trust gates; sdk.sock query requests are user input.
+            // human-input trust gates; sdk.sock prompt requests are user input.
             origin: { kind: "human" },
             ...(request.priority !== undefined && {
               priority: request.priority,

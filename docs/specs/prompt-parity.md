@@ -298,18 +298,26 @@ encountered.
       type renamed `query` → `prompt` end to end (SdkRequest, the daemon
       handler case, the TUI submit path, tests; the receipt error message
       now says "malformed prompt receipt"). The legs' `submit` parameter
-      renamed `submitPrompt`, with the deferral rationale documented on
-      `promptObserved`; call sites pass the arrow inline so no second name
-      for the same action exists. It stays a callback rather than a
-      promise: a promise is already-running work, and the submission must
-      not start before the subscription exists.
-- [ ] Owner review of the implementation.
+      renamed for the action it defers (Anton settled on `submitPromptFn`,
+      breaking the shadow with the module function); call sites pass the
+      arrow inline so no second name for the same action exists. It stays a
+      callback rather than a promise: a promise is already-running work, and
+      the submission must not start before the subscription exists.
+- [x] 2026-07-30: Critical review pass. Verified the success criteria,
+      settlement classification, and data flow against the implementation;
+      confirmed the pre-gate settlement claim (an entry observation cannot
+      settle while `UntilSettlement.target` is unset, and only a withheld
+      sdk-side condition fire can set it). Findings were doc-only: two
+      comments left saying "query" for the renamed wire request
+      (queue-model.ts's AcceptTransition doc, request-handlers.ts's origin
+      note) and the harness ITD still naming `onQuery`; all fixed.
+- [x] Owner review of the implementation.
 
 ## Implementation-Time Decisions
 
-- **`submitPrompt` callback instead of a `promptId` parameter.**
-  `promptObserved`/`promptEvents` take `submitPrompt: () => Promise<number |
-  undefined>` rather than the spec's pre-computed `promptId`: runStream owns
+- **`submitPromptFn` callback instead of a `promptId` parameter.**
+  `promptObserved`/`promptEvents` take `submitPromptFn: () => Promise<number
+  | undefined>` rather than the spec's pre-computed `promptId`: runStream owns
   calling `subscribe()`, so a pre-computed receipt would have forced
   submission before the subscription existed, violating
   subscribe-before-submit. The legs wrap the client so `subscribe()` runs
@@ -328,9 +336,9 @@ encountered.
   spec) and evaluates the condition on it; the observed leg returns false on
   it — a dequeue cannot end our turn.
 - **Prompt tests own their harness.** prompt.test.ts adapts tail.test.ts's
-  live-server pattern (adding an `onQuery` responder and post-subscribe
+  live-server pattern (adding an `onPrompt` responder and post-subscribe
   entry appends) rather than exporting the harness across test files —
   matching the existing stream-commands/tail precedent of per-file
   harnesses. Determinism note recorded on the harness: the subscribe
   response's events are pumped before the separate prompt connection's round
-  trip completes, so sdk events precede any entries `onQuery` appends.
+  trip completes, so sdk events precede any entries `onPrompt` appends.
