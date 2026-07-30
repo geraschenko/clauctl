@@ -78,6 +78,7 @@ export const CATCHUP_TIMEOUT_MS = 10_000;
 const TAIL_TYPES = ["messages", "entries", "events"] as const;
 type TailType = (typeof TAIL_TYPES)[number];
 
+// TDC: we're redefining this constant in multiple places. Let's move it to src/core/uuid.ts (merge with src/format/uuid.ts). The parse function should go there too.
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 

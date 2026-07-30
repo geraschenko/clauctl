@@ -1,6 +1,7 @@
 import type { AgentState } from "../core/agent-state.ts";
 import type { SdkEvent } from "../core/sdk-socket.ts";
 
+// TDC: shouldn't MessageFormatOptions (and the default) be in src/format/messages.ts instead?
 export interface MessageFormatOptions {
   toolResults: "summary" | "none" | "full";
   maxToolArgChars: number;
