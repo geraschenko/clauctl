@@ -160,6 +160,17 @@ test("mismatched delta type for an existing block is ignored", () => {
   });
 });
 
+test("an event type outside the SDK's declared union is ignored", () => {
+  const streaming = run([
+    textStart(0),
+    textDelta(0, "hi"),
+    event({ type: "content_block_ping", index: 0 }),
+  ]);
+  assert.deepEqual(streaming.partial, {
+    content: [{ type: "text", text: "hi" }],
+  });
+});
+
 function assistantMessage(
   content: unknown[],
   stopReason: string | null = null,

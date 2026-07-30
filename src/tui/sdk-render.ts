@@ -121,6 +121,11 @@ export function foldStreamEvent(
     case "message_stop":
     case "content_block_stop":
       return streaming;
+    default:
+      // The runtime API can emit event types absent from the SDK's declared
+      // union; they carry no renderable content, so ignore them like the
+      // known non-content events above.
+      return streaming;
   }
 }
 
