@@ -6,6 +6,7 @@
  * disappearing.
  */
 
+import { isRecord } from "../core/generated/util.ts";
 import type { SessionEntry } from "../core/session/file.ts";
 import { oneLine, truncateText } from "./generated/text.ts";
 import { displayUuid } from "./uuid.ts";
@@ -28,10 +29,6 @@ const TIMESTAMP_COLUMN_WIDTH = 24;
 /** Never truncate a summary below something recognizable, however deep the
  *  prefix columns cut into a narrow width. */
 const MIN_SUMMARY_CHARS = 16;
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
-}
 
 function contentBlockMarker(block: unknown): string {
   if (!isRecord(block)) {

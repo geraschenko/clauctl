@@ -1,14 +1,13 @@
-// TDC: This file has nothing to do with JSONL, so we shouldn't name it as if it does. Call it something actually descriptive of what it does, like "LineReader" for the class and line-reader.ts for the filename.
-
 /**
- * Incremental JSONL line splitting, shared by the session-file parser and the
- * `format` input pipeline. Splitting only — parsing and error wording stay
- * with the callers, whose vocabularies deliberately differ
- * (SessionEntryParser's `file:line: malformed session file line` Error vs
- * format input's `invalid JSONL line N` UsageError).
+ * Incremental splitting of a byte stream into complete non-blank lines,
+ * shared by the session-file parser and the `format` input pipeline.
+ * Splitting only — parsing and error wording stay with the callers, whose
+ * vocabularies deliberately differ (SessionEntryParser's `file:line:
+ * malformed session file line` Error vs format input's `invalid JSONL line
+ * N` UsageError).
  */
 
-export type JsonlLine = Readonly<{ text: string; lineNumber: number }>;
+export type Line = Readonly<{ text: string; lineNumber: number }>;
 
 const NEWLINE = "\n".charCodeAt(0);
 
@@ -18,18 +17,18 @@ const NEWLINE = "\n".charCodeAt(0);
  *  see a partial final line, and once the newline lands the whole record
  *  before it has too. Blank/whitespace-only lines are skipped but still
  *  counted, so line numbers in caller errors match the input. */
-export class JsonlDecoder {
+export class LineReader {
   private tornSuffix = Buffer.alloc(0);
   private lineNumber = 0;
 
   /** Complete non-blank lines terminated within this chunk (prefixed by any
    *  retained torn suffix). */
-  push(chunk: Buffer): JsonlLine[] {
+  push(chunk: Buffer): Line[] {
     const data =
       this.tornSuffix.length === 0
         ? chunk
         : Buffer.concat([this.tornSuffix, chunk]);
-    const lines: JsonlLine[] = [];
+    const lines: Line[] = [];
     let lineStart = 0;
     while (true) {
       const newlineIndex = data.indexOf(NEWLINE, lineStart);

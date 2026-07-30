@@ -1,10 +1,18 @@
 // DO NOT MODIFY — generated from pictl by scripts/sync-from-pictl.mjs.
 // The canonical copy lives in pictl; edit it there and re-run the script.
 
+import { isRecord } from "../../core/generated/util.ts";
+
 const DEFAULT_SUMMARY_CHARS = 80;
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
+export function contentBlocks(content: unknown): readonly unknown[] {
+  return Array.isArray(content) ? content : [];
+}
+
+export function hasContentBlock(content: unknown, type: string): boolean {
+  return contentBlocks(content).some(
+    (block) => isRecord(block) && block.type === type,
+  );
 }
 
 export function oneLine(text: string): string {

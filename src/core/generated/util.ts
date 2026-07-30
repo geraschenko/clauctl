@@ -8,6 +8,10 @@ import { access } from "node:fs/promises";
 /** Bad command-line arguments; main.ts exits 2 (shell usage-error convention). */
 export class UsageError extends Error {}
 
+export function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
 export function oneOf<T extends string>(
   value: string,
   allowed: readonly T[],

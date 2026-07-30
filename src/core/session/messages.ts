@@ -24,9 +24,9 @@ export type MessageControl =
 export type ControlRecord = Readonly<{
   type: "control";
   control: MessageControl;
-  /** Source entry uuid when the control comes from a uuid-bearing entry
-   *  (compaction); inferred controls (model/permission-mode changes) and
-   *  queued input have none. */
+  /** Source entry uuid when that entry carries one. A model_changed control
+   *  shares its uuid with the assistant message record that follows — both
+   *  derive from the same entry. */
   uuid?: UUID;
   /** Source entry timestamp when present. */
   timestamp?: string;
@@ -37,15 +37,11 @@ export type ControlRecord = Readonly<{
  *  type:"control" records. */
 export type MessageRecord = SessionMessageOnWire | ControlRecord;
 
-function control(
-  entry: SessionEntry,
-  fields: MessageControl,
-  includeUuid = false,  // TDC: why not always include the uuid if entry has one? Why have an additional boolean argument for it?
-): ControlRecord {
+function control(entry: SessionEntry, fields: MessageControl): ControlRecord {
   return {
     type: "control",
     control: fields,
-    ...(includeUuid && entry.uuid !== undefined && { uuid: entry.uuid }),
+    ...(entry.uuid !== undefined && { uuid: entry.uuid }),
     ...(typeof entry.timestamp === "string" && {
       timestamp: entry.timestamp,
     }),
@@ -117,19 +113,15 @@ export class MessageProjector {
         const metadata = entry.compactMetadata as
           { trigger?: unknown; preTokens?: unknown } | undefined;
         return [
-          control(
-            entry,
-            {
-              kind: "compaction",
-              ...(typeof metadata?.trigger === "string" && {
-                trigger: metadata.trigger,
-              }),
-              ...(typeof metadata?.preTokens === "number" && {
-                preTokens: metadata.preTokens,
-              }),
-            },
-            true,
-          ),
+          control(entry, {
+            kind: "compaction",
+            ...(typeof metadata?.trigger === "string" && {
+              trigger: metadata.trigger,
+            }),
+            ...(typeof metadata?.preTokens === "number" && {
+              preTokens: metadata.preTokens,
+            }),
+          }),
         ];
       }
       case "queue-operation": {

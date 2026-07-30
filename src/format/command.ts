@@ -11,7 +11,11 @@ import { readInputFile } from "../core/generated/read-input.ts";
 import type { CommandContext } from "../core/generated/targets.ts";
 import { UsageError } from "../core/generated/util.ts";
 import { CanonicalEntryFilter } from "../core/session/entry-stream.ts";
-import { MessageProjector } from "../core/session/messages.ts";
+import type { SessionEntry } from "../core/session/file.ts";
+import {
+  MessageProjector,
+  type MessageRecord,
+} from "../core/session/messages.ts";
 import { formatEntryLine, type EntryFormatOptions } from "./entries.ts";
 import { EventFormatter } from "./events.ts";
 import {
@@ -68,9 +72,7 @@ const filePositional = {
 /** The stream-level kind-mismatch errors (per-record shape errors live in
  *  decodeFormatInput). */
 function rejectEvents(): never {
-  throw new UsageError(
-    "input looks like events; use `clauctl format events`",
-  );
+  throw new UsageError("input looks like events; use `clauctl format events`");
 }
 
 function rejectMessages(): never {
@@ -97,31 +99,34 @@ async function formatMessages(
   if (input.kind === "events") {
     rejectEvents();
   }
+  const records =
+    input.kind === "entries" ? projectEntries(input.records) : input.records;
   const formatter = new MessageFormatter(formatOptions(flags));
-  const write = (chunk: string) => {
-    if (chunk !== "") {
-      this.process.stdout.write(chunk);
-    }
-  };
-  if (input.kind === "messages") {
-    for await (const record of input.records) {
-      write(formatter.push(record));
-    }
-  } else {
-    // TDC: can we invert this if block? What we'd like to do is build a pipeline on a stream, so 'if input.kind == "entries" { /*apply filter and projector*/ }', then `write(formatter.push(record))` regardless of how the message stream was produced. Does TS support this kind of filtermap pipeline?
-    const filter = new CanonicalEntryFilter();
-    const projector = new MessageProjector();
-    for await (const entry of input.records) {
-      const accepted = filter.accept(entry);
-      if (accepted === undefined) {
-        continue;
-      }
-      for (const record of projector.push(accepted)) {
-        write(formatter.push(record));
-      }
+  for await (const record of records) {
+    writeChunk(this, formatter.push(record));
+  }
+  writeChunk(this, formatter.end());
+}
+
+/** The canonical entries→messages stream conversion: first-wins filter, then
+ *  projection. */
+async function* projectEntries(
+  entries: AsyncIterable<SessionEntry>,
+): AsyncIterable<MessageRecord> {
+  const filter = new CanonicalEntryFilter();
+  const projector = new MessageProjector();
+  for await (const entry of entries) {
+    const accepted = filter.accept(entry);
+    if (accepted !== undefined) {
+      yield* projector.push(accepted);
     }
   }
-  write(formatter.end());
+}
+
+function writeChunk(context: CommandContext, chunk: string): void {
+  if (chunk !== "") {
+    context.process.stdout.write(chunk);
+  }
 }
 
 async function formatEvents(
@@ -141,15 +146,9 @@ async function formatEvents(
   }
   const formatter = new EventFormatter(formatOptions(flags));
   for await (const record of input.records) {
-    const chunk = formatter.push(record);
-    if (chunk !== "") {
-      this.process.stdout.write(chunk);
-    }
+    writeChunk(this, formatter.push(record));
   }
-  const tail = formatter.end();
-  if (tail !== "") {
-    this.process.stdout.write(tail);
-  }
+  writeChunk(this, formatter.end());
 }
 
 const entriesFlags = {

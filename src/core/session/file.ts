@@ -11,7 +11,7 @@ import { randomUUID, type UUID } from "node:crypto";
 import { appendFileSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { SessionMessage } from "@anthropic-ai/claude-agent-sdk";
-import { JsonlDecoder } from "../jsonl.ts";
+import { LineReader } from "../line-reader.ts";
 import type { SetContextResult } from "../sdk-socket.ts";
 
 /** One parsed jsonl line, verbatim. Known fields typed, everything else kept. */
@@ -85,7 +85,7 @@ export function sessionFilePath(
   return join(configDir, "projects", projectKey(cwd), `${sessionId}.jsonl`);
 }
 
-/** Incremental jsonl entry parser: JsonlDecoder splitting (torn suffixes
+/** Incremental jsonl entry parser: LineReader splitting (torn suffixes
  *  buffered until their newline arrives — a mid-append read can see a partial
  *  final line, and once the newline is on disk the whole record before it is
  *  too) plus session-file validation. Both writers terminate records with
@@ -96,7 +96,7 @@ export function sessionFilePath(
  *  throws instead. */
 export class SessionEntryParser {
   private readonly filePath: string;
-  private readonly decoder = new JsonlDecoder();
+  private readonly lineReader = new LineReader();
 
   constructor(filePath: string) {
     this.filePath = filePath;
@@ -105,7 +105,7 @@ export class SessionEntryParser {
   /** Complete entries terminated within this chunk (prefixed by any retained
    *  torn suffix). */
   push(chunk: Buffer): SessionEntry[] {
-    return this.decoder.push(chunk).map(({ text, lineNumber }) => {
+    return this.lineReader.push(chunk).map(({ text, lineNumber }) => {
       let parsed: unknown;
       try {
         parsed = JSON.parse(text);

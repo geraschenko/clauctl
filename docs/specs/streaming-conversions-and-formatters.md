@@ -137,9 +137,9 @@ export type MessageControl =
 export type ControlRecord = Readonly<{
   type: "control";
   control: MessageControl;
-  /** Source entry uuid when the control comes from a uuid-bearing entry
-   *  (compaction); inferred controls (model/permission-mode changes) and
-   *  queued input have none. */
+  /** Source entry uuid when that entry carries one. A model_changed control
+   *  shares its uuid with the assistant message record that follows — both
+   *  derive from the same entry. */
   uuid?: UUID;
   /** Source entry timestamp when present. */
   timestamp?: string;
@@ -173,10 +173,10 @@ only via `--type entries`):
 Non-boundary `system` entries are dropped from the projection (approved:
 they remain visible in entries mode; `MessageRecord` stays closed).
 
-### `src/core/jsonl.ts` (new — extracted from `SessionEntryParser`)
+### `src/core/line-reader.ts` (new — extracted from `SessionEntryParser`)
 
 ```ts
-export type JsonlLine = Readonly<{ text: string; lineNumber: number }>;
+export type Line = Readonly<{ text: string; lineNumber: number }>;
 
 /** Incremental JSONL line splitter: byte-level NEWLINE splitting (a torn
  *  UTF-8 code point stays intact in the buffered suffix), torn tail buffered
@@ -185,14 +185,14 @@ export type JsonlLine = Readonly<{ text: string; lineNumber: number }>;
  *  callers, whose vocabularies deliberately differ (SessionEntryParser's
  *  `file:line: malformed session file line` Error vs format input's
  *  `invalid JSONL line N` UsageError). */
-export class JsonlDecoder {
+export class LineReader {
   /** Complete non-blank lines terminated within this chunk. */
-  push(chunk: Buffer): JsonlLine[];
+  push(chunk: Buffer): Line[];
 }
 ```
 
 `SessionEntryParser` (`src/core/session/file.ts`) is reimplemented over
-`JsonlDecoder`; its public shape, error messages, and tests are unchanged
+`LineReader`; its public shape, error messages, and tests are unchanged
 except that the splitter mechanics move. `CanonicalEntryFilter`
 (`src/core/session/entry-stream.ts`) becomes **exported** — the format
 pipeline is its third consumer; no other change to Spec 1 code.
@@ -334,7 +334,7 @@ the streaming pipeline; validation lives in `decodeFormatInput`).
   others with cross-pointers. Flags unchanged.
 - `format entries` — **new subcommand**; accepts `entries` through
   `CanonicalEntryFilter` then `formatEntryLine`; rejects the others. Flags:
-  `--timestamps`, `--full`, `--width <num>` (default 120).
+  `--timestamps`, `--full`, `--width <num>` (default 100).
 - `format tree` — unchanged behavior and flags (whole-input, raw entries, no
   canonicalization: `buildTree` wants every occurrence).
 
@@ -348,7 +348,7 @@ core never imports format. `MessageProjector` lives in core because
 document case):
 
 ```text
-inputChunks → JsonlDecoder → decodeFormatInput (classify + validate)
+inputChunks → LineReader → decodeFormatInput (classify + validate)
   entries:  → CanonicalEntryFilter.accept → [MessageProjector.push] → formatter.push → stdout
   messages: → MessageFormatter.push → stdout
   events:   → EventFormatter.push → stdout
@@ -394,7 +394,7 @@ by construction rather than by parallel implementations.
   subcommand writes nothing and exits 0 (today's behavior for empty JSONL).
   `format tree` keeps its whole-input path and existing not-a-snapshot
   error.
-- **Blank input lines**: skipped but counted (JsonlDecoder), so record
+- **Blank input lines**: skipped but counted (LineReader), so record
   numbers in errors match the file.
 - **CRLF input**: tolerated as in Spec 1 (the retained `\r` is JSON
   whitespace).
@@ -471,7 +471,7 @@ contract.
   change; permission-mode first sighting silent; compaction with/without
   metadata; enqueue text/dequeue silence; drop rules (`attachment`, `mode`,
   non-boundary `system`, meta/sidechain user).
-- **JsonlDecoder**: the existing SessionEntryParser splitting tests move
+- **LineReader**: the existing SessionEntryParser splitting tests move
   down (torn UTF-8, blank-line counting, line numbering);
   SessionEntryParser keeps its parse/object-validation tests (including the
   file:line error wording) over the decoder.
@@ -490,7 +490,7 @@ contract.
 
 ## Implementation sequence
 
-1. `JsonlDecoder` extraction; `SessionEntryParser` over it (tests green,
+1. `LineReader` extraction; `SessionEntryParser` over it (tests green,
    no behavior change).
 2. Export `CanonicalEntryFilter`.
 3. `MessageProjector` + record types (pure, tested first).
@@ -514,7 +514,7 @@ encountered.
       vocabulary model_changed / permission_mode_changed / compaction /
       queued_input; formatters canonicalize entries input (invariant:
       `get-entries | format entries` ≡ `format entries <file>`); non-boundary
-      system entries dropped from projection; `JsonlDecoder` extracted from
+      system entries dropped from projection; `LineReader` extracted from
       SessionEntryParser; `format messages` accepts entries input including
       the get-entries document; `displayUuid` as the future
       truncation/prefix-addressing seam (full uuid today); `Readonly<{...}>`
@@ -557,4 +557,16 @@ encountered.
   one file, so a count carries no information.
 - **`joinChunks` removed**: both whole-input drivers were its only callers.
 
+- [x] 2026-07-30: Review round 1 (commit 3cef841) addressed. Renamed
+      `JsonlDecoder`/`src/core/jsonl.ts` → `LineReader`/`src/core/
+      line-reader.ts` (`Line` record type) — the class never touches JSON.
+      Controls now always carry their source entry's uuid when it has one
+      (the `includeUuid` boolean and the compaction-only rule are gone; the
+      type-design comment above is updated) — a model_changed control shares
+      its uuid with the message record that follows, which is honest: both
+      derive from the same entry. `formatMessages` inverted into a stream
+      pipeline: a `projectEntries` async generator (filter → projector) turns
+      entries input into the message stream, and one loop drives the
+      formatter regardless of input kind. Owner's direct edits kept: `format
+      entries` width default 100, error-wording tweaks.
 - [ ] Owner review of the implementation.

@@ -10,8 +10,8 @@
 import { createReadStream } from "node:fs";
 import { parseJsonlInput } from "../core/generated/read-input.ts";
 import type { CommandContext } from "../core/generated/targets.ts";
-import { UsageError } from "../core/generated/util.ts";
-import { JsonlDecoder, type JsonlLine } from "../core/jsonl.ts";
+import { isRecord, UsageError } from "../core/generated/util.ts";
+import { LineReader, type Line } from "../core/line-reader.ts";
 import type { SessionEntry } from "../core/session/file.ts";
 import type { MessageRecord } from "../core/session/messages.ts";
 import { seedFromEntries } from "../core/session/seed.ts";
@@ -36,17 +36,13 @@ export function inputChunks(
   return createReadStream(file);
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
-}
-
 function isSessionSnapshotShaped(
   document: unknown,
 ): document is Record<string, unknown> & { entries: unknown[] } {
   return isRecord(document) && Array.isArray(document.entries);
 }
 
-function parseLine(line: JsonlLine): unknown {
+function parseLine(line: Line): unknown {
   try {
     return JSON.parse(line.text) as unknown;
   } catch (error) {
@@ -134,14 +130,14 @@ export async function decodeFormatInput(
   chunks: AsyncIterable<Buffer | string>,
 ): Promise<FormatInput> {
   const iterator = chunks[Symbol.asyncIterator]();
-  const decoder = new JsonlDecoder();
-  const queue: JsonlLine[] = [];
+  const lineReader = new LineReader();
+  const queue: Line[] = [];
   let eof = false;
   /** Raw bytes consumed so far; retained only until the stream is classified
    *  as JSONL, dropped for the document path's whole-input parse otherwise. */
   let rawChunks: Buffer[] | undefined = [];
 
-  const nextLine = async (): Promise<JsonlLine | undefined> => {
+  const nextLine = async (): Promise<Line | undefined> => {
     while (queue.length === 0 && !eof) {
       const result = await iterator.next();
       if (result.done === true) {
@@ -153,7 +149,7 @@ export async function decodeFormatInput(
           ? Buffer.from(result.value)
           : result.value;
       rawChunks?.push(chunk);
-      queue.push(...decoder.push(chunk));
+      queue.push(...lineReader.push(chunk));
     }
     return queue.shift();
   };
@@ -233,7 +229,7 @@ export async function decodeFormatInput(
   rawChunks = undefined;
 
   async function* records<T>(expected: "entry" | "message" | "event") {
-    let line: JsonlLine | undefined = first;
+    let line: Line | undefined = first;
     let value: unknown = parsed;
     while (line !== undefined) {
       const recordShape = classifyRecord(value);
