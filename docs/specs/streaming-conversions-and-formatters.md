@@ -1,6 +1,6 @@
 # Streaming conversions and formatters
 
-> Status: **draft, awaiting owner review**.
+> Status: **approved, awaiting implementation**.
 > This is Spec 2 from
 > [prompt-tail-parity-overview.md](prompt-tail-parity-overview.md). It defines
 > the canonical message/control record types, the entry→message projection,
@@ -515,4 +515,7 @@ encountered.
       the get-entries document; `displayUuid` as the future
       truncation/prefix-addressing seam (full uuid today); `Readonly<{...}>`
       style for the new record types.
-- [ ] Owner review of this draft.
+- [x] Owner review of this draft (approved 2026-07-29; leaving `format tree`
+      unchanged confirmed correct — the overview's "expanded accepted inputs"
+      had already happened).
+- [ ] Implementation (on explicit owner approval).
