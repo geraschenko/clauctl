@@ -288,7 +288,7 @@ retryable loss, or an error.
 
 ## Pictl symmetry
 
-A later pictl spec should:
+Done — pictl's `docs/specs/format-streaming.md` (see Spec 5 below) did:
 
 - rename `--type raw` to `--type events`;
 - add human-readable event formatting;
@@ -339,10 +339,17 @@ Rename query, add subscribe-before-submit streaming, default turn-end behavior
 selection, prompt-specific queue/no-query semantics, and session selection or
 rollover while the submitted prompt is being observed.
 
-### Spec 5: pictl event terminology and formatting
+### Spec 5: pictl event terminology and formatting — **done in pictl**
 
-Apply the shared ontology to pictl, rename raw to events, and add event
-formatting without claiming that pictl events can reconstruct entries.
+Fulfilled by pictl's own `docs/specs/format-streaming.md` (2026-07-30 survey):
+`--type raw` is renamed to `--type events` on `tail` and `prompt`, events are
+formatted by default (`format events` / `formatEvent`) with canonical JSONL
+behind `--json`, the ontology above is adopted verbatim, and pictl retains its
+two message adapters. The two repos' events formatters remain deliberately
+independent (not in the sync set): pictl's stream carries pi's
+`RpcSocketBroadcastEvent` union with no subscribe snapshot, so its formatter
+is stateless, unlike clauctl's. Small documentation/guard residue is handed
+off to a pictl-side session rather than specced here.
 
 ## Non-goals of this overview
 
