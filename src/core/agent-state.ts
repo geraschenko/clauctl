@@ -228,6 +228,16 @@ export function nextAgentState(state: AgentState, event: SdkEvent): AgentState {
     }
     case "sdkMessage": {
       const message = event.message;
+      if (
+        (message.type === "user" || message.type === "assistant") &&
+        typeof message.parent_tool_use_id === "string"
+      ) {
+        // Subagent traffic: its usage describes the subagent's own context,
+        // not this agent's, and its transcript entries are sidechain entries
+        // the leaf must never point at (session-seed applies the same
+        // eligibility filter).
+        return state;
+      }
       let next = state;
       if (
         (message.type === "user" || message.type === "assistant") &&
@@ -287,6 +297,26 @@ export function nextAgentState(state: AgentState, event: SdkEvent): AgentState {
         // Mode changes not initiated over sdk.sock (e.g. plan-mode
         // transitions).
         return withObservedPermissionMode(next, message.permissionMode);
+      }
+      if (message.type === "system" && message.subtype === "compact_boundary") {
+        // post_tokens is the compacted context size; represented as a pure
+        // input_tokens usage so consumers summing the input-side counters
+        // (footer, set-context's preTokensOf) read back exactly post_tokens.
+        // Without it the old lastUsage describes the superseded context, so
+        // it is dropped rather than kept wrong.
+        if (message.compact_metadata.post_tokens === undefined) {
+          const { lastUsage: _lastUsage, ...withoutUsage } = next;
+          return withoutUsage;
+        }
+        return {
+          ...next,
+          lastUsage: {
+            input_tokens: message.compact_metadata.post_tokens,
+            output_tokens: 0,
+            cache_creation_input_tokens: 0,
+            cache_read_input_tokens: 0,
+          } as NonNullableUsage,
+        };
       }
       if (message.type === "assistant") {
         next = {

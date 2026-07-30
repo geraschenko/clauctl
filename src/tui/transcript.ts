@@ -50,6 +50,7 @@ import {
   type StreamingMessage,
   type UserTurnView,
 } from "./sdk-render.ts";
+import { formatTokens } from "./components/footer.ts";
 import { toolViewFor, type ToolView } from "./tool-views/tool-view.ts";
 import { getMarkdownTheme, theme, type ThemeColor } from "./theme.ts";
 import type { RenderAssistant, RenderToolResult } from "./render-types.ts";
@@ -251,7 +252,12 @@ export class TranscriptRenderer {
           // passes through the ⎿ block), attached to the preceding command.
           this.attachCommandOutput(message.content);
         } else if (message.subtype === "compact_boundary") {
-          this.addBanner("context compacted");
+          this.addBanner(
+            compactBanner(
+              message.compact_metadata.pre_tokens,
+              message.compact_metadata.post_tokens,
+            ),
+          );
         } else if (message.subtype === "notification") {
           this.addBanner(message.text);
         } else if (message.subtype === "informational") {
@@ -393,7 +399,9 @@ export class TranscriptRenderer {
    */
   appendPathNode(node: PathNode): void {
     if (node.entry.subtype === "compact_boundary") {
-      this.addBanner("context compacted");
+      const metadata = node.entry.compactMetadata as
+        Record<string, unknown> | undefined;
+      this.addBanner(compactBanner(metadata?.preTokens, metadata?.postTokens));
       return;
     }
     if (typeof node.entry.cwd === "string") {
@@ -602,6 +610,20 @@ class CompactSummaryComponent implements Component {
       width,
     );
   }
+}
+
+/** "context compacted (156k → 12k tokens)". Unknown-typed so replayed
+ *  entries' compactMetadata needs no narrowing at the call site; counts are
+ *  omitted when the boundary does not carry them (clauctl-injected
+ *  boundaries write only preTokens). */
+function compactBanner(preTokens: unknown, postTokens: unknown): string {
+  if (typeof preTokens !== "number") {
+    return "context compacted";
+  }
+  const pre = formatTokens(preTokens);
+  return typeof postTokens === "number"
+    ? `context compacted (${pre} → ${formatTokens(postTokens)} tokens)`
+    : `context compacted (${pre} tokens)`;
 }
 
 /** The CLI synthesizes an assistant "No response requested." after local

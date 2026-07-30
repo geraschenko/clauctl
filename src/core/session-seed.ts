@@ -26,8 +26,10 @@ export interface SessionFileSeed {
 /**
  * AgentState values recoverable from the session file, for seeding a daemon
  * that starts with history on disk. lastUsage and model come from the last
- * assistant entry ON the loaded context (a rewound-away branch's usage does
- * not describe the context a resume would load); claudeCodeVersion from the
+ * non-sidechain assistant entry ON the loaded context (a rewound-away
+ * branch's usage does not describe the context a resume would load, and a
+ * sidechain assistant's usage describes the subagent's context — the live
+ * fold skips those too); claudeCodeVersion from the
  * last version stamp and permissionMode from the last permission-mode entry,
  * both in plain file order (latest observation wins regardless of branch);
  * leaf is the context's last user/assistant occurrence (viaBoundary
@@ -52,7 +54,7 @@ export function seedFromEntries(
     .filter((entry) => entry !== undefined);
 
   const lastAssistantMessage = contextEntries.findLast(
-    (entry) => entry.type === "assistant",
+    (entry) => entry.type === "assistant" && entry.isSidechain !== true,
   )?.message as SDKAssistantMessage["message"] | undefined;
   const claudeCodeVersion = entries.findLast(
     (entry) => typeof entry.version === "string",

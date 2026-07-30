@@ -24,12 +24,7 @@
           "model": {
             "description": "Optional model override for this agent. Takes precedence over the agent definition's model frontmatter. If omitted, uses the agent definition's model, or inherits from the parent. Ignored for subagent_type: \"fork\" — forks always inherit the parent model.",
             "type": "string",
-            "enum": [
-              "sonnet",
-              "opus",
-              "haiku",
-              "fable"
-            ]
+            "enum": ["sonnet", "opus", "haiku", "fable"]
           },
           "run_in_background": {
             "description": "Agents run in the background by default; you will be notified when one completes. Set to false to run this agent synchronously when you need its result before continuing.",
@@ -38,16 +33,10 @@
           "isolation": {
             "description": "Isolation mode. \"worktree\" creates a temporary git worktree so the agent works on an isolated copy of the repo. \"remote\" launches the agent in a remote cloud environment (always runs in background; availability is gated).",
             "type": "string",
-            "enum": [
-              "worktree",
-              "remote"
-            ]
+            "enum": ["worktree", "remote"]
           }
         },
-        "required": [
-          "description",
-          "prompt"
-        ],
+        "required": ["description", "prompt"],
         "additionalProperties": false
       },
       "eager_input_streaming": true
@@ -80,9 +69,7 @@
             "type": "boolean"
           }
         },
-        "required": [
-          "command"
-        ],
+        "required": ["command"],
         "additionalProperties": false
       },
       "eager_input_streaming": true
@@ -111,10 +98,7 @@
             "type": "boolean"
           }
         },
-        "required": [
-          "cron",
-          "prompt"
-        ],
+        "required": ["cron", "prompt"],
         "additionalProperties": false
       },
       "eager_input_streaming": true,
@@ -132,9 +116,7 @@
             "type": "string"
           }
         },
-        "required": [
-          "id"
-        ],
+        "required": ["id"],
         "additionalProperties": false
       },
       "eager_input_streaming": true,
@@ -244,17 +226,13 @@
                 "encoding": {
                   "description": "Set to \"base64\" for binary inline data",
                   "type": "string",
-                  "enum": [
-                    "base64"
-                  ]
+                  "enum": ["base64"]
                 },
                 "mimeType": {
                   "type": "string"
                 }
               },
-              "required": [
-                "path"
-              ],
+              "required": ["path"],
               "additionalProperties": false
             }
           },
@@ -313,9 +291,7 @@
                       "maximum": 9007199254740991
                     }
                   },
-                  "required": [
-                    "width"
-                  ],
+                  "required": ["width"],
                   "additionalProperties": false
                 },
                 "group": {
@@ -324,10 +300,7 @@
                   "maxLength": 64
                 }
               },
-              "required": [
-                "name",
-                "path"
-              ],
+              "required": ["name", "path"],
               "additionalProperties": false
             }
           },
@@ -376,9 +349,7 @@
             "additionalProperties": false
           }
         },
-        "required": [
-          "method"
-        ],
+        "required": ["method"],
         "additionalProperties": false
       },
       "eager_input_streaming": true,
@@ -409,11 +380,7 @@
             "type": "boolean"
           }
         },
-        "required": [
-          "file_path",
-          "old_string",
-          "new_string"
-        ],
+        "required": ["file_path", "old_string", "new_string"],
         "additionalProperties": false
       },
       "eager_input_streaming": true
@@ -449,19 +416,14 @@
           "action": {
             "description": "\"keep\" leaves the worktree and branch on disk; \"remove\" deletes both.",
             "type": "string",
-            "enum": [
-              "keep",
-              "remove"
-            ]
+            "enum": ["keep", "remove"]
           },
           "discard_changes": {
             "description": "Required true when action is \"remove\" and the worktree has uncommitted files or unmerged commits. The tool will refuse and list them otherwise.",
             "type": "boolean"
           }
         },
-        "required": [
-          "action"
-        ],
+        "required": ["action"],
         "additionalProperties": false
       },
       "eager_input_streaming": true,
@@ -508,17 +470,11 @@
                 }
               }
             },
-            "required": [
-              "url"
-            ],
+            "required": ["url"],
             "additionalProperties": false
           }
         },
-        "required": [
-          "description",
-          "timeout_ms",
-          "persistent"
-        ],
+        "required": ["description", "timeout_ms", "persistent"],
         "additionalProperties": false
       },
       "eager_input_streaming": true,
@@ -546,25 +502,15 @@
           "cell_type": {
             "description": "The type of the cell (code or markdown). If not specified, it defaults to the current cell type. If using edit_mode=insert, this is required.",
             "type": "string",
-            "enum": [
-              "code",
-              "markdown"
-            ]
+            "enum": ["code", "markdown"]
           },
           "edit_mode": {
             "description": "The type of edit to make (replace, insert, delete). Defaults to replace.",
             "type": "string",
-            "enum": [
-              "replace",
-              "insert",
-              "delete"
-            ]
+            "enum": ["replace", "insert", "delete"]
           }
         },
-        "required": [
-          "notebook_path",
-          "new_source"
-        ],
+        "required": ["notebook_path", "new_source"],
         "additionalProperties": false
       },
       "eager_input_streaming": true,
@@ -587,10 +533,7 @@
             "const": "proactive"
           }
         },
-        "required": [
-          "message",
-          "status"
-        ],
+        "required": ["message", "status"],
         "additionalProperties": false
       },
       "eager_input_streaming": true,
@@ -624,9 +567,7 @@
             "type": "string"
           }
         },
-        "required": [
-          "file_path"
-        ],
+        "required": ["file_path"],
         "additionalProperties": false
       },
       "eager_input_streaming": true
@@ -640,13 +581,7 @@
         "properties": {
           "action": {
             "type": "string",
-            "enum": [
-              "list",
-              "get",
-              "create",
-              "update",
-              "run"
-            ]
+            "enum": ["list", "get", "create", "update", "run"]
           },
           "trigger_id": {
             "description": "Required for get, update, and run",
@@ -662,9 +597,7 @@
             "additionalProperties": {}
           }
         },
-        "required": [
-          "action"
-        ],
+        "required": ["action"],
         "additionalProperties": false
       },
       "eager_input_streaming": true,
@@ -680,13 +613,7 @@
           "level": {
             "description": "Effort level the review ran at",
             "type": "string",
-            "enum": [
-              "low",
-              "medium",
-              "high",
-              "xhigh",
-              "max"
-            ]
+            "enum": ["low", "medium", "high", "xhigh", "max"]
           },
           "findings": {
             "description": "Verified findings, most-severe first; empty if none survived",
@@ -721,33 +648,20 @@
                 "verdict": {
                   "description": "Set when a verify pass ran; absent on inline-only reviews",
                   "type": "string",
-                  "enum": [
-                    "CONFIRMED",
-                    "PLAUSIBLE"
-                  ]
+                  "enum": ["CONFIRMED", "PLAUSIBLE"]
                 },
                 "outcome": {
                   "description": "Set ONLY when re-reporting after applying fixes: what happened to this finding",
                   "type": "string",
-                  "enum": [
-                    "fixed",
-                    "skipped",
-                    "no_change_needed"
-                  ]
+                  "enum": ["fixed", "skipped", "no_change_needed"]
                 }
               },
-              "required": [
-                "file",
-                "summary",
-                "failure_scenario"
-              ],
+              "required": ["file", "summary", "failure_scenario"],
               "additionalProperties": false
             }
           }
         },
-        "required": [
-          "findings"
-        ],
+        "required": ["findings"],
         "additionalProperties": false
       },
       "eager_input_streaming": true
@@ -801,10 +715,7 @@
             "type": "string"
           }
         },
-        "required": [
-          "to",
-          "message"
-        ],
+        "required": ["to", "message"],
         "additionalProperties": false
       },
       "eager_input_streaming": true,
@@ -826,9 +737,7 @@
             "type": "string"
           }
         },
-        "required": [
-          "skill"
-        ],
+        "required": ["skill"],
         "additionalProperties": false
       },
       "eager_input_streaming": true
@@ -861,10 +770,7 @@
             "additionalProperties": {}
           }
         },
-        "required": [
-          "subject",
-          "description"
-        ],
+        "required": ["subject", "description"],
         "additionalProperties": false
       },
       "eager_input_streaming": true,
@@ -882,9 +788,7 @@
             "type": "string"
           }
         },
-        "required": [
-          "taskId"
-        ],
+        "required": ["taskId"],
         "additionalProperties": false
       },
       "eager_input_streaming": true,
@@ -926,11 +830,7 @@
             "maximum": 600000
           }
         },
-        "required": [
-          "task_id",
-          "block",
-          "timeout"
-        ],
+        "required": ["task_id", "block", "timeout"],
         "additionalProperties": false
       },
       "eager_input_streaming": true,
@@ -985,11 +885,7 @@
             "anyOf": [
               {
                 "type": "string",
-                "enum": [
-                  "pending",
-                  "in_progress",
-                  "completed"
-                ]
+                "enum": ["pending", "in_progress", "completed"]
               },
               {
                 "type": "string",
@@ -1024,9 +920,7 @@
             "additionalProperties": {}
           }
         },
-        "required": [
-          "taskId"
-        ],
+        "required": ["taskId"],
         "additionalProperties": false
       },
       "eager_input_streaming": true,
@@ -1049,10 +943,7 @@
             "type": "number"
           }
         },
-        "required": [
-          "query",
-          "max_results"
-        ],
+        "required": ["query", "max_results"],
         "additionalProperties": false
       },
       "eager_input_streaming": true
@@ -1074,10 +965,7 @@
             "type": "string"
           }
         },
-        "required": [
-          "url",
-          "prompt"
-        ],
+        "required": ["url", "prompt"],
         "additionalProperties": false
       },
       "eager_input_streaming": true,
@@ -1110,9 +998,7 @@
             }
           }
         },
-        "required": [
-          "query"
-        ],
+        "required": ["query"],
         "additionalProperties": false
       },
       "eager_input_streaming": true,
@@ -1175,10 +1061,7 @@
             "type": "string"
           }
         },
-        "required": [
-          "file_path",
-          "content"
-        ],
+        "required": ["file_path", "content"],
         "additionalProperties": false
       },
       "eager_input_streaming": true

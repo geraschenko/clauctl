@@ -207,13 +207,34 @@ test("appendPathNode: boundary banner, user prompt + result resolution, assistan
     }),
   );
   renderer.appendPathNode(
-    pathNode({ type: "system", subtype: "compact_boundary" }),
+    pathNode({
+      type: "system",
+      subtype: "compact_boundary",
+      compactMetadata: { preTokens: 156_000, postTokens: 12_000 },
+    }),
   );
   const text = renderedText(container);
   assert.match(text, /replayed prompt/);
   assert.match(text, /Grep/);
   assert.match(text, /grep output/);
-  assert.match(text, /context compacted/);
+  assert.match(text, /context compacted \(156k → 12k tokens\)/);
+});
+
+test("compact banner omits token counts the boundary does not carry", () => {
+  const { renderer, container } = makeRenderer();
+  renderer.appendPathNode(
+    pathNode({
+      type: "system",
+      subtype: "compact_boundary",
+      compactMetadata: { preTokens: 156_000 },
+    }),
+  );
+  renderer.appendPathNode(
+    pathNode({ type: "system", subtype: "compact_boundary" }),
+  );
+  const text = renderedText(container);
+  assert.match(text, /context compacted \(156k tokens\)/);
+  assert.match(text, /context compacted$/m);
 });
 
 test("appendPathNode skips meta and sidechain entries", () => {

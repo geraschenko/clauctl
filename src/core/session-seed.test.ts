@@ -158,6 +158,34 @@ test("seedFromEntries reads usage/model from the loaded context, not abandoned b
   });
 });
 
+test("seedFromEntries usage/model skip sidechain assistant entries", () => {
+  const sid = uuid();
+  const u1 = userEntry(null, sid);
+  const a1 = {
+    ...assistantEntry(u1.uuid, sid),
+    message: {
+      role: "assistant",
+      model: "claude-main",
+      usage: { input_tokens: 1, output_tokens: 2 },
+      content: [],
+    },
+  };
+  const sidechain = {
+    ...assistantEntry(a1.uuid, sid),
+    isSidechain: true,
+    message: {
+      role: "assistant",
+      model: "claude-subagent",
+      usage: { input_tokens: 999, output_tokens: 999 },
+      content: [],
+    },
+  };
+  const seed = seedFromEntries([u1, a1, sidechain], failOnInvalid);
+  assert.equal(seed.model, "claude-main");
+  assert.equal(seed.lastUsage?.input_tokens, 1);
+  assert.deepEqual(seed.leaf, { uuid: a1.uuid });
+});
+
 test("seedFromEntries leaf skips meta and sidechain entries", () => {
   const sid = uuid();
   const u1 = userEntry(null, sid);

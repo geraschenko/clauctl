@@ -13,7 +13,8 @@ import {
 import type { SdkEvent } from "./sdk-socket.ts";
 
 // The fold only inspects the fields each step reads, so minimal stubs
-// suffice; assistant messages get the usage payload the fold reads.
+// suffice; assistant messages get the usage payload and the (wire-mandatory)
+// parent_tool_use_id the fold reads.
 function sdkMessage(
   type:
     "assistant" | "result" | "system" | "stream_event" | "conversation_reset",
@@ -24,6 +25,7 @@ function sdkMessage(
     message: {
       type,
       ...(type === "assistant" && {
+        parent_tool_use_id: null,
         message: { usage: { input_tokens: 5, output_tokens: 7 } },
       }),
       ...fields,
@@ -213,6 +215,65 @@ test("interruptSent and non-tracking controlApplied leave state unchanged", () =
 test("unexpected result while idle stays idle", () => {
   const state = nextAgentState(INITIAL_AGENT_STATE, sdkMessage("result"));
   assert.equal(state.activity, "idle");
+});
+
+test("subagent user/assistant messages leave state unchanged", () => {
+  const working = run([
+    queued(1),
+    dequeued("turn", [1]),
+    sdkMessage("assistant"),
+  ]);
+  // A subagent assistant must not overwrite lastUsage, advance the leaf, or
+  // clear the delivered hold; same for a subagent user message.
+  const afterSub = run(
+    [
+      sdkMessage("assistant", {
+        parent_tool_use_id: "tool-1",
+        uuid: "sub-uuid",
+        message: { usage: { input_tokens: 999, output_tokens: 999 } },
+      }),
+      {
+        kind: "sdkMessage",
+        message: userMessage({
+          parent_tool_use_id: "tool-1",
+          uuid: "00000000-0000-0000-0000-0000000000ab",
+        }) as SDKMessage,
+      },
+    ],
+    working,
+  );
+  assert.equal(afterSub, working);
+});
+
+test("compact_boundary with post_tokens becomes lastUsage; without, drops it", () => {
+  const working = run([sdkMessage("assistant")]);
+  assert.equal(working.lastUsage?.input_tokens, 5);
+  const updated = nextAgentState(
+    working,
+    sdkMessage("system", {
+      subtype: "compact_boundary",
+      compact_metadata: {
+        trigger: "auto",
+        pre_tokens: 150_000,
+        post_tokens: 12_000,
+      },
+    }),
+  );
+  assert.deepEqual(updated.lastUsage, {
+    input_tokens: 12_000,
+    output_tokens: 0,
+    cache_creation_input_tokens: 0,
+    cache_read_input_tokens: 0,
+  });
+  const dropped = nextAgentState(
+    working,
+    sdkMessage("system", {
+      subtype: "compact_boundary",
+      compact_metadata: { trigger: "manual", pre_tokens: 150_000 },
+    }),
+  );
+  assert.equal(dropped.lastUsage, undefined);
+  assert.equal("lastUsage" in dropped, false);
 });
 
 test("other message types do not change state", () => {
