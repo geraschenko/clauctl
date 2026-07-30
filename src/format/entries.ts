@@ -20,6 +20,14 @@ export type EntryFormatOptions = Readonly<{
   width: number;
 }>;
 
+/** The defaults `format entries` applies for omitted flags, and what tail
+ *  renders with — shared so the two cannot diverge. */
+export const DEFAULT_ENTRY_FORMAT_OPTIONS: EntryFormatOptions = {
+  timestamps: false,
+  full: false,
+  width: 100,
+};
+
 /** Full-uuid width; blank-padded for uuid-less entries so columns align. */
 const UUID_COLUMN_WIDTH = 36;
 /** The longest common short types; long bookkeeping names overflow. */

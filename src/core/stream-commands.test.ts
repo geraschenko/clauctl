@@ -1,8 +1,9 @@
 /*
- * End-to-end settlement behavior of the sdk.sock stream commands: what `tail`
- * and `wait` print and exit with for each runStream outcome. Driven through
- * the real `app` so the exit-code mapping (UntilTimeoutError → 3) is part of
- * what is under test.
+ * End-to-end settlement behavior of the sdk.sock stream commands: what
+ * `tail --type events --json` and `wait` print and exit with for each
+ * runStream outcome. Driven through the real `app` so the exit-code mapping
+ * (UntilTimeoutError → 3) is part of what is under test. The session-file
+ * tail paths (messages/entries) are covered in tail.test.ts.
  */
 
 import assert from "node:assert/strict";
@@ -106,6 +107,9 @@ test("tail prints the snapshot before the event that satisfies --until", async (
       "tail",
       "-t",
       agentId,
+      "--type",
+      "events",
+      "--json",
       "--until",
       "turn-end",
     ]);
@@ -155,6 +159,9 @@ test("tail treats an expired --timeout as success, wait as exit 3", async () => 
       "tail",
       "-t",
       agentId,
+      "--type",
+      "events",
+      "--json",
       "--until",
       "turn-end",
       "--timeout",
@@ -185,6 +192,9 @@ test("tail --timeout without --until is a bounded watch", async () => {
       "tail",
       "-t",
       agentId,
+      "--type",
+      "events",
+      "--json",
       "--timeout",
       "0.05",
     ]);
@@ -201,6 +211,9 @@ test("tail --timeout 0 is a snapshot-only watch, not an error", async () => {
       "tail",
       "-t",
       agentId,
+      "--type",
+      "events",
+      "--json",
       "--until",
       "turn-end",
       "--timeout",

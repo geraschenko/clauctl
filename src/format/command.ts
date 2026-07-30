@@ -12,7 +12,11 @@ import type { CommandContext } from "../core/generated/targets.ts";
 import { UsageError } from "../core/generated/util.ts";
 import { CanonicalEntryFilter } from "../core/session/entry-stream.ts";
 import { projectEntries } from "../core/session/messages.ts";
-import { formatEntryLine, type EntryFormatOptions } from "./entries.ts";
+import {
+  DEFAULT_ENTRY_FORMAT_OPTIONS,
+  formatEntryLine,
+  type EntryFormatOptions,
+} from "./entries.ts";
 import { EventFormatter } from "./events.ts";
 import {
   decodeFormatInput,
@@ -21,7 +25,10 @@ import {
 } from "./input.ts";
 import { MessageFormatter } from "./messages.ts";
 import { FILTER_MODES, formatSessionSnapshot } from "./tree.ts";
-import type { MessageFormatOptions } from "./types.ts";
+import {
+  DEFAULT_MESSAGE_FORMAT_OPTIONS,
+  type MessageFormatOptions,
+} from "./types.ts";
 
 function parsePositiveInteger(input: string): number {
   const value = Number(input);
@@ -52,9 +59,12 @@ type FormatFlags = InferFlags<typeof formatFlags>;
 
 function formatOptions(flags: FormatFlags): MessageFormatOptions {
   return {
-    toolResults: flags.toolResults ?? "summary",
-    maxToolArgChars: flags.maxToolArgChars ?? 120,
-    maxErrorLines: flags.maxErrorLines ?? 10,
+    toolResults:
+      flags.toolResults ?? DEFAULT_MESSAGE_FORMAT_OPTIONS.toolResults,
+    maxToolArgChars:
+      flags.maxToolArgChars ?? DEFAULT_MESSAGE_FORMAT_OPTIONS.maxToolArgChars,
+    maxErrorLines:
+      flags.maxErrorLines ?? DEFAULT_MESSAGE_FORMAT_OPTIONS.maxErrorLines,
   };
 }
 
@@ -155,9 +165,9 @@ async function formatEntries(
     rejectMessages();
   }
   const options: EntryFormatOptions = {
-    timestamps: flags.timestamps ?? false,
-    full: flags.full ?? false,
-    width: flags.width ?? 100,
+    timestamps: flags.timestamps ?? DEFAULT_ENTRY_FORMAT_OPTIONS.timestamps,
+    full: flags.full ?? DEFAULT_ENTRY_FORMAT_OPTIONS.full,
+    width: flags.width ?? DEFAULT_ENTRY_FORMAT_OPTIONS.width,
   };
   const filter = new CanonicalEntryFilter();
   for await (const entry of input.records) {

@@ -132,18 +132,38 @@ export class SessionEntryClient implements StreamClient<
   /** File bytes consumed so far (the parser holds any torn suffix). */
   private offset = 0;
   private parser: SessionEntryParser;
-  private filter: CanonicalEntryFilter;
+  /** Public so a cross-file follower (AgentObserver) can carry it into the
+   *  next file's client for first-wins dedup across a session rollover. */
+  readonly filter: CanonicalEntryFilter;
   private streamFailure: Error | undefined;
   private subscribed = false;
   private closed = false;
 
-  constructor(filePath: string, options: EntryClientOptions) {
+  /** `filter` is the rollover carry-over; defaults to the client's own. An
+   *  external filter cannot be combined with a `since` cursor — the filter
+   *  already consumed its cursor in the previous file. */
+  constructor(
+    filePath: string,
+    options: EntryClientOptions,
+    filter?: CanonicalEntryFilter,
+  ) {
+    if (
+      filter !== undefined &&
+      options.history === "emit" &&
+      options.since !== undefined
+    ) {
+      throw new Error(
+        "SessionEntryClient: an external filter cannot be combined with a since cursor",
+      );
+    }
     this.filePath = filePath;
     this.options = options;
     this.parser = new SessionEntryParser(filePath);
-    this.filter = new CanonicalEntryFilter(
-      options.history === "emit" ? options.since : undefined,
-    );
+    this.filter =
+      filter ??
+      new CanonicalEntryFilter(
+        options.history === "emit" ? options.since : undefined,
+      );
   }
 
   /** Why the event queue closed, when not a clean close(): truncation,
@@ -180,6 +200,9 @@ export class SessionEntryClient implements StreamClient<
       const emit = this.options.history === "emit";
       const since =
         this.options.history === "emit" ? this.options.since : undefined;
+      // A carried filter arrives with the previous file's leaf; under "emit"
+      // this file's entries follow as events, so the seed precedes them.
+      const leafBeforeScan = this.filter.leaf;
       this.consumeBytes(stat.size, emit);
       if (this.filter.cursorPending) {
         throw new Error(
@@ -187,7 +210,7 @@ export class SessionEntryClient implements StreamClient<
         );
       }
       const seed: EntryStreamState = {
-        leaf: emit ? since : this.filter.leaf,
+        leaf: emit ? (since ?? leafBeforeScan) : this.filter.leaf,
         seenUuids: this.filter.seenUuids,
       };
       // Catches bytes that became visible during setup even if their
@@ -242,15 +265,34 @@ export class SessionEntryClient implements StreamClient<
         if (sawRename) {
           this.verifyIdentity();
         }
-        const size = fstatSync(this.fd!).size;
-        if (size < this.offset) {
-          throw new Error(
-            `${this.filePath} truncated below the consumed byte extent ` +
-              `(${size} < ${this.offset}); a Claude session file only grows`,
-          );
-        }
-        this.consumeBytes(size, true);
+        this.consumeToCurrentSize();
       }
+    } catch (error) {
+      this.fail(error);
+    }
+  }
+
+  private consumeToCurrentSize(): void {
+    const size = fstatSync(this.fd!).size;
+    if (size < this.offset) {
+      throw new Error(
+        `${this.filePath} truncated below the consumed byte extent ` +
+          `(${size} < ${this.offset}); a Claude session file only grows`,
+      );
+    }
+    this.consumeBytes(size, true);
+  }
+
+  /** Synchronously consume any bytes appended since the last read. The final
+   *  drain when the daemon socket closes: entries flushed just before the
+   *  close may not have woken the follower yet, and after close() no wake
+   *  ever will. */
+  drainVisibleBytes(): void {
+    if (this.closed || this.fd === undefined) {
+      return;
+    }
+    try {
+      this.consumeToCurrentSize();
     } catch (error) {
       this.fail(error);
     }

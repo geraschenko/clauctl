@@ -52,11 +52,11 @@ clauctl tail [--type messages|entries|events]
 
 Liveness is the existing `isPidAlive(daemonPid)` check.
 
-| type     | live agent                                                                | dormant/archived agent                          |
-| -------- | ------------------------------------------------------------------------- | ----------------------------------------------- |
-| messages | AgentObserver: history + follow, projected and formatted                   | finite: latest session file, canonical, projected |
-| entries  | AgentObserver: history + follow, one line per entry                        | finite: latest session file, canonical            |
-| events   | sdk.sock subscription (today's stream), formatted by default               | error: no live event source; tail never revives   |
+| type     | live agent                                                   | dormant/archived agent                            |
+| -------- | ------------------------------------------------------------ | ------------------------------------------------- |
+| messages | AgentObserver: history + follow, projected and formatted     | finite: latest session file, canonical, projected |
+| entries  | AgentObserver: history + follow, one line per entry          | finite: latest session file, canonical            |
+| events   | sdk.sock subscription (today's stream), formatted by default | error: no live event source; tail never revives   |
 
 Dormant messages/entries emit history and exit 0. A `--until` condition on a
 dormant agent is trivially met (wait's rule: a dead process is conclusive
@@ -110,7 +110,7 @@ condition does not end a messages/entries tail immediately:
    helper tracks the uuids of entries it has seen flow through the merged
    stream, so a target consumed before the condition fired settles
    immediately, and one still in flight settles when its entry arrives.
-   Deliberately *not* `state.entries.seenUuids`: that set is shared by
+   Deliberately _not_ `state.entries.seenUuids`: that set is shared by
    reference with the file scanner and already contains every history uuid at
    seed time, so testing it would settle before the queued history rendered.
 3. **Bounded catch-up**: if the target has not been consumed within
@@ -165,11 +165,11 @@ formatters — `projectEntries`, `MessageFormatter`, `formatEntryLine`,
 default formatted output is byte-equal to the same invocation's `--json`
 output piped through the corresponding `clauctl format <type>`.
 
-| type     | `--json`                                                     | formatted (default)                                  |
-| -------- | ------------------------------------------------------------ | ---------------------------------------------------- |
-| messages | one bare `MessageRecord` per line (canonical message JSONL)  | `MessageFormatter`; `[cursor: <uuid>]` at flush      |
-| entries  | one bare `SessionEntry` per line                             | `formatEntryLine` per entry; no cursor line          |
-| events   | today's framing: `{"snapshot": …}` then `{"event": …}` lines | `EventFormatter`; no cursor                          |
+| type     | `--json`                                                     | formatted (default)                             |
+| -------- | ------------------------------------------------------------ | ----------------------------------------------- |
+| messages | one bare `MessageRecord` per line (canonical message JSONL)  | `MessageFormatter`; `[cursor: <uuid>]` at flush |
+| entries  | one bare `SessionEntry` per line                             | `formatEntryLine` per entry; no cursor line     |
+| events   | today's framing: `{"snapshot": …}` then `{"event": …}` lines | `EventFormatter`; no cursor                     |
 
 The events snapshot line is deliberate divergence from pictl (whose raw tail
 emits no seed record): clauctl's sdk.sock protocol is seed-plus-fold, and the
@@ -396,9 +396,79 @@ encountered.
 - [x] 2026-07-30: Spec written; critique pass fixed one design flaw: catch-up
       tested against the shared `seenUuids` would settle at seed (the set
       already holds all history uuids at subscribe), skipping history
-      rendering — settlement now tracks *consumed* entry observations. This
+      rendering — settlement now tracks _consumed_ entry observations. This
       corrects the overview's `--until idle` sketch, which named `seenUuids`.
       Also made the rollover file-await deadline normative and noted that no
       uuid flag parser exists yet.
-- [ ] Owner review of the spec.
-- [ ] Implementation.
+- [x] 2026-07-30: Owner review of the spec (approved; UntilSettlement member
+      layout left flexible).
+- [x] 2026-07-30: Implementation. New `src/core/agent-observer.ts`
+      (AgentObserver, merged two-pump queue, rollover, socket-close drain);
+      `SessionEntryClient` carried-filter constructor; `src/core/tail.ts`
+      rewritten (four behavior-matrix paths, `UntilSettlement`, shared
+      `EntrySink` for the dormant and live legs). Tests: existing
+      stream-commands tail tests became `--type events --json`; new
+      `tail.test.ts` covers dormant byte-equivalence, missing `--since`
+      cursor, dormant events + usage errors, `--timeout 0` history drain,
+      live `--since`, socket-close-as-idleness, settlement catch-up,
+      rollover with carried dedup, and the catch-up expiry (unit, injected
+      50 ms deadline). Presubmit green except `sync-from-pictl --check`,
+      blocked by pictl's checkout being on a branch without
+      `src/core/line-reader.ts` (pre-existing, unrelated).
+- [x] 2026-07-30: Live smoke. Dormant + live (641-record session)
+      byte-equivalence of formatted vs `--json | format messages` on real
+      transcripts; entries/events render. Sandbox agent (haiku, isolated
+      CLAUCTL_DIR): `/clear` rollover mid-follow produced both sessions'
+      entries in order with zero duplicate uuids; formatted
+      `--until turn-end` on a busy turn settled after the assistant entry
+      flushed, cursor line emitted, exit 0.
+- [ ] Owner review of the implementation.
+
+## Implementation-Time Decisions
+
+- **`SessionEntryClient.filter` is public readonly**: the observer must
+  obtain the _initial_ client's filter to carry into rollover clients, and
+  when `--since` is in play that filter is client-built (the constructor
+  param only covers handing one in). Same object either way; the ctor throw
+  still guards filter+since.
+- **`SessionEntryClient.drainVisibleBytes()` added**: the socket-close drain
+  is normative, and the follower's wake queue is unreachable after close();
+  a synchronous public drain (same truncation-checked read as the follow
+  loop, factored as `consumeToCurrentSize`) is the minimal hook.
+- **Carried-filter seed leaf**: with an external filter the seed's `leaf` is
+  the filter's pre-scan leaf (the previous file's cursor), not undefined —
+  `emit ? (since ?? leafBeforeScan) : filter.leaf`.
+- **UntilSettlement surface**: constructor gained a `describeFile` thunk
+  (the expiry error must name the _current_ file, which changes on
+  rollover — `AgentObserver.sessionFilePath` getter added for this) and an
+  injectable `catchupTimeoutMs` (tests use 50 ms). The deadline is a
+  never-resolving `expiry: Promise<never>` raced with runStream and
+  disposed in `finally` — an awaited deadline, not a sleep.
+- **`awaitFileExists` is uniform**: the initial open also goes through the
+  bounded file-await (covers tailing between init and the CLI's first
+  write), and it walks up to the nearest _existing_ ancestor before
+  watching, so rollover-from-nothing works even before the project
+  directory exists. Deadline shared with rollover
+  (`SESSION_FILE_TIMEOUT_MS = 10_000`), separate from `CATCHUP_TIMEOUT_MS`.
+- **Config-dir fallback**: for an agent with no recorded sessions, the
+  project dir is derived the way daemon.ts resolves it for the CLI child
+  (persisted env `CLAUDE_CONFIG_DIR` over ours, else `~/.claude`).
+- **Shared format defaults**: `DEFAULT_MESSAGE_FORMAT_OPTIONS` /
+  `DEFAULT_ENTRY_FORMAT_OPTIONS` exported from `src/format/` and consumed
+  by both `format`'s flag fallbacks and tail — byte-equivalence rests on
+  one constant, not two literals.
+- **Sink uses MessageProjector directly**: the data-flow diagram's
+  "projectEntries streaming core" is the projector; the canonical filter has
+  already run in whichever path feeds the sink (client or
+  canonicalizeEntries), so re-wrapping the async generator would only add a
+  redundant filter.
+- **timeout-0 drain verified**: queue items already buffered at subscribe
+  drain through microtasks before a `setTimeout(0)` macrotask fires, so
+  `--timeout 0` emits full history with no pre-drain machinery
+  (tail.test.ts "drains queued history before the deadline"). Corollary:
+  `--type events --timeout 0` also prints any events already queued at
+  subscribe, a hair beyond the spec's "snapshot alone" — the window is the
+  subscribe round-trip.
+- **Dormant `--since` error wraps canonicalizeEntries**: its message names
+  the uuid but not the file; the dormant path rethrows with the file
+  appended rather than changing the shared helper's signature.
