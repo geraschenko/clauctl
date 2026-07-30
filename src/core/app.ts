@@ -6,6 +6,7 @@ import { internalRoutes } from "./daemon/daemon.ts";
 import { listRoute, statusRoute } from "./inspect.ts";
 import { gcRoute, lifecycleRoutes } from "./lifecycle.ts";
 import { formatRoute } from "../format/command.ts";
+import { promptRoute } from "./prompt.ts";
 import { sdkRoutes } from "./sdk-commands.ts";
 import { spawnRoute } from "./spawn.ts";
 import { tailRoute } from "./tail.ts";
@@ -22,6 +23,7 @@ const routes = {
   ...lifecycleRoutes,
   ...gcRoute,
   ...sdkRoutes,
+  ...promptRoute,
   ...attachRoute,
   ...tailRoute,
   ...waitRoute,

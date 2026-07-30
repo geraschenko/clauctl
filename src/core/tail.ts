@@ -19,21 +19,15 @@
  */
 
 import type { UUID } from "node:crypto";
-import {
-  DEFAULT_ENTRY_FORMAT_OPTIONS,
-  formatEntryLine,
-} from "../format/entries.ts";
 import { EventFormatter } from "../format/events.ts";
-import {
-  DEFAULT_MESSAGE_FORMAT_OPTIONS,
-  MessageFormatter,
-} from "../format/messages.ts";
+import { DEFAULT_MESSAGE_FORMAT_OPTIONS } from "../format/messages.ts";
 import type { TailRecord } from "../format/types.ts";
 import {
   AgentObserver,
   type AgentObservation,
   type AgentObservationState,
 } from "./agent-observer.ts";
+import { entrySink } from "./entry-sink.ts";
 import {
   booleanFlag,
   commandOneTarget,
@@ -65,7 +59,6 @@ import {
   type EntryClientOptions,
 } from "./session/entry-stream.ts";
 import { readSessionEntries, type SessionEntry } from "./session/file.ts";
-import { MessageProjector } from "./session/messages.ts";
 import { untilMetAtSeed, untilMetByEvent, untilQuietMs } from "./until.ts";
 import { SOCKET_CONNECT_DEADLINE_MS } from "./generated/constants.ts";
 import { parseUuidFlag } from "./uuid.ts";
@@ -96,59 +89,6 @@ const tailFlags = {
 };
 
 type TailFlags = InferFlags<typeof tailFlags>;
-
-/** Where canonical entries are rendered: one push per entry, end() flushes
- *  (the cursor line for formatted messages). Shared by the dormant and live
- *  paths so they cannot diverge. The messages legs run MessageProjector —
- *  the projectEntries streaming core; the canonical filter has already been
- *  applied by whichever path feeds the sink. */
-interface EntrySink {
-  push(entry: SessionEntry): void;
-  end(): void;
-}
-
-function entrySink(
-  context: CommandContext,
-  type: "messages" | "entries",
-  json: boolean,
-): EntrySink {
-  const write = (text: string): void => {
-    if (text !== "") {
-      context.process.stdout.write(text);
-    }
-  };
-  if (type === "entries") {
-    return {
-      push: (entry) =>
-        write(
-          json
-            ? `${JSON.stringify(entry)}\n`
-            : `${formatEntryLine(entry, DEFAULT_ENTRY_FORMAT_OPTIONS)}\n`,
-        ),
-      end: () => {},
-    };
-  }
-  const projector = new MessageProjector();
-  if (json) {
-    return {
-      push: (entry) => {
-        for (const record of projector.push(entry)) {
-          write(`${JSON.stringify(record)}\n`);
-        }
-      },
-      end: () => {},
-    };
-  }
-  const formatter = new MessageFormatter(DEFAULT_MESSAGE_FORMAT_OPTIONS);
-  return {
-    push: (entry) => {
-      for (const record of projector.push(entry)) {
-        write(formatter.push(record));
-      }
-    },
-    end: () => write(formatter.end()),
-  };
-}
 
 /** `--until` settlement with entry catch-up (spec "`--until` settlement and
  *  entry catch-up"): conditions are evaluated on the sdk side of the
@@ -413,7 +353,7 @@ async function tail(this: CommandContext, flags: TailFlags): Promise<void> {
         : "dormant";
       throw new Error(
         `agent '${agent.id}' is ${state}; there is no live event source and ` +
-          `tail never revives — send it a command (e.g. \`clauctl query\`) ` +
+          `tail never revives — send it a command (e.g. \`clauctl prompt\`) ` +
           `to revive it first`,
       );
     }

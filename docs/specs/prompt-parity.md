@@ -280,5 +280,48 @@ encountered.
       that a detached prompt prints nothing (the receipt is internal).
 - [x] Owner review of this draft (approved 2026-07-30, including the
       steer-path rendering caveat and receipt-based `/compact` detection).
-- [ ] Implementation.
+- [x] 2026-07-30: Implementation. Daemon receipt (`AcceptTransition`,
+      `deliverUserMessage(): number`, `{ id }` response), entry-sink.ts
+      extraction, prompt.ts with both gated legs, query route removed
+      (tail's revival hint now names `clauctl prompt`). Owner change
+      absorbed mid-implementation: commit 6e168eb made tail's `--until`
+      default turn-end with a non-optional `UntilSettlement` condition;
+      prompt matches (`flags.until ?? { kind: "turn-end" }`). Tests: 9 new
+      in prompt.test.ts (detach/no-query, usage errors, both legs' gates,
+      `/compact` ungated, timeout→3, close→1, malformed receipt),
+      request-handlers query test now asserts the receipt. Presubmit green
+      (564). Live smoke in an isolated CLAUCTL_DIR sandbox: gated messages
+      leg rendered exactly our turn with cursor; a third submission's
+      events leg opened at `userMessageDequeued ids:[3]` inclusive with no
+      snapshot; detach printed nothing; `query` unregistered.
 - [ ] Owner review of the implementation.
+
+## Implementation-Time Decisions
+
+- **`submit` callback instead of a `promptId` parameter.**
+  `promptObserved`/`promptEvents` take `submit: () => Promise<number |
+  undefined>` rather than the spec's pre-computed `promptId`: runStream owns
+  calling `subscribe()`, so a pre-computed receipt would have forced
+  submission before the subscription existed, violating
+  subscribe-before-submit. The legs wrap the client so `subscribe()` runs
+  observer/client subscribe, then `submit()`, then hands runStream the
+  subscription — the receipt lands in the gate closure before any event is
+  consumed. `submitPrompt` also drops the spec's unused `context` parameter.
+- **`acceptUserMessage` returns `AcceptTransition`** (`QueueTransition` +
+  `id`) so the hub reads the id from where it is assigned instead of
+  duplicating the `nextId` convention.
+- **Pre-gate settlement feeding is per source.** Entry observations are fed
+  to `UntilSettlement.observe` pre-gate (consumption tracking only — the
+  catch-up must not wait for an entry that already streamed past, the steer
+  caveat) while sdk observations are not (a pre-gate `result` from someone
+  else's turn must not fire the condition). Post-gate both flow normally.
+- **The gate-opening dequeue**: the events leg writes it (inclusive, per
+  spec) and evaluates the condition on it; the observed leg returns false on
+  it — a dequeue cannot end our turn.
+- **Prompt tests own their harness.** prompt.test.ts adapts tail.test.ts's
+  live-server pattern (adding an `onQuery` responder and post-subscribe
+  entry appends) rather than exporting the harness across test files —
+  matching the existing stream-commands/tail precedent of per-file
+  harnesses. Determinism note recorded on the harness: the subscribe
+  response's events are pumped before the separate query connection's round
+  trip completes, so sdk events precede any entries `onQuery` appends.

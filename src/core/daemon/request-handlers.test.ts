@@ -249,10 +249,10 @@ function linearSession(f: Fixture): {
 
 // --- pre-existing request semantics ------------------------------------------
 
-test("query delivers through the hub; the events are the response", async () => {
+test("query delivers through the hub and returns the acceptance receipt", async () => {
   const f = fixture();
   const result = await f.handle({ type: "query", content: "hi", id: "r1" });
-  assert.equal(result, undefined);
+  assert.deepEqual(result, { id: 1 });
   assert.equal(f.pushed.length, 1);
   assert.deepEqual(f.pushed[0]!.origin, { kind: "human" });
   assert.equal(f.events.agentState.activity, "pending");

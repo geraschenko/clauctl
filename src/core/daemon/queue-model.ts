@@ -43,6 +43,12 @@ export interface QueueTransition {
   events: SdkEvent[];
 }
 
+/** An acceptance additionally names the id it assigned — the receipt the
+ *  query response carries back to the submitting client. */
+export interface AcceptTransition extends QueueTransition {
+  id: number;
+}
+
 /**
  * Subject to the demote fork: priority next/default. Demotability also
  * requires acceptance while not idle, but every entry *resident* in the queue
@@ -84,11 +90,12 @@ export function acceptUserMessage(
   state: QueueModelState,
   message: SDKUserMessage,
   isIdle: boolean,
-): QueueTransition {
+): AcceptTransition {
   const id = state.nextId;
   const queuedEvent: SdkEvent = { kind: "userMessageQueued", id, message };
   if (isIdle) {
     return {
+      id,
       state: { ...state, nextId: id + 1 },
       events: [
         queuedEvent,
@@ -97,6 +104,7 @@ export function acceptUserMessage(
     };
   }
   return {
+    id,
     state: {
       nextId: id + 1,
       queued: [...state.queued, { id, message, toolResultSeen: false }],

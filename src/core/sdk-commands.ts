@@ -1,22 +1,16 @@
 /**
  * The full `Query` passthrough (DECISION-4): every Query method as a flat
  * kebab-case subcommand — the daemon's mapping site documents the three
- * exclusions — plus `query --image/--no-query` and the client-side
- * `resolve-settings`.
+ * exclusions — plus the client-side `resolve-settings`. Turn submission
+ * lives in prompt.ts.
  *
  * Every subcommand takes the agent as --target (reviving a dormant agent
  * transparently), sends one request over the agent's sdk.sock, and prints the
  * response data as JSON if there is any.
  */
 
-import { readFile } from "node:fs/promises";
 import { readFileSync } from "node:fs";
-import { extname } from "node:path";
 import { resolveSettings } from "@anthropic-ai/claude-agent-sdk";
-import type {
-  ContentBlockParam,
-  ImageBlockParam,
-} from "@anthropic-ai/sdk/resources";
 import {
   booleanFlag,
   commandNoTarget,
@@ -27,7 +21,6 @@ import {
   restArgs,
   stringArg,
   stringFlag,
-  variadicStringFlag,
   type InferFlags,
 } from "./generated/cli.ts";
 import { oneTarget, type CommandContext } from "./generated/targets.ts";
@@ -53,8 +46,6 @@ const PERMISSION_MODES = [
   "dontAsk",
   "auto",
 ] as const;
-
-const PRIORITIES = ["now", "next", "later"] as const;
 
 async function requestData(
   context: CommandContext,
@@ -107,61 +98,6 @@ function bareRequestCommand(
     func: async function (this: CommandContext): Promise<void> {
       await sendRequest(this, request);
     },
-  });
-}
-
-// --- query -------------------------------------------------------------------
-
-type ImageMediaType = ImageBlockParam["source"] extends infer S
-  ? S extends { media_type: infer M }
-    ? M
-    : never
-  : never;
-
-const IMAGE_MEDIA_TYPES: Record<string, ImageMediaType> = {
-  ".png": "image/png",
-  ".jpg": "image/jpeg",
-  ".jpeg": "image/jpeg",
-  ".gif": "image/gif",
-  ".webp": "image/webp",
-};
-
-async function imageBlock(path: string): Promise<ImageBlockParam> {
-  const mediaType = IMAGE_MEDIA_TYPES[extname(path).toLowerCase()];
-  if (mediaType === undefined) {
-    throw new UsageError(
-      `--image ${path}: unsupported extension (expected ` +
-        `${Object.keys(IMAGE_MEDIA_TYPES).join("|")})`,
-    );
-  }
-  const data = (await readFile(path)).toString("base64");
-  return {
-    type: "image",
-    source: { type: "base64", media_type: mediaType, data },
-  };
-}
-
-const queryFlags = {
-  priority: enumFlag("Queue placement (now|next|later)", PRIORITIES),
-  image: variadicStringFlag("Attach an image file (repeatable)", "path"),
-  noQuery: booleanFlag("Append to the transcript without triggering a turn"),
-};
-
-type QueryFlags = InferFlags<typeof queryFlags>;
-
-async function queryCommand(
-  this: CommandContext,
-  flags: QueryFlags,
-  text: string,
-): Promise<void> {
-  const images = await Promise.all(flags.image.map(imageBlock));
-  const content: string | ContentBlockParam[] =
-    images.length === 0 ? text : [...images, { type: "text", text }];
-  await sendRequest(this, {
-    type: "query",
-    content,
-    ...(flags.priority !== undefined && { priority: flags.priority }),
-    ...(flags.noQuery && { shouldQuery: false }),
   });
 }
 
@@ -500,19 +436,6 @@ async function resolveSettingsCommand(
 }
 
 export const sdkRoutes = {
-  query: commandOneTarget<QueryFlags, [string]>({
-    common: true,
-    docs: { brief: "send a turn to the agent" },
-    parameters: {
-      flags: queryFlags,
-      positional: {
-        kind: "tuple",
-        parameters: [stringArg("Turn text", "text")],
-      },
-    },
-    audited: true,
-    func: queryCommand,
-  }),
   interrupt: commandOneTarget({
     docs: { brief: "interrupt the current turn" },
     audited: true,

@@ -108,16 +108,18 @@ export class EventHub {
    * Deliver a user message to the SDK (via the deliver callback) and advance
    * the queue model, emitting the queued/dequeued events — one atomic step,
    * so the model/queue lockstep is owned here, not by calling convention.
+   * Returns the queue-model id the acceptance assigned — the receipt that
+   * lets the submitter recognize its own dequeue on the event stream.
    */
-  deliverUserMessage(message: SDKUserMessage): void {
+  deliverUserMessage(message: SDKUserMessage): number {
     this.deliver(message);
-    this.applyTransition(
-      QueueModel.acceptUserMessage(
-        this.queueModel,
-        message,
-        isIdle(this.state),
-      ),
+    const transition = QueueModel.acceptUserMessage(
+      this.queueModel,
+      message,
+      isIdle(this.state),
     );
+    this.applyTransition(transition);
+    return transition.id;
   }
 
   /** Emit the sdkMessage event plus any dequeues the queue model implies. */

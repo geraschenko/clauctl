@@ -241,12 +241,12 @@ export function createRequestHandler(
             }),
             ...(request.shouldQuery === false && { shouldQuery: false }),
           };
-          events.deliverUserMessage(message);
-          // The response makes no delivery claim: a demotable message's fate
-          // is unknown at accept time, and blocking until the next boundary
-          // could hang for minutes. The queued/dequeued events on the stream
-          // are the truth.
-          return undefined;
+          // An acceptance receipt, not a delivery claim: a demotable
+          // message's fate is unknown at accept time, and blocking until the
+          // next boundary could hang for minutes. The queued/dequeued events
+          // on the stream are the truth; the id lets the submitter recognize
+          // its own dequeue there.
+          return { id: events.deliverUserMessage(message) };
         } finally {
           releaseQuery();
         }
