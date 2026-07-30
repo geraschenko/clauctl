@@ -305,6 +305,17 @@ export class SdkSocketClient {
   // advanced by nextAgentState per event line. undefined until subscribed.
   private foldedState: AgentState | undefined;
   private subscribeRequestId: string | undefined;
+  // Set by connect() from the hello record; private so only the static
+  // factory writes it.
+  private helloVersionWarning: string | undefined;
+
+  /** Set when the daemon announced a different protocol version — its build
+   *  differs from this client's, so request/response shapes may not line up.
+   *  The consumer decides how to surface it (stderr for CLI commands, a
+   *  transcript banner for the TUI). */
+  get versionWarning(): string | undefined {
+    return this.helloVersionWarning;
+  }
 
   private constructor(socket: Socket) {
     this.socket = socket;
@@ -356,11 +367,12 @@ export class SdkSocketClient {
         if (line.trim() !== "") {
           if (!helloSeen) {
             helloSeen = true;
-            const error = validateHello(line);
-            if (error) {
+            const hello = validateHello(line);
+            if (hello.error) {
               socket.destroy();
-              rejectHello(error);
+              rejectHello(hello.error);
             } else {
+              client.helloVersionWarning = hello.versionWarning;
               resolveHello();
             }
           } else {
@@ -493,7 +505,10 @@ export class SdkSocketClient {
   }
 }
 
-function validateHello(line: string): Error | undefined {
+function validateHello(line: string): {
+  error?: Error;
+  versionWarning?: string;
+} {
   try {
     const hello = JSON.parse(line) as {
       type?: string;
@@ -501,16 +516,22 @@ function validateHello(line: string): Error | undefined {
       version?: number;
     };
     if (hello.type !== "hello" || hello.protocol !== SDK_SOCKET_PROTOCOL) {
-      return new Error(`not a clauctl sdk socket (got ${line.slice(0, 100)})`);
+      return {
+        error: new Error(
+          `not a clauctl sdk socket (got ${line.slice(0, 100)})`,
+        ),
+      };
     }
     if (hello.version !== SDK_SOCKET_VERSION) {
-      process.stderr.write(
-        `clauctl: warning: sdk socket protocol version ${hello.version}, expected ${SDK_SOCKET_VERSION}\n`,
-      );
+      return {
+        versionWarning: `sdk socket protocol version ${hello.version}, expected ${SDK_SOCKET_VERSION} — daemon and client builds differ`,
+      };
     }
-    return undefined;
+    return {};
   } catch {
-    return new Error("first record on sdk socket was not valid JSON");
+    return {
+      error: new Error("first record on sdk socket was not valid JSON"),
+    };
   }
 }
 
@@ -528,7 +549,14 @@ export async function connectWithRetry(
   let delay = 50;
   while (true) {
     try {
-      return await SdkSocketClient.connect(socketPath);
+      const client = await SdkSocketClient.connect(socketPath);
+      // CLI consumers all connect through here; the TUI connects directly
+      // and banners the warning instead (stderr would land under its
+      // alternate screen).
+      if (client.versionWarning !== undefined) {
+        process.stderr.write(`clauctl: warning: ${client.versionWarning}\n`);
+      }
+      return client;
     } catch (error) {
       const code = (error as NodeJS.ErrnoException).code;
       const retryable = code === "ENOENT" || code === "ECONNREFUSED";

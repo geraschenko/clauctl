@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { mkdtempSync, rmSync } from "node:fs";
-import type { Socket } from "node:net";
+import { createServer, type Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, test } from "node:test";
@@ -188,6 +188,33 @@ test("subscribe seeds the client fold and delivers (event, post-fold state) pair
     }
   } finally {
     server.close();
+  }
+});
+
+test("hello version mismatch is exposed as versionWarning, match is not", async () => {
+  const socketPath = join(dir, "hello-version.sock");
+  const server = createServer((socket) => {
+    socket.write(
+      `${JSON.stringify({ type: "hello", protocol: "clauctl-sdk-socket", version: 999 })}\n`,
+    );
+  });
+  await new Promise<void>((resolve) => server.listen(socketPath, resolve));
+  try {
+    const client = await SdkSocketClient.connect(socketPath);
+    assert.match(client.versionWarning ?? "", /version 999, expected/);
+    client.close();
+  } finally {
+    server.close();
+  }
+
+  const matchedPath = join(dir, "hello-match.sock");
+  const matched = startSdkServer(matchedPath, () => Promise.resolve("ok"));
+  try {
+    const client = await SdkSocketClient.connect(matchedPath);
+    assert.equal(client.versionWarning, undefined);
+    client.close();
+  } finally {
+    matched.close();
   }
 });
 

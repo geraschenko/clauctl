@@ -173,6 +173,12 @@ export async function runInteractive(
   );
   setKeybindings(keybindings);
   keybindingWarnings.push(...conflictWarnings(keybindings));
+  const startupWarnings = keybindingWarnings.map(
+    (warning) => `keybindings: ${warning}`,
+  );
+  if (client.versionWarning !== undefined) {
+    startupWarnings.push(client.versionWarning);
+  }
   const { seed, events } = await client.subscribe();
   const ui = new TUI(new ProcessTerminal());
   const interactiveMode = new InteractiveMode(
@@ -180,7 +186,7 @@ export async function runInteractive(
     client,
     seed,
     managed,
-    keybindingWarnings,
+    startupWarnings,
   );
   // Events arriving while the UI is built wait in the queue; the pump starts
   // only once there is something to hand them to. Racing it propagates a
@@ -294,7 +300,7 @@ class InteractiveMode {
     client: SdkSocketClient,
     seedState: AgentState,
     managed: boolean,
-    keybindingWarnings: string[],
+    startupWarnings: string[],
   ) {
     this.ui = ui;
     this.client = client;
@@ -339,8 +345,8 @@ class InteractiveMode {
     void this.reloadHistory();
     // After reloadHistory's synchronous prefix, which recreates the
     // transcript renderer — banners added earlier would be wiped.
-    for (const warning of keybindingWarnings) {
-      this.addBanner(`keybindings: ${warning}`, "warning");
+    for (const warning of startupWarnings) {
+      this.addBanner(warning, "warning");
     }
 
     this.autocomplete = new TuiAutocompleteProvider(
