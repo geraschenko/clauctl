@@ -578,10 +578,11 @@ encountered.
       entry-level `contentBlocks` becomes `recordBlocks` built on generated
       text.ts `contentBlocks`, with open-coded `.some(type)` checks replaced
       by `hasContentBlock`; format/entries.ts `messageSummary` uses
-      `contentBlocks` instead of an `Array.isArray` branch. pictl's new
-      core/test-util.ts was evaluated and NOT synced: clauctl's
-      stream-commands tests assert on write-chunk boundaries
-      (`stdout.length`), which a string-accumulating `fakeProcess` cannot
-      express; only audit-wiring.test.ts could adopt it, too little to
-      justify a sync set.
+      `contentBlocks` instead of an `Array.isArray` branch. pictl's
+      core/test-util.ts originally accumulated stdout into one string, which
+      cannot express clauctl's write-chunk-boundary assertions; pictl
+      extended `CapturedProcess` with `stdoutChunks`/`stderrChunks` (joined
+      getters kept), the file joined the sync set, and both
+      stream-commands.test.ts and audit-wiring.test.ts now use the shared
+      `fakeProcess`.
 - [ ] Owner review of the implementation.

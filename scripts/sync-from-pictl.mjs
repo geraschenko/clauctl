@@ -56,6 +56,7 @@ const SYNC_SETS = [
       "pty-screen.test.ts",
       "read-input.ts",
       "targets.ts",
+      "test-util.ts",
       "tty-protocol.ts",
       "tty-protocol.test.ts",
       "tty-server.ts",

@@ -16,6 +16,7 @@ import { INITIAL_AGENT_STATE, type AgentState } from "./agent-state.ts";
 import { app } from "./app.ts";
 import { RESPONSE_SENT, startSdkServer } from "./daemon/sdk-server.ts";
 import { runCliApp } from "./generated/cli.ts";
+import { fakeProcess, type CapturedProcess } from "./generated/test-util.ts";
 import { sdkSocketPath, writeAgentRecord } from "./registry.ts";
 import type { SdkEvent } from "./sdk-socket.ts";
 
@@ -29,27 +30,10 @@ const RESULT_EVENT: SdkEvent = {
   message: { type: "result" } as unknown as SDKMessage,
 };
 
-interface RunResult {
-  exitCode: number | undefined;
-  stdout: string[];
-  stderr: string[];
-}
-
-async function runCommand(argv: string[]): Promise<RunResult> {
-  const stdout: string[] = [];
-  const stderr: string[] = [];
-  const proc = {
-    env: process.env,
-    stdout: { write: (chunk: string) => stdout.push(chunk) },
-    stderr: { write: (chunk: string) => stderr.push(chunk) },
-    exitCode: undefined as number | undefined,
-  };
-  await runCliApp(
-    app,
-    argv,
-    proc as unknown as Parameters<typeof runCliApp>[2],
-  );
-  return { exitCode: proc.exitCode, stdout, stderr };
+async function runCommand(argv: string[]): Promise<CapturedProcess> {
+  const capture = fakeProcess(process.env);
+  await runCliApp(app, argv, capture.proc);
+  return capture;
 }
 
 /**
@@ -125,8 +109,8 @@ test("tail prints the snapshot before the event that satisfies --until", async (
       "--until",
       "turn-end",
     ]);
-    assert.equal(result.exitCode, 0);
-    const records = result.stdout.map(
+    assert.equal(result.proc.exitCode, 0);
+    const records = result.stdoutChunks.map(
       (line) => JSON.parse(line) as { snapshot?: AgentState; event?: SdkEvent },
     );
     assert.deepEqual(records[0]!.snapshot, BUSY_STATE);
@@ -147,7 +131,7 @@ test("an event delivered as the daemon hangs up still satisfies --until", async 
       "--until",
       "turn-end",
     ]);
-    assert.equal(result.exitCode, 0);
+    assert.equal(result.proc.exitCode, 0);
   });
 });
 
@@ -160,8 +144,8 @@ test("a socket close with nothing to satisfy --until fails", async () => {
       "--until",
       "turn-end",
     ]);
-    assert.equal(result.exitCode, 1);
-    assert.match(result.stderr.join(""), /closed before condition met/);
+    assert.equal(result.proc.exitCode, 1);
+    assert.match(result.stderr, /closed before condition met/);
   });
 });
 
@@ -178,8 +162,8 @@ test("tail treats an expired --timeout as success, wait as exit 3", async () => 
     ]);
     // Watching for the requested span is the whole job; the snapshot it
     // observed is still reported.
-    assert.equal(tailed.exitCode, 0);
-    assert.equal(tailed.stdout.length, 1);
+    assert.equal(tailed.proc.exitCode, 0);
+    assert.equal(tailed.stdoutChunks.length, 1);
 
     const waited = await runCommand([
       "wait",
@@ -190,8 +174,8 @@ test("tail treats an expired --timeout as success, wait as exit 3", async () => 
       "--timeout",
       "0.05",
     ]);
-    assert.equal(waited.exitCode, 3);
-    assert.match(waited.stderr.join(""), /not met within 0.05s/);
+    assert.equal(waited.proc.exitCode, 3);
+    assert.match(waited.stderr, /not met within 0.05s/);
   });
 });
 
@@ -206,8 +190,8 @@ test("tail --timeout without --until is a bounded watch", async () => {
     ]);
     // No condition to meet: the deadline simply ends an otherwise endless
     // stream, after everything seen so far has been printed.
-    assert.equal(result.exitCode, 0);
-    assert.equal(result.stdout.length, 2);
+    assert.equal(result.proc.exitCode, 0);
+    assert.equal(result.stdoutChunks.length, 2);
   });
 });
 
@@ -222,7 +206,7 @@ test("tail --timeout 0 is a snapshot-only watch, not an error", async () => {
       "--timeout",
       "0",
     ]);
-    assert.equal(result.exitCode, 0);
-    assert.equal(result.stdout.length, 1);
+    assert.equal(result.proc.exitCode, 0);
+    assert.equal(result.stdoutChunks.length, 1);
   });
 });

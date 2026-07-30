@@ -11,19 +11,8 @@ import {
   runCliApp,
 } from "./generated/cli.ts";
 import type { CommandContext } from "./generated/targets.ts";
+import { fakeProcess } from "./generated/test-util.ts";
 import { auditLogPath, writeAgentRecord } from "./registry.ts";
-
-function fakeProcess(env: NodeJS.ProcessEnv = {}) {
-  const proc = {
-    env,
-    stdout: { write: () => {} },
-    stderr: { write: () => {} },
-    exitCode: undefined as number | undefined,
-  };
-  return proc as unknown as Parameters<typeof runCliApp>[2] & {
-    exitCode: number | undefined;
-  };
-}
 
 async function withRegistry<T>(fn: (dir: string) => Promise<T>): Promise<T> {
   const old = process.env.CLAUCTL_DIR;
@@ -87,20 +76,20 @@ test("target wrappers audit exactly the audited commands", async () => {
     const auditLog = auditLogPath(join(dir, "abcdef"));
 
     const audited = fakeProcess();
-    await runCliApp(auditProbeApp, ["audited-cmd", "-t", "abc"], audited);
-    assert.equal(audited.exitCode, 0);
+    await runCliApp(auditProbeApp, ["audited-cmd", "-t", "abc"], audited.proc);
+    assert.equal(audited.proc.exitCode, 0);
     const events = readAuditEvents(await readFile(auditLog, "utf8"));
     assert.equal(events.length, 1);
     assert.deepEqual(events[0]!.argv, ["audited-cmd", "-t", "abc"]);
     assert.ok(events[0]!.source.length > 0);
 
     const plain = fakeProcess();
-    await runCliApp(auditProbeApp, ["plain-cmd", "-t", "abc"], plain);
-    assert.equal(plain.exitCode, 0);
+    await runCliApp(auditProbeApp, ["plain-cmd", "-t", "abc"], plain.proc);
+    assert.equal(plain.proc.exitCode, 0);
 
     const off = fakeProcess({ CLAUCTL_AUDIT: "off" });
-    await runCliApp(auditProbeApp, ["audited-cmd", "-t", "abc"], off);
-    assert.equal(off.exitCode, 0);
+    await runCliApp(auditProbeApp, ["audited-cmd", "-t", "abc"], off.proc);
+    assert.equal(off.proc.exitCode, 0);
 
     const after = readAuditEvents(await readFile(auditLog, "utf8"));
     assert.equal(after.length, 1);
