@@ -131,8 +131,7 @@ async function submitPrompt(
   );
   try {
     const data = await client.request({
-      // TDC: let's also change the name of the request to "prompt"
-      type: "query",
+      type: "prompt",
       content,
       ...(flags.priority !== undefined && { priority: flags.priority }),
       ...(flags.noQuery && { shouldQuery: false }),
@@ -142,7 +141,7 @@ async function submitPrompt(
     }
     const id = (data as { id?: unknown }).id;
     if (typeof id !== "number") {
-      throw new Error(`malformed query receipt: ${JSON.stringify(data)}`);
+      throw new Error(`malformed prompt receipt: ${JSON.stringify(data)}`);
     }
     return id;
   } finally {
@@ -161,16 +160,17 @@ function opensGate(event: SdkEvent, promptId: number | undefined): boolean {
 
 /** Messages/entries leg: AgentObserver (history "skip") + EntrySink +
  *  UntilSettlement, output and condition checks gated by a closure boolean
- *  flipped by our dequeue event. `submit` runs after the subscription is
- *  established, so the dequeue cannot be missed; the gate starts open when
- *  it returns no receipt (the `/compact` path). */
+ *  flipped by our dequeue event. `submitPrompt` is deferred, not a promise:
+ *  a promise would already be in flight when the leg received it, and the
+ *  submission must not start until the subscription exists (a fast turn's
+ *  dequeue would otherwise be missed). The gate starts open when it returns
+ *  no receipt (the `/compact` path). */
 async function promptObserved(
   context: CommandContext,
   agent: AgentRecord,
   type: "messages" | "entries",
   json: boolean,
-  // TDC: "submit" is a bad name for this thing. It should describe what it is, not what you did to obtain it. Why is it even a thunk which returns a promise rather than a promise itself? I'd expect it to be called something like promptIdPromise. What is idiomatic for stuff like this in typescript?
-  submit: () => Promise<number | undefined>,
+  submitPrompt: () => Promise<number | undefined>,
   condition: UntilCondition,
   timeoutMs: number | undefined,
 ): Promise<void> {
@@ -188,7 +188,7 @@ async function promptObserved(
   > = {
     subscribe: async () => {
       const subscription = await observer.subscribe();
-      promptId = await submit();
+      promptId = await submitPrompt();
       gateOpen = promptId === undefined;
       return subscription;
     },
@@ -246,7 +246,7 @@ async function promptEvents(
   context: CommandContext,
   agent: AgentRecord,
   json: boolean,
-  submit: () => Promise<number | undefined>,
+  submitPrompt: () => Promise<number | undefined>,
   condition: UntilCondition,
   timeoutMs: number | undefined,
 ): Promise<void> {
@@ -273,7 +273,7 @@ async function promptEvents(
       {
         subscribe: async () => {
           const subscription = await client.subscribe();
-          promptId = await submit();
+          promptId = await submitPrompt();
           gateOpen = promptId === undefined;
           return subscription;
         },
@@ -340,10 +340,15 @@ async function promptCommand(
     await submitPrompt(agent, flags, text);
     return;
   }
-  const submit = (): Promise<number | undefined> =>
-    submitPrompt(agent, flags, text);
   if (type === "events") {
-    await promptEvents(this, agent, flags.json, submit, condition, timeoutMs);
+    await promptEvents(
+      this,
+      agent,
+      flags.json,
+      () => submitPrompt(agent, flags, text),
+      condition,
+      timeoutMs,
+    );
     return;
   }
   await promptObserved(
@@ -351,7 +356,7 @@ async function promptCommand(
     agent,
     type,
     flags.json,
-    submit,
+    () => submitPrompt(agent, flags, text),
     condition,
     timeoutMs,
   );

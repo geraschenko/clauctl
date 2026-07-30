@@ -249,9 +249,9 @@ function linearSession(f: Fixture): {
 
 // --- pre-existing request semantics ------------------------------------------
 
-test("query delivers through the hub and returns the acceptance receipt", async () => {
+test("prompt delivers through the hub and returns the acceptance receipt", async () => {
   const f = fixture();
-  const result = await f.handle({ type: "query", content: "hi", id: "r1" });
+  const result = await f.handle({ type: "prompt", content: "hi", id: "r1" });
   assert.deepEqual(result, { id: 1 });
   assert.equal(f.pushed.length, 1);
   assert.deepEqual(f.pushed[0]!.origin, { kind: "human" });
@@ -260,7 +260,7 @@ test("query delivers through the hub and returns the acceptance receipt", async 
 
 test("/compact while idle pushes directly and emits compactSent", async () => {
   const f = fixture();
-  await f.handle({ type: "query", content: "/compact", id: "r1" });
+  await f.handle({ type: "prompt", content: "/compact", id: "r1" });
   assert.equal(f.pushed.length, 1);
   assert.deepEqual(f.pushed[0]!.origin, { kind: "human" });
   assert.deepEqual(
@@ -275,7 +275,7 @@ test("/compact is rejected when not idle", async () => {
   f.events.deliverUserMessage(userMessage());
   assert.equal(f.events.agentState.activity, "pending");
   await assert.rejects(
-    f.handle({ type: "query", content: "/compact", id: "r2" }),
+    f.handle({ type: "prompt", content: "/compact", id: "r2" }),
     /requires an idle assistant/,
   );
 });
@@ -1135,7 +1135,7 @@ test("restart failure leaves the daemon query-unavailable until a set-context su
     /query restart failed; retry set-context/,
   );
   await assert.rejects(
-    f.handle({ type: "query", content: "hi", id: "q1" }),
+    f.handle({ type: "prompt", content: "hi", id: "q1" }),
     /query restart failed; retry set-context/,
   );
   assert.equal(
@@ -1150,7 +1150,7 @@ test("restart failure leaves the daemon query-unavailable until a set-context su
     rewindTo: { uuid: a1.uuid },
     id: "c2",
   });
-  await f.handle({ type: "query", content: "hi", id: "q2" });
+  await f.handle({ type: "prompt", content: "hi", id: "q2" });
   assert.equal(f.pushed.length, 1);
 });
 

@@ -34,8 +34,8 @@ acceptance receipt carrying the id.
 - `-d`/`--detach` preserves today's fire-and-forget behavior — submit,
   print nothing (the receipt is internal), exit 0; `--no-query` implies it
   (an appended message predicts no `result` to stream).
-- The sdk.sock `query` response returns `{ id: number }`, the queue-model id
-  of the accepted message.
+- The sdk.sock request (renamed `query` → `prompt` alongside the command)
+  responds `{ id: number }`, the queue-model id of the accepted message.
 
 ## Command surface
 
@@ -133,7 +133,7 @@ Daemon (protocol):
 // event-hub.ts — returns the queue-model id it already computes.
 deliverUserMessage(message: SDKUserMessage): number;
 
-// request-handlers.ts "query" case — an acceptance receipt; still no
+// request-handlers.ts "prompt" case — an acceptance receipt; still no
 // delivery claim (a demotable message's fate is unknown at accept time).
 // "/compact" keeps returning undefined.
 return { id: events.deliverUserMessage(message) };
@@ -283,10 +283,10 @@ encountered.
 - [x] 2026-07-30: Implementation. Daemon receipt (`AcceptTransition`,
       `deliverUserMessage(): number`, `{ id }` response), entry-sink.ts
       extraction, prompt.ts with both gated legs, query route removed
-      (tail's revival hint now names `clauctl prompt`). Owner change
-      absorbed mid-implementation: commit 6e168eb made tail's `--until`
-      default turn-end with a non-optional `UntilSettlement` condition;
-      prompt matches (`flags.until ?? { kind: "turn-end" }`). Tests: 9 new
+      (tail's revival hint now names `clauctl prompt`). prompt defaults
+      `--until` to turn-end (`flags.until ?? { kind: "turn-end" }`); tail
+      deliberately does not — the request/response-vs-observation asymmetry
+      recorded in tail-parity.md's work log. Tests: 9 new
       in prompt.test.ts (detach/no-query, usage errors, both legs' gates,
       `/compact` ungated, timeout→3, close→1, malformed receipt),
       request-handlers query test now asserts the receipt. Presubmit green
@@ -294,12 +294,21 @@ encountered.
       leg rendered exactly our turn with cursor; a third submission's
       events leg opened at `userMessageDequeued ids:[3]` inclusive with no
       snapshot; detach printed nothing; `query` unregistered.
+- [x] 2026-07-30: Review round 1 (commit b2fcc09). The sdk.sock request
+      type renamed `query` → `prompt` end to end (SdkRequest, the daemon
+      handler case, the TUI submit path, tests; the receipt error message
+      now says "malformed prompt receipt"). The legs' `submit` parameter
+      renamed `submitPrompt`, with the deferral rationale documented on
+      `promptObserved`; call sites pass the arrow inline so no second name
+      for the same action exists. It stays a callback rather than a
+      promise: a promise is already-running work, and the submission must
+      not start before the subscription exists.
 - [ ] Owner review of the implementation.
 
 ## Implementation-Time Decisions
 
-- **`submit` callback instead of a `promptId` parameter.**
-  `promptObserved`/`promptEvents` take `submit: () => Promise<number |
+- **`submitPrompt` callback instead of a `promptId` parameter.**
+  `promptObserved`/`promptEvents` take `submitPrompt: () => Promise<number |
   undefined>` rather than the spec's pre-computed `promptId`: runStream owns
   calling `subscribe()`, so a pre-computed receipt would have forced
   submission before the subscription existed, violating
@@ -323,5 +332,5 @@ encountered.
   entry appends) rather than exporting the harness across test files —
   matching the existing stream-commands/tail precedent of per-file
   harnesses. Determinism note recorded on the harness: the subscribe
-  response's events are pumped before the separate query connection's round
+  response's events are pumped before the separate prompt connection's round
   trip completes, so sdk events precede any entries `onQuery` appends.

@@ -247,7 +247,7 @@ export function parseSetContextRequest(
 
 export type SdkRequest =
   | {
-      type: "query";
+      type: "prompt";
       content: string | ContentBlockParam[];
       priority?: TurnPriority;
       shouldQuery?: false;

@@ -612,9 +612,9 @@ class InteractiveMode {
     // The queued echo comes back as a userMessageQueued event; nothing is
     // rendered here.
     void this.client
-      .request({ type: "query", content: text })
+      .request({ type: "prompt", content: text })
       .catch((error: unknown) => {
-        this.addBanner(`query failed: ${String(error)}`);
+        this.addBanner(`prompt failed: ${String(error)}`);
         this.ui.requestRender();
       });
   }

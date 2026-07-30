@@ -205,7 +205,7 @@ export function createRequestHandler(
     connection: SdkConnection,
   ): Promise<unknown> => {
     switch (request.type) {
-      case "query": {
+      case "prompt": {
         const releaseQuery = acquireQuery();
         try {
           const content = request.content;

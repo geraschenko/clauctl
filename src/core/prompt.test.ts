@@ -3,7 +3,7 @@
  * and --no-query fire-and-forget, the usage errors, the dequeue gate on both
  * the events and messages legs, the ungated /compact path, and the exit-code
  * classification (timeout → 3, close before condition → 1). The harness is
- * tail.test.ts's live-server pattern plus a query responder returning the
+ * tail.test.ts's live-server pattern plus a prompt responder returning the
  * acceptance receipt; the daemon side of the receipt is covered in
  * request-handlers.test.ts.
  */
@@ -85,10 +85,10 @@ async function runCommand(argv: string[]): Promise<CapturedProcess> {
  * A registry with one live agent (this process is its "daemon") and an
  * sdk.sock server: subscribe is answered with `seed` then `events` in a
  * single chunk (already queued when subscribe resolves, so they are pumped
- * before the separate query connection's round trip completes — sdk events
- * deterministically precede any entries `onQuery` appends); query is
- * answered by `onQuery`, which may append live entries to the session file
- * first. `sessionEntries` are on-disk history before the run.
+ * before the separate prompt connection's round trip completes — sdk events
+ * deterministically precede any entries `onPrompt` appends); the prompt
+ * request is answered by `onPrompt`, which may append live entries to the
+ * session file first. `sessionEntries` are on-disk history before the run.
  */
 async function withPromptAgent(
   options: {
@@ -96,7 +96,7 @@ async function withPromptAgent(
     events?: SdkEvent[];
     hangUp?: boolean;
     sessionEntries?: SessionEntry[];
-    onQuery?: (request: SdkRequestRecord) => Promise<unknown>;
+    onPrompt?: (request: SdkRequestRecord) => Promise<unknown>;
   },
   fn: (agentId: string) => Promise<void>,
 ): Promise<void> {
@@ -147,8 +147,8 @@ async function withPromptAgent(
         }
         return RESPONSE_SENT;
       }
-      if (request.type === "query" && options.onQuery !== undefined) {
-        return await options.onQuery(request);
+      if (request.type === "prompt" && options.onPrompt !== undefined) {
+        return await options.onPrompt(request);
       }
       return "ok";
     },
@@ -175,7 +175,7 @@ test("--detach submits and prints nothing", async () => {
   const seen: SdkRequestRecord[] = [];
   await withPromptAgent(
     {
-      onQuery: (request) => {
+      onPrompt: (request) => {
         seen.push(request);
         return Promise.resolve({ id: 1 });
       },
@@ -194,7 +194,7 @@ test("--no-query implies detach and sends shouldQuery: false", async () => {
   const seen: SdkRequestRecord[] = [];
   await withPromptAgent(
     {
-      onQuery: (request) => {
+      onPrompt: (request) => {
         seen.push(request);
         return Promise.resolve({ id: 1 });
       },
@@ -256,7 +256,7 @@ test("events leg starts at our dequeue, inclusive, and ends at the result", asyn
         dequeuedEvent([1]),
         RESULT_EVENT,
       ],
-      onQuery: () => Promise.resolve({ id: 1 }),
+      onPrompt: () => Promise.resolve({ id: 1 }),
     },
     async (agentId) => {
       const result = await runCommand([
@@ -282,7 +282,7 @@ test("a dequeue without our id does not open the gate; --timeout exits 3", async
     {
       seed: BUSY_STATE,
       events: [queuedEvent(1, "hi"), dequeuedEvent([7]), RESULT_EVENT],
-      onQuery: () => Promise.resolve({ id: 1 }),
+      onPrompt: () => Promise.resolve({ id: 1 }),
     },
     async (agentId) => {
       const result = await runCommand([
@@ -315,7 +315,7 @@ test("messages leg renders only our turn's entries, not history", async () => {
         RESULT_EVENT,
       ],
       sessionEntries: [userEntry(UUID_H, "history")],
-      onQuery: async () => {
+      onPrompt: async () => {
         // The entry scan completed when the observer's subscribe resolved,
         // before this submission — these land as live entries.
         await appendOurTurn!();
@@ -365,7 +365,7 @@ test("/compact has no receipt and streams ungated until the result", async () =>
       seed: BUSY_STATE,
       events: [compactSent, RESULT_EVENT],
       // No data: the daemon's /compact path bypasses the queue model.
-      onQuery: () => Promise.resolve(undefined),
+      onPrompt: () => Promise.resolve(undefined),
     },
     async (agentId) => {
       const result = await runCommand([
@@ -392,7 +392,7 @@ test("a stream close before the condition is met fails", async () => {
       seed: BUSY_STATE,
       events: [queuedEvent(1, "hi")],
       hangUp: true,
-      onQuery: () => Promise.resolve({ id: 1 }),
+      onPrompt: () => Promise.resolve({ id: 1 }),
     },
     async (agentId) => {
       const result = await runCommand(["prompt", "-t", agentId, "hi"]);
@@ -406,7 +406,7 @@ test("a malformed receipt is an internal error", async () => {
   await withPromptAgent(
     {
       seed: BUSY_STATE,
-      onQuery: () => Promise.resolve("ok"),
+      onPrompt: () => Promise.resolve("ok"),
     },
     async (agentId) => {
       const result = await runCommand([
@@ -419,7 +419,7 @@ test("a malformed receipt is an internal error", async () => {
         "hi",
       ]);
       assert.equal(result.proc.exitCode, 1);
-      assert.match(result.stderr, /malformed query receipt/);
+      assert.match(result.stderr, /malformed prompt receipt/);
     },
   );
 });
