@@ -106,7 +106,7 @@ function crossPointer(lineNumber: number, shape: RecordShape): UsageError {
       );
     case undefined:
       return new UsageError(
-        `record ${lineNumber} is not recognized (expected a session entry, canonical message, or tail record)`,
+        `record ${lineNumber} is not recognized (expected a session entry, canonical message, or event)`,
       );
   }
 }

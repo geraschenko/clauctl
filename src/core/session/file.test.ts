@@ -76,10 +76,6 @@ test("SessionEntryParser yields multiple entries from one chunk", () => {
   assert.deepEqual(entries, [a, b]);
 });
 
-// Pure splitting mechanics (torn lines, split UTF-8, blank-line counting)
-// are JsonlDecoder's and tested in core/jsonl.test.ts; these tests cover the
-// parse/validation layer the parser adds on top.
-
 test("SessionEntryParser counts blank lines toward error line numbers", () => {
   const parser = new SessionEntryParser("/s.jsonl");
   const entry = { uuid: uuid() };

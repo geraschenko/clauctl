@@ -11,7 +11,7 @@
 
 import { execFileSync } from "node:child_process";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { basename, dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -101,12 +101,31 @@ function transform(source, syncSet, fileName) {
     .replaceAll("pictl", "clauctl")
     .replaceAll("PICTL", "CLAUCTL")
     .replaceAll("Pictl", "Clauctl")
-  // Imports within the set stay "./"; ones pointing outside it are rewritten
-  // to the set's counterpart directory, if it has one.
-  out = out.replace(/from "\.\/([^"]+)"/g, (match, imported) => {
-    if (syncSet.files.includes(imported)) {
+  // Imports within the set stay as-is; imports resolving to a file in another
+  // sync set are rewritten to that set's generated directory; remaining "./"
+  // imports point at unsynced siblings and are rewritten to the set's
+  // counterpart directory, if it has one.
+  out = out.replace(/from "(\.\.?\/[^"]+)"/g, (match, importPath) => {
+    const sourcePath = join(syncSet.sourceDir, importPath);
+    const targetSet = SYNC_SETS.find(
+      (candidate) =>
+        resolve(dirname(sourcePath)) === resolve(candidate.sourceDir) &&
+        candidate.files.includes(basename(sourcePath)),
+    );
+    if (targetSet === syncSet) {
       return match;
     }
+    if (targetSet !== undefined) {
+      const rewritten = relative(
+        syncSet.outDir,
+        join(targetSet.outDir, basename(sourcePath)),
+      );
+      return `from "${rewritten.startsWith(".") ? rewritten : `./${rewritten}`}"`;
+    }
+    if (!importPath.startsWith("./")) {
+      return match;
+    }
+    const imported = importPath.slice(2);
     if (syncSet.outsidePrefix === undefined) {
       throw new Error(
         `${fileName} imports ./${imported}, which is outside the sync set for ` +

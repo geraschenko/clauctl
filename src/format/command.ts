@@ -69,7 +69,7 @@ const filePositional = {
  *  decodeFormatInput). */
 function rejectEvents(): never {
   throw new UsageError(
-    "input looks like tail output; use `clauctl format events`",
+    "input looks like events; use `clauctl format events`",
   );
 }
 
@@ -108,6 +108,7 @@ async function formatMessages(
       write(formatter.push(record));
     }
   } else {
+    // TDC: can we invert this if block? What we'd like to do is build a pipeline on a stream, so 'if input.kind == "entries" { /*apply filter and projector*/ }', then `write(formatter.push(record))` regardless of how the message stream was produced. Does TS support this kind of filtermap pipeline?
     const filter = new CanonicalEntryFilter();
     const projector = new MessageProjector();
     for await (const entry of input.records) {
@@ -176,7 +177,7 @@ async function formatEntries(
   const options: EntryFormatOptions = {
     timestamps: flags.timestamps ?? false,
     full: flags.full ?? false,
-    width: flags.width ?? 120,
+    width: flags.width ?? 100,
   };
   const filter = new CanonicalEntryFilter();
   for await (const entry of input.records) {

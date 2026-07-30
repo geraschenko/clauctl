@@ -40,7 +40,7 @@ export type MessageRecord = SessionMessageOnWire | ControlRecord;
 function control(
   entry: SessionEntry,
   fields: MessageControl,
-  includeUuid = false,
+  includeUuid = false,  // TDC: why not always include the uuid if entry has one? Why have an additional boolean argument for it?
 ): ControlRecord {
   return {
     type: "control",

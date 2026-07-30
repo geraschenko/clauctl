@@ -1,3 +1,5 @@
+// TDC: This file has nothing to do with JSONL, so we shouldn't name it as if it does. Call it something actually descriptive of what it does, like "LineReader" for the class and line-reader.ts for the filename.
+
 /**
  * Incremental JSONL line splitting, shared by the session-file parser and the
  * `format` input pipeline. Splitting only — parsing and error wording stay
