@@ -120,8 +120,10 @@ range.
      persistence semantics, CLI commands, and tests.
    - Handle new message variants wherever exhaustive rendering, state folding,
      transcript conversion, or generic fallbacks require it.
-   - Sweep for stale version stamps: `rg '<old sdk version>' src scripts skills`
-     and the same for the old bundled claude version. Update comments pinned to
+   - Sweep for stale version stamps:
+     `rg -n '\b[0-9]+\.[0-9]+\.[0-9]+\b' src scripts skills` and triage every
+     hit (the bare-literal pattern is deliberate: it finds stamps regardless
+     of phrasing or how many migrations behind they are). Update comments pinned to
      the old SDK version or old contract; a comment describing observed runtime
      behavior may only carry the new version once the migration confirmed the
      behavior is unchanged (declaration diff, migration notes, or a live check)
