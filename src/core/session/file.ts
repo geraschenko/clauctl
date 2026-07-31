@@ -57,8 +57,7 @@ export function entryToSessionMessage(
     session_id: entry.sessionId as string,
     message: entry.message,
     parent_tool_use_id: null,
-    // SDK 0.3.211 made this runtime field part of the declared
-    // SessionMessage contract.
+    // Runtime field required by the declared SessionMessage contract.
     parent_agent_id: null,
     ...(typeof entry.timestamp === "string" && {
       timestamp: entry.timestamp,

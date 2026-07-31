@@ -120,7 +120,15 @@ range.
      persistence semantics, CLI commands, and tests.
    - Handle new message variants wherever exhaustive rendering, state folding,
      transcript conversion, or generic fallbacks require it.
-   - Update comments/docs pinned to the old SDK version or old contract.
+   - Sweep for stale version stamps: `rg '<old sdk version>' src scripts skills`
+     and the same for the old bundled claude version. Update comments pinned to
+     the old SDK version or old contract; a comment describing observed runtime
+     behavior may only carry the new version once the migration confirmed the
+     behavior is unchanged (declaration diff, migration notes, or a live check)
+     — otherwise leave the old stamp and flag it. Leave provenance references
+     (e.g. which decompiled binary a port came from), test fixture data, and
+     `docs/derisk/` experiment records alone: they record which version
+     something actually ran on.
    - Add or update offline tests for changed project behavior. Do not loosen types,
      cast away a migration error, or remove intentional functionality.
 

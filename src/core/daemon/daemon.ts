@@ -178,7 +178,7 @@ async function daemon(this: CommandContext, flags: DaemonFlags): Promise<void> {
 
   // Also feeds the AgentState seed below. Resolved before buildOptions
   // because the settings-cascade permissionMode must reach the child
-  // explicitly: SDK 0.3.211's query() defaults an unset permissionMode to
+  // explicitly: SDK 0.3.220's query() defaults an unset permissionMode to
   // "default" and always passes --permission-mode to the CLI, so the
   // cascade's permissions.defaultMode never takes effect on its own.
   const settings = await settingsSeed(record.persistedOptions, record.cwd);

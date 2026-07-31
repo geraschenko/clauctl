@@ -219,7 +219,7 @@ export function createRequestHandler(
               type: "user",
               message: { role: "user", content },
               parent_tool_use_id: null,
-              // SDK 0.3.211 treats absent origin as unattributed at strict
+              // SDK 0.3.220 treats absent origin as unattributed at strict
               // human-input trust gates; this request came from the user CLI.
               origin: { kind: "human" },
             };
@@ -233,7 +233,7 @@ export function createRequestHandler(
             type: "user",
             message: { role: "user", content },
             parent_tool_use_id: null,
-            // SDK 0.3.211 treats absent origin as unattributed at strict
+            // SDK 0.3.220 treats absent origin as unattributed at strict
             // human-input trust gates; sdk.sock prompt requests are user input.
             origin: { kind: "human" },
             ...(request.priority !== undefined && {
@@ -256,7 +256,7 @@ export function createRequestHandler(
         try {
           const receipt = await deps.getQuery().interrupt();
           events.emit({ kind: "interruptSent" });
-          // SDK 0.3.211 returns the still-queued receipt when the bundled CLI
+          // SDK 0.3.220 returns the still-queued receipt when the bundled CLI
           // advertises interrupt_receipt_v1; preserve the Query passthrough.
           return receipt;
         } finally {
