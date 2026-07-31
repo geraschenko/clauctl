@@ -93,6 +93,14 @@ The request surface has three layers:
   `get-entries`, `set-context`. These need daemon-side logic beyond the Claude
   Agent SDK (queueing, session-file access, context surgery).
 
+The pushed event stream is a superset of the Claude Agent SDK's: every SDK
+message is forwarded verbatim (as `sdkMessage` events), and clauctl adds the
+events a client needs to maintain an accurate `AgentState` — the queue events
+(`userMessageQueued`/`userMessageDequeued`), `compactSent`, `interruptSent`,
+`contextChanged`, and `controlApplied`. See
+[`claude-agent-sdk.md`](claude-agent-sdk.md) for why the SDK stream alone is
+not enough.
+
 `set-context` is the one request that rewrites history: it either appends a
 compact-boundary entry to the session file, or restarts the SDK session at an
 earlier leaf without writing the file (in which case the daemon keeps
