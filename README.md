@@ -1,5 +1,8 @@
 # `clauctl`: a claude agent orchestration CLI
 
+[![GitHub](https://img.shields.io/badge/github-geraschenko%2Fclauctl-blue?logo=github)](https://github.com/geraschenko/clauctl)
+[![npm](https://img.shields.io/npm/v/@geraschenko/clauctl.svg)](https://www.npmjs.com/package/@geraschenko/clauctl)
+
 `clauctl` lets humans, agents, scripts, and code interact with live claude
 agents _simultaneously_, each on their own terms. Humans attach a terminal UI,
 and agents/scripts get ergonomic access to the Claude Agent SDK's full
