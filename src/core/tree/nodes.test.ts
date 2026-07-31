@@ -8,6 +8,7 @@ import {
   isFinalAssistantEntry,
   parseTreeNodeRef,
   pathToLeaf,
+  resolveTreeNodeRef,
   treeNodeRefsEqual,
   type ParentMap,
   type TreeNodeRef,
@@ -36,6 +37,35 @@ test("parseTreeNodeRef rejects malformed input", () => {
     `${good} `,
   ]) {
     assert.throws(() => parseTreeNodeRef(bad), /expected "<uuid>"/);
+  }
+});
+
+test("resolveTreeNodeRef resolves prefixes per half, passes full uuids through", () => {
+  const target = "aaaaaaaa-0000-4000-8000-000000000001" as UUID;
+  const boundary = "bbbbbbbb-0000-4000-8000-000000000002" as UUID;
+  const sessionUuids = new Set([target, boundary]);
+  assert.deepEqual(resolveTreeNodeRef("aa", sessionUuids), { uuid: target });
+  assert.deepEqual(resolveTreeNodeRef("aa@bb", sessionUuids), {
+    uuid: target,
+    viaBoundary: boundary,
+  });
+  assert.deepEqual(resolveTreeNodeRef(`${target}@bb`, sessionUuids), {
+    uuid: target,
+    viaBoundary: boundary,
+  });
+  // A full uuid is never checked against the session (the daemon keeps
+  // membership validation).
+  const absent = "cccccccc-0000-4000-8000-000000000003" as UUID;
+  assert.deepEqual(resolveTreeNodeRef(absent, sessionUuids), { uuid: absent });
+  assert.throws(
+    () => resolveTreeNodeRef("dd", sessionUuids),
+    /no session entry uuid matches 'dd'/,
+  );
+  for (const bad of ["", "aa@", "@bb", "aa@bb@cc", "zz"]) {
+    assert.throws(
+      () => resolveTreeNodeRef(bad, sessionUuids),
+      /expected "<uuid>"/,
+    );
   }
 });
 

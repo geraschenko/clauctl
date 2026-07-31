@@ -9,7 +9,7 @@
 import type { UUID } from "node:crypto";
 import type { SessionEntry } from "../session/file.ts";
 import type { ParentMap } from "../../format/generated/flat-tree.ts";
-import { UUID_PATTERN } from "../uuid.ts";
+import { isUuidPrefix, resolveUuidPrefix, UUID_PATTERN } from "../uuid.ts";
 
 export type { ParentMap };
 
@@ -74,6 +74,37 @@ export function parseTreeNodeRef(text: string): TreeNodeRef {
   return {
     uuid: uuid as UUID,
     ...(viaBoundary !== undefined && { viaBoundary: viaBoundary as UUID }),
+  };
+}
+
+/** parseTreeNodeRef where each "@"-separated half may also be a unique
+ *  prefix of a session entry uuid; full uuids pass through unresolved (and
+ *  unchecked — the daemon keeps membership validation). Throws on malformed
+ *  input like parseTreeNodeRef, and on unresolvable prefixes like
+ *  resolveUuidPrefix. */
+export function resolveTreeNodeRef(
+  text: string,
+  sessionUuids: ReadonlySet<UUID>,
+): TreeNodeRef {
+  const [uuid, viaBoundary, ...rest] = text.split("@");
+  if (
+    rest.length > 0 ||
+    uuid === undefined ||
+    !isUuidPrefix(uuid) ||
+    (viaBoundary !== undefined && !isUuidPrefix(viaBoundary))
+  ) {
+    throw new Error(
+      `expected "<uuid>" or "<uuid>@<boundary-uuid>" (unique prefixes ` +
+        `accepted), got ${JSON.stringify(text)}`,
+    );
+  }
+  const resolve = (half: string): UUID =>
+    UUID_PATTERN.test(half)
+      ? (half as UUID)
+      : resolveUuidPrefix(half, sessionUuids);
+  return {
+    uuid: resolve(uuid),
+    ...(viaBoundary !== undefined && { viaBoundary: resolve(viaBoundary) }),
   };
 }
 

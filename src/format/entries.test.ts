@@ -12,6 +12,8 @@ const OPTIONS: EntryFormatOptions = {
 };
 
 const UUID = "7f3f2c9e-93d1-4b8a-b1a2-000000000001";
+/** What displayUuid renders for UUID. */
+const UUID_DISPLAY = "7f3f2c9e";
 
 function line(
   entry: Record<string, unknown>,
@@ -27,7 +29,7 @@ test("uuid column shows the uuid, type is padded, summary follows", () => {
       type: "user",
       message: { role: "user", content: "Fix the torn-tail bug" },
     }),
-    `${UUID} user       Fix the torn-tail bug`,
+    `${UUID_DISPLAY} user       Fix the torn-tail bug`,
   );
 });
 
@@ -39,7 +41,7 @@ test("uuid-less entries blank-pad the uuid column", () => {
   });
   assert.equal(
     rendered,
-    `${" ".repeat(36)} queue-operation enqueue: Also update the tests`,
+    `${" ".repeat(8)} queue-operation enqueue: Also update the tests`,
   );
 });
 
@@ -57,7 +59,7 @@ test("assistant content renders markers and text", () => {
         ],
       },
     }),
-    `${UUID} assistant  [thinking] [tool:Read] reading the parser`,
+    `${UUID_DISPLAY} assistant  [thinking] [tool:Read] reading the parser`,
   );
 });
 
@@ -127,14 +129,17 @@ test("--timestamps prefixes the entry timestamp", () => {
     },
     { timestamps: true },
   );
-  assert.equal(rendered, `2026-07-29T00:00:00.000Z ${UUID} user       hi`);
+  assert.equal(
+    rendered,
+    `2026-07-29T00:00:00.000Z ${UUID_DISPLAY} user       hi`,
+  );
 });
 
 test("--full appends the raw entry JSON", () => {
   const entry = { uuid: UUID, type: "mode", mode: "normal" };
   assert.equal(
     line(entry, { full: true }),
-    `${UUID} mode       normal ${JSON.stringify(entry)}`,
+    `${UUID_DISPLAY} mode       normal ${JSON.stringify(entry)}`,
   );
 });
 

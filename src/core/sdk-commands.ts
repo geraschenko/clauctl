@@ -9,6 +9,7 @@
  * response data as JSON if there is any.
  */
 
+import type { UUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { resolveSettings } from "@anthropic-ai/claude-agent-sdk";
 import {
@@ -32,9 +33,16 @@ import {
   parseSetContextRequest,
   type FlagSettings,
   type SdkRequest,
+  type SdkSocketClient,
   type SetContextRequest,
 } from "./sdk-socket.ts";
-import { parseTreeNodeRef } from "./tree/nodes.ts";
+import {
+  parseTreeNodeRef,
+  resolveTreeNodeRef,
+  type SessionSnapshot,
+  type TreeNodeRef,
+} from "./tree/nodes.ts";
+import { isUuidPrefix, resolveUuidPrefix, UUID_PATTERN } from "./uuid.ts";
 import { oneOf, UsageError } from "./generated/util.ts";
 import { SOCKET_CONNECT_DEADLINE_MS } from "./generated/constants.ts";
 
@@ -47,19 +55,35 @@ const PERMISSION_MODES = [
   "auto",
 ] as const;
 
-async function requestData(
+/** Revive/connect to the target and run `fn` against the open connection —
+ *  the seam that lets one invocation issue several requests (uuid-prefix
+ *  resolution needs a get-entries before the real request). */
+async function withClient<T>(
   context: CommandContext,
-  request: SdkRequest,
-): Promise<unknown> {
+  fn: (client: SdkSocketClient) => Promise<T>,
+): Promise<T> {
   const agent = await ensureAgentRunning(oneTarget(context).id);
   const client = await connectWithRetry(
     sdkSocketPath(agent.agentDir),
     SOCKET_CONNECT_DEADLINE_MS,
   );
   try {
-    return await client.request(request);
+    return await fn(client);
   } finally {
     client.close();
+  }
+}
+
+async function requestData(
+  context: CommandContext,
+  request: SdkRequest,
+): Promise<unknown> {
+  return withClient(context, (client) => client.request(request));
+}
+
+function printData(context: CommandContext, data: unknown): void {
+  if (data !== undefined) {
+    context.process.stdout.write(`${JSON.stringify(data, null, 2)}\n`);
   }
 }
 
@@ -67,10 +91,23 @@ async function sendRequest(
   context: CommandContext,
   request: SdkRequest,
 ): Promise<void> {
-  const data = await requestData(context, request);
-  if (data !== undefined) {
-    context.process.stdout.write(`${JSON.stringify(data, null, 2)}\n`);
-  }
+  printData(context, await requestData(context, request));
+}
+
+/** The current session's entry uuids (one get-entries request) — the
+ *  resolution universe for unique uuid prefixes. Prefix acceptance is CLI
+ *  ergonomics only: the wire protocol carries full uuids. */
+async function sessionEntryUuids(
+  client: SdkSocketClient,
+): Promise<ReadonlySet<UUID>> {
+  const snapshot = (await client.request({
+    type: "get-entries",
+  })) as SessionSnapshot;
+  return new Set(
+    snapshot.entries
+      .map((entry) => entry.uuid)
+      .filter((uuid): uuid is UUID => uuid !== undefined),
+  );
 }
 
 /** Like bareRequestCommand, but the response is a list printed as JSONL. */
@@ -282,10 +319,21 @@ async function rewindFiles(
   flags: RewindFilesFlags,
   userMessageId: string,
 ): Promise<void> {
-  await sendRequest(this, {
-    type: "rewind-files",
-    userMessageId,
-    ...(flags.dryRun && { dryRun: true }),
+  if (!isUuidPrefix(userMessageId)) {
+    throw new UsageError(`invalid uuid or uuid prefix: '${userMessageId}'`);
+  }
+  await withClient(this, async (client) => {
+    const resolved = UUID_PATTERN.test(userMessageId)
+      ? userMessageId
+      : resolveUuidPrefix(userMessageId, await sessionEntryUuids(client));
+    printData(
+      this,
+      await client.request({
+        type: "rewind-files",
+        userMessageId: resolved,
+        ...(flags.dryRun && { dryRun: true }),
+      }),
+    );
   });
 }
 
@@ -311,7 +359,7 @@ const setContextFlags = {
     ["summary", "boundary"] as const,
   ),
   rewindTo: stringFlag(
-    "Rewind to this tree node — <uuid> or <uuid>@<boundary-uuid> for an occurrence inside that boundary's context (mutually exclusive with uuids)",
+    "Rewind to this tree node — <uuid> or <uuid>@<boundary-uuid> for an occurrence inside that boundary's context (unique prefixes accepted; mutually exclusive with uuids)",
     "node-ref",
   ),
   empty: booleanFlag("Reset the context to empty (keep no messages)"),
@@ -325,8 +373,9 @@ async function setContext(
   ...uuids: string[]
 ): Promise<void> {
   // The daemon re-validates; failing malformed invocations here (flag-named
-  // mode conflicts, then the daemon's own parser for uuid syntax and the
-  // rest) avoids a pointless daemon revival.
+  // mode conflicts, then uuid/prefix syntax) avoids a pointless daemon
+  // revival. Prefix RESOLUTION needs the session's entry uuids, so it runs
+  // after connecting, on the same connection as the request.
   if (
     flags.rewindTo !== undefined &&
     (uuids.length > 0 ||
@@ -363,23 +412,73 @@ async function setContext(
       "expected message uuids, --summary, --rewind-to, or --empty",
     );
   }
-  let request: SetContextRequest;
-  try {
-    request = parseSetContextRequest(
-      flags.rewindTo !== undefined
-        ? { rewindTo: parseTreeNodeRef(flags.rewindTo) }
-        : {
-            uuids: flags.empty ? [] : uuids,
-            ...(flags.summary !== undefined && { summaryText: flags.summary }),
-            ...(flags.anchor !== undefined && { anchor: flags.anchor }),
-          },
-    );
-  } catch (error) {
+  const rewindHalves = flags.rewindTo?.split("@") ?? [];
+  if (
+    flags.rewindTo !== undefined &&
+    (rewindHalves.length > 2 ||
+      rewindHalves.some((half) => !isUuidPrefix(half)))
+  ) {
     throw new UsageError(
-      error instanceof Error ? error.message : String(error),
+      `--rewind-to expects "<uuid>" or "<uuid>@<boundary-uuid>" (unique ` +
+        `prefixes accepted), got '${flags.rewindTo}'`,
     );
   }
-  await sendRequest(this, request);
+  for (const uuid of uuids) {
+    if (!isUuidPrefix(uuid)) {
+      throw new UsageError(`invalid uuid or uuid prefix: '${uuid}'`);
+    }
+  }
+
+  const buildRequest = (
+    rewindTo: TreeNodeRef | undefined,
+    fullUuids: readonly string[],
+  ): SetContextRequest => {
+    try {
+      return parseSetContextRequest(
+        rewindTo !== undefined
+          ? { rewindTo }
+          : {
+              uuids: flags.empty ? [] : [...fullUuids],
+              ...(flags.summary !== undefined && {
+                summaryText: flags.summary,
+              }),
+              ...(flags.anchor !== undefined && { anchor: flags.anchor }),
+            },
+      );
+    } catch (error) {
+      throw new UsageError(
+        error instanceof Error ? error.message : String(error),
+      );
+    }
+  };
+
+  const needsResolution = [...uuids, ...rewindHalves].some(
+    (ref) => !UUID_PATTERN.test(ref),
+  );
+  if (!needsResolution) {
+    await sendRequest(
+      this,
+      buildRequest(
+        flags.rewindTo === undefined
+          ? undefined
+          : parseTreeNodeRef(flags.rewindTo),
+        uuids,
+      ),
+    );
+    return;
+  }
+  await withClient(this, async (client) => {
+    const sessionUuids = await sessionEntryUuids(client);
+    const request = buildRequest(
+      flags.rewindTo === undefined
+        ? undefined
+        : resolveTreeNodeRef(flags.rewindTo, sessionUuids),
+      uuids.map((uuid) =>
+        UUID_PATTERN.test(uuid) ? uuid : resolveUuidPrefix(uuid, sessionUuids),
+      ),
+    );
+    printData(this, await client.request(request));
+  });
 }
 
 // --- reads with arguments ------------------------------------------------------
@@ -582,7 +681,9 @@ export const sdkRoutes = {
       flags: rewindFilesFlags,
       positional: {
         kind: "tuple",
-        parameters: [stringArg("User message UUID", "user-message-id")],
+        parameters: [
+          stringArg("User message uuid (any unique prefix)", "user-message-id"),
+        ],
       },
     },
     audited: true,
@@ -629,7 +730,10 @@ export const sdkRoutes = {
     },
     parameters: {
       flags: setContextFlags,
-      positional: restArgs("Message uuids to keep, in order", "uuid"),
+      positional: restArgs(
+        "Message uuids to keep, in order (unique prefixes accepted)",
+        "uuid",
+      ),
     },
     audited: true,
     func: setContext,

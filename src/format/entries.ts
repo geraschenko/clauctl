@@ -29,8 +29,8 @@ export const DEFAULT_ENTRY_FORMAT_OPTIONS: EntryFormatOptions = {
   width: DEFAULT_FORMAT_WIDTH,
 };
 
-/** Full-uuid width; blank-padded for uuid-less entries so columns align. */
-const UUID_COLUMN_WIDTH = 36;
+/** displayUuid width; blank-padded for uuid-less entries so columns align. */
+const UUID_COLUMN_WIDTH = 8;
 /** The longest common short types; long bookkeeping names overflow. */
 const TYPE_COLUMN_WIDTH = 10;
 /** ISO-8601 with milliseconds and Z, as both writers stamp it. */

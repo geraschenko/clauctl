@@ -20,6 +20,7 @@ import {
   type SessionSnapshot,
 } from "../core/tree/nodes.ts";
 import { isRecord } from "../core/generated/util.ts";
+import { displayUuid } from "../core/uuid.ts";
 import { toLayoutTree } from "./generated/flat-tree.ts";
 import {
   contentBlocks,
@@ -258,7 +259,7 @@ export function formatTreeNodeLine(
     parseTreeNodeRef(flatNode.node.id).viaBoundary === undefined ? "" : "~";
   const uuid8 = omitUuid
     ? ""
-    : `${String(flatNode.node.payload.uuid).slice(0, 8)} `;
+    : `${displayUuid(String(flatNode.node.payload.uuid))} `;
   const prefix = `${treePrefix(flatNode)}${marker}${relinked}${uuid8}`;
   const availableSummary = Math.max(0, width - [...prefix].length);
   const summary = entrySummary(flatNode.node.payload, toolNames);

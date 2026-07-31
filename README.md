@@ -120,7 +120,9 @@ clauctl set-context --rewind-to <uuid>
 Rewinding is also interactive: in an attached TUI, `/tree` draws the session
 tree — every branch, compaction, and prior rewind — and lets you pick the
 point to rewind to. `clauctl get-entries | clauctl format tree`
-prints the same tree.
+prints the same tree. Entry uuids, like agent ids, accept any unique prefix —
+the 8-character ids shown in tree and entry listings paste straight into
+`--rewind-to` and `tail --since`.
 
 > [!NOTE]
 >

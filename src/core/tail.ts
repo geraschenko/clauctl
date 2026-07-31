@@ -61,7 +61,11 @@ import {
 import { readSessionEntries, type SessionEntry } from "./session/file.ts";
 import { untilMetAtSeed, untilMetByEvent, untilQuietMs } from "./until.ts";
 import { SOCKET_CONNECT_DEADLINE_MS } from "./generated/constants.ts";
-import { parseUuidFlag } from "./uuid.ts";
+import {
+  parseUuidPrefixFlag,
+  resolveUuidPrefix,
+  UUID_PATTERN,
+} from "./uuid.ts";
 
 /** Bound on the entry catch-up after `--until` fires: the target leaf must
  *  be consumed as an entry observation within this window, or the tail fails
@@ -75,8 +79,8 @@ const tailFlags = {
   type: enumFlag("Stream type (default messages)", TAIL_TYPES),
   json: booleanFlag("Emit canonical JSONL instead of formatted text"),
   since: parsedFlag(
-    "Replay after this session-entry uuid",
-    parseUuidFlag,
+    "Replay after this session-entry uuid (any unique prefix)",
+    parseUuidPrefixFlag,
     "uuid",
   ),
   until: parsedFlag(
@@ -333,6 +337,31 @@ async function tailEvents(
   }
 }
 
+/** A full `--since` value passes through untouched (no membership check —
+ *  the downstream cursor errors keep that job); a prefix resolves against
+ *  the latest session file, read directly like the dormant path, because
+ *  tail never revives and so cannot ask a daemon for the entries. */
+function resolveSinceCursor(
+  agent: AgentRecord,
+  since: string | undefined,
+): UUID | undefined {
+  if (since === undefined || UUID_PATTERN.test(since)) {
+    return since as UUID | undefined;
+  }
+  const sessionFile = agent.sessions.at(-1)?.sessionFile;
+  if (sessionFile === undefined) {
+    throw new Error(
+      `agent '${agent.id}' has no session file to resolve the since cursor against`,
+    );
+  }
+  const sessionUuids = new Set(
+    readSessionEntries(sessionFile)
+      .map((entry) => entry.uuid)
+      .filter((uuid): uuid is UUID => uuid !== undefined),
+  );
+  return resolveUuidPrefix(since, sessionUuids);
+}
+
 async function tail(this: CommandContext, flags: TailFlags): Promise<void> {
   const type: TailType = flags.type ?? "messages";
   const condition = flags.until;
@@ -346,6 +375,7 @@ async function tail(this: CommandContext, flags: TailFlags): Promise<void> {
     );
   }
   const agent = oneTarget(this);
+  const since = resolveSinceCursor(agent, flags.since);
   if (!isPidAlive(agent.daemonPid)) {
     if (type === "events") {
       const state = (await fileExists(archivedPath(agent.agentDir)))
@@ -357,7 +387,7 @@ async function tail(this: CommandContext, flags: TailFlags): Promise<void> {
           `to revive it first`,
       );
     }
-    tailDormant(this, agent, type, flags.json, flags.since);
+    tailDormant(this, agent, type, flags.json, since);
     return;
   }
   if (type === "events") {
@@ -369,7 +399,7 @@ async function tail(this: CommandContext, flags: TailFlags): Promise<void> {
     agent,
     type,
     flags.json,
-    flags.since,
+    since,
     condition,
     timeoutMs,
   );

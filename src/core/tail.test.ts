@@ -225,6 +225,56 @@ test("dormant entries with a missing --since cursor names the uuid and file", as
   });
 });
 
+test("--since resolves a unique uuid prefix; ambiguity and bad syntax error", async () => {
+  const UUID_P1 = "aa111111-0000-4000-8000-000000000001" as UUID;
+  const UUID_P2 = "aa222222-0000-4000-8000-000000000002" as UUID;
+  const sessions = [
+    {
+      sessionId: "s1",
+      entries: [userEntry(UUID_P1, "first"), userEntry(UUID_P2, "second")],
+    },
+  ];
+  await withTailAgent({ live: false, sessions }, async (agentId) => {
+    const resolved = await runCommand([
+      "tail",
+      "-t",
+      agentId,
+      "--json",
+      "--since",
+      "aa1",
+    ]);
+    assert.equal(resolved.proc.exitCode, 0);
+    const uuids = resolved.stdout
+      .split("\n")
+      .filter((line) => line !== "")
+      .map((line) => (JSON.parse(line) as { uuid?: string }).uuid);
+    assert.deepEqual(uuids, [UUID_P2]);
+
+    const ambiguous = await runCommand([
+      "tail",
+      "-t",
+      agentId,
+      "--json",
+      "--since",
+      "aa",
+    ]);
+    assert.equal(ambiguous.proc.exitCode, 1);
+    assert.match(ambiguous.stderr, /ambiguous entry uuid prefix 'aa'/);
+    assert.match(ambiguous.stderr, new RegExp(UUID_P1));
+    assert.match(ambiguous.stderr, new RegExp(UUID_P2));
+
+    const malformed = await runCommand([
+      "tail",
+      "-t",
+      agentId,
+      "--json",
+      "--since",
+      "zz",
+    ]);
+    assert.equal(malformed.proc.exitCode, 2);
+  });
+});
+
 test("dormant --type events is an error; --since with events is a usage error", async () => {
   await withTailAgent({ live: false, sessions: [] }, async (agentId) => {
     const dormant = await runCommand([

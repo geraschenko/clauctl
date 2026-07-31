@@ -13,7 +13,6 @@ import type {
 } from "../core/session/messages.ts";
 import { annotation, formatSdkMessage, newFormatState } from "./sdk-message.ts";
 import type { MessageFormatOptions } from "./types.ts";
-import { displayUuid } from "../core/uuid.ts";
 import { DEFAULT_FORMAT_WIDTH } from "../core/generated/constants.ts";
 
 /** The defaults `format messages`/`format events` apply for omitted flags,
@@ -91,7 +90,10 @@ export class MessageFormatter {
     if (this.lastUuid === undefined) {
       return this.emitted ? "\n" : "";
     }
-    const cursor = `[cursor: ${displayUuid(this.lastUuid)}]`;
+    // The cursor keeps the full uuid (unlike displayUuid sites): it exists
+    // for lossless copy-paste, and the full value is the fallback when a
+    // truncated prefix collides.
+    const cursor = `[cursor: ${this.lastUuid}]`;
     return this.emitted ? `\n\n${cursor}\n` : `${cursor}\n`;
   }
 }
