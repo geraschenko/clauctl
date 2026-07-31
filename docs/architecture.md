@@ -43,8 +43,8 @@ Two facts about Claude shape everything else (see
 
 `clauctl spawn`:
 
-- creates `$CLAUCTL_DIR/<agent-id>/`, the "registry entry" for this agent,
-  and persists the spawn options in it;
+- creates `$CLAUCTL_DIR/<agent-id>/`, the registry entry for this agent, and
+  persists the spawn options in it;
 - launches a detached daemon process (`clauctl _daemon --agent-id <id>`) with
   its stdio redirected to `daemon.log`, and waits for a readiness handshake
   over an inherited pipe;
@@ -79,27 +79,26 @@ an `id` are responses, and lines with an `event` are pushed events.
 
 The request surface has three layers:
 
-- **subscribe** — returns a _seed_ (a complete, quiescent `AgentState`
-  snapshot) followed by the live event stream. The daemon writes the seed
-  before attaching the client as an event sink, so no event can fall between
-  snapshot and stream. Clients reconstruct state by folding events onto the
-  seed with the same fold function the daemon uses (see below).
+- **subscribe** — returns a _seed_ (a complete `AgentState` snapshot) followed
+  by the live event stream. Clients maintain the `AgentState` by folding
+  events onto the seed with the same fold function the daemon uses (see below).
+- **SDK passthrough** — control mutations (`set-model`, `set-permission-mode`,
+  `set-mcp-servers`, …) and reads (`supported-models`, `usage`,
+  `mcp-server-status`, …) that map 1:1 onto Claude Agent SDK `Query` methods.
+  Every `Query` method is covered except the ones that only make sense
+  in-process (`close`, `streamInput`, `reinitialize`). Mutations that change
+  persistable state also update the persisted options, so the respawn recipe
+  stays current.
 - **conversation operations** — `prompt`, `interrupt`, `get-messages`,
-  `get-entries`, `set-context`. These need daemon-side logic beyond the SDK
-  (queueing, session-file access, context surgery).
-- **SDK passthrough** — control mutations (`set-model`,
-  `set-permission-mode`, `set-mcp-servers`, …) and reads
-  (`supported-models`, `usage`, `mcp-server-status`, …) that map 1:1 onto
-  Claude Agent SDK `Query` methods. Every `Query` method is covered except
-  the ones that only make sense in-process (`close`, `streamInput`,
-  `reinitialize`). Mutations that change persistable state also update the
-  persisted options, so the respawn recipe stays current.
+  `get-entries`, `set-context`. These need daemon-side logic beyond the Claude
+  Agent SDK (queueing, session-file access, context surgery).
 
 `set-context` is the one request that rewrites history: it either appends a
 compact-boundary entry to the session file, or restarts the SDK session at an
 earlier leaf without writing the file (in which case the daemon keeps
 `get-messages` consistent with the trimmed view until the conversation moves
-on).
+on). This [blog post](https://geraschenko.com/blog/claude-context) details how
+`set-context` works.
 
 The working definition of this protocol is
 [`src/core/sdk-socket.ts`](../src/core/sdk-socket.ts).
@@ -110,8 +109,8 @@ The working definition of this protocol is
 activity, current session id, the transcript leaf, queued and delivered user
 messages, model/permission/tool state, and usage.
 
-It is maintained by a single pure fold function, `nextAgentState(state,
-event)`, exported from the same module that defines the wire types
+It is maintained by a single pure fold function, `nextAgentState(state, event)`,
+exported from the same module that defines the wire types
 ([`src/core/agent-state.ts`](../src/core/agent-state.ts)). The daemon folds
 every event before broadcasting it; every subscriber folds the identical
 function over the events it receives. There is no separate client-side state
@@ -127,13 +126,15 @@ its accepted limitations.
 
 ### `tty.sock`: terminal attach
 
-`tty.sock` exists because `sdk.sock` is not a terminal protocol. `clauctl
-attach` needs to render a screen, send keystrokes, handle resizes, and get a
-current-screen snapshot on connect. That is a byte-stream terminal problem,
-not a semantic one.
+`tty.sock` exists because `sdk.sock` is not a terminal protocol.
+`clauctl attach` needs to render a screen, send keystrokes, handle resizes, and
+get a current-screen snapshot on connect. That is a byte-stream terminal
+problem, not a semantic one.
 
 The daemon exposes a framed binary protocol (`[type u8][length u32][payload]`)
-on `tty.sock` for:
+on `tty.sock`taken verbatim [from
+pictl](https://github.com/geraschenko/pictl/blob/main/src/core/tty-protocol.ts).
+It supports:
 
 - client identification (a `hello` frame, the required first client frame);
 - initial screen snapshot;
@@ -152,9 +153,6 @@ ordinary `sdk.sock` client with no privileged access; an embedder that wants
 to draw its own UI can skip `tty.sock` entirely and speak `sdk.sock`. If the
 TUI crash-loops, the daemon stops restarting it and marks the agent
 `running (tui failed)` — the agent itself keeps working.
-
-The working definition of this protocol is
-[`src/core/generated/tty-protocol.ts`](../src/core/generated/tty-protocol.ts).
 
 ## `CLAUCTL_DIR` as the registry
 

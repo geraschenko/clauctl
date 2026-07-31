@@ -1,8 +1,8 @@
-# how claude and its SDK actually behave
+# How clauctl uses the Claude Agent SDK
 
 Purpose: the empirical ground truths about `claude` and the
 [Claude Agent SDK](https://docs.claude.com/en/api/agent-sdk/overview) that
-clauctl's architecture is built on. Most of these are under-documented or
+clauctl's architecture is built on. Many of these are under-documented or
 undocumented upstream; they were established by reading the SDK's shipped
 type definitions and by direct experiment (see [`derisk/`](derisk/) for the
 experiments). If clauctl does something in a roundabout way, the reason is
@@ -10,12 +10,11 @@ usually on this page.
 
 ## The `claude` binary is the real authority
 
-Both the TypeScript and Python SDKs are thin wrappers that **spawn the
-`claude` CLI** and exchange newline-delimited JSON over its stdio
-(`--input-format stream-json --output-format stream-json`). The TS SDK is the
-most current and complete wrapper, and the only one that exposes the SDK's
-in-process callbacks (`hooks`, `canUseTool`, in-process MCP servers) as live
-code. This is why clauctl is written in TypeScript.
+Both the TypeScript and Python SDKs are wrappers that **spawn the `claude` CLI**
+and exchange newline-delimited JSON over its stdio(`--input-format stream-json
+--output-format stream-json`). The TS SDK is the most current and complete
+wrapper, and the only one that exposes the SDK's in-process callbacks (`hooks`,
+`canUseTool`, in-process MCP servers) as live code.
 
 The TS SDK is closed-source, but its "headers" are public: the `.d.ts` files
 shipped inside the npm package (`@anthropic-ai/claude-agent-sdk/sdk.d.ts`)
@@ -45,7 +44,7 @@ structured JSON, not terminal bytes.
 Consequences: whoever holds the SDK connection is the _only_ party talking
 to the agent (hence clauctl's daemon-owns-the-connection architecture), and
 there is no stock `claude` TUI to attach to (hence clauctl's own TUI,
-rendered into a virtual pty).
+rendered into a pty).
 
 ## Session ids roll over in place
 
@@ -75,6 +74,7 @@ Two quirks matter:
   already written (e.g. around history compaction). The first occurrence of
   a uuid is canonical; later occurrences must be dropped. All of clauctl's
   session-file readers apply this first-occurrence-wins rule.
+  TDC: Is this correct? For loadedContext, the _content_ is last-wins to mirror `claude`'s loader behavior, isn't it?
 - **Compact boundaries.** Compaction writes a `compact_boundary` entry that
   splices a summarized prefix out of the effective context. Reconstructing
   "what the model currently sees" means following boundary links, not just
@@ -84,6 +84,7 @@ Two quirks matter:
 clauctl leans on these files heavily: history for `tail`, the TUI's replay,
 and `get-entries` all come from reading the transcript directly rather than
 asking the SDK.
+TDC: Is this true? The TUI's replay should happen _through_ `get-entries`. Any client of the daemon should not be reading the files (and we should document this intention here).
 
 ## The live stream omits user prompts
 
@@ -93,3 +94,5 @@ SDK's own transcript queries. A client that wants to display the full
 conversation — including what was just typed — cannot get it from the stream
 alone. clauctl's daemon therefore tracks prompt visibility itself; see
 [`user-message-tracking.md`](user-message-tracking.md).
+
+TDC: This document needs to make clear that the event stream served on sdk.sock has all the Claude Agent SDK events _plus_ events we determined were necessary for the client to be able to accurately maintain AgentState.

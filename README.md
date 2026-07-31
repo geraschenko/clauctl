@@ -3,7 +3,7 @@
 `clauctl` lets humans, agents, scripts, and code interact with live claude
 agents _simultaneously_, each on their own terms. Humans attach a terminal UI,
 and agents/scripts get ergonomic (but unfettered) access to the full Claude
-Agent SDK surface. Nobody is forced to `tmux capture-pane`.
+Agent SDK surface.
 
 `clauctl` is meant to be minimal and composable. Its main components and
 associated subcommands are:
@@ -16,7 +16,7 @@ associated subcommands are:
   forget with `--detach`, with control over queue placement (`--priority`).
 - **CLI wrappers for the full SDK control surface**
   (`interrupt`/`set-model`/`set-permission-mode`/`usage`/…). Everything the
-  Claude Agent SDK can do, as a subcommand; reads return JSON.
+  Claude Agent SDK can do, as a subcommand. Returns JSON.
 - **Context surgery** with `set-context`: rewind the conversation or reshape
   the agent's effective context down to hand-picked messages plus a summary.
 - **Monitoring** with `tail` and `wait`. `prompt` and `tail` can emit formatted
@@ -64,7 +64,7 @@ echo "$CLAUCTL_TARGET"
   `--target PREFIX` or `-t PREFIX`. Any unique prefix of the agent id is
   accepted.
 - If you want to pass claude-style flags, put them after `--` when you spawn,
-  like this: `clauctl spawn -- --model opus --permission-mode acceptEdits`.
+  like this: `clauctl spawn -- --model opus --permission-mode auto`.
   To "wrap" an existing claude session, run
   `clauctl spawn -- --resume <session-id>` (NOTE: the agent id is _different_
   from the session id — one agent can span many sessions, e.g. across
@@ -89,7 +89,7 @@ set `CLAUCTL_TARGET`):
 clauctl prompt "Say hello. Keep it short"
 
 # SDK control commands return JSON (or nothing, for pure mutations).
-clauctl set-permission-mode acceptEdits
+clauctl set-permission-mode dontAsk
 clauctl usage
 clauctl get-context-usage
 
