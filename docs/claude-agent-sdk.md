@@ -11,7 +11,7 @@ usually on this page.
 ## The `claude` binary is the real authority
 
 Both the TypeScript and Python SDKs are wrappers that **spawn the `claude` CLI**
-and exchange newline-delimited JSON over its stdio(`--input-format stream-json
+and exchange newline-delimited JSON over its stdio (`--input-format stream-json
 --output-format stream-json`). The TS SDK is the most current and complete
 wrapper, and the only one that exposes the SDK's in-process callbacks (`hooks`,
 `canUseTool`, in-process MCP servers) as live code.
@@ -71,20 +71,32 @@ tree; the conversation is a path through it.
 Two quirks matter:
 
 - **Repersisted duplicates.** The CLI sometimes rewrites entries it has
-  already written (e.g. around history compaction). The first occurrence of
-  a uuid is canonical; later occurrences must be dropped. All of clauctl's
-  session-file readers apply this first-occurrence-wins rule.
-  TDC: Is this correct? For loadedContext, the _content_ is last-wins to mirror `claude`'s loader behavior, isn't it?
+  already written (e.g. re-persisting dropped-from-context history around
+  compaction), occasionally with mutated payloads
+  ([`derisk/cli-history-repersistence/FINDINGS.md`](derisk/cli-history-repersistence/FINDINGS.md)).
+  clauctl resolves a duplicated uuid in two deliberately different ways: for
+  canonical display and streaming, the **first** occurrence supplies both
+  position and content, so each entry is emitted exactly once; for
+  reconstructing what claude will actually load, the loader model
+  ([`src/core/tree/loader.ts`](../src/core/tree/loader.ts)) is
+  **last**-wins, mirroring claude's own uuid-keyed loading.
 - **Compact boundaries.** Compaction writes a `compact_boundary` entry that
   splices a summarized prefix out of the effective context. Reconstructing
   "what the model currently sees" means following boundary links, not just
   walking parent pointers. clauctl's context surgery (`set-context`) writes
   the same kind of boundary entry the CLI itself uses.
 
-clauctl leans on these files heavily: history for `tail`, the TUI's replay,
-and `get-entries` all come from reading the transcript directly rather than
-asking the SDK.
-TDC: Is this true? The TUI's replay should happen _through_ `get-entries`. Any client of the daemon should not be reading the files (and we should document this intention here).
+clauctl leans on these files heavily: session history for `tail`,
+`get-entries`, and the TUI's replay ultimately comes from the transcript, not
+from asking the SDK. The intended division of labor: the daemon reads the
+transcript and serves it over `sdk.sock`, and clients of the daemon — the TUI
+included — replay history through `get-entries` rather than touching the
+files. Direct file access is meant to be limited to the daemon and
+`AgentObserver`
+([`src/core/agent-observer.ts`](../src/core/agent-observer.ts)) — the merged
+events-plus-entries subscription that `tail` and `prompt` are built on, which
+also works on dormant agents that have no daemon to ask. `AgentObserver` is
+essentially the observation interface we wish the SDK had provided.
 
 ## The live stream omits user prompts
 
@@ -95,4 +107,9 @@ conversation — including what was just typed — cannot get it from the stream
 alone. clauctl's daemon therefore tracks prompt visibility itself; see
 [`user-message-tracking.md`](user-message-tracking.md).
 
-TDC: This document needs to make clear that the event stream served on sdk.sock has all the Claude Agent SDK events _plus_ events we determined were necessary for the client to be able to accurately maintain AgentState.
+This generalizes: the event stream served on `sdk.sock` is a superset of the
+SDK's. Every Claude Agent SDK message is forwarded verbatim (as `sdkMessage`
+events), and clauctl adds the events we determined a client needs to
+accurately maintain `AgentState` — the queue events
+(`userMessageQueued`/`userMessageDequeued`), `compactSent`, `interruptSent`,
+`contextChanged`, and `controlApplied`.

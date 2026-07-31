@@ -69,6 +69,9 @@ echo "$CLAUCTL_TARGET"
   `clauctl spawn -- --resume <session-id>` (NOTE: the agent id is _different_
   from the session id — one agent can span many sessions, e.g. across
   `/clear`).
+- Permission prompts are not yet implemented in clauctl's TUI, so pick a
+  permission mode that doesn't require interactive approval (like `auto`
+  above, or `dontAsk`).
 
 **Attach to the TUI** in another terminal if you want to follow along
 interactively (recommended):

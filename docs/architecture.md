@@ -132,8 +132,7 @@ get a current-screen snapshot on connect. That is a byte-stream terminal
 problem, not a semantic one.
 
 The daemon exposes a framed binary protocol (`[type u8][length u32][payload]`)
-on `tty.sock`taken verbatim [from
-pictl](https://github.com/geraschenko/pictl/blob/main/src/core/tty-protocol.ts).
+on `tty.sock`, taken verbatim [from pictl](https://github.com/geraschenko/pictl/blob/main/src/core/tty-protocol.ts).
 It supports:
 
 - client identification (a `hello` frame, the required first client frame);
