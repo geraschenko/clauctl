@@ -116,7 +116,10 @@ clauctl get-context-usage
 clauctl set-context --rewind-to <uuid>
 ```
 
-TDC: I think burying `/tree` in a comment in a code block is bad. Let's put a short blurb about it here. 
+Rewinding is also interactive: in an attached TUI, `/tree` draws the session
+tree — every branch, compaction, and prior rewind — and lets you pick the
+point to rewind to. For scripting, `clauctl get-entries | clauctl format tree`
+prints the same tree with the uuids that `--rewind-to` takes.
 
 > [!NOTE]
 >
