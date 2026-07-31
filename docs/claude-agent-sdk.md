@@ -5,7 +5,8 @@ Purpose: the empirical ground truths about `claude` and the
 clauctl's architecture is built on. Many of these are under-documented or
 undocumented upstream; they were established by reading the SDK's shipped
 type definitions and by direct experiment (see [`derisk/`](derisk/) for the
-experiments). If clauctl does something in a roundabout way, the reason is
+experiments), against `@anthropic-ai/claude-agent-sdk` 0.3.x in mid-2026 —
+they are empirical, and SDK upgrades can invalidate them. If clauctl does something in a roundabout way, the reason is
 usually on this page.
 
 ## The `claude` binary is the real authority

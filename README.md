@@ -2,8 +2,17 @@
 
 `clauctl` lets humans, agents, scripts, and code interact with live claude
 agents _simultaneously_, each on their own terms. Humans attach a terminal UI,
-and agents/scripts get ergonomic (but unfettered) access to the full Claude
-Agent SDK surface.
+and agents/scripts get ergonomic access to the Claude Agent SDK's full
+control surface.
+
+Why does this exist? Plain `claude` is a great interactive UI, but the agent
+lives and dies with your terminal, and nothing else can drive the session
+while you're in it. The Claude Agent SDK makes claude programmable, but hands
+you a single in-process connection — lifecycle, durability across restarts,
+observation, multi-client access, and any UI are yours to build. `clauctl` is
+that harness, prebuilt: it turns claude sessions into durable background
+agents that humans, scripts, and other agents can address and observe at the
+same time.
 
 `clauctl` is meant to be minimal and composable. Its main components and
 associated subcommands are:
@@ -15,8 +24,8 @@ associated subcommands are:
 - **Prompting** with `prompt`: send a turn and stream the reply, or fire and
   forget with `--detach`, with control over queue placement (`--priority`).
 - **CLI wrappers for the full SDK control surface**
-  (`interrupt`/`set-model`/`set-permission-mode`/`usage`/…). Everything the
-  Claude Agent SDK can do, as a subcommand. Returns JSON.
+  (`interrupt`/`set-model`/`set-permission-mode`/`usage`/…). Every
+  remotely-meaningful SDK control, as a subcommand; reads return JSON.
 - **Context surgery** with `set-context`: rewind the conversation or reshape
   the agent's effective context down to hand-picked messages plus a summary.
 - **Monitoring** with `tail` and `wait`. `prompt` and `tail` can emit formatted
@@ -40,7 +49,9 @@ clauctl --version
 `clauctl` drives the version-pinned `claude` CLI bundled inside the Claude
 Agent SDK, so you don't need claude installed separately. It uses your
 existing claude configuration and credentials, and writes ordinary claude
-session transcripts.
+session transcripts. If you've used claude on this machine you're already set
+up; otherwise provide an `ANTHROPIC_API_KEY` in the environment (or install
+claude and log in once).
 
 > [!NOTE]
 > Linux and macOS only; it uses Unix domain sockets and has no native Windows
@@ -53,25 +64,29 @@ session transcripts.
 
 ## Quickstart
 
-**Start an agent** and make it the default target for subsequent commands:
+**Start an agent** and make it the default target for subsequent commands.
+Run this from the directory the agent should work in (or pass `--cwd PATH`):
 
 ```sh
-export CLAUCTL_TARGET="$(clauctl spawn)"
+export CLAUCTL_TARGET="$(clauctl spawn -- --permission-mode auto)"
 echo "$CLAUCTL_TARGET"
 ```
 
 - If you don't set `$CLAUCTL_TARGET`, commands that require a target need
   `--target PREFIX` or `-t PREFIX`. Any unique prefix of the agent id is
   accepted.
-- If you want to pass claude-style flags, put them after `--` when you spawn,
-  like this: `clauctl spawn -- --model opus --permission-mode auto`.
-  To "wrap" an existing claude session, run
+- Agents get your normal claude settings (default model, permission mode,
+  CLAUDE.md, MCP servers, …); claude-style flags after `--` override them,
+  e.g. `clauctl spawn -- --model opus`. `clauctl resolve-settings` shows what
+  a spawn would see.
+- Permission prompts are not yet implemented in clauctl's TUI — that's why
+  the example pins `--permission-mode auto` (a model classifier approves or
+  denies instead of prompting); `dontAsk` (deny whatever isn't pre-approved)
+  also works.
+- To "wrap" an existing claude session, run
   `clauctl spawn -- --resume <session-id>` (NOTE: the agent id is _different_
   from the session id — one agent can span many sessions, e.g. across
   `/clear`).
-- Permission prompts are not yet implemented in clauctl's TUI, so pick a
-  permission mode that doesn't require interactive approval (like `auto`
-  above, or `dontAsk`).
 
 **Attach to the TUI** in another terminal if you want to follow along
 interactively (recommended):
@@ -80,6 +95,8 @@ interactively (recommended):
 clauctl attach -t <PREFIX_OF_CLAUCTL_TARGET>
 ```
 
+- The second terminal doesn't inherit `$CLAUCTL_TARGET`, so pass `-t` with
+  any unique prefix of the id printed by `spawn`.
 - Detach with `ctrl+]`. Detaching does not stop the agent, and the TUI keeps
   running in the daemon while nobody is attached.
 - Multiple terminals can attach at once; they share one screen, sized to the
@@ -93,14 +110,12 @@ clauctl prompt "Say hello. Keep it short"
 
 # SDK control commands return JSON (or nothing, for pure mutations).
 clauctl set-permission-mode dontAsk
-clauctl usage
 clauctl get-context-usage
 
-# Inspect the session tree, then reshape the context.
-clauctl get-entries | clauctl format tree
-
-# Note: use real entry uuids from your actual session here; see the
-# output of `format tree` above.
+# Rewind the agent to any earlier point: the context becomes what it was
+# when that message first appeared. Get uuids from
+# `clauctl get-entries | clauctl format tree`, or rewind interactively
+# with /tree in the attached TUI.
 clauctl set-context --rewind-to <uuid>
 ```
 
@@ -116,7 +131,8 @@ clauctl set-context --rewind-to <uuid>
 clauctl list [--all] [--cwd PATH]
 
 # Non-destructive. Politely stops the processes and hides the agent from
-# default `clauctl list`. Any later command directed at it revives it.
+# default `clauctl list`. Any command that talks to it (prompt, attach,
+# SDK control commands) revives it; observation commands do not.
 clauctl archive -t <PREFIX_OF_CLAUCTL_TARGET>
 
 # Remove leftovers of failed spawns and corrupt agent dirs.
