@@ -5,14 +5,13 @@ agents _simultaneously_, each on their own terms. Humans attach a terminal UI,
 and agents/scripts get ergonomic access to the Claude Agent SDK's full
 control surface.
 
-Why does this exist? Plain `claude` is a great interactive UI, but the agent
-lives and dies with your terminal, and nothing else can drive the session
-while you're in it. The Claude Agent SDK makes claude programmable, but hands
-you a single in-process connection — lifecycle, durability across restarts,
-observation, multi-client access, and any UI are yours to build. `clauctl` is
-that harness, prebuilt: it turns claude sessions into durable background
-agents that humans, scripts, and other agents can address and observe at the
-same time.
+Plain `claude` is a great interactive UI, but the agent lives and dies with your
+terminal, and nothing else can drive the session while you're in it. The Claude
+Agent SDK makes claude programmable, but hands you a single in-process
+connection — lifecycle, durability across restarts, observation, multi-client
+access, and any UI are yours to build. `clauctl` is that harness, prebuilt: it
+turns claude sessions into durable background agents that humans, scripts, and
+other agents can address and observe at the same time.
 
 `clauctl` is meant to be minimal and composable. Its main components and
 associated subcommands are:
@@ -25,7 +24,7 @@ associated subcommands are:
   forget with `--detach`, with control over queue placement (`--priority`).
 - **CLI wrappers for the full SDK control surface**
   (`interrupt`/`set-model`/`set-permission-mode`/`usage`/…). Every
-  remotely-meaningful SDK control, as a subcommand; reads return JSON.
+  Claude Agent SDK command, as a subcommand; reads return JSON.
 - **Context surgery** with `set-context`: rewind the conversation or reshape
   the agent's effective context down to hand-picked messages plus a summary.
 - **Monitoring** with `tail` and `wait`. `prompt` and `tail` can emit formatted
@@ -112,12 +111,12 @@ clauctl prompt "Say hello. Keep it short"
 clauctl set-permission-mode dontAsk
 clauctl get-context-usage
 
-# Rewind the agent to any earlier point: the context becomes what it was
-# when that message first appeared. Get uuids from
-# `clauctl get-entries | clauctl format tree`, or rewind interactively
-# with /tree in the attached TUI.
+# Rewind the agent to any earlier assistant message: the context becomes what it
+# was when that message first appeared.
 clauctl set-context --rewind-to <uuid>
 ```
+
+TDC: I think burying `/tree` in a comment in a code block is bad. Let's put a short blurb about it here. 
 
 > [!NOTE]
 >
