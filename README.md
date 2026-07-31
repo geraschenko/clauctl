@@ -113,13 +113,14 @@ clauctl get-context-usage
 
 # Rewind the agent to any earlier assistant message: the context becomes what it
 # was when that message first appeared.
+# Use `clauctl get-entries | clauctl format entries` to find a uuid.
 clauctl set-context --rewind-to <uuid>
 ```
 
 Rewinding is also interactive: in an attached TUI, `/tree` draws the session
 tree — every branch, compaction, and prior rewind — and lets you pick the
-point to rewind to. For scripting, `clauctl get-entries | clauctl format tree`
-prints the same tree with the uuids that `--rewind-to` takes.
+point to rewind to. `clauctl get-entries | clauctl format tree`
+prints the same tree.
 
 > [!NOTE]
 >
