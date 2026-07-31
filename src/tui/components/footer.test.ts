@@ -53,21 +53,21 @@ test("status line: colored mode left, context • model • effort right-aligned
   )[1]!;
   const text = plain(line);
   assert.equal(text.length, 80);
-  assert.ok(text.startsWith("⏸ manual mode on"));
+  assert.ok(text.startsWith("⏸ manual"));
   // 86k of the 200k window is 43%.
   assert.ok(text.endsWith("86k (43%) • claude-opus-4-8 • high"));
-  assert.ok(line.includes("\u001b[38;5;246m⏸ manual mode on"));
+  assert.ok(line.includes("\u001b[38;5;246m⏸ manual"));
 });
 
-test("per-mode indicators use claude's captured labels and colors", () => {
+test("per-mode indicators use claude's glyphs and colors with our labels", () => {
   const modeLine = (mode: AgentState["permissionMode"]): string =>
     footerLines({ ...INITIAL_AGENT_STATE, permissionMode: mode })[1]!;
   assert.ok(
-    modeLine("acceptEdits").includes("\u001b[38;5;147m⏵⏵ accept edits on"),
+    modeLine("acceptEdits").includes("\u001b[38;5;147m⏵⏵ accept edits"),
   );
-  assert.ok(modeLine("plan").includes("\u001b[38;5;73m⏸ plan mode on"));
-  assert.ok(modeLine("auto").includes("\u001b[38;5;220m⏵⏵ auto mode on"));
-  assert.ok(modeLine("dontAsk").includes("\u001b[38;5;211m⏵⏵ don't ask on"));
+  assert.ok(modeLine("plan").includes("\u001b[38;5;73m⏸ plan"));
+  assert.ok(modeLine("auto").includes("\u001b[38;5;220m⏵⏵ auto"));
+  assert.ok(modeLine("dontAsk").includes("\u001b[38;5;211m⏵⏵ don't ask"));
 });
 
 test("unresolved segments: usage/effort omitted, unset mode/model called out", () => {

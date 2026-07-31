@@ -4,10 +4,11 @@
  * —
  *
  *   ~/repo (main)
- *   ⏸ manual mode on              86k (43%) • claude-opus-4-8 • high
+ *   ⏸ manual                      86k (43%) • claude-opus-4-8 • high
  *
  * Line 1 is the ~-abbreviated cwd with the current git branch. Line 2 shows the
- * permission mode with claude 2.1.211's per-mode labels and colors, and
+ * permission mode with claude 2.1.211's per-mode glyphs and colors (labels are
+ * our own; see MODE_INDICATORS), and
  * right-aligns context usage • model • effort level. Display conventions (the
  * "? unset mode" / "unset model" fallbacks for a not-yet-observed mode/model)
  * live here, not in the event dispatch.
@@ -57,18 +58,20 @@ export function formatCwdForFooter(
   return relativeToHome === "" ? "~" : `~${sep}${relativeToHome}`;
 }
 
-/** claude's mode indicators, colored per mode */
+/** Mode indicators with claude's glyphs and colors but our own shortened
+ *  labels — a deliberate branding divergence (Agent SDK guidelines: no
+ *  verbatim Claude Code visual elements). */
 const MODE_INDICATORS: Record<
   PermissionMode,
   { label: string; color: (text: string) => string }
 > = {
-  default: { label: "⏸ manual mode on", color: claudeStyle.manualMode },
-  acceptEdits: { label: "⏵⏵ accept edits on", color: claudeStyle.acceptEdits },
-  plan: { label: "⏸ plan mode on", color: claudeStyle.planMode },
-  auto: { label: "⏵⏵ auto mode on", color: claudeStyle.autoMode },
-  dontAsk: { label: "⏵⏵ don't ask on", color: claudeStyle.dontAsk },
+  default: { label: "⏸ manual", color: claudeStyle.manualMode },
+  acceptEdits: { label: "⏵⏵ accept edits", color: claudeStyle.acceptEdits },
+  plan: { label: "⏸ plan", color: claudeStyle.planMode },
+  auto: { label: "⏵⏵ auto", color: claudeStyle.autoMode },
+  dontAsk: { label: "⏵⏵ don't ask", color: claudeStyle.dontAsk },
   bypassPermissions: {
-    label: "⏵⏵ bypass permissions on",
+    label: "⏵⏵ bypass permissions",
     color: claudeStyle.bypassPermissions,
   },
 };

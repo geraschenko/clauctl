@@ -77,6 +77,7 @@ import {
   editFileInExternalEditor,
   externalEditorCommand,
 } from "./external-editor.ts";
+import { VERSION } from "../core/generated/version.ts";
 import { pathUpToBoundary, releaseDedupeUuid, userText } from "./sdk-render.ts";
 import { TranscriptRenderer } from "./transcript.ts";
 import { getEditorTheme, theme, type ThemeColor } from "./theme.ts";
@@ -344,7 +345,13 @@ class InteractiveMode {
     }
     void this.reloadHistory();
     // After reloadHistory's synchronous prefix, which recreates the
-    // transcript renderer — banners added earlier would be wiped.
+    // transcript renderer — banners added earlier would be wiped. The
+    // welcome line self-identifies the product on attach (Agent SDK
+    // branding guidelines: our own branding, not Claude Code's).
+    this.addBanner(
+      `Welcome to clauctl TUI ${theme.fg("dim", `v${VERSION}`)}`,
+      "accent",
+    );
     for (const warning of startupWarnings) {
       this.addBanner(warning, "warning");
     }
