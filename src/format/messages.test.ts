@@ -123,10 +123,10 @@ test("tool call without preferred keys shows truncated JSON", () => {
 
 test("tool results are named by the preceding tool_use id", () => {
   const output = format([
-    assistant([toolUse("t1", "Read", { file_path: "a.ts" })]),
+    assistant([toolUse("t1", "Edit", { file_path: "a.ts" })]),
     toolResult("t1", "line1\nline2"),
   ]);
-  assert.match(output, /\[Read:ok 2 lines, 11 bytes\]/u);
+  assert.match(output, /\[Edit:ok 2 lines, 11 bytes\]/u);
 });
 
 test("tool result with no known call falls back to 'tool'", () => {
@@ -257,7 +257,7 @@ test("mixed text and tool_result content renders both", () => {
   ]);
   assert.equal(
     output,
-    "== user ==\ninterrupted by user\n\n[tool:ok 1 lines, 7 bytes]\n",
+    "== user ==\ninterrupted by user\n\n== assistant ==\n[tool:ok 1 lines, 7 bytes]\n",
   );
 });
 
@@ -278,6 +278,172 @@ test("unprojected session-entry types are skipped silently", () => {
     user("hello"),
   ]);
   assert.equal(output, "== user ==\nhello\n");
+});
+
+/** The entry with a session-file timestamp, for thought-duration tests. */
+function timestamped(fields: SessionEntry, epochMs: number): SessionEntry {
+  return { ...fields, timestamp: new Date(epochMs).toISOString() };
+}
+
+test("read-only calls coalesce with summed thinking time, grouped by first appearance", () => {
+  const output = formatBody([
+    timestamped(user("go"), 1000),
+    timestamped(
+      assistant([
+        { type: "thinking", thinking: "..." },
+        toolUse("r1", "Read", { file_path: "a.ts" }),
+      ]),
+      3000,
+    ),
+    timestamped(toolResult("r1", "ok"), 3100),
+    timestamped(
+      assistant([
+        { type: "thinking", thinking: "..." },
+        toolUse("r2", "Read", { file_path: "b.ts" }),
+        toolUse("g1", "Grep", { pattern: "TODO" }),
+      ]),
+      5400,
+    ),
+    toolResult("r2", "ok"),
+    toolResult("g1", "match"),
+    user("done"),
+  ]);
+  assert.equal(
+    output,
+    "== user ==\ngo\n\n" +
+      "== assistant ==\n[thought for 4.3s; Read a.ts, b.ts; Grep TODO]\n\n" +
+      "== user ==\ndone\n",
+  );
+});
+
+test("coalescing renders bare thought when no duration is computable", () => {
+  const output = formatBody([
+    assistant([{ type: "thinking", thinking: "..." }]),
+  ]);
+  assert.equal(output, "== assistant ==\n[thought]\n");
+});
+
+test("a failed tool result breaks the run and renders normally", () => {
+  const output = formatBody([
+    assistant([toolUse("r1", "Read", { file_path: "a.ts" })]),
+    toolResult("r1", "boom", true),
+  ]);
+  assert.equal(
+    output,
+    "== assistant ==\n[Read a.ts]\n\n[Read:error 1 lines, 4 bytes]\nboom\n",
+  );
+});
+
+test("bash calls coalesce onto their own lines with aligned result summaries", () => {
+  const output = formatBody([
+    timestamped(user("go"), 1000),
+    timestamped(
+      assistant([
+        { type: "thinking", thinking: "..." },
+        toolUse("r1", "Read", { file_path: "a.ts" }),
+        toolUse("b1", "Bash", { command: "ls" }),
+        toolUse("r2", "Read", { file_path: "b.ts" }),
+        toolUse("b2", "Bash", { command: "wc -l a.ts" }),
+      ]),
+      2000,
+    ),
+    toolResult("r1", "ok"),
+    toolResult("b1", "one\ntwo"),
+    toolResult("r2", "ok"),
+    toolResult("b2", "3 a.ts"),
+    user("done"),
+  ]);
+  assert.equal(
+    output,
+    "== user ==\ngo\n\n" +
+      "== assistant ==\n" +
+      "[thought for 1.0s; Read a.ts]\n" +
+      "[Bash ls         → 2L, 7B]\n" +
+      "[Read b.ts]\n" +
+      "[Bash wc -l a.ts → 1L, 6B]\n\n" +
+      "== user ==\ndone\n",
+  );
+});
+
+test("a bash call whose result never arrives renders without a summary", () => {
+  const output = formatBody([
+    assistant([toolUse("b1", "Bash", { command: "true" })]),
+  ]);
+  assert.equal(output, "== assistant ==\n[Bash true]\n");
+});
+
+test("--tool-results none coalesces bash without result summaries", () => {
+  const output = formatBody(
+    [
+      assistant([toolUse("b1", "Bash", { command: "ls" })]),
+      toolResult("b1", "one\ntwo"),
+    ],
+    { toolResults: "none" },
+  );
+  assert.equal(output, "== assistant ==\n[Bash ls]\n");
+});
+
+test("--tool-results full disables coalescing", () => {
+  const output = formatBody(
+    [
+      assistant([toolUse("r1", "Read", { file_path: "a.ts" })]),
+      toolResult("r1", "ok"),
+    ],
+    { toolResults: "full" },
+  );
+  assert.equal(
+    output,
+    "== assistant ==\n[tool:Read file_path: a.ts]\n\n[Read:ok 1 lines, 2 bytes]\nok\n",
+  );
+});
+
+test("repeated assistant headers are suppressed until raw text intervenes", () => {
+  const output = formatBody([
+    assistant([toolUse("e1", "Edit", { file_path: "a.ts" })]),
+    toolResult("e1", "done"),
+    assistant([{ type: "text", text: "All set" }]),
+    assistant([{ type: "text", text: "More" }]),
+  ]);
+  assert.equal(
+    output,
+    "== assistant ==\n[tool:Edit file_path: a.ts]\n\n" +
+      "[Edit:ok 1 lines, 4 bytes]\n\n" +
+      "All set\n\n" +
+      "== assistant ==\nMore\n",
+  );
+});
+
+test("a tool result directly after a user message gets an assistant header", () => {
+  const output = formatBody([user("go"), toolResult("t9", "hi")]);
+  assert.equal(
+    output,
+    "== user ==\ngo\n\n== assistant ==\n[tool:ok 1 lines, 2 bytes]\n",
+  );
+});
+
+test("a run is held back and flushed with the breaker's chunk", () => {
+  const filter = new CanonicalEntryFilter();
+  const projector = new MessageProjector();
+  const formatter = new MessageFormatter(OPTIONS);
+  const entries = [
+    user("hi"),
+    assistant([toolUse("r1", "Read", { file_path: "a.ts" })]),
+    toolResult("r1", "ok"),
+    assistant([{ type: "text", text: "Done." }]),
+  ];
+  const chunks = entries.map((item) =>
+    projector
+      .push(filter.accept(item)!)
+      .map((record) => formatter.push(record))
+      .join(""),
+  );
+  assert.deepEqual(chunks, [
+    "== user ==\nhi",
+    "",
+    "",
+    "\n\n== assistant ==\n[Read a.ts]\n\nDone.",
+  ]);
+  assert.equal(formatter.end(), `\n\n[cursor: ${entries[3]!.uuid}]\n`);
 });
 
 test("formatted entries ≡ their projected records piped back as message JSONL", async () => {

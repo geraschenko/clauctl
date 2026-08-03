@@ -1,8 +1,11 @@
 /**
- * Plain-text rendering of individual SDK messages, shared by `format messages`
- * and `format events`. Conversions from SDK shapes reuse src/tui/sdk-render.ts
- * (single source of truth with the TUI); this file only decides what the text
- * looks like. No ANSI/color ever — the output is consumed by LLMs.
+ * Plain-text rendering of individual SDK messages: the piece renderers
+ * (tool-call lines, result summaries, arg formatting) shared by the messages
+ * path (messages.ts) and the events path, plus `formatSdkMessage`, the
+ * whole-message assembly `format events` uses. Conversions from SDK shapes
+ * reuse src/tui/sdk-render.ts (single source of truth with the TUI); this
+ * file only decides what the text looks like. No ANSI/color ever — the
+ * output is consumed by LLMs.
  */
 
 import type {
@@ -10,7 +13,7 @@ import type {
   SDKMessage,
   SDKUserMessage,
 } from "@anthropic-ai/claude-agent-sdk";
-import type { RenderToolResult } from "../tui/render-types.ts";
+import type { RenderAssistant, RenderToolResult } from "../tui/render-types.ts";
 import { renderAssistant, toolResultsOf, userText } from "../tui/sdk-render.ts";
 import {
   countLines,
@@ -43,21 +46,22 @@ export function annotation(content: string): string {
   return `[${truncateText(oneLine(content), ANNOTATION_CHARS)}]`;
 }
 
-function formatToolArguments(args: unknown, maxChars: number): string {
+export const PREFERRED_ARG_KEYS = ["path", "file_path", "command", "pattern"];
+
+export function formatToolArguments(args: unknown, maxChars: number): string {
   if (typeof args !== "object" || args === null) {
     return summarizeUnknown(args, maxChars);
   }
   const record = args as Record<string, unknown>;
-  const preferredKeys = ["path", "file_path", "command", "pattern"];
-  const preferred = preferredKeys
-    .filter((key) => record[key] !== undefined)
-    .map((key) => `${key}: ${String(record[key])}`);
+  const preferred = PREFERRED_ARG_KEYS.filter(
+    (key) => record[key] !== undefined,
+  ).map((key) => `${key}: ${String(record[key])}`);
   const text =
     preferred.length > 0 ? preferred.join(", ") : JSON.stringify(args);
   return truncateText(oneLine(text ?? "{}"), maxChars);
 }
 
-function formatToolResult(
+export function formatToolResult(
   result: RenderToolResult,
   formatState: FormatState,
   options: MessageFormatOptions,
@@ -101,13 +105,14 @@ function formatUser(
   return chunks.length === 0 ? undefined : chunks.join("\n\n");
 }
 
-function formatAssistant(
-  message: SDKAssistantMessage,
+/** The assistant lines without the speaker header (the messages path decides
+ *  headers itself). Registers tool-call ids in `formatState.toolNames`. */
+export function assistantBody(
+  rendered: RenderAssistant,
   formatState: FormatState,
   options: MessageFormatOptions,
 ): string {
-  const rendered = renderAssistant(message);
-  const lines = ["== assistant =="];
+  const lines: string[] = [];
   if (rendered.content.some((block) => block.type === "thinking")) {
     lines.push("[thinking]");
   }
@@ -131,7 +136,16 @@ function formatAssistant(
   return lines.join("\n");
 }
 
-function formatResult(message: SDKMessage & { type: "result" }): string {
+function formatAssistant(
+  message: SDKAssistantMessage,
+  formatState: FormatState,
+  options: MessageFormatOptions,
+): string {
+  const body = assistantBody(renderAssistant(message), formatState, options);
+  return body === "" ? "== assistant ==" : `== assistant ==\n${body}`;
+}
+
+export function formatResult(message: SDKMessage & { type: "result" }): string {
   const turns = `${message.num_turns} turn${message.num_turns === 1 ? "" : "s"}`;
   const duration = `${(message.duration_ms / 1000).toFixed(1)}s`;
   const cost = `$${message.total_cost_usd.toFixed(4)}`;
@@ -139,7 +153,7 @@ function formatResult(message: SDKMessage & { type: "result" }): string {
 }
 
 /** The no-per-variant-renderer fallback for the SDKMessage long tail. */
-function genericAnnotation(message: SDKMessage): string {
+export function genericAnnotation(message: SDKMessage): string {
   const subtype = (message as { subtype?: unknown }).subtype;
   return typeof subtype === "string"
     ? `[${message.type}: ${subtype}]`
