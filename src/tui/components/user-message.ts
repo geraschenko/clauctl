@@ -12,7 +12,7 @@
 // update against fresh captures on claude version bumps). pi lineage: the
 // Component shape and the OSC 133 zone markers.
 
-import { type Component } from "@earendil-works/pi-tui";
+import { CachedLinesComponent } from "./cached-lines.ts";
 import { claudeStyle } from "../claude-style.ts";
 import { wrapHeaderArg } from "./tool-execution.ts";
 
@@ -41,16 +41,19 @@ export function userPromptLines(text: string, width: number): string[] {
   });
 }
 
-export class UserMessageComponent implements Component {
+export class UserMessageComponent extends CachedLinesComponent {
   private readonly text: string;
 
   constructor(text: string) {
+    super();
     this.text = text;
   }
 
-  invalidate(): void {}
+  protected cacheKey(): readonly unknown[] {
+    return [];
+  }
 
-  render(width: number): string[] {
+  protected computeLines(width: number): string[] {
     const out = ["", ...userPromptLines(this.text, width)];
     out[0] = OSC133_ZONE_START + out[0];
     out[out.length - 1] =

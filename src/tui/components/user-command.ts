@@ -9,11 +9,11 @@
 // standalone output (no preceding command in the transcript) renders as a
 // bare ⎿ block.
 
-import { type Component } from "@earendil-works/pi-tui";
+import { CachedLinesComponent } from "./cached-lines.ts";
 import { collapsedOutputLines, resultBlockLines } from "./tool-execution.ts";
 import { userPromptLines } from "./user-message.ts";
 
-export class UserCommandComponent implements Component {
+export class UserCommandComponent extends CachedLinesComponent {
   private readonly commandLine: string | undefined;
   private output: string | undefined;
   private expanded = false;
@@ -21,6 +21,7 @@ export class UserCommandComponent implements Component {
   /** `commandLine` is the full display line after the gutter (`/name args`
    *  or `! cmd`); undefined renders a standalone output block. */
   constructor(commandLine: string | undefined) {
+    super();
     this.commandLine = commandLine;
   }
 
@@ -32,9 +33,11 @@ export class UserCommandComponent implements Component {
     this.expanded = expanded;
   }
 
-  invalidate(): void {}
+  protected cacheKey(): readonly unknown[] {
+    return [this.output, this.expanded];
+  }
 
-  render(width: number): string[] {
+  protected computeLines(width: number): string[] {
     const lines = [""];
     if (this.commandLine !== undefined) {
       lines.push(...userPromptLines(this.commandLine, width));

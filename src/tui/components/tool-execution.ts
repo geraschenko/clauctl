@@ -25,6 +25,7 @@ import {
 import { truncateToVisualLines } from "@earendil-works/pi-coding-agent";
 import { claudeStyle } from "../claude-style.ts";
 import type { RenderToolResult } from "../render-types.ts";
+import { CachedLinesComponent } from "./cached-lines.ts";
 import { toolViewFor, type ToolView } from "../tool-views/tool-view.ts";
 
 const COLLAPSED_RESULT_VISUAL_LINES = 3;
@@ -91,7 +92,7 @@ export function wrapHeaderArg(
   return { lines, truncated: false };
 }
 
-export class ToolExecutionComponent implements Component {
+export class ToolExecutionComponent extends CachedLinesComponent {
   private readonly subagentContainer = new Container();
   private readonly toolName: string;
   private readonly args: unknown;
@@ -101,6 +102,7 @@ export class ToolExecutionComponent implements Component {
   private result?: RenderToolResult;
 
   constructor(toolName: string, args: unknown, cwd: string | undefined) {
+    super();
     this.toolName = toolName;
     this.args = args;
     this.cwd = cwd;
@@ -120,22 +122,36 @@ export class ToolExecutionComponent implements Component {
     this.subagentContainer.addChild(component);
   }
 
-  invalidate(): void {
+  override invalidate(): void {
+    super.invalidate();
     this.subagentContainer.invalidate();
   }
 
-  render(width: number): string[] {
-    const lines = ["", ...this.headerLines(width), ...this.bodyLines(width)];
-    if (this.expanded) {
-      lines.push(
-        ...this.subagentContainer
-          .render(Math.max(1, width - 2))
-          .map((line) => `  ${line}`),
-      );
-    } else if (this.subagentContainer.children.length > 0) {
-      lines.push(claudeStyle.grey(`  ${EXPAND_HINT}`));
+  protected cacheKey(): readonly unknown[] {
+    return [this.expanded, this.result];
+  }
+
+  protected computeLines(width: number): string[] {
+    return ["", ...this.headerLines(width), ...this.bodyLines(width)];
+  }
+
+  /** Subagent lines are appended live, outside the cache: a streaming
+   *  subagent mutates subagentContainer without notifying this component
+   *  (its children are themselves caching components). */
+  override render(width: number): string[] {
+    const ownLines = super.render(width);
+    if (this.subagentContainer.children.length === 0) {
+      return ownLines;
     }
-    return lines;
+    if (!this.expanded) {
+      return [...ownLines, claudeStyle.grey(`  ${EXPAND_HINT}`)];
+    }
+    return [
+      ...ownLines,
+      ...this.subagentContainer
+        .render(Math.max(1, width - 2))
+        .map((line) => `  ${line}`),
+    ];
   }
 
   private headerLines(width: number): string[] {
