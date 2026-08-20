@@ -27,6 +27,7 @@ const FG_COLORS = {
   mdQuoteBorder: "#808080",
   mdHr: "#808080",
   mdListBullet: "#8abeb7",
+  searchMatchText: "#d4d4d4",
 } as const;
 
 const BG_COLORS = {
@@ -35,6 +36,7 @@ const BG_COLORS = {
   toolPendingBg: "#282832",
   toolSuccessBg: "#283228",
   toolErrorBg: "#3c2828",
+  searchMatchBg: "#3a3a4a",
 } as const;
 
 export type ThemeColor = keyof typeof FG_COLORS;

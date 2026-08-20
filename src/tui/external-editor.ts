@@ -27,7 +27,12 @@ export async function editFileInExternalEditor(
   filePath: string,
 ): Promise<boolean> {
   const [command, ...commandArgs] = editorCommand.split(" ");
-  ui.stop();
+  // preserveScreen in fullscreen: a bare stop would replay the whole
+  // rendered document into the main buffer before the editor starts,
+  // leaving a transcript dump in scrollback on every suspend (pi v0.84.2
+  // does exactly that; deliberate divergence — see
+  // docs/specs/tui-fullscreen.md, success criterion 5).
+  ui.stop({ preserveScreen: ui.mode === "fullscreen" });
   try {
     const exitCode = await new Promise<number | null>((resolve) => {
       const child = spawn(command!, [...commandArgs, filePath], {

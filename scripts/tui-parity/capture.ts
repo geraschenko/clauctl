@@ -150,9 +150,32 @@ export async function ensureClaudeConfigDir(): Promise<void> {
  * Harness agents live in their own registry, not the user's real
  * CLAUCTL_DIR. /tmp keeps the path short enough for the unix socket budget
  * (agentDir/sdk.sock), which an out/-based registry would exceed.
+ *
+ * The config dir is isolated too, so captures use clauctl's default
+ * keybindings and the settings pinned by ensureClauctlConfigDir instead of
+ * whatever the developer's real config holds.
  */
 const clauctlDir = "/tmp/clauctl-tui-parity";
-const clauctlEnv = { CLAUCTL_DIR: clauctlDir, ...claudeEnv };
+const clauctlConfigDir = join(clauctlDir, "config");
+const clauctlEnv = {
+  CLAUCTL_DIR: clauctlDir,
+  CLAUCTL_CONFIG_DIR: clauctlConfigDir,
+  ...claudeEnv,
+};
+
+/**
+ * Pin the harness TUI to regular mode (rewritten on every run — the file is
+ * harness-owned). Parity compares clauctl's rendering against native
+ * claude's main-buffer document; the fullscreen default would capture an
+ * alternate-screen viewport instead.
+ */
+async function ensureClauctlConfigDir(): Promise<void> {
+  await mkdir(clauctlConfigDir, { recursive: true });
+  await writeFile(
+    join(clauctlConfigDir, "settings.json"),
+    `${JSON.stringify({ tuiMode: "regular" }, null, 2)}\n`,
+  );
+}
 
 async function tmux(...args: string[]): Promise<string> {
   // maxBuffer: full-scrollback captures of long sessions can exceed the
@@ -574,6 +597,7 @@ async function captureSubject(
 
 async function main(): Promise<void> {
   await ensureClaudeConfigDir();
+  await ensureClauctlConfigDir();
   const args = process.argv.slice(2);
   const subjects: CaptureSubject[] = [];
   const requested: string[] = [];

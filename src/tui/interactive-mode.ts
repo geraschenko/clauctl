@@ -11,15 +11,23 @@ import {
   Container,
   Editor,
   getKeybindings,
+  isViewportTUI,
   KeybindingsManager,
   Loader,
   matchesKey,
   ProcessTerminal,
+  ScrollView,
   setKeybindings,
   Text,
-  TUI,
+  TuiAltScreen,
+  TuiMainScreen,
+  VStack,
+  type Component,
+  type StackEntry,
+  type TUI,
+  type TuiMode,
 } from "@earendil-works/pi-tui";
-import { initTheme } from "@earendil-works/pi-coding-agent";
+import { copyToClipboard, initTheme } from "@earendil-works/pi-coding-agent";
 import type {
   EffortLevel,
   ModelInfo,
@@ -39,7 +47,7 @@ import { isIdle, type AgentState } from "../core/agent-state.ts";
 import { randomUUID, type UUID } from "node:crypto";
 import { readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { buildTree } from "../core/tree/build-tree.ts";
 import { toDisplayTree } from "../core/tree/display-tree.ts";
 import {
@@ -79,6 +87,7 @@ import {
 } from "./external-editor.ts";
 import { VERSION } from "../core/generated/version.ts";
 import { pathUpToBoundary, releaseDedupeUuid, userText } from "./sdk-render.ts";
+import { readSettings, settingsPath } from "./settings.ts";
 import { TranscriptRenderer } from "./transcript.ts";
 import { getEditorTheme, theme, type ThemeColor } from "./theme.ts";
 
@@ -101,7 +110,7 @@ export const tuiRoute = {
     parameters: { flags: tuiFlags },
     func: async function (this: CommandContext, flags: TuiFlags) {
       const client = await SdkSocketClient.connect(flags.sdkSocket);
-      await runInteractive(client, flags.managed);
+      await runInteractive(client, flags.managed, dirname(flags.sdkSocket));
     },
   }),
 } as const;
@@ -156,6 +165,7 @@ export function parseEffortCommand(
 export async function runInteractive(
   client: SdkSocketClient,
   managed: boolean,
+  logDirectory: string,
 ): Promise<void> {
   initTheme("dark");
   // The global manager must be set before InteractiveMode exists: its Editor
@@ -180,8 +190,12 @@ export async function runInteractive(
   if (client.versionWarning !== undefined) {
     startupWarnings.push(client.versionWarning);
   }
+  const settingsRead = readSettings(settingsPath());
+  startupWarnings.push(
+    ...settingsRead.warnings.map((warning) => `settings: ${warning}`),
+  );
   const { seed, events } = await client.subscribe();
-  const ui = new TUI(new ProcessTerminal());
+  const ui = createTui(settingsRead.settings.tuiMode, logDirectory);
   const interactiveMode = new InteractiveMode(
     ui,
     client,
@@ -203,9 +217,134 @@ export async function runInteractive(
   } finally {
     // The mode is about to be disposed, so drop anything still queued.
     events.cancel();
-    ui.stop();
+    // Fullscreen restores the pre-attach main screen instead of dumping the
+    // rendered document: attach/detach is frequent, and the transcript
+    // remains available by reattaching.
+    ui.stop({ preserveScreen: ui.mode === "fullscreen" });
     interactiveMode.dispose();
     client.close();
+  }
+}
+
+/**
+ * Renderer selection (the composition point for settings.tuiMode): regular
+ * mode is pi-tui's main-buffer document renderer; fullscreen is the
+ * alternate-screen viewport renderer, whose transcript search styling and
+ * selection-copy mirror pi's createInteractiveTui. logDirectory is the agent
+ * directory — pi-tui only writes there on a fatal render invariant
+ * (pi-crash.log) or under PI_DEBUG_REDRAW=1, and the default (~/.pi/agent)
+ * is not ours to write into.
+ */
+function createTui(
+  tuiMode: TuiMode,
+  logDirectory: string,
+): TuiMainScreen | TuiAltScreen {
+  const terminal = new ProcessTerminal();
+  if (tuiMode === "fullscreen") {
+    const styleSearchMatch = (text: string) =>
+      theme.bg("searchMatchBg", theme.fg("searchMatchText", text));
+    return new TuiAltScreen(terminal, undefined, logDirectory, {
+      searchMatchStyle: (text) => theme.underline(styleSearchMatch(text)),
+      searchCurrentMatchStyle: (text) =>
+        theme.bold(theme.inverse(styleSearchMatch(text))),
+      copySelection: async (text) => {
+        try {
+          await copyToClipboard(text);
+          return true;
+        } catch {
+          return false;
+        }
+      },
+    });
+  }
+  return new TuiMainScreen(terminal, undefined, logDirectory);
+}
+
+/** The components the TUI composes, in one place so both mount paths draw
+ *  from the same set. */
+export interface TuiParts {
+  chatContainer: Container;
+  statusContainer: Container;
+  pendingMessages: Component;
+  editor: Component;
+  hintText: Component;
+  footer: Component;
+}
+
+/**
+ * The non-transcript components in visual order, with their fullscreen dock
+ * sizing (minSize keeps the editor at 3 rows and the footer at 1 on short
+ * terminals). The single source of the below-transcript ordering: the
+ * fullscreen dock VStack consumes the entries, the regular-mode flat mount
+ * consumes just the components.
+ */
+function dockEntries(parts: TuiParts): StackEntry[] {
+  return [
+    { component: parts.statusContainer, shrink: 1, minSize: 0 },
+    { component: parts.pendingMessages, shrink: 1, minSize: 0 },
+    { component: parts.editor, shrink: 1, minSize: 3 },
+    { component: parts.hintText, shrink: 1, minSize: 0 },
+    { component: parts.footer, shrink: 1, minSize: 1 },
+  ];
+}
+
+/** The layout TuiAltScreen renders: transcript in a scroll region that takes
+ *  the spare height, everything else in a fixed-bottom dock. */
+export interface FullscreenLayout {
+  /** The component handed to TuiAltScreen.setLayoutRoot. */
+  layoutRoot: VStack;
+  transcriptScrollView: ScrollView;
+}
+
+/**
+ * Pure layout composition (exported for tests): wraps the transcript
+ * container in the primary ScrollView — follow:"end" keeps it pinned to new
+ * output until the user scrolls, overscroll:"chain" lets wheel input past
+ * the edges fall through — and docks the dockEntries components below it;
+ * the transcript absorbs the spare height via grow:1.
+ */
+export function buildFullscreenLayout(parts: TuiParts): FullscreenLayout {
+  const transcriptScrollView = new ScrollView(parts.chatContainer, {
+    follow: "end",
+    primary: true,
+    overscroll: "chain",
+  });
+  const layoutRoot = new VStack([
+    {
+      component: transcriptScrollView,
+      basis: 0,
+      grow: 1,
+      shrink: 1,
+      minSize: 1,
+    },
+    {
+      component: new VStack(dockEntries(parts)),
+      basis: "auto",
+      grow: 0,
+      shrink: 1,
+      minSize: 1,
+    },
+  ]);
+  return { layoutRoot, transcriptScrollView };
+}
+
+/**
+ * Mount the parts on the renderer — the one place that knows the two
+ * rendering shapes. A viewport renderer gets the explicit layout root;
+ * regular mode gets the flat document (transcript, then the dock components
+ * in the same dockEntries order). Either/or, unlike pi's mount, which does
+ * both unconditionally because its runtime mode switching moves the same
+ * components between renderers; without that (a recorded non-goal), the
+ * unused mount would just be a second copy of the layout to keep in sync.
+ */
+function mountParts(ui: TUI, parts: TuiParts): void {
+  if (isViewportTUI(ui)) {
+    ui.setLayoutRoot(buildFullscreenLayout(parts).layoutRoot);
+    return;
+  }
+  ui.addChild(parts.chatContainer);
+  for (const { component } of dockEntries(parts)) {
+    ui.addChild(component);
   }
 }
 
@@ -327,12 +466,14 @@ class InteractiveMode {
     }
     this.footer = new FooterComponent(this.footerData);
 
-    ui.addChild(this.chatContainer);
-    ui.addChild(this.statusContainer);
-    ui.addChild(this.pendingMessages);
-    ui.addChild(this.editor);
-    ui.addChild(this.hintText);
-    ui.addChild(this.footer);
+    mountParts(ui, {
+      chatContainer: this.chatContainer,
+      statusContainer: this.statusContainer,
+      pendingMessages: this.pendingMessages,
+      editor: this.editor,
+      hintText: this.hintText,
+      footer: this.footer,
+    });
     ui.setFocus(this.editor);
     ui.addInputListener((data) => this.handleGlobalKey(data));
 
