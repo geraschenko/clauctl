@@ -19,8 +19,6 @@ The main pieces are:
   single SDK connection to that process;
 - `sdk.sock`, owned by the daemon, exposing clauctl's structured agent
   protocol;
-- `tty.sock`, owned by the daemon, exposing terminal attach to clauctl's
-  built-in TUI;
 - `CLAUCTL_DIR`, a filesystem registry of agent directories;
 - `clauctl`, the CLI, which acts as the "shell SDK" for these protocols.
 
@@ -36,8 +34,8 @@ Two facts about Claude shape everything else (see
    daemon's sockets.
 2. **Programmatic Claude has no terminal.** In stream-json mode `claude` emits
    structured JSON, not terminal bytes, so there is no stock TUI to attach to.
-   clauctl ships its own TUI, which the daemon renders into a virtual pty and
-   serves over `tty.sock`.
+   clauctl ships its own TUI, which `clauctl attach` runs directly in the
+   caller's terminal as an ordinary `sdk.sock` client.
 
 ## Spawn flow
 
@@ -54,10 +52,7 @@ The daemon then:
 
 - opens the SDK session in **streaming-input mode**: a held-open input
   iterable feeds successive turns into one warm `claude` process;
-- serves `sdk.sock` and `tty.sock`;
-- runs the TUI (`clauctl _tui --managed`) inside a headless virtual pty
-  (node-pty + a headless xterm), so attachers get a live screen even if
-  nobody has ever attached;
+- serves `sdk.sock`;
 - owns `agent.json`, keeping the current session id, pids, and attachment
   list up to date.
 
@@ -65,10 +60,7 @@ The daemon is solving roughly the same category of problem as tmux or
 persistent IDE terminals: a background process owns the session, and frontends
 connect and disconnect.
 
-## The two sockets
-
-The core protocol boundary is the split between `sdk.sock` and `tty.sock`:
-`sdk.sock` is for meaning; `tty.sock` is for terminal bytes.
+## The socket
 
 ### `sdk.sock`: the structured agent protocol
 
@@ -132,34 +124,26 @@ transcript), or the transcript at-or-before `leaf`. See
 [`user-message-tracking.md`](user-message-tracking.md) for why this exists and
 its accepted limitations.
 
-### `tty.sock`: terminal attach
+### Terminal attach
 
-`tty.sock` exists because `sdk.sock` is not a terminal protocol.
-`clauctl attach` needs to render a screen, send keystrokes, handle resizes, and
-get a current-screen snapshot on connect. That is a byte-stream terminal
-problem, not a semantic one.
+`clauctl attach` runs clauctl's TUI directly in the caller's terminal: it
+ensures the daemon is running, connects to `sdk.sock`, subscribes, and
+renders locally. The TUI is an ordinary `sdk.sock` client with no privileged
+access — an embedder that wants to draw its own UI speaks `sdk.sock` itself;
+one that wants a terminal view runs `clauctl attach` in a pty it owns.
 
-The daemon exposes a framed binary protocol (`[type u8][length u32][payload]`)
-on `tty.sock`, taken verbatim [from pictl](https://github.com/geraschenko/pictl/blob/main/src/core/tty-protocol.ts).
-It supports:
+Each attacher is an independent TUI at its own terminal size; there is no
+shared screen. Detach is the remappable `app.detach` keybinding (default
+`ctrl+]`) and leaves the agent running. Attachers identify themselves in
+their `subscribe` request (`attachment: { pid, client }`), so the daemon
+records live attachments in `agent.json` and audits attach/detach events —
+the connection close counts as detach, catching killed attachers. Observers
+like `tail` subscribe without an attachment and stay invisible.
 
-- client identification (a `hello` frame, the required first client frame);
-- initial screen snapshot;
-- pty output;
-- user input;
-- terminal resize messages;
-- daemon-exit notification.
-
-The pty is sized tmux-style to the element-wise minimum of all attached
-clients' sizes. `clauctl attach` detaches on `ctrl+]` without stopping the
-agent. Attachments are recorded in `agent.json` and the audit log.
-
-What is _behind_ `tty.sock` is clauctl's own TUI, run by the daemon as a
-child process against `sdk.sock` and rendered into the virtual pty. It is an
-ordinary `sdk.sock` client with no privileged access; an embedder that wants
-to draw its own UI can skip `tty.sock` entirely and speak `sdk.sock`. If the
-TUI crash-loops, the daemon stops restarting it and marks the agent
-`running (tui failed)` — the agent itself keeps working.
+When the daemon shuts down deliberately (archive, stream end), it emits a
+`shutdown` event before teardown, so attachers can report "agent shut down"
+instead of a lost connection; an unannounced socket close means the daemon
+crashed.
 
 ## `CLAUCTL_DIR` as the registry
 
@@ -174,7 +158,6 @@ $CLAUCTL_DIR/
     agent.json
     spawn-options.json
     sdk.sock
-    tty.sock
     daemon.log
     audit.jsonl / sources.jsonl
     archived / revive.lock (marker files)
@@ -249,10 +232,10 @@ clauctl is meant to be the language-neutral shell interface to this system.
 - humans use it directly, non-interactively or with `clauctl attach`;
 - agents and scripts use it to spawn, discover, prompt, and monitor other
   agents — every `sdk.sock` request type has a corresponding subcommand;
-- clients that need native terminal integration can speak `tty.sock`
-  directly, and clients that want structured state can speak `sdk.sock`
-  directly; both are small, versioned, hello-first protocols designed to be
-  implemented outside this codebase.
+- clients that want structured state can speak `sdk.sock` directly — a
+  small, versioned, hello-first protocol designed to be implemented outside
+  this codebase; clients that need a terminal view run `clauctl attach` in a
+  pty they own.
 
 The design goal is that anything a human can do by hand has a corresponding
 scriptable operation, without making the agent less interactive or less
@@ -261,7 +244,6 @@ attachable.
 ## Reference material
 
 - exact `sdk.sock` protocol: [`src/core/sdk-socket.ts`](../src/core/sdk-socket.ts);
-- exact `tty.sock` frame protocol: [`src/core/generated/tty-protocol.ts`](../src/core/generated/tty-protocol.ts);
 - exact `agent.json` schema: [`src/core/registry.ts`](../src/core/registry.ts);
 - the state fold: [`src/core/agent-state.ts`](../src/core/agent-state.ts);
 - what Claude and its SDK actually do: [`claude-agent-sdk.md`](claude-agent-sdk.md);

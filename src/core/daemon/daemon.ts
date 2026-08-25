@@ -3,10 +3,9 @@
  * agent. It classifies startup (spawn vs revival), owns the AgentRecord and
  * its serialized writes, starts the SDK connection (a long-lived
  * streaming-input `query()`), wires the modules together — EventHub (state),
- * request handler (semantics), sdk-server (transport), tty-service (shared
- * tui) — and handles teardown and signals. It deliberately contains no
- * request semantics, no state tracking, and no tui management; only the
- * stream read loop stays (see its section comment).
+ * request handler (semantics), sdk-server (transport) — and handles teardown
+ * and signals. It deliberately contains no request semantics and no state
+ * tracking; only the stream read loop stays (see its section comment).
  */
 
 import type { UUID } from "node:crypto";
@@ -23,7 +22,7 @@ import {
   type Query,
   type SDKMessage,
 } from "@anthropic-ai/claude-agent-sdk";
-import { auditEnabled } from "../generated/audit.ts";
+import { auditAttachEvent, auditEnabled } from "../generated/audit.ts";
 import {
   commandNoTarget,
   parsedFlag,
@@ -40,16 +39,15 @@ import {
   readSpawnOptions,
   sdkSocketPath,
   spawnOptionsPath,
-  ttySocketPath,
   writeAgentRecord,
   type AgentRecord,
+  type AttachmentInfo,
 } from "../registry.ts";
 import { readSessionEntries, sessionFilePath } from "../session/file.ts";
 import { type CommandContext } from "../generated/targets.ts";
 import { EventHub } from "./event-hub.ts";
 import { createRequestHandler } from "./request-handlers.ts";
 import { startSdkServer } from "./sdk-server.ts";
-import { startTtyService, type TtyService } from "./tty-service.ts";
 import { TurnQueue } from "./turn-queue.ts";
 
 const daemonFlags = {
@@ -122,9 +120,8 @@ async function daemon(this: CommandContext, flags: DaemonFlags): Promise<void> {
   if (existing.kind === "ok") {
     record = existing.record;
     record.daemonPid = proc.pid;
-    // A crashed predecessor leaves stale attachment/tui-failure state behind.
+    // A crashed predecessor leaves stale attachment state behind.
     record.attachments = [];
-    delete record.tuiFailedAt;
     resumeSessionId = record.sessions.at(-1)?.sessionId;
   } else {
     const spawnRead = await readSpawnOptions(agentDir);
@@ -163,12 +160,9 @@ async function daemon(this: CommandContext, flags: DaemonFlags): Promise<void> {
     );
   };
 
-  // A SIGKILLed predecessor leaves stale socket files behind, and bind
+  // A SIGKILLed predecessor leaves a stale socket file behind, and bind
   // refuses an existing path. Launchers guarantee no live daemon for this dir.
-  await Promise.all([
-    rm(sdkSocketPath(agentDir), { force: true }),
-    rm(ttySocketPath(agentDir), { force: true }),
-  ]);
+  await rm(sdkSocketPath(agentDir), { force: true });
 
   // The transcript lives where the CLI child looks for it: CLAUDE_CONFIG_DIR
   // from the child's env (persisted env can override ours), else ~/.claude.
@@ -361,6 +355,9 @@ async function daemon(this: CommandContext, flags: DaemonFlags): Promise<void> {
     tearingDown = false;
   };
 
+  // Frozen at daemon start; the attach/detach audit hooks below use it.
+  const auditingEnabled = auditEnabled(this.env);
+
   const sdkServer: Server = startSdkServer(
     sdkSocketPath(agentDir),
     createRequestHandler({
@@ -379,20 +376,51 @@ async function daemon(this: CommandContext, flags: DaemonFlags): Promise<void> {
         sessionFilePath(configDir, record.cwd, sessionId as UUID),
       teardownQuery,
       restartQuery,
+      registerAttachment: (info) => {
+        const attachment: AttachmentInfo = {
+          ...info,
+          connectedAt: new Date().toISOString(),
+        };
+        record.attachments.push(attachment);
+        queueRecordWrite();
+        auditAttachEvent(
+          agentDir,
+          auditingEnabled,
+          "attach",
+          { pid: info.pid },
+          log,
+        );
+        return () => {
+          const index = record.attachments.indexOf(attachment);
+          // Already gone when the shutdown clear below raced this close;
+          // then the detach is implied by the shutdown and not audited.
+          if (index === -1) {
+            return;
+          }
+          record.attachments.splice(index, 1);
+          queueRecordWrite();
+          auditAttachEvent(
+            agentDir,
+            auditingEnabled,
+            "detach",
+            { pid: info.pid },
+            log,
+          );
+        };
+      },
     }),
   );
 
   // --- teardown --------------------------------------------------------------
-  // Started after sdk.sock is listening (the tui connects to it), so the
-  // teardown closes over a slot that is still unset on early failure paths.
-  let ttyService: TtyService | undefined;
   let exiting = false;
-  const cleanupAndExit = (code: number): void => {
+  const cleanupAndExit = (code: number, reason: string): void => {
     if (exiting) {
       return;
     }
     exiting = true;
-    ttyService?.stopTui();
+    // Announced before any teardown, so subscribers get the shutdown line
+    // ahead of the socket close (delivery is best-effort — see SdkEvent).
+    events.emit({ kind: "shutdown", reason });
     claudeQuery.close();
     turnQueue.close();
     // Wait for the stream to end before exiting: the SDK's close() SIGTERMs
@@ -401,26 +429,22 @@ async function daemon(this: CommandContext, flags: DaemonFlags): Promise<void> {
     // when the child is gone.
     void Promise.allSettled([writeQueue, readerDone]).then(async () => {
       sdkServer.close();
-      // Exit frames to attachers, bounded flush; suppresses detach hooks, so
-      // the attachment clear below is final.
-      await ttyService?.shutdown(`agent shut down (code ${code})`);
       // Clean shutdown clears the attachment list; a crash leaves stale
       // entries, which readers must ignore for non-running agents. Queued
       // (not written directly) so it serializes behind in-flight writes.
+      // Reassigning the array also disarms the per-attachment deregisters:
+      // detach on daemon shutdown is implied, not audited.
       record.attachments = [];
       queueRecordWrite();
       await writeQueue.catch(() => undefined);
-      await Promise.all([
-        rm(sdkSocketPath(agentDir), { force: true }),
-        rm(ttySocketPath(agentDir), { force: true }),
-      ]);
+      await rm(sdkSocketPath(agentDir), { force: true });
       proc.exit(code);
     });
   };
   // Any termination request to the daemon means "shut the agent down".
   // query.close() SIGTERMs the claude subprocess with SIGKILL escalation.
-  proc.on("SIGTERM", () => cleanupAndExit(0));
-  proc.on("SIGINT", () => cleanupAndExit(0));
+  proc.on("SIGTERM", () => cleanupAndExit(0, "shut down (SIGTERM)"));
+  proc.on("SIGINT", () => cleanupAndExit(0, "shut down (SIGINT)"));
 
   // Ready once sdk.sock is bound. The barrier cannot include the first
   // system/init: in streaming-input mode claude does not announce itself until
@@ -434,40 +458,10 @@ async function daemon(this: CommandContext, flags: DaemonFlags): Promise<void> {
       fail(
         `cannot bind ${sdkSocketPath(agentDir)}: ${String(error)}; log: ${daemonLogPath(agentDir)}`,
       );
-      cleanupAndExit(1);
+      // No subscriber exists this early; the reason is for uniformity.
+      cleanupAndExit(1, "failed to start (cannot bind sdk.sock)");
       return;
     }
-  }
-  // The tui connects to sdk.sock, which is listening by now.
-  try {
-    ttyService = await startTtyService({
-      agentDir,
-      cwd: record.cwd,
-      // No persisted SDK env: that is claude-subprocess configuration, not
-      // tui configuration.
-      env: childEnv(undefined, agentId),
-      sdkSocket: sdkSocketPath(agentDir),
-      auditEnabled: auditEnabled(this.env),
-      onAttachmentsChanged: (attachments) => {
-        record.attachments = attachments;
-        queueRecordWrite();
-      },
-      onTuiFailedChanged: (failedAt) => {
-        if (failedAt === undefined) {
-          delete record.tuiFailedAt;
-        } else {
-          record.tuiFailedAt = failedAt;
-        }
-        queueRecordWrite();
-      },
-      log,
-    });
-  } catch (error) {
-    fail(
-      `cannot bind ${ttySocketPath(agentDir)}: ${String(error)}; log: ${daemonLogPath(agentDir)}`,
-    );
-    cleanupAndExit(1);
-    return;
   }
 
   signalReady(flags.readyFd, { ok: true });
@@ -478,11 +472,11 @@ async function daemon(this: CommandContext, flags: DaemonFlags): Promise<void> {
   } catch (error) {
     if (!exiting) {
       proc.stderr.write(`[daemon] stream failed: ${String(error)}\n`);
-      cleanupAndExit(1);
+      cleanupAndExit(1, "crashed (claude stream failed)");
       return;
     }
   }
-  cleanupAndExit(0);
+  cleanupAndExit(0, "exited (claude stream ended)");
 }
 
 const daemonCommand = commandNoTarget<DaemonFlags>({

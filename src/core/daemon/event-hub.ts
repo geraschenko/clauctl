@@ -97,7 +97,11 @@ export class EventHub {
       SdkEvent,
       {
         kind:
-          "interruptSent" | "compactSent" | "controlApplied" | "contextChanged";
+          | "interruptSent"
+          | "compactSent"
+          | "controlApplied"
+          | "contextChanged"
+          | "shutdown";
       }
     >,
   ): void {

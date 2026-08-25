@@ -14,7 +14,6 @@ import {
   isViewportTUI,
   KeybindingsManager,
   Loader,
-  matchesKey,
   ProcessTerminal,
   ScrollView,
   setKeybindings,
@@ -36,18 +35,11 @@ import type {
   SDKMessage,
   SDKUserMessage,
 } from "@anthropic-ai/claude-agent-sdk";
-import {
-  booleanFlag,
-  commandNoTarget,
-  requiredStringFlag,
-  type InferFlags,
-} from "../core/generated/cli.ts";
-import type { CommandContext } from "../core/generated/targets.ts";
 import { isIdle, type AgentState } from "../core/agent-state.ts";
 import { randomUUID, type UUID } from "node:crypto";
 import { readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import { buildTree } from "../core/tree/build-tree.ts";
 import { toDisplayTree } from "../core/tree/display-tree.ts";
 import {
@@ -62,7 +54,7 @@ import {
   type SessionSnapshot,
   type TreeNodeRef,
 } from "../core/tree/nodes.ts";
-import { SdkSocketClient, type SdkEvent } from "../core/sdk-socket.ts";
+import type { SdkEvent, SdkSocketClient } from "../core/sdk-socket.ts";
 import { findFd, TuiAutocompleteProvider } from "./autocomplete.ts";
 import { EffortSelectorComponent } from "./components/effort-selector.ts";
 import { FooterComponent } from "./components/footer.ts";
@@ -90,30 +82,6 @@ import { pathUpToBoundary, releaseDedupeUuid, userText } from "./sdk-render.ts";
 import { readSettings, settingsPath } from "./settings.ts";
 import { TranscriptRenderer } from "./transcript.ts";
 import { getEditorTheme, theme, type ThemeColor } from "./theme.ts";
-
-const tuiFlags = {
-  sdkSocket: requiredStringFlag("Path to the agent's sdk.sock", "path"),
-  managed: booleanFlag(
-    "Run as the daemon-managed shared renderer (disables the local ctrl+] detach; the attach client handles it)",
-  ),
-};
-
-type TuiFlags = InferFlags<typeof tuiFlags>;
-
-/**
- * `clauctl _tui --sdk-socket <path>` — the interactive terminal UI, a pure
- * sdk.sock client.
- */
-export const tuiRoute = {
-  _tui: commandNoTarget<TuiFlags>({
-    docs: { brief: "run the interactive terminal UI against an sdk.sock" },
-    parameters: { flags: tuiFlags },
-    func: async function (this: CommandContext, flags: TuiFlags) {
-      const client = await SdkSocketClient.connect(flags.sdkSocket);
-      await runInteractive(client, flags.managed, dirname(flags.sdkSocket));
-    },
-  }),
-} as const;
 
 /**
  * Parse the locally intercepted `/model` command: the first
@@ -152,21 +120,27 @@ export function parseEffortCommand(
   return { level: arg === "" ? undefined : arg };
 }
 
+/** How an interactive session ended; attach.ts turns this into the exit
+ *  message and code. */
+export type InteractiveOutcome =
+  | { kind: "detached" } // app.detach pressed; the agent keeps running
+  | { kind: "shutdown"; reason: string } // daemon shutdown event received
+  | { kind: "connectionLost" }; // socket closed unannounced (daemon crash)
+
 /**
  * Connect the TUI to a subscribed client. Owns the subscribe ordering: events
  * may be delivered before the snapshot promise settles (SdkSocketClient
  * contract), so they buffer in a closure until InteractiveMode exists — the
- * same gating `tail` does. Resolves on detach (ctrl+]; the agent keeps
- * running) or when the daemon closes the socket, which it only does while
- * shutting the agent down. Under `managed` there is no local detach — the
- * attach client intercepts ctrl+] at the tty level — so it resolves on
- * socket close alone.
+ * same gating `tail` does. Resolves with how the session ended: `done`
+ * (detach key, shutdown event) races the event pump, whose own end means the
+ * socket closed unannounced — the pump subsumes waitClosed because the event
+ * queue closes with the socket, and draining it first is what lets a shutdown
+ * line already on the wire still win the race.
  */
 export async function runInteractive(
   client: SdkSocketClient,
-  managed: boolean,
   logDirectory: string,
-): Promise<void> {
+): Promise<InteractiveOutcome> {
   initTheme("dark");
   // The global manager must be set before InteractiveMode exists: its Editor
   // resolves tui.* ids against getKeybindings(), which otherwise caches a
@@ -194,13 +168,15 @@ export async function runInteractive(
   startupWarnings.push(
     ...settingsRead.warnings.map((warning) => `settings: ${warning}`),
   );
-  const { seed, events } = await client.subscribe();
+  const { seed, events } = await client.subscribe({
+    pid: process.pid,
+    client: "clauctl attach",
+  });
   const ui = createTui(settingsRead.settings.tuiMode, logDirectory);
   const interactiveMode = new InteractiveMode(
     ui,
     client,
     seed,
-    managed,
     startupWarnings,
   );
   // Events arriving while the UI is built wait in the queue; the pump starts
@@ -213,7 +189,13 @@ export async function runInteractive(
   })();
   ui.start();
   try {
-    await Promise.race([interactiveMode.done, client.waitClosed(), pump]);
+    // `done` settles inside the pump's iteration (handleEvent), strictly
+    // before the pump itself can resolve — so an announced shutdown never
+    // misreports as connectionLost.
+    return await Promise.race([
+      interactiveMode.done,
+      pump.then((): InteractiveOutcome => ({ kind: "connectionLost" })),
+    ]);
   } finally {
     // The mode is about to be disposed, so drop anything still queued.
     events.cancel();
@@ -349,15 +331,11 @@ function mountParts(ui: TUI, parts: TuiParts): void {
 }
 
 class InteractiveMode {
-  readonly done: Promise<void>;
-  private finish!: () => void;
+  readonly done: Promise<InteractiveOutcome>;
+  private finish!: (outcome: InteractiveOutcome) => void;
 
   private readonly ui: TUI;
   private readonly client: SdkSocketClient;
-  /** Daemon-managed shared renderer: a local detach would kill the screen
-   *  for every attacher, so the ctrl+] handler is disabled (the attach
-   *  client detaches at the tty level; the byte never reaches us anyway). */
-  private readonly managed: boolean;
   /**
    * Seeded from the subscribe response and assigned the post-fold state the
    * client delivers with each live event — the client runs the same fold the
@@ -439,12 +417,10 @@ class InteractiveMode {
     ui: TUI,
     client: SdkSocketClient,
     seedState: AgentState,
-    managed: boolean,
     startupWarnings: string[],
   ) {
     this.ui = ui;
     this.client = client;
-    this.managed = managed;
     this.agentState = seedState;
     this.keybindings = getKeybindings();
     this.transcript = new TranscriptRenderer(this.chatContainer);
@@ -639,6 +615,13 @@ class InteractiveMode {
   }
 
   handleEvent(event: SdkEvent, state: AgentState): void {
+    // Terminal and order-independent, so it must not wait out a history
+    // replay: the socket may close right behind it, and a buffered shutdown
+    // would then misreport as connectionLost.
+    if (event.kind === "shutdown") {
+      this.finish({ kind: "shutdown", reason: event.reason });
+      return;
+    }
     if (this.liveEventsDuringReplay !== undefined) {
       this.liveEventsDuringReplay.push([event, state]);
       return;
@@ -1188,17 +1171,17 @@ class InteractiveMode {
         this.editor.addToHistory(clearedText);
       }
       this.editor.setText("");
-      this.hintText.setText(theme.fg("dim", "detach with ctrl+]"));
+      this.hintText.setText(
+        theme.fg(
+          "dim",
+          `detach with ${this.keybindings.getKeys("app.detach").join(", ")}`,
+        ),
+      );
       this.ui.requestRender();
       return { consume: true };
     }
-    // Detach is a fixed tty-level chord, not a registry action: in managed
-    // mode the attach client intercepts the raw 0x1d byte before the pty
-    // (attach.ts DETACH_KEY), so a keybindings.json entry could never affect
-    // real (managed) users. This handler mirrors it for the non-managed
-    // debugging TUI, where the byte reaches us directly.
-    if (!this.managed && matchesKey(data, "ctrl+]")) {
-      this.finish();
+    if (this.keybindings.matches(data, "app.detach")) {
+      this.finish({ kind: "detached" });
       return { consume: true };
     }
     this.hintText.setText("");

@@ -48,11 +48,12 @@ override):
 - **Reuse.** pictl's daemon, per-agent socket model, and stricli-based subcommand
   completion transfer directly. Patterns and fixes flow both ways.
 
-**Where Rust still lives:** at the **socket boundary**. The `sdk.sock` and
-`tty.sock` protocols (below) are stable, owned-by-us interfaces. Embedding a
-clauctl agent in a Rust app (e.g. a ratatui TUI) means writing a thin Rust client
-struct that speaks those socket protocols — no reimplementation of the control
-plane. That is the low-burden, high-leverage place for Rust.
+**Where Rust still lives:** at the **socket boundary**. The `sdk.sock`
+protocol (below) is a stable, owned-by-us interface. Embedding a clauctl
+agent in a Rust app (e.g. a ratatui TUI) means writing a thin Rust client
+struct that speaks that socket protocol — no reimplementation of the control
+plane — or running `clauctl attach` in a pty the app owns for a ready-made
+terminal view. That is the low-burden, high-leverage place for Rust.
 
 ## How the Claude Agent SDK actually works
 
@@ -143,37 +144,23 @@ one session. So clauctl's daemon owns the _single_ programmatic connection to ea
 embedder — is a **client** that multiplexes through clauctl. This mirrors pictl's
 daemon + per-agent socket model.
 
-Each agent exposes two unix sockets in its directory:
+Each agent exposes one unix socket in its directory:
 
 - **`sdk.sock`** — the raw, structured SDK protocol. Clients send
   `SDKUserMessage`s and control requests and receive the `SDKMessage` stream. This
   is the analog of pictl's `pi.sock` and the substrate for scripting, the
   passthrough subcommands, and the TUI. It is where job (2) is realized.
-- **`tty.sock`** — a **language-agnostic presentation boundary** for embeddable
-  UIs. Its purpose: implement the interactive UI _once_ and embed it in any
-  language by speaking a socket protocol, rather than reimplementing a UI per host
-  (e.g. embedding a clauctl agent inside a Rust ratatui app).
 
-> **Important difference from pictl.** pictl's `tty.sock` proxies a _real pty_ —
-> pi has a terminal. **Claude in programmatic mode has no pty** (it emits
-> structured JSON), and by the constraint above we cannot open a real interactive
-> `claude` alongside the programmatic one. So `tty.sock` for clauctl cannot proxy
-> Claude's terminal; it must carry a presentation layer clauctl synthesizes.
->
-> **Design: virtual-pty.** clauctl runs its own SDK-stream-driven TUI, renders it
-> into a _headless/virtual_ terminal, and proxies those terminal bytes over
-> `tty.sock`. Embedders need only a vt100 widget — preserving pictl's "implement
-> once, embed anywhere" property and keeping the two projects symmetric (both
-> embedders speak "terminal over `tty.sock`"). This is what `attach` serves.
->
-> We rejected the alternative of shipping a structured _view model_ over `tty.sock`
-> for embedders to draw natively: an embedder that wants to render its own UI can
-> already just talk to `sdk.sock` directly. Virtual-pty doesn't preclude that — but
-> `attach` gives you _our_ TUI over `tty.sock`, not a draw-it-yourself feed.
->
-> The "TUI → virtual pty" mechanism is built: the daemon runs the managed tui
-> (`TuiHost`) into a headless terminal (`pty-screen`) and serves it over
-> `tty.sock`; `clauctl attach` connects to it (`docs/specs/attach.md`).
+> **Terminal embedding.** clauctl's interactive TUI is an ordinary `sdk.sock`
+> client that `clauctl attach` runs directly in the caller's terminal
+> (`docs/specs/attach-direct-tui.md`). An embedder that wants to render its
+> own UI talks to `sdk.sock`; one that wants a ready-made terminal view runs
+> `clauctl attach` in a pty it owns — standard pty infrastructure exists in
+> every language, gives per-pane sizing for free, and is uniform with pictl
+> (`pictl attach` in a pty works the same way). An earlier design served a
+> daemon-hosted shared TUI over a custom `tty.sock` frame protocol
+> (`docs/specs/attach.md`, superseded); the pty-of-`attach` approach replaces
+> that custom protocol with one every terminal already speaks.
 
 ## Roadmap & scope
 
@@ -183,8 +170,8 @@ Each agent exposes two unix sockets in its directory:
 - Monitoring: `tail`, `wait`.
 - SDK passthrough subcommands (job 2) over `sdk.sock`.
 - Convenience: `completion`, `format`.
-- The `sdk.sock`-based interactive **TUI** and the `tty.sock` presentation
-  boundary (`attach` to the daemon-managed shared tui).
+- The `sdk.sock`-based interactive **TUI**, run in the caller's terminal by
+  `attach`.
 
 ## Reference repositories (local checkouts)
 
@@ -218,9 +205,11 @@ implementation:
   the unified `AgentState` fold shared by daemon and clients, and the daemon
   directory structure (EventHub, request handlers, tty service). Supersedes the
   state types sketched in the phase specs above.
-- `docs/specs/tui.md` — the `sdk.sock`-based TUI and `tty.sock` boundary;
+- `docs/specs/tui.md` — the `sdk.sock`-based TUI;
   `tui-history.md` and `tui-input.md` extend it (history replay, input/controls).
-- `docs/specs/attach.md` — the daemon-managed shared tui and `tty.sock` attach.
+- `docs/specs/attach-direct-tui.md` — `attach` runs the TUI directly in the
+  caller's terminal. Supersedes `docs/specs/attach.md` (the daemon-hosted
+  shared tui over `tty.sock`).
 - `docs/specs/convenience-commands.md` — `format` and `completion`.
 - `docs/user-message-tracking.md` — why the daemon tracks user prompts itself
   (the prompt-visibility invariant and its accepted limitations).

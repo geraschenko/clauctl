@@ -1,5 +1,11 @@
 # `clauctl attach` — terminal attach via a daemon-hosted TUI
 
+> **SUPERSEDED** by [attach-direct-tui.md](attach-direct-tui.md):
+> `clauctl attach` now runs the TUI directly in the caller's terminal as an
+> `sdk.sock` client, and the entire tty.sock stack this spec describes
+> (TuiHost, TtyServer, the frame protocol, `_tui --managed`) has been
+> removed. Kept as a historical record of the daemon-hosted-TUI design.
+
 # SPEC
 
 ## Problem statement

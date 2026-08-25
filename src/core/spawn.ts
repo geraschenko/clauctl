@@ -9,7 +9,7 @@ import { closeSync, openSync } from "node:fs";
 import { mkdir } from "node:fs/promises";
 import { resolve } from "node:path";
 import type { Readable } from "node:stream";
-import { attach } from "./generated/attach.ts";
+import { attach } from "../tui/attach.ts";
 import {
   booleanFlag,
   commandNoTarget,

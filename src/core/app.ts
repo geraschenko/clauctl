@@ -1,6 +1,6 @@
 import { buildApplication, buildRouteMap, text_en } from "@stricli/core";
 import { type CommandContext } from "./generated/targets.ts";
-import { attachRoute } from "./generated/attach.ts";
+import { attachRoute } from "../tui/attach.ts";
 import { completionRoute } from "./generated/completion.ts";
 import { internalRoutes } from "./daemon/daemon.ts";
 import { listRoute, statusRoute } from "./inspect.ts";
@@ -10,7 +10,6 @@ import { promptRoute } from "./prompt.ts";
 import { sdkRoutes } from "./sdk-commands.ts";
 import { spawnRoute } from "./spawn.ts";
 import { tailRoute } from "./tail.ts";
-import { tuiRoute } from "../tui/interactive-mode.ts";
 import { UntilTimeoutError } from "./generated/until-engine.ts";
 import { UsageError } from "./generated/util.ts";
 import { VERSION } from "./generated/version.ts";
@@ -28,7 +27,6 @@ const routes = {
   ...tailRoute,
   ...waitRoute,
   ...formatRoute,
-  ...tuiRoute,
   ...completionRoute,
   ...internalRoutes,
 };

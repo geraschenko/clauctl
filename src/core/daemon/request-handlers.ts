@@ -38,6 +38,7 @@ import {
   type SdkControlMutation,
   type SdkRequestRecord,
   type SdkResponse,
+  type SubscribeAttachment,
 } from "../sdk-socket.ts";
 import type { EventHub } from "./event-hub.ts";
 import {
@@ -75,6 +76,9 @@ export interface RequestHandlerDeps {
   /** Builds a fresh TurnQueue + Query resuming the session and rewires the
    *  daemon's reader loop onto it. */
   restartQuery(resumeSessionId: string, resumeSessionAt?: UUID): Promise<void>;
+  /** Register a live attacher; returns the deregister, wired to connection
+   *  close. Implemented by daemon.ts (record write + audit). */
+  registerAttachment(info: SubscribeAttachment): () => void;
 }
 
 /**
@@ -360,6 +364,21 @@ export function createRequestHandler(
         }
       }
       case "subscribe": {
+        // The socket casts untrusted JSON; validate the optional attachment
+        // before any side effect (a malformed one rejects the request).
+        let deregister: (() => void) | undefined;
+        if (request.attachment !== undefined) {
+          const { pid, client } = request.attachment as {
+            pid?: unknown;
+            client?: unknown;
+          };
+          if (typeof pid !== "number" || typeof client !== "string") {
+            throw new Error(
+              "subscribe: attachment must be { pid: number, client: string }",
+            );
+          }
+          deregister = deps.registerAttachment({ pid, client });
+        }
         // State capture, response write, and sink attach happen in one
         // synchronous section, so the seed is exact: no event is lost or
         // duplicated between the response line and the first pushed event.
@@ -374,6 +393,11 @@ export function createRequestHandler(
         connection.write(`${JSON.stringify(response)}\n`);
         const unsubscribe = events.subscribe((line) => connection.write(line));
         connection.onClose(unsubscribe);
+        // Connection close counts as detach — the daemon-side registration is
+        // what catches kill -9'd attachers.
+        if (deregister !== undefined) {
+          connection.onClose(deregister);
+        }
         return RESPONSE_SENT;
       }
     }

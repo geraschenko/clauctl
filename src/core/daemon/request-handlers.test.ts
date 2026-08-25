@@ -24,7 +24,11 @@ import {
   sessionFilePath,
   type SessionEntry,
 } from "../session/file.ts";
-import type { SdkEvent, SdkRequestRecord } from "../sdk-socket.ts";
+import type {
+  SdkEvent,
+  SdkRequestRecord,
+  SubscribeAttachment,
+} from "../sdk-socket.ts";
 import { EventHub } from "./event-hub.ts";
 import { startupOverride } from "./get-messages.ts";
 import {
@@ -128,6 +132,8 @@ interface Fixture {
   emitted: SdkEvent[];
   teardowns: number;
   restarts: Array<{ resume: string; at: UUID | undefined }>;
+  registeredAttachments: SubscribeAttachment[];
+  deregisteredAttachments: SubscribeAttachment[];
   sessionId: UUID;
   file: string;
   writeEntries: (entries: SessionEntry[]) => void;
@@ -178,6 +184,8 @@ function fixture(options: FixtureOptions = {}): Fixture {
     emitted,
     teardowns: 0,
     restarts: [],
+    registeredAttachments: [],
+    deregisteredAttachments: [],
     sessionId,
     file,
     writeEntries: (entries) => {
@@ -212,6 +220,10 @@ function fixture(options: FixtureOptions = {}): Fixture {
     restartQuery: async (resume, at) => {
       f.restarts.push({ resume, at });
       await options.restartQuery?.();
+    },
+    registerAttachment: (info) => {
+      f.registeredAttachments.push(info);
+      return () => f.deregisteredAttachments.push(info);
     },
   };
   if (options.initialEntries !== undefined) {
@@ -304,6 +316,58 @@ test("subscribe writes its own response carrying events.agentState", async () =>
   // The attached sink receives every later event.
   f.events.emit({ kind: "interruptSent" });
   assert.equal(written.length, 2);
+  // Bare subscribe (tail) registers no attachment.
+  assert.equal(f.registeredAttachments.length, 0);
+});
+
+test("subscribe with an attachment registers it and deregisters on connection close", async () => {
+  const f = fixture();
+  const closers: Array<() => void> = [];
+  const connection: SdkConnection = {
+    write: () => {},
+    onClose: (callback) => closers.push(callback),
+  };
+  const result = await f.handle(
+    {
+      type: "subscribe",
+      attachment: { pid: 4242, client: "clauctl attach" },
+      id: "s1",
+    },
+    connection,
+  );
+  assert.equal(result, RESPONSE_SENT);
+  assert.deepEqual(f.registeredAttachments, [
+    { pid: 4242, client: "clauctl attach" },
+  ]);
+  assert.deepEqual(f.deregisteredAttachments, []);
+  for (const close of closers) {
+    close();
+  }
+  assert.deepEqual(f.deregisteredAttachments, [
+    { pid: 4242, client: "clauctl attach" },
+  ]);
+});
+
+test("subscribe rejects a malformed attachment before any side effect", async () => {
+  const f = fixture();
+  const written: string[] = [];
+  const connection: SdkConnection = {
+    write: (line) => written.push(line),
+    onClose: () => {},
+  };
+  await assert.rejects(
+    f.handle(
+      {
+        type: "subscribe",
+        attachment: { pid: "not-a-number", client: 7 },
+        id: "s1",
+      } as unknown as SdkRequestRecord,
+      connection,
+    ),
+    /attachment must be \{ pid: number, client: string \}/,
+  );
+  assert.equal(f.registeredAttachments.length, 0);
+  assert.equal(written.length, 0); // no seed response was written
 });
 
 // runRead's switch has no default, so without the explicit rejection an

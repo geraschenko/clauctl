@@ -190,6 +190,11 @@ export function nextAgentState(state: AgentState, event: SdkEvent): AgentState {
     // interrupt — the interruptSent event on the stream is the record).
     case "interruptSent":
       return state;
+    // The daemon's farewell: everything it implies (the process is going
+    // away) is outside the observable agent state, so the fold passes it
+    // through — consumers react to the event itself, not to a state change.
+    case "shutdown":
+      return state;
     // The effective context lives in the session file; the fold tracks only
     // its tip, which the event carries.
     case "contextChanged": {

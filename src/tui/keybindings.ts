@@ -36,6 +36,7 @@ declare module "@earendil-works/pi-tui" {
   interface Keybindings {
     "app.interrupt": true;
     "app.clear": true;
+    "app.detach": true;
     "app.tools.expand": true;
     "app.thinking.toggle": true;
     "app.permissionMode.cycle": true;
@@ -57,7 +58,11 @@ export const CLAUCTL_KEYBINDINGS = {
   },
   "app.clear": {
     defaultKeys: "ctrl+c",
-    description: "Detach from the agent (press twice)",
+    description: "Clear the editor input",
+  },
+  "app.detach": {
+    defaultKeys: "ctrl+]",
+    description: "Detach from the agent (it keeps running)",
   },
   "app.tools.expand": {
     defaultKeys: "ctrl+o",

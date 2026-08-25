@@ -66,9 +66,24 @@ export type SdkEvent =
       request: SetContextRequest;
       leaf: TreeNodeRef | null;
     }
-  | { kind: "sdkMessage"; message: SDKMessage };
+  | { kind: "sdkMessage"; message: SDKMessage }
+  // Emitted by the daemon before any teardown, so subscribers can distinguish
+  // a deliberate shutdown (archive → SIGTERM, stream end) from a crash (socket
+  // close with no announcement). Delivery is best-effort: process exit races
+  // kernel buffers, so a lost line degrades to an unannounced close.
+  | { kind: "shutdown"; reason: string };
 
 export type TurnPriority = "now" | "next" | "later";
+
+/**
+ * `subscribe`'s optional self-identification: attachers send it so the daemon
+ * can track them in `record.attachments` and audit attach/detach; observers
+ * like `tail` subscribe bare and stay invisible.
+ */
+export interface SubscribeAttachment {
+  pid: number;
+  client: string;
+}
 
 /**
  * The `applyFlagSettings` payload: `null` clears a key, a value replaces it
@@ -257,7 +272,7 @@ export type SdkRequest =
   // after it follows as an SdkEventRecord line until the connection closes.
   // No history replay — a subscriber starts at "now" and folds from there
   // (agent-state.ts).
-  | { type: "subscribe" }
+  | { type: "subscribe"; attachment?: SubscribeAttachment }
   // Response data is SessionMessage[] — the transcript segment since the last
   // compaction, verbatim from getSessionMessages. Reads the transcript file,
   // not the Query, so it is not an SdkControlRead.
@@ -467,13 +482,18 @@ export class SdkSocketClient {
    * it resolves, and a consumer that needs strict output ordering (tail)
    * reports the seed those events advanced from first.
    */
-  async subscribe(): Promise<SdkEventSubscription> {
+  async subscribe(
+    attachment?: SubscribeAttachment,
+  ): Promise<SdkEventSubscription> {
     if (this.events !== undefined) {
       throw new Error("sdk socket client is already subscribed");
     }
     const events = new AsyncQueue<StreamEvent<SdkEvent, AgentState>>();
     this.events = events;
-    const { id, response } = this.sendRequest({ type: "subscribe" });
+    const { id, response } = this.sendRequest({
+      type: "subscribe",
+      ...(attachment !== undefined && { attachment }),
+    });
     this.subscribeRequestId = id;
     let result: SdkResponse;
     try {

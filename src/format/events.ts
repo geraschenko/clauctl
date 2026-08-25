@@ -107,6 +107,8 @@ function eventChunks(
       return [requestAnnotation("control", event.request)];
     case "contextChanged":
       return [requestAnnotation("context changed", event.request)];
+    case "shutdown":
+      return [`[agent ${event.reason}]`];
     case "sdkMessage": {
       const chunk = formatSdkMessage(event.message, formatState, options);
       return chunk === undefined || chunk === "" ? [] : [chunk];

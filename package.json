@@ -52,10 +52,7 @@
     "@earendil-works/pi-tui": "0.84.2",
     "@stricli/auto-complete": "^1.2.8",
     "@stricli/core": "^1.2.8",
-    "@xterm/addon-serialize": "^0.14.0",
-    "@xterm/headless": "^5.5.0",
-    "env-paths": "^4.0.0",
-    "node-pty": "^1.1.0"
+    "env-paths": "^4.0.0"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.4",
