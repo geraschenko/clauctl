@@ -147,6 +147,35 @@ export async function ensureClaudeConfigDir(): Promise<void> {
 }
 
 /**
+ * Mark every subject workdir trusted in the isolated config before ANY
+ * capture runs. SDK generation never records trust, and the folder-trust
+ * dialog cannot go through the generic Enter-dismissal: its default answer
+ * is "No, exit" (claude 2.1.250), which would abort the capture. Seeding
+ * must happen up front in one batch: each claude process rewrites
+ * .claude.json from its in-memory snapshot on exit, so an entry seeded
+ * between captures can be clobbered by the previous scenario's exiting
+ * claude — the first process to load the config must already see them all.
+ */
+async function ensureWorkdirsTrusted(cwds: string[]): Promise<void> {
+  const configPath = join(claudeConfigDir, ".claude.json");
+  const config = JSON.parse(await readFile(configPath, "utf8")) as {
+    projects?: Record<string, Record<string, unknown>>;
+  };
+  config.projects ??= {};
+  let changed = false;
+  for (const cwd of cwds) {
+    const project = (config.projects[cwd] ??= {});
+    if (project.hasTrustDialogAccepted !== true) {
+      project.hasTrustDialogAccepted = true;
+      changed = true;
+    }
+  }
+  if (changed) {
+    await writeFile(configPath, JSON.stringify(config, null, 2));
+  }
+}
+
+/**
  * Harness agents live in their own registry, not the user's real
  * CLAUCTL_DIR. /tmp keeps the path short enough for the unix socket budget
  * (agentDir/sdk.sock), which an out/-based registry would exceed.
@@ -644,6 +673,7 @@ async function main(): Promise<void> {
       })),
     );
   }
+  await ensureWorkdirsTrusted(subjects.map((subject) => subject.cwd));
   let identical = 0;
   for (const subject of subjects) {
     if (await captureSubject(subject, { clauctlInTmux, recaptureClaude })) {

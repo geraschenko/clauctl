@@ -139,8 +139,10 @@ range.
 
    ```bash
    node scripts/claude-tools/capture.ts
-   node scripts/claude-tools/generate.ts
    ```
+
+   (capture regenerates `generated.ts` itself; `generate.ts` alone re-renders
+   from the checked-in schemas.)
 
    Capture is live (see fixed facts): ask before running it, together with or
    ahead of the step-9 approval, and report that the schema presubmit check
@@ -164,6 +166,17 @@ range.
    migration note requires new session content, with the same approval as other
    live runs. If the local corpus is missing, say so instead of silently
    regenerating it.
+
+   When the recapture surfaces new rendering differences (not just the
+   previously decided divergences), distill them into a dated catalog
+   `docs/derisk/tui-parity/diff-catalog-<claude-version>.html` in the format of
+   `diff-catalog.html` (side-by-side verbatim excerpts, one entry per logical
+   difference, a triage summary table) with proposed triage badges, and ask the
+   user to decide match/differ/skip per entry before implementing any of them.
+   Before presenting the catalog, verify completeness with a second pass over
+   the raw `.diff` files: every changed line of every hunk must be attributable
+   to a specific catalog entry — small hunks adjacent to large decided-differ
+   hunks are the ones that get missed when triaging by expected category.
 
 8. Run focused tests while editing, then one final `npm run presubmit`. Do not repeat
    the full suite after every small correction. Treat successful compilation as weak

@@ -23,6 +23,7 @@ import { DEFAULT_FORMAT_WIDTH } from "../core/generated/constants.ts";
 import { isRecord } from "../core/generated/util.ts";
 import type { RenderAssistant } from "../tui/render-types.ts";
 import { renderAssistant, toolResultsOf, userText } from "../tui/sdk-render.ts";
+import { READ_ONLY_TOOLS } from "../tui/tool-views/tool-view.ts";
 import { countLines, oneLine, truncateText } from "./generated/text.ts";
 import {
   annotation,
@@ -45,25 +46,6 @@ export const DEFAULT_MESSAGE_FORMAT_OPTIONS: MessageFormatOptions = {
   maxToolArgChars: DEFAULT_FORMAT_WIDTH,
   maxErrorLines: 10,
 };
-
-/** Claude Code's built-in tools without side effects, eligible for
- *  coalescing. Skill/Agent and MCP tools (`mcp__*`) stay visible: their
- *  activity is meaningful (or their effects unknowable). Update on drift of
- *  the CLI's tool set. */
-const READ_ONLY_TOOLS = new Set([
-  "Read",
-  "Grep",
-  "Glob",
-  "NotebookRead",
-  "WebFetch",
-  "WebSearch",
-  "ToolSearch",
-  "TaskGet",
-  "TaskList",
-  "TaskOutput",
-  "ListMcpResources",
-  "ReadMcpResource",
-]);
 
 const BASH_TOOL = "Bash";
 

@@ -1,5 +1,5 @@
 // claude 2.1.211's Read rendering: "Read N lines" from the structured
-// result's file.numLines; the only readOnly view, so Reads fold into
+// result's file.numLines; Read is in READ_ONLY_TOOLS, so Reads fold into
 // "Thought for Ns, read 2 files" lines.
 
 import type { FileReadOutput } from "@anthropic-ai/claude-agent-sdk/sdk-tools.js";
@@ -22,7 +22,6 @@ function readLineCount(structured: unknown): number | undefined {
 }
 
 export const readView: ToolView<ReadInput> = {
-  readOnly: true,
   headerArg(args, cwd) {
     const path = stringArg(args, "file_path");
     return path === undefined ? undefined : abbreviatePath(path, cwd);

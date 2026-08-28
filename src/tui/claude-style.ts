@@ -21,6 +21,11 @@ export const claudeStyle = {
   userBg: (text: string): string => `\x1b[48;5;237m${text}\x1b[49m`,
   warning: (text: string): string => `\x1b[38;5;220m${text}\x1b[39m`,
   bold: (text: string): string => `\x1b[1m${text}\x1b[22m`,
+  /** Inline `*italic*` spans in the user-prompt echo. */
+  italic: (text: string): string => `\x1b[3m${text}\x1b[23m`,
+  /** Inline `` `code` `` spans in the user-prompt echo; restores the
+   *  prompt's white rather than the default foreground. */
+  promptCode: (text: string): string => `\x1b[38;5;153m${text}\x1b[38;5;231m`,
   /** The generic `… +N lines (ctrl+o to expand)` truncation line. */
   dim: (text: string): string => `\x1b[2m${text}\x1b[22m`,
   /** Footer indicators for permission modes. */

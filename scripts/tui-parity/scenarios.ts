@@ -40,8 +40,13 @@ export const scenarios: Scenario[] = [
     name: "tools",
     description: "tool calls with short and long outputs, multi-turn",
     prompts: [
-      "Create a file named notes.txt containing the line 'hello parity', " +
-        "then read it back. Reply with one sentence.",
+      // File-creating prompts must anchor creation to the wiped workdir
+      // ("in the current directory", or an explicit ./path where that is
+      // not enough) — haiku otherwise writes to ~, where stale artifacts
+      // of earlier generations make the Write fail (file exists, not yet
+      // read) and pollute the developer's home directory.
+      "Create a file named notes.txt in the current directory containing " +
+        "the line 'hello parity', then read it back. Reply with one sentence.",
       "List the files in this directory recursively, then show the first 200 " +
         "lines of `find /usr/share/doc -maxdepth 1 | sort` output. Reply with " +
         "one sentence.",
@@ -60,7 +65,8 @@ export const scenarios: Scenario[] = [
     // workdir per generation for the same reason: a stale calc.py has the
     // edits already applied.)
     prompts: [
-      "Create a file named calc.py: functions add, sub, mul, div, each " +
+      "Create a file at the exact path ./calc.py: functions " +
+        "add, sub, mul, div, each " +
         "taking parameters named a and b with a one-line docstring, and a " +
         "main() that prints each function's result for one input pair. " +
         "No error handling anywhere. Reply with one sentence.",
@@ -83,6 +89,47 @@ export const scenarios: Scenario[] = [
     ],
     // dontAsk denies any tool not pre-allowed (see the tools scenario).
     options: { model: "haiku", allowedTools: ["Write", "Read", "Edit"] },
+  },
+  {
+    name: "readonly-fold",
+    description:
+      "folding of read-only tools without bespoke views: Grep and Glob",
+    // Prompt 1 seeds files so prompt 2's searches have real matches; the
+    // searches must be actual Grep/Glob tool calls (not Bash) to exercise
+    // the read-only fold classification on both sides.
+    prompts: [
+      "Create two files in the current directory: fruit.txt containing " +
+        "the lines 'apple' and " +
+        "'banana', and veg.txt containing the line 'carrot'. Reply with " +
+        "one sentence.",
+      "Using the Grep tool exactly once, find which files here contain the " +
+        "word 'apple'; then use the Glob tool exactly once to list the " +
+        "*.txt files. Reply with one sentence.",
+    ],
+    // dontAsk denies any tool not pre-allowed (see the tools scenario).
+    options: { model: "haiku", allowedTools: ["Write", "Grep", "Glob"] },
+  },
+  {
+    name: "write-preview",
+    description: "successful Write's numbered content preview on a long file",
+    // Long enough to reveal whether claude truncates the preview (the
+    // readonly-fold writes are 1–2 lines, which it shows in full).
+    prompts: [
+      "Create a file at the exact path ./lines.txt containing " +
+        "exactly 40 lines: 'line 1' through 'line 40'. Use a single Write " +
+        "call. Reply with one sentence.",
+    ],
+    // dontAsk denies any tool not pre-allowed (see the tools scenario).
+    options: { model: "haiku", allowedTools: ["Write"] },
+  },
+  {
+    name: "web-search",
+    description: "WebSearch visible rendering; ToolSearch hidden by claude",
+    prompts: [
+      "Use the WebSearch tool exactly once to find the latest stable " +
+        "Node.js version. Reply with one sentence.",
+    ],
+    options: { model: "haiku", allowedTools: ["WebSearch"] },
   },
   {
     name: "subagent",

@@ -6,6 +6,7 @@
  */
 
 import { homedir } from "node:os";
+import { isAbsolute, normalize, resolve } from "node:path";
 
 /** Defensive string-field read: generated types describe the schema, but a
  *  wire payload can take any shape, and views must never crash on one. */
@@ -18,8 +19,17 @@ export function stringArg(args: unknown, key: string): string | undefined {
 }
 
 /** claude's header-path display: cwd-relative inside the cwd, ~-abbreviated
- *  under the home directory, absolute otherwise. */
+ *  under the home directory, absolute otherwise. Relative paths are
+ *  displayed normalized ("./lines.txt" → "lines.txt", write-preview
+ *  capture); resolving them against the cwd funnels them through the same
+ *  rules. */
 export function abbreviatePath(path: string, cwd: string | undefined): string {
+  if (!isAbsolute(path)) {
+    if (cwd === undefined) {
+      return normalize(path);
+    }
+    path = resolve(cwd, path);
+  }
   if (cwd !== undefined && path.startsWith(`${cwd}/`)) {
     return path.slice(cwd.length + 1);
   }

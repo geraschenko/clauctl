@@ -1,0 +1,378 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>TUI parity diff catalog — claude 2.1.250</title>
+<style>
+  body { background: #16161e; color: #d4d4d4; font-family: system-ui, sans-serif;
+         max-width: 1500px; margin: 0 auto; padding: 1rem 2rem 4rem; }
+  h1 { font-weight: 600; }
+  h2 { margin-top: 3rem; border-bottom: 1px solid #333; padding-bottom: .3rem; font-weight: 600; }
+  h3 { margin-top: 2.2rem; font-family: ui-monospace, monospace; font-weight: 600; }
+  p, li { line-height: 1.45; max-width: 75ch; }
+  table { border-collapse: collapse; margin: 1rem 0; }
+  th, td { border: 1px solid #333; padding: .3rem .7rem; text-align: left; font-size: .85rem; }
+  th { color: #aaa; font-weight: 600; }
+  .badge { display: inline-block; font-size: .75rem; font-family: ui-monospace, monospace;
+           padding: .1rem .5rem; border-radius: 999px; vertical-align: middle; margin-left: .6rem; }
+  .match { background: #1c3a1c; color: #7ec87e; }
+  .differ { background: #3a2c1c; color: #d8a860; }
+  .skip { background: #333; color: #999; }
+  .investigate { background: #1c2c3a; color: #6fb3d8; }
+  .pair { display: grid; grid-template-columns: 1fr 1fr; gap: .8rem; margin: .8rem 0; }
+  .pane { min-width: 0; }
+  .pane .label { font-size: .75rem; font-family: ui-monospace, monospace; color: #888;
+                 text-transform: uppercase; letter-spacing: .08em; margin-bottom: .25rem; }
+  pre { background: #0d0d12; border: 1px solid #2a2a35; border-radius: 6px; padding: .7rem .9rem;
+        overflow-x: auto; font-size: .78rem; line-height: 1.35; margin: 0;
+        font-family: ui-monospace, "Cascadia Code", Menlo, monospace; }
+  .src { color: #666; font-size: .72rem; font-family: ui-monospace, monospace; margin-top: .2rem; }
+  .note { color: #aaa; font-size: .9rem; }
+  .om { color: #666; font-style: italic; }
+  .b { font-weight: bold; } .i { font-style: italic; }
+  .white { color: #fff; }
+  .code256 { color: #afd7ff; }
+  .userbg { background: #3a3a44; }
+  .dim { color: #8a8a8a; }
+</style>
+</head>
+<body>
+
+<h1>TUI parity diff catalog — claude 2.1.250</h1>
+<p>Rendering differences between native claude (v2.1.250, left) and the clauctl
+transcript renderer (right), distilled from the <code>scripts/tui-parity/out/</code>
+recapture of 2026-08-28 (regenerated corpus, 6 scenarios, 0/6 identical).
+Successor to <code>diff-catalog.html</code> (v2.1.211, 2026-07-17); all rendering-parity
+spec phases 0–6 were implemented against that catalog, so entries here are either
+<em>new claude behavior in 2.1.250</em> or <em>previously decided divergences still
+visible in the diff</em>. Badges record Anton's triage decisions (2026-08-28).
+Excerpts are verbatim from the plain-text captures; styling
+differences are reproduced approximately with HTML.</p>
+
+<table>
+<tr><th>Entry</th><th>Status</th><th>Triage</th><th>Scenarios</th></tr>
+<tr><td>prompt-echo-markdown</td><td>new in 2.1.250</td><td>match</td><td>markdown, tools, edit</td></tr>
+<tr><td>thinking-duration-rounding</td><td>new in 2.1.250</td><td>match</td><td>edit</td></tr>
+<tr><td>table-header-centering</td><td>overlooked in first catalog pass</td><td>differ (pi-tui hardcodes left-align)</td><td>markdown</td></tr>
+<tr><td>bash-empty-output</td><td>overlooked in first catalog pass</td><td>match</td><td>tools</td></tr>
+<tr><td>parallel-tool-fork</td><td>replay-fidelity gap found by readonly-fold scenario</td><td>open: loader investigation required</td><td>readonly-fold</td></tr>
+<tr><td>grep-glob-fold-label</td><td>attested by readonly-fold scenario</td><td>decided: differ (keep separate clauses)</td><td>readonly-fold</td></tr>
+<tr><td>websearch-visible</td><td>attested by web-search scenario</td><td>decided: match (WebSearch not read-only)</td><td>web-search</td></tr>
+<tr><td>toolsearch-hidden</td><td>attested by web-search scenario</td><td>decided: differ (keep fold clause)</td><td>web-search</td></tr>
+<tr><td>write-success-preview</td><td>attested by readonly-fold scenario</td><td>decided: match</td><td>readonly-fold</td></tr>
+<tr><td>link-url-strip</td><td>attested by web-search scenario</td><td>decided: differ (keep URLs)</td><td>web-search</td></tr>
+<tr><td>welcome-banner-compact</td><td>new form of decided-differ chrome</td><td>differ (keep decision)</td><td>all</td></tr>
+<tr><td>readonly-fold</td><td>decided 2026-07 (differ), new fold members observed</td><td>differ (keep fold; denied attempts stay visible)</td><td>tools, edit</td></tr>
+<tr><td>code-fence-keep</td><td>recorded divergence, unchanged</td><td>differ (keep decision)</td><td>markdown</td></tr>
+<tr><td>input-footer</td><td>decided 2026-07 (differ), unchanged</td><td>differ (keep decision)</td><td>all</td></tr>
+<tr><td>subagent-expand-hint</td><td>harness artifact, unchanged</td><td>skip (keep decision)</td><td>subagent</td></tr>
+</table>
+
+<p class="note">Not visible in any diff (i.e. now byte-identical in the normalized
+transcript): thinking collapse, tool headers/results, edit diff view, subagent
+summary, slash commands — the thinking, subagent, and slash-command scenarios
+differ <em>only</em> by session chrome.</p>
+
+<h2>New in 2.1.250 — need triage</h2>
+
+<h3>prompt-echo-markdown <span class="badge match">decided: match</span></h3>
+<p class="note">2.1.250 reverses claude's own 2.1.211 behavior: the user prompt echo
+is now markdown-rendered — <code>**bold**</code>, <code>*italic*</code>, and
+backticked code have their markers consumed and styling applied, which also changes
+the wrap points. clauctl echoes the prompt verbatim, which was the decided
+"user-verbatim: match" behavior from the 2026-07 catalog — i.e. clauctl still does
+what claude used to do. Following the same "render like claude" principle would flip
+clauctl back to rendering the echo (its pre-parity behavior); the counterargument is
+that a verbatim echo shows exactly what the user typed. Decision needed; affects
+three scenarios and every quoted-code prompt in real sessions.</p>
+<div class="pair">
+<div class="pane"><div class="label">claude</div><pre>
+❯ <span class="userbg">Reply with a short markdown sample: an h2 heading, a 3-item bullet list, a 2-row table, a fenced
+  ts code block, and a sentence with <span class="b">bold</span>, <span class="i">italic</span>, and <span class="code256">inline code</span>. No tools.</span>
+</pre><div class="src">markdown.claude.txt/.ansi</div></div>
+<div class="pane"><div class="label">clauctl</div><pre>
+❯ <span class="userbg">Reply with a short markdown sample: an h2 heading, a 3-item bullet list, a 2-row table, a fenced
+  ts code block, and a sentence with **bold**, *italic*, and `inline code`. No tools.</span>
+</pre><div class="src">markdown.clauctl.txt/.ansi</div></div>
+</div>
+<p class="note">The marker consumption also rewraps: in the edit scenario
+<code>from a to `left` — one Edit call</code> fits differently once the backticks
+are consumed, so even the unstyled diff lines move.</p>
+
+<h3>thinking-duration-rounding <span class="badge match">decided: match</span></h3>
+<p class="note">claude rounds sub-second thinking durations up to 1s; clauctl
+truncates to 0s. Trivial to align; removes recurring one-line diffs.</p>
+<div class="pair">
+<div class="pane"><div class="label">claude</div><pre>
+  <span class="i dim">Thought for 1s (ctrl+o to expand)</span>
+</pre><div class="src">edit.claude.txt</div></div>
+<div class="pane"><div class="label">clauctl</div><pre>
+  <span class="i dim">Thought for 0s (ctrl+o to expand)</span>
+</pre><div class="src">edit.clauctl.txt</div></div>
+</div>
+
+<h3>table-header-centering <span class="badge differ">decided: differ</span></h3>
+<p class="note">Missed in the first catalog pass (still present after the
+prompt-echo and rounding fixes): claude centers markdown-table header cells;
+clauctl (pi-tui's Markdown renderer) left-aligns them. Body rows already match.
+Decision: leave it — pi-tui's <code>renderTable</code> hardcodes left alignment
+(no configuration hook), so matching would mean patching the pi-tui fork.</p>
+<div class="pair">
+<div class="pane"><div class="label">claude</div><pre>
+  ┌────────────────┬──────────┐
+  │    Feature     │  Status  │
+  ├────────────────┼──────────┤
+</pre><div class="src">markdown.claude.txt</div></div>
+<div class="pane"><div class="label">clauctl</div><pre>
+  ┌────────────────┬──────────┐
+  │ Feature        │ Status   │
+  ├────────────────┼──────────┤
+</pre><div class="src">markdown.clauctl.txt</div></div>
+</div>
+
+<h3>bash-empty-output <span class="badge match">decided: match</span></h3>
+<p class="note">Missed in the first catalog pass: for a Bash call with empty
+output, the session's tool_result text is literally
+<code>(Bash completed with no output)</code>; claude displays it as
+<code>(No output)</code>, clauctl shows the stored text verbatim.</p>
+<div class="pair">
+<div class="pane"><div class="label">claude</div><pre>
+● Bash(echo 'hello parity' &gt; ~/notes.txt)
+  ⎿  (No output)
+</pre><div class="src">tools.claude.txt</div></div>
+<div class="pane"><div class="label">clauctl</div><pre>
+● Bash(echo 'hello parity' &gt; ~/notes.txt)
+  ⎿  (Bash completed with no output)
+</pre><div class="src">tools.clauctl.txt</div></div>
+</div>
+
+<h3>parallel-tool-fork <span class="badge investigate">open: loader investigation required</span></h3>
+<p class="note">Found by the readonly-fold scenario (2026-08-28): when one
+assistant message issues parallel tool calls and results arrive out of order,
+the CLI records a <em>fork</em> — here Glob's tool_use parents onto the Grep
+tool_use entry, Glob's result onto Glob, but Grep's later result <em>also</em>
+parents onto the Grep entry, and the conversation continues from Grep's result.
+clauctl's replay (<code>pathToLeaf</code>, the /tree path semantics used by both
+the attach TUI replay and the direct render) walks the linear parent chain and
+drops the whole Glob branch — call and result vanish; the fold's summed
+thinking duration shifts too (8s vs claude's 25s). Native claude renders every
+entry. The live clauctl TUI is unaffected (it appends streamed messages). Not a
+style diff: a design decision about replay path semantics vs in-turn forks.
+Decision (2026-08-28): the fork implies claude's context loader cannot be the
+assumed walk-parentUuid-from-last-entry (docs/derisk/compact-boundary-injection/
+FINDINGS.md) — it must reach the off-path Glob branch somehow.
+Investigated (2026-08-28, live experiments):</p>
+<ul class="note">
+<li>The SDK's <code>getSessionMessages</code> returns all four calls+results
+in file order, Glob branch included.</li>
+<li>Control: a session copy with a synthetic <em>rewind</em> fork (an
+abandoned user branch as leaf) returned only the root→leaf path — so it does
+walk parents and drops abandoned branches; it is not a file dump.</li>
+<li>Live loader agrees: <code>claude --resume</code> of a session copy, asked
+to enumerate its context, listed all 4 tool calls and results.</li>
+<li>Structural rule consistent with all three: path walk from leaf,
+<em>expanded</em> with assistant entries sharing a <code>message.id</code>
+with an on-path entry (the CLI splits one API message into several entries;
+parallel tool_uses land as same-id siblings — Glob's entry shares
+msg_011CeVfZ5CLZ… with the on-path Grep entries) plus the tool_results of
+every included tool_use. Rewind forks fork at different API messages, so
+they stay excluded.</li>
+<li>Also attested by the regenerated tools scenario (Write+Read and
+Bash+Bash parallel pairs, one result each off-path) — the pattern is common,
+not exotic.</li>
+</ul>
+<p class="note">Remaining decision: adopt this rule in clauctl's replay
+(pathToLeaf consumers: attach TUI, direct render) and correct
+compact-boundary-injection FINDINGS.md / loadedContext accordingly.</p>
+<div class="pair">
+<div class="pane"><div class="label">claude</div><pre>
+  <span class="i dim">Thought for 25s, searched for 2 patterns (ctrl+o to expand)</span>
+</pre><div class="src">readonly-fold.claude.txt</div></div>
+<div class="pane"><div class="label">clauctl</div><pre>
+  <span class="i dim">Thought for 8s, used Grep 1 time (ctrl+o to expand)</span>
+</pre><div class="src">readonly-fold.clauctl.txt (Glob branch dropped by path walk)</div></div>
+</div>
+
+<h3>grep-glob-fold-label <span class="badge differ">decided: differ (keep separate clauses)</span></h3>
+<p class="note">Attested: claude's fold counts Grep and Glob together as
+<code>searched for N patterns</code> (2 patterns = 1 Grep + 1 Glob above; the
+2026-07 catalog saw the same phrasing for Bash <code>find</code> commands).
+clauctl's generic clause says <code>used Grep 1 time</code>. Decision
+(2026-08-28): keep Grep and Glob as separate per-tool clauses rather than
+merging their counts.</p>
+
+<h3>websearch-visible <span class="badge match">decided: match (WebSearch not read-only)</span></h3>
+<p class="note">Attested: claude does NOT fold WebSearch — it renders a visible
+tool line with display name "Web Search", the query as header arg, and a
+duration summary; folds break around it. clauctl folds it via READ_ONLY_TOOLS
+(<code>used WebSearch 1 time</code>). Decision (2026-08-28): WebSearch is not
+read-only — a network operation heavy enough to stay visible. Removed from the
+shared READ_ONLY_TOOLS set (so neither the TUI fold nor the formatter's
+coalescing absorbs it) and given a bespoke view (websearch.ts) matching
+claude's rendering.</p>
+<div class="pair">
+<div class="pane"><div class="label">claude</div><pre>
+● Web Search("latest stable Node.js version 2026")
+  ⎿  Did 1 search in 4s
+</pre><div class="src">web-search.claude.txt</div></div>
+<div class="pane"><div class="label">clauctl</div><pre>
+  <span class="i dim">Thought for 4s, used ToolSearch 1 time, used WebSearch 1 time (ctrl+o to expand)</span>
+</pre><div class="src">web-search.clauctl.txt</div></div>
+</div>
+
+<h3>toolsearch-hidden <span class="badge differ">decided: differ (keep fold clause)</span></h3>
+<p class="note">Attested: claude hides ToolSearch calls entirely — no tool
+line, no fold clause (its two bare "Thought for 1s" lines bracket the hidden
+call). clauctl counts it in the fold (<code>used ToolSearch 1 time</code>).
+Decision (2026-08-28): keep the clause — it is informative and users get
+utility from it.</p>
+
+<h3>write-success-preview <span class="badge match">decided: match</span></h3>
+<p class="note">Attested by the readonly-fold scenario (the edit scenario's
+Write errored, so successful-Write rendering was never captured): claude shows
+"Wrote N lines to &lt;path&gt;" plus a numbered content preview; clauctl's
+writeView rendered an empty <code>⎿</code> on success. Decision (2026-08-28):
+match — writeView gained a resultSummary/resultBody driven by the structured
+result's content. Further attested by the write-preview scenario: the preview
+truncates after 10 lines with a dim "… +N lines (ctrl+o to expand)" marker;
+a trailing newline adds no line to the count; relative recorded paths
+("fruit.txt", "./lines.txt") display normalized. All byte-matched in the
+captures.</p>
+<div class="pair">
+<div class="pane"><div class="label">claude</div><pre>
+● Write(~/fruit.txt)
+  ⎿  Wrote 2 lines to ../../../../fruit.txt
+      1 apple
+      2 banana
+</pre><div class="src">readonly-fold.claude.txt</div></div>
+<div class="pane"><div class="label">clauctl</div><pre>
+● Write(~/fruit.txt)
+  ⎿
+</pre><div class="src">readonly-fold.clauctl.txt</div></div>
+</div>
+
+<h3>link-url-strip <span class="badge differ">decided: differ (keep URLs)</span></h3>
+<p class="note">Attested: claude renders markdown links as their text only;
+clauctl (pi-tui Markdown) appends the URL in parentheses. Decision
+(2026-08-28): keep the URLs — clicking links in the terminal is unreliable,
+so the explicit URL is a feature.</p>
+<div class="pair">
+<div class="pane"><div class="label">claude</div><pre>
+  - Node.js — Node.js 26.5.0 (Current)
+</pre><div class="src">web-search.claude.txt</div></div>
+<div class="pane"><div class="label">clauctl</div><pre>
+  - Node.js — Node.js 26.5.0 (Current) (https://nodejs.org/en/blog/release/v26.5.0)
+</pre><div class="src">web-search.clauctl.txt</div></div>
+</div>
+
+<h3>welcome-banner-compact <span class="badge differ">decided: differ (keep decision)</span></h3>
+<p class="note">The boxed welcome banner is gone; 2.1.250 opens with a compact
+3-line header. The 2026-07 decision (clauctl attach shows no banner) reads
+unchanged — cataloged because the diff content changed shape.</p>
+<div class="pair">
+<div class="pane"><div class="label">claude</div><pre>
+ ▐▛███▛█   Claude Code v2.1.250
+▝▜██████▀  Haiku 4.5 · Claude Max
+  ▝▝ ▝▝    ~/.cache/clauctl-tui-parity/workdir/tools
+</pre><div class="src">tools.claude.txt</div></div>
+<div class="pane"><div class="label">clauctl</div><pre>
+<span class="om">(absent)</span>
+</pre></div>
+</div>
+
+<h2>Previously decided — still in the diffs</h2>
+
+<h3>readonly-fold <span class="badge differ">decided: differ (keep fold; denied shown)</span></h3>
+<p class="note">Decided 2026-07: clauctl folds thinking + read-only tool runs with
+its own rule, and Bash never folds. Still the largest diff contributor. New
+observation on 2.1.250: claude's fold also swallows Bash calls it classifies as
+searches <em>and</em> permission-denied Bash attempts — the denied call below
+vanishes entirely into the summary line on the claude side. Decision: keep
+clauctl's fold, and keep showing permission-denied attempts — denials carry
+<code>is_error: true</code>, which already excludes them from clauctl's fold rule.
+These hunks are accepted divergence.</p>
+<div class="pair">
+<div class="pane"><div class="label">claude</div><pre>
+● Write(~/calc.py)
+  ⎿  Error writing file
+
+  <span class="i dim">Thought for 9s, read 1 file, listed 1 directory (ctrl+o to expand)</span>
+
+● Update(~/calc.py)
+  ⎿  Added 13 lines, removed 49 lines
+</pre><div class="src">edit.claude.txt</div></div>
+<div class="pane"><div class="label">clauctl</div><pre>
+● Write(~/calc.py)
+  ⎿  Error writing file
+
+  <span class="i dim">Thought for 3s (ctrl+o to expand)</span>
+
+● Bash(ls -la ~/calc.py 2&gt;&amp;1 || echo "File does not exist")
+  ⎿  Permission to use Bash has been denied because Claude Code is running in don't ask mode.
+     IMPORTANT: You *may* attempt to accomplish this action using other tools that might naturally
+     be used to accomplish this goal, e.g. using head instead of cat. But you *should not* attempt
+     … +5 lines (ctrl+o to expand)
+
+  <span class="i dim">Thought for 5s, read 1 file (ctrl+o to expand)</span>
+
+● Update(~/calc.py)
+  ⎿  Added 13 lines, removed 49 lines
+</pre><div class="src">edit.clauctl.txt</div></div>
+</div>
+<p class="note">Same divergence in the tools scenario (claude:
+<code>Thought for 3s, searched for 2 patterns</code> hiding two Bash
+<code>find</code> calls; clauctl shows both calls with their results).</p>
+
+<h3>code-fence-keep <span class="badge differ">decided: differ (keep decision)</span></h3>
+<p class="note">Recorded divergence from the 2026-07 catalog, unchanged: clauctl
+keeps the <code>```ts</code> fence lines around highlighted code; claude strips
+them.</p>
+<div class="pair">
+<div class="pane"><div class="label">claude</div><pre>
+  function process(data: string): number {
+    return data.length;
+  }
+</pre><div class="src">markdown.claude.txt</div></div>
+<div class="pane"><div class="label">clauctl</div><pre>
+  ```ts
+  function process(data: string): number {
+    return data.length;
+  }
+  ```
+</pre><div class="src">markdown.clauctl.txt</div></div>
+</div>
+
+<h3>input-footer <span class="badge differ">decided: differ (keep decision)</span></h3>
+<p class="note">Unchanged decided-differ chrome: claude's input box, shortcut hints,
+and tmux focus-events warning vs clauctl's status footer (outside the direct render
+by construction).</p>
+<div class="pair">
+<div class="pane"><div class="label">claude</div><pre>
+────────────────────────────────────────────────────────────────────────────────────────────────────
+❯
+────────────────────────────────────────────────────────────────────────────────────────────────────
+  ⏸ manual mode on · ? for shortcuts · ← for agents                               ● high · /effort
+</pre><div class="src">thinking.claude.txt</div></div>
+<div class="pane"><div class="label">clauctl</div><pre>
+<span class="om">(absent from the direct render; live attach shows clauctl's status footer)</span>
+</pre></div>
+</div>
+
+<h3>subagent-expand-hint <span class="badge skip">decided: skip (keep decision)</span></h3>
+<p class="note">Harness artifact, unchanged: the direct render covers the main
+chain only, so the Agent tool's <code>(ctrl+o to expand)</code> hint — shown only
+when hidden sidechain children exist — does not appear; live attach shows it.</p>
+<div class="pair">
+<div class="pane"><div class="label">claude</div><pre>
+● Agent(Count files in directory)
+  ⎿  Done (2 tool uses · 16.1k tokens · 9s)
+  <span class="i dim">(ctrl+o to expand)</span>
+</pre><div class="src">subagent.claude.txt</div></div>
+<div class="pane"><div class="label">clauctl</div><pre>
+● Agent(Count files in directory)
+  ⎿  Done (2 tool uses · 16.1k tokens · 9s)
+</pre><div class="src">subagent.clauctl.txt</div></div>
+</div>
+
+</body>
+</html>

@@ -128,7 +128,6 @@ function countClause(verb: string, count: number): string {
 
 export const editView: ToolView<EditInput> = {
   displayName: "Update",
-  readOnly: false,
   headerArg(args, cwd) {
     const path = stringArg(args, "file_path");
     return path === undefined ? undefined : abbreviatePath(path, cwd);

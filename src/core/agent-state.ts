@@ -259,7 +259,7 @@ export function nextAgentState(state: AgentState, event: SdkEvent): AgentState {
         }
       }
       if (message.type === "conversation_reset") {
-        // SDK 0.3.220 emits this before the new conversation's init. Despite
+        // SDK 0.3.250 emits this before the new conversation's init. Despite
         // its name, new_conversation_id is not the transcript session_id
         // announced by that init (verified live), so clear session identity
         // until the authoritative init while discarding old-context evidence.

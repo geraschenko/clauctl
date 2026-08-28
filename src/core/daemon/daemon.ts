@@ -170,11 +170,11 @@ async function daemon(this: CommandContext, flags: DaemonFlags): Promise<void> {
     childEnv(record.persistedOptions.env, agentId).CLAUDE_CONFIG_DIR ??
     join(homedir(), ".claude");
 
-  // Also feeds the AgentState seed below. Resolved before buildOptions
-  // because the settings-cascade permissionMode must reach the child
-  // explicitly: SDK 0.3.220's query() defaults an unset permissionMode to
-  // "default" and always passes --permission-mode to the CLI, so the
-  // cascade's permissions.defaultMode never takes effect on its own.
+  // The AgentState seed's settings tier: what the NEXT query would use, for
+  // observers of a cold agent (init is only authoritative once a child
+  // spawns). Display prediction only — the child resolves its own settings
+  // cascade (an unset permissionMode omits --permission-mode, letting
+  // permissions.defaultMode take effect natively).
   const settings = await settingsSeed(record.persistedOptions, record.cwd);
 
   const buildOptions = (
@@ -182,10 +182,6 @@ async function daemon(this: CommandContext, flags: DaemonFlags): Promise<void> {
     resumeSessionAt?: string,
   ): Options => ({
     ...record.persistedOptions,
-    ...(record.persistedOptions.permissionMode === undefined &&
-      settings.permissionMode !== undefined && {
-        permissionMode: settings.permissionMode,
-      }),
     ...invariantOptions(),
     cwd: record.cwd,
     env: childEnv(record.persistedOptions.env, agentId),

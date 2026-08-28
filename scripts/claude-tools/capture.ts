@@ -17,7 +17,8 @@
  * (checked in): the built-in tools only — account-level `mcp__*` tools are
  * filtered out so the file is a function of the claude version, not of the
  * capturing account — stamped with the claude/SDK versions for
- * `generate.ts --check`.
+ * `generate.ts --check` — then regenerates src/tui/tool-views/generated.ts,
+ * so a single run leaves both files consistent.
  *
  * The built-in roster is NOT a pure function of the binary version: tools
  * carry `isEnabled()` predicates that consult server-fetched feature gates
@@ -47,6 +48,7 @@ import {
   resolveBundledClaude,
   workdirBase,
 } from "../tui-parity/capture.ts";
+import { regenerate } from "./generate.ts";
 
 const execFileAsync = promisify(execFile);
 
@@ -105,6 +107,24 @@ async function awaitProxyReady(port: number): Promise<void> {
   }
 }
 
+/**
+ * The invoking shell may itself be a claude agent session (CLAUDECODE,
+ * CLAUDE_CODE_*, AI_AGENT, …), and the bundled claude changes its tool
+ * surface when it detects that — e.g. an inherited
+ * CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC suppresses the feature-gate
+ * fetch, leaving default gate values. Scrub those vars so the capture is a
+ * function of the claude version and account, not of who ran the script
+ * (verified 2026-08-28: an agent-shell capture differed from a user-shell
+ * capture until scrubbed).
+ */
+function scrubbedEnv(): NodeJS.ProcessEnv {
+  return Object.fromEntries(
+    Object.entries(process.env).filter(
+      ([key]) => !/^(CLAUDE|AI_AGENT)/.test(key),
+    ),
+  );
+}
+
 async function runClaude(prompt: string, maxTurns: number): Promise<void> {
   const workdir = join(workdirBase, "claude-tools");
   await mkdir(workdir, { recursive: true });
@@ -114,7 +134,7 @@ async function runClaude(prompt: string, maxTurns: number): Promise<void> {
     {
       cwd: workdir,
       env: {
-        ...process.env,
+        ...scrubbedEnv(),
         ...claudeEnv,
         DISABLE_AUTOUPDATER: "1",
         HTTPS_PROXY: `http://127.0.0.1:${PROXY_PORT}`,
@@ -155,7 +175,7 @@ async function claudeVersion(): Promise<string> {
     resolveBundledClaude(),
     ["--version"],
     {
-      env: { ...process.env, ...claudeEnv },
+      env: { ...scrubbedEnv(), ...claudeEnv },
     },
   );
   const version = stdout.trim().split(/\s/)[0];
@@ -251,6 +271,7 @@ async function main(): Promise<void> {
     `wrote ${toolSchemasPath}: ${output.tools.length} tools ` +
       `(claude ${output.claudeVersion}, sdk ${output.sdkVersion})`,
   );
+  await regenerate();
 }
 
 if (process.argv[1] !== undefined) {

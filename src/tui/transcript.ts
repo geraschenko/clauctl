@@ -13,7 +13,7 @@
  * 4s, read 2 files (ctrl+o to expand)") that must disband when either
  * toggle expands and re-form when both collapse — a fold run is a maximal
  * consecutive sequence of finalized thinking-only assistant messages and
- * readOnly tools with non-error results; text blocks, non-readOnly tools,
+ * READ_ONLY_TOOLS calls with non-error results; text blocks, other tools,
  * errors, and visible user turns end runs. Thinking durations follow
  * claude's session-file rule (validated empirically): a thinking message's
  * duration is its timestamp minus the previous entry's timestamp; live
@@ -51,7 +51,11 @@ import {
   type UserTurnView,
 } from "./sdk-render.ts";
 import { formatTokens } from "./components/footer.ts";
-import { toolViewFor, type ToolView } from "./tool-views/tool-view.ts";
+import {
+  READ_ONLY_TOOLS,
+  toolViewFor,
+  type ToolView,
+} from "./tool-views/tool-view.ts";
 import { getMarkdownTheme, theme, type ThemeColor } from "./theme.ts";
 import type { RenderAssistant, RenderToolResult } from "./render-types.ts";
 
@@ -66,6 +70,7 @@ interface AssistantItem {
 
 interface ToolItem {
   kind: "tool";
+  name: string;
   component: ToolExecutionComponent;
   view: ToolView<unknown> | undefined;
   result?: RenderToolResult;
@@ -206,6 +211,7 @@ export class TranscriptRenderer {
             if (parent === undefined) {
               const item: ToolItem = {
                 kind: "tool",
+                name: block.name,
                 component: tool,
                 view: toolViewFor(block.name),
               };
@@ -574,7 +580,7 @@ export class TranscriptRenderer {
     item.component.setHiddenThinkingLabel(
       item.thinkingSeconds === undefined
         ? "Thinking… (ctrl+t to show)"
-        : `Thought for ${Math.floor(item.thinkingSeconds)}s (ctrl+t to show)`,
+        : `Thought for ${displayThinkingSeconds(item.thinkingSeconds)}s (ctrl+t to show)`,
     );
   }
 }
@@ -640,6 +646,13 @@ function suppressNoResponse(rendered: RenderAssistant): RenderAssistant {
   return suppress ? { ...rendered, content: [] } : rendered;
 }
 
+/** Whole seconds for a "Thought for Ns" label, as claude 2.1.250 shows
+ *  them: floored, with a 1s minimum for sub-second durations (observed in
+ *  parity captures; all multi-second durations matched the floor). */
+function displayThinkingSeconds(seconds: number): number {
+  return Math.max(1, Math.floor(seconds));
+}
+
 function isFoldable(item: TranscriptItem): boolean {
   switch (item.kind) {
     case "plain":
@@ -647,7 +660,7 @@ function isFoldable(item: TranscriptItem): boolean {
       return false;
     case "tool":
       return (
-        item.view?.readOnly === true &&
+        READ_ONLY_TOOLS.has(item.name) &&
         item.result !== undefined &&
         !item.result.isError
       );
@@ -677,7 +690,7 @@ function foldRunComponent(run: TranscriptItem[]): Component | undefined {
   let thinkingSeconds = 0;
   let sawThinking = false;
   let sawDuration = false;
-  const toolCounts = new Map<ToolView<unknown>, number>();
+  const toolCounts = new Map<string, number>();
   for (const item of run) {
     if (item.kind === "assistant" && item.rendered !== undefined) {
       if (hasThinking(item.rendered)) {
@@ -687,20 +700,25 @@ function foldRunComponent(run: TranscriptItem[]): Component | undefined {
           thinkingSeconds += item.thinkingSeconds;
         }
       }
-    } else if (item.kind === "tool" && item.view !== undefined) {
-      toolCounts.set(item.view, (toolCounts.get(item.view) ?? 0) + 1);
+    } else if (item.kind === "tool") {
+      toolCounts.set(item.name, (toolCounts.get(item.name) ?? 0) + 1);
     }
   }
   const parts: string[] = [];
   if (sawThinking) {
     parts.push(
       sawDuration
-        ? `Thought for ${claudeStyle.bold(`${Math.floor(thinkingSeconds)}s`)}`
+        ? `Thought for ${claudeStyle.bold(`${displayThinkingSeconds(thinkingSeconds)}s`)}`
         : "Thought",
     );
   }
-  for (const [view, count] of toolCounts) {
-    parts.push(view.foldLabel(count));
+  for (const [name, count] of toolCounts) {
+    // Foldable tools without a bespoke view (claude's fold phrasing for
+    // them is unattested in the parity captures) get a generic clause.
+    parts.push(
+      toolViewFor(name)?.foldLabel?.(count) ??
+        `used ${name} ${count} time${count === 1 ? "" : "s"}`,
+    );
   }
   if (parts.length === 0) {
     return undefined;

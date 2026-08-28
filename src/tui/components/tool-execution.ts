@@ -225,7 +225,7 @@ export class ToolExecutionComponent extends CachedLinesComponent {
       ];
     }
     const color = this.result.isError ? claudeStyle.error : undefined;
-    const summary = this.view?.resultSummary(this.args, this.result);
+    const summary = this.view?.resultSummary(this.args, this.result, this.cwd);
     if (summary !== undefined) {
       return [...resultBlockLines(summary, width, color), ...bodyLines];
     }

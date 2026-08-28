@@ -2,7 +2,7 @@
  * The four-bucket partition of the SDK `Options` type (spec: Phase 1,
  * "Options handling"), and the `claude`-flag → `Options` parser that `spawn`
  * uses — the inverse of the SDK's `initialize()` argv builder, pinned to SDK
- * 0.3.220.
+ * 0.3.250.
  *
  * OPTION_BUCKETS is exhaustive over `keyof Options` via `satisfies`, so an SDK
  * bump that adds or removes a field breaks the build until it is classified —
@@ -62,7 +62,6 @@ export const OPTION_BUCKETS = {
   skills: "persist",
   strictMcpConfig: "persist",
   allowDangerouslySkipPermissions: "persist",
-  supportedDialogKinds: "persist",
   systemPrompt: "persist",
   title: "persist",
 
@@ -78,7 +77,10 @@ export const OPTION_BUCKETS = {
   spawnClaudeCodeProcess: "code",
 
   // Bucket 3 — invariant: clauctl owns these; not user-tunable (see
-  // invariantOptions and INVARIANT_FLAGS below).
+  // invariantOptions and REJECTED_FLAGS below). Client-capability
+  // declarations (what the controlling TUI can render or afford) always
+  // belong here: persisting one would let a spawn flag promise an affordance
+  // the TUI does not have.
   persistSession: "invariant",
   outputFormat: "invariant",
   includePartialMessages: "invariant",
@@ -91,6 +93,18 @@ export const OPTION_BUCKETS = {
   debug: "invariant",
   debugFile: "invariant",
   permissionPromptToolName: "invariant",
+  // Stays unset (fail-closed: dialog-gated CLI flows degrade to their
+  // no-dialog behavior) until the TUI has an onUserDialog renderer, then
+  // declares exactly the kinds it renders.
+  supportedDialogKinds: "invariant",
+  // Client-capability declaration: declaring it makes interrupts spare
+  // running background tasks, which is only safe once the TUI can see and
+  // stop them individually (docs/thoughts/subagent-activity.md). Stays unset
+  // (fail-closed: interrupt kills all background tasks) until then.
+  perTaskStopAffordance: "invariant",
+  // Stays unset: it validates that a resumeSessionAt truncation drops exactly
+  // one turn, which /tree's multi-prompt rewinds would violate.
+  resumeDropsTurn: "invariant",
 
   // Bucket 4 — respawn: session identity, set by clauctl per (re)spawn.
   resume: "respawn",
@@ -199,6 +213,7 @@ const REJECTED_FLAGS = new Set([
   "--continue",
   "--fork-session",
   "--resume-session-at",
+  "--resume-drops-turn",
   "--session-id",
   "--print",
   "-p",

@@ -56,7 +56,6 @@ function formatDuration(durationMs: number): string {
 }
 
 export const agentView: ToolView<AgentInput> = {
-  readOnly: false,
   headerArg(args, _cwd) {
     return stringArg(args, "description");
   },

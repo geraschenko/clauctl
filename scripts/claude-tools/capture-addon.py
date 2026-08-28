@@ -81,14 +81,23 @@ class CaptureToolSchemas:
                 if self.roster is None:
                     self.roster = parsed
                     ctx.log.info(f"Deferred roster ({len(parsed)}): {', '.join(parsed)}")
-                elif set(parsed) - set(self.roster):
-                    # A grown roster would mean the phase-1 capture missed
-                    # names; treat like drift so the run is redone, not merged.
+                    continue
+                gained = set(parsed) - set(self.roster)
+                # Account-level mcp__ connectors load asynchronously and can
+                # join the roster mid-capture; they are filtered from the
+                # output, so their arrival is noise, not a missed capture.
+                gained_builtin = {n for n in gained if not n.startswith("mcp__")}
+                if gained_builtin:
+                    # A grown built-in roster would mean the phase-1 capture
+                    # missed names; treat like drift so the run is redone,
+                    # not merged.
                     ctx.log.error(
-                        f"FATAL: roster gained tools between requests: "
-                        f"{sorted(set(parsed) - set(self.roster))}"
+                        f"FATAL: roster gained built-in tools between requests: "
+                        f"{sorted(gained_builtin)}"
                     )
                     self.drift_detected = True
+                elif gained:
+                    ctx.log.info(f"Ignoring mcp__ roster growth: {sorted(gained)}")
 
     def _accumulate_tools(self, body: dict):
         tools = body.get("tools")

@@ -97,6 +97,36 @@ test("assistant text renders; a resolved Read folds by default and expands", () 
   assert.match(expanded, /file contents here/);
 });
 
+test("READ_ONLY_TOOLS without a bespoke view fold with a generic clause", () => {
+  const { renderer, container } = makeRenderer();
+  renderer.append(
+    assistantMessage([
+      { type: "tool_use", id: "grep-1", name: "Grep", input: { pattern: "x" } },
+      { type: "tool_use", id: "grep-2", name: "Grep", input: { pattern: "y" } },
+    ]),
+  );
+  renderer.append(toolResultMessage("grep-1", "match"));
+  renderer.append(toolResultMessage("grep-2", "match"));
+  const collapsed = renderedText(container);
+  // Capitalized: the run has no thinking clause to lead with.
+  assert.match(collapsed, /Used Grep 2 times \(ctrl\+o to expand\)/);
+  assert.doesNotMatch(collapsed, /match/);
+});
+
+test("an errored read-only call does not fold", () => {
+  const { renderer, container } = makeRenderer();
+  renderer.append(
+    assistantMessage([
+      { type: "tool_use", id: "grep-3", name: "Grep", input: { pattern: "z" } },
+    ]),
+  );
+  renderer.append(toolResultMessage("grep-3", "permission denied", true));
+  const text = renderedText(container);
+  assert.match(text, /Grep/);
+  assert.match(text, /permission denied/);
+  assert.doesNotMatch(text, /ctrl\+o to expand/);
+});
+
 test("a result for an unknown toolCallId is dropped", () => {
   const { renderer, container } = makeRenderer();
   renderer.append(assistantMessage([{ type: "text", text: "hello" }]));
@@ -213,6 +243,8 @@ test("appendPathNode: boundary banner, user prompt + result resolution, assistan
       compactMetadata: { preTokens: 156_000, postTokens: 12_000 },
     }),
   );
+  // Grep is read-only, so the resolved call folds until expanded.
+  renderer.setToolsExpanded(true);
   const text = renderedText(container);
   assert.match(text, /replayed prompt/);
   assert.match(text, /Grep/);
@@ -452,7 +484,7 @@ test("banners keep their transcript position across fold rebuilds", () => {
   assert.ok(text.indexOf("interrupted") < text.indexOf("Thought"));
 });
 
-test("claude chrome: ❯ gutter with verbatim user text, ● assistant gutter, one-blank spacing", () => {
+test("claude chrome: ❯ gutter with styled prompt echo, ● assistant gutter, one-blank spacing", () => {
   const { renderer, container } = makeRenderer();
   renderer.appendUserTurn(
     userMessage("keep **bold** and `code` markers verbatim in this prompt"),
@@ -464,14 +496,17 @@ test("claude chrome: ❯ gutter with verbatim user text, ● assistant gutter, o
       .replaceAll(/\u001b\][^\u0007]*\u0007|\u001b\[[0-9;?]*[A-Za-z]/g, "")
       .trimEnd(),
   );
+  // Inline markdown markers are consumed (claude 2.1.250 behavior) and the
+  // wrap points follow the styled text.
   assert.deepEqual(lines, [
     "",
-    "❯ keep **bold** and `code` markers",
-    "  verbatim in this prompt",
+    "❯ keep bold and code markers verbatim",
+    "  in this prompt",
     "",
     "● Sure thing",
   ]);
-  // The user band uses claude's exact colors: bg 237, ❯ gutter 239, text 231.
+  // The user band uses claude's exact colors: bg 237, ❯ gutter 239, text
+  // 231, inline code 153; **bold** is SGR 1.
   const rawUserLine = container.render(40)[1]!;
   // eslint-disable-next-line no-control-regex
   assert.match(rawUserLine, /\u001b\[48;5;237m/);
@@ -479,6 +514,10 @@ test("claude chrome: ❯ gutter with verbatim user text, ● assistant gutter, o
   assert.match(rawUserLine, /\u001b\[38;5;239m❯ /);
   // eslint-disable-next-line no-control-regex
   assert.match(rawUserLine, /\u001b\[38;5;231m/);
+  // eslint-disable-next-line no-control-regex
+  assert.match(rawUserLine, /\u001b\[1mbold\u001b\[22m/);
+  // eslint-disable-next-line no-control-regex
+  assert.match(rawUserLine, /\u001b\[38;5;153mcode\u001b\[38;5;231m/);
 });
 
 test("setToolsExpanded expands collapsed tool output", () => {
