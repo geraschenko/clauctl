@@ -1,6 +1,6 @@
 {
   "versions": {
-    "sdk": "0.3.195"
+    "sdk": "0.3.250"
   },
   "a": {
     "name": "a-exact-replay",
@@ -20,13 +20,15 @@
       "probeIdx": 5,
       "toolReminderIdx": 2
     },
-    "firstNewUserParent": "bce69095-b899-41f3-a39e-058aa10b7bf5",
+    "firstNewUserParent": "00809722-48c9-4f14-8c38-43db61c842cd",
     "appendedTypes": [
+      "atis-latch",
       "queue-operation",
       "queue-operation",
       "user",
       "assistant",
       "user",
+      "attachment",
       "attachment"
     ],
     "configDir": "/tmp/clauctl-cbi-derisk/p1-a-exact-replay",
@@ -50,9 +52,11 @@
     },
     "firstNewUserParent": "254029a1-4a9c-42de-a203-636db3353fe0",
     "appendedTypes": [
+      "atis-latch",
       "queue-operation",
       "queue-operation",
       "user",
+      "attachment",
       "attachment",
       "attachment"
     ],
@@ -90,12 +94,14 @@
       "probeIdx": 2,
       "toolReminderIdx": -1
     },
-    "firstNewUserParent": "4f71dc74-2e07-4dbd-b3d9-47c2c0010f49",
+    "firstNewUserParent": "26f3405b-f325-493d-b5dd-8b04988bf007",
     "appendedTypes": [
+      "atis-latch",
       "queue-operation",
       "queue-operation",
       "assistant",
       "user",
+      "attachment",
       "attachment",
       "attachment"
     ],

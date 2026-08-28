@@ -135,8 +135,10 @@ async function waitForEntries(file, pred, timeoutMs = 15000) {
     model: HAIKU, cwd, allowedTools: ["Write"], enableFileCheckpointing: true,
     env: baseEnv(configDir),
   });
-  await s.send('Create a file notes.txt containing exactly the text "V1" and nothing else. (tag: CP-U1)');
-  await s.send('Overwrite notes.txt so it contains exactly the text "V2" and nothing else. (tag: CP-U2)');
+  // Absolute path: with a bare "notes.txt" the model sometimes writes
+  // /tmp/notes.txt instead of the cwd (2.1.250 rerun flake).
+  await s.send(`Create a file ${cwd}/notes.txt containing exactly the text "V1" and nothing else. (tag: CP-U1)`);
+  await s.send(`Overwrite ${cwd}/notes.txt so it contains exactly the text "V2" and nothing else. (tag: CP-U2)`);
   const sessionId = s.lastInit()?.session_id;
   const file = sessionFile(configDir, cwd, sessionId);
   await waitForEntries(file, (es) => es.some((e) => e.type === "user" && JSON.stringify(e).includes("CP-U2")));

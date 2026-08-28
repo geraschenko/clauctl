@@ -1,0 +1,37 @@
+{
+  "sdkVersion": "0.3.250",
+  "resultSubtype": "success",
+  "error": null,
+  "stderr": null,
+  "nRequestMessages": 5,
+  "requestMessages": [
+    "user: [{\"type\":\"text\",\"text\":\"<system-reminder>\\nAs you answer the user's questions, you can use the following context:\\n# userEmail\\nThe user's e",
+    "assistant: [{\"type\":\"text\",\"text\":\"4\"}]",
+    "user: \"Orphan marker. (tag: NONCE-P16-ORPHAN)\"",
+    "assistant: [{\"type\":\"text\",\"text\":\"Seen. P16-REPLY\"}]",
+    "user: [{\"type\":\"text\",\"text\":\"<system-reminder>\\nAvailable agent types for the Agent tool:\\n- claude: Catch-all for any task that doesn't fit a mo"
+  ],
+  "verdicts": {
+    "cut-plus-reparent": {
+      "matches": true,
+      "mismatches": []
+    },
+    "no-cut": {
+      "matches": false,
+      "mismatches": [
+        "missing: \"text\":\"Red\"",
+        "missing: NONCE-U3"
+      ]
+    }
+  },
+  "matching": [
+    "cut-plus-reparent"
+  ],
+  "gsm": {
+    "red": true,
+    "u3": true,
+    "orphan": true,
+    "u2": true
+  },
+  "violations": []
+}

@@ -36,11 +36,23 @@ rebuilds the whole domain on it, as three layers in `src/core/tree/`:
 
 ## Ground truth: the loader's relink transform
 
-Extracted from the Claude Code CLI binary v2.1.170 (Bun-compiled; the JS
-bundle is embedded as plain text — `grep -a -o -b preservedMessages
-<binary>` for offsets, then dump and read the surrounding minified source).
-Re-extract the same way on CLI upgrades. The transform, applied to the
-uuid→entry map (file order) at load time:
+Extracted from the Claude Code CLI binary v2.1.170 and re-derived against
+v2.1.250 with a traced call graph plus wire probes (loader round 2,
+2026-08-28/29 — `docs/derisk/compact-boundary-injection/FINDINGS.md`; the
+2.1.250 transform is `Ser`, offsets in README-20260828.md there). The
+binary is Bun-compiled with the JS bundle embedded as plain text —
+`grep -a -o -b preservedMessages <binary>` for offsets, then dump and read
+the surrounding minified source. Re-extract the same way on CLI upgrades.
+
+**Scope: this transform is the RESUME consumer** (interactive `--resume`,
+`--continue`, headless SDK `query({resume})` — one traced code path). The
+SDK's `getSessionMessages` is a DIFFERENT pipeline: it relinks every
+boundary sequentially, has no cut, and returns whole API messages —
+wire-proven divergences on excluded siblings, stacked boundaries, and
+invalid playlists (FINDINGS "getSessionMessages" table). `loadedContext`
+models resume; do not validate it against gSM on those shapes.
+
+The transform, applied to the uuid→entry map (file order) at load time:
 
 1. Let `K` = index of the **last** `compact_boundary` entry of any kind,
    and `meta` = the `compactMetadata` of the last boundary that has
@@ -50,7 +62,8 @@ uuid→entry map (file order) at load time:
    boundary (last-wins is total). Resolve `preserved = {anchorUuid?,
    uuids}` (from the list, or a tail→head walk for `preservedSegment`).
 3. If any preserved uuid names no transcript entry: telemetry, **abort the
-   whole transform** (no rewrite, no cut).
+   whole transform** (no rewrite, no cut; wire-confirmed p15a — an earlier
+   valid boundary is NOT consulted either).
 4. If `uuids` is non-empty:
    - **Chain rewrite**: `uuids[0].parentUuid = anchorUuid`,
      `uuids[i].parentUuid = uuids[i-1]`.
@@ -76,15 +89,43 @@ uuid→entry map (file order) at load time:
    because the chain rewrite hangs `uuids[0]` under the summary.
 
 The context a resume loads is then the ordinary `parentUuid` walk from
-that leaf over the transformed map, boundaries acting as chain ends.
+that leaf over the transformed map, boundaries acting as chain ends —
+followed by three post-walk stages `loadedContext` deliberately does NOT
+model (they operate on API-message content, not the uuid chain):
 
-Caveats: binary v2.1.170 vs probes on v2.1.195/2.1.211 — every probe
-observation in `docs/derisk/compact-boundary-injection/FINDINGS.md` is
-consistent with this code except P3 m4's duplicate-uuid skip, which has no
-visible check here (version drift, or downstream cycle detection). We keep
-that validation, justified by the probe — it concerns duplicates WITHIN a
-preserved list, distinct from duplicate file entries, which are legal
-re-persisted copies (see Edge cases and
+7. **API-message expansion**: each on-path assistant `message.id` splices
+   in its same-id sibling entries and their tool_result user children
+   (active on plain resume — wire: p13, p18).
+   Because it runs AFTER step 5's cut, playlist-excluded siblings are
+   unrecoverable (wire: p11a, p11b, p19). Whether a third loader concept
+   ("effective API context") should model this is a future spec decision,
+   not part of this spec.
+8. **Resume sanitization** (resume-only, once at load): tool_use blocks
+   whose result is nowhere in the loaded context are dropped block-level
+   with no synthetic repair (p17, p20); an assistant turn left with
+   nothing presentable vanishes, as does one reduced to only thinking
+   (p19 — whether the thinking-only drop happens here or during request
+   normalization is untraced).
+9. **Request normalization** (every turn): adjacent user messages merge
+   into one API message (plain user content survives the merge stage
+   without loss — p12); same-`message.id` assistant entries reassemble
+   into one API message, restoring call adjacency even across an
+   intervening tool_result user entry — so parallel same-id calls are
+   safe in either playlist order (p18, tested at the two-call shape);
+   tool pairs split across
+   non-adjacent DISTINCT API messages are healed/dropped positionally
+   (p12 results). See FINDINGS "The load pipeline".
+
+Caveats: every probe observation in
+`docs/derisk/compact-boundary-injection/FINDINGS.md` (rounds 1 and 2) is
+consistent with this code. Round 2 RESOLVED the former P3 m4 anomaly: the
+binary has no duplicate-uuid check on either path, and the p14 wire probe
+confirmed an UNCHECKED rewrite of a duplicated playlist (m4's fixture was
+a masked shape — skip and unchecked rewrite predicted the same
+observation). Our preserved-list duplicate rejection therefore stands as a
+deliberate fail-closed divergence, not loader fidelity — it concerns
+duplicates WITHIN a preserved list, distinct from duplicate file entries,
+which are legal re-persisted copies (see Edge cases and
 `docs/derisk/cli-history-repersistence/FINDINGS.md`).
 
 Our implementation normalizes a metadata-less boundary to the equivalent
@@ -262,7 +303,8 @@ export function compactBoundaryAt(
 /** The reason this boundary's relink must not apply — a preserved uuid
  *  naming no file entry (loader-observed; anywhere in the file, NOT just
  *  earlier — the loader validates against the complete map), a
- *  duplicated uuid (probe-observed, P3 m4), or the anchor appearing
+ *  duplicated uuid (deliberate fail-closed divergence — the loader
+ *  rewrites unchecked, p14; see Edge cases), or the anchor appearing
  *  among the preserved uuids (deliberate divergence; see Edge cases) —
  *  or undefined when the relink applies. loadedContext degrades the
  *  boundary to a full wipe (named divergence; see Edge cases); buildTree
@@ -481,17 +523,25 @@ graph TD
 
 - **Empty `uuids`**: valid; rules no-op (children of the anchor stay put),
   the cut still deletes everything before the boundary (P10).
-- **Invalid relink** (`invalidRelinkReason` set — a preserved uuid naming
-  no file entry, a duplicated uuid, or the anchor appearing among the
-  preserved uuids): in the tree domain the boundary emits no block, stays
-  at its logicalParentUuid anchor, and remains visible. In
-  `loadedContext` it DEGRADES TO A FULL WIPE (`onInvalid` reports it,
-  surfaced as a banner) — a named divergence: the binary aborts the whole
-  transform and loads raw parents, which resurrects pre-boundary context
-  wherever a surviving entry raw-parents into it; cutting instead errs in
-  the safe direction on a corrupt file. Validation is against uuids
-  anywhere in the file (loader-faithful), not "earlier entries" as the
-  old code required.
+- **Invalid relink** (`invalidRelinkReason` set): in the tree domain the
+  boundary emits no block, stays at its logicalParentUuid anchor, and
+  remains visible. In `loadedContext` it DEGRADES TO A FULL WIPE
+  (`onInvalid` reports it, surfaced as a banner). The binary handles the
+  three reasons DIFFERENTLY, so each degradation is its own named
+  divergence:
+  - _preserved uuid naming no file entry_: the binary aborts the whole
+    transform and loads raw parents (wire: p15a), which resurrects
+    pre-boundary context wherever a surviving entry raw-parents into it;
+    cutting instead errs in the safe direction on a corrupt file.
+  - _duplicated uuid_: the binary rewrites unchecked, leaving parent
+    cycles in the map (wire: p14); we reject fail-closed.
+  - _anchor among the preserved uuids_: the binary proceeds and its
+    sequential passes self-parent the chain (a cycle — source-derived, no
+    probe); we reject fail-closed, which is also what keeps our rule
+    order equivalent to the binary's wherever the relink applies.
+
+  Validation is against uuids anywhere in the file (loader-faithful), not
+  "earlier entries" as the old code required.
 - **Metadata-less boundaries normalize to a wipe** at parse time, so no
   code path handles "no relink instruction". Equivalent to the binary
   except when NO boundary in the file carries `preservedMessages`: the
@@ -547,8 +597,10 @@ graph TD
   file with `preservedSegment` also carries `preservedMessages`; should
   it ever bite, the fix is confined to `compactBoundaryAt` — walk
   tail→head over raw parentUuid and yield ordinary `preservedMessages`); preserved lists containing duplicate
-  uuids are rejected where the 2.1.170 binary shows no check (P3 m4
-  observed the skip on 2.1.195); an anchor appearing among the preserved
+  uuids are rejected where the binary rewrites unchecked (p14 wire probe,
+  2.1.250 — the resulting parent structure includes cycles, so fail-closed
+  rejection is the safe divergence; round 1's contrary m4 reading was a
+  masked fixture); an anchor appearing among the preserved
   uuids is rejected where the binary proceeds — its sequential
   rewrite-then-reparent passes self-parent the chain there (a parent
   cycle), and the rejection is also what makes our

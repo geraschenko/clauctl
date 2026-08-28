@@ -2,7 +2,7 @@
  * The CLI loader's load-time transform, ported from the decompiled binary
  * (v2.1.195). The "Ground truth" section of docs/specs/session-tree.md
  * records the transform and the extraction method; probe ids (e.g. P10,
- * P3 m4) cite docs/derisk/compact-boundary-injection/FINDINGS.md. This
+ * p14) cite docs/derisk/compact-boundary-injection/FINDINGS.md. This
  * module owns every relink rule — buildTree and the display transform call
  * in here rather than restating any of them.
  */
@@ -76,7 +76,9 @@ export function invalidRelinkReason(
 ): string | undefined {
   const preserved = boundary.preservedMessages;
   if (new Set(preserved.uuids).size !== preserved.uuids.length) {
-    // Probe-observed invalid (P3 m4; see file comment).
+    // Deliberate fail-closed divergence: the binary rewrites a duplicated
+    // playlist unchecked, leaving parent cycles (p14; see file comment).
+    // TDC: why on earth would we have this divergence?
     return "duplicated uuid in preservedMessages.uuids";
   }
   if (preserved.uuids.includes(preserved.anchorUuid)) {
@@ -284,6 +286,12 @@ export function loadedContext(
     walked.add(current.uuid);
     const entry = byUuid.get(current.uuid);
     if (entry === undefined || deleted(current.uuid)) {
+      // Known divergence from the 2.1.250 binary (corrupted files only):
+      // its resume chain builder repairs a parent pointer that names no
+      // file entry by splicing to the nearest earlier entry within 5s with
+      // matching isSidechain (telemetry tengu_chain_timestamp_fallback).
+      // We end the walk instead. No known producer writes dangling
+      // parents, so this only differs on corrupt or hand-edited files.
       break;
     }
     if (

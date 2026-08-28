@@ -16,7 +16,7 @@
 // write for uuids: [] with anchor "boundary" and no summaryText (anchorUuid
 // = the boundary's own uuid). Oracle as always: the captured outbound probe
 // request + the parentUuid of the first new write. Exploratory expectations:
-// violations are reported, not thrown.
+// violations are reported in the JSON and fail the process exit code.
 //
 // Needs only the checked-in captures/p1-fixture-pre.jsonl. SDK is NOT the
 // 0.3.195 pin the p0-p9 reports were generated against; the actual version
@@ -115,4 +115,5 @@ const report = {
 console.log(JSON.stringify(report, null, 2));
 fs.writeFileSync(`${EXP_DIR}/captures/p10-report.json`, JSON.stringify(report, null, 2));
 console.log(violations.length ? `VIOLATIONS:\n${violations.join("\n")}` : "PASS — empty-context resume works");
+if (violations.length) process.exitCode = 1;
 console.log("report at captures/p10-report.json");

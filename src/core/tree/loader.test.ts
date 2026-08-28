@@ -1,7 +1,7 @@
 /**
  * Test cases transliterated from the decompiled loader transform recorded
  * in docs/specs/session-tree.md "Ground truth"; probe ids (e.g. P10,
- * P3 m4) cite docs/derisk/compact-boundary-injection/FINDINGS.md.
+ * p14) cite docs/derisk/compact-boundary-injection/FINDINGS.md.
  */
 
 import assert from "node:assert/strict";
@@ -167,7 +167,7 @@ test("compactBoundaryAt: present-but-malformed preservedMessages throws", () => 
   );
 });
 
-test("invalidRelinkReason: missing uuid, P3 m4 duplicate, valid otherwise", () => {
+test("invalidRelinkReason: missing uuid, duplicate (fail-closed divergence, p14), valid otherwise", () => {
   const sid = uuid();
   const u1 = userEntry(null, sid);
   const fileUuids = new Set([u1.uuid]);
@@ -379,7 +379,7 @@ test("a missing preserved uuid degrades the boundary to a wipe (named divergence
   );
 });
 
-test("P3 m4: a duplicated uuid in the preserved list degrades the same way", () => {
+test("duplicated uuid in the preserved list degrades the same way (fail-closed divergence; binary rewrites unchecked, p14)", () => {
   const sid = uuid();
   const u1 = userEntry(null, sid);
   const a1 = assistantEntry(u1.uuid, sid);

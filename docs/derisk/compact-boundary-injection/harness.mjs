@@ -7,12 +7,23 @@
 // for hours and scratch CLIs don't refresh before expiry, so the real session's
 // refresh-token family is not rotated. Onboarding state (.claude.json) comes
 // from the old scratch template. Uses the SDK-bundled `claude` binary.
+//
+// TELEMETRY: probes deliberately put sessions into error-shaped states
+// (crashes between tool call and result, malformed boundary playlists), which
+// would otherwise stream telemetry and error reports that look like organic
+// failures. Essential-traffic mode suppresses both (DISABLE_TELEMETRY alone
+// leaves error reporting on). Set here at module scope so it covers every
+// probe path: spawned CLIs inherit it via baseEnv's process.env spread, and
+// in-process SDK calls (getSessionMessages) read process.env directly.
 
 import { query } from "../../../node_modules/@anthropic-ai/claude-agent-sdk/sdk.mjs";
 import { spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+
+// See TELEMETRY note above; docs/derisk/AGENTS.md states the policy.
+process.env.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC = "1";
 
 export const EXP_DIR = path.dirname(fileURLToPath(import.meta.url));
 export const REPO_DIR = path.resolve(EXP_DIR, "../../..");
@@ -21,7 +32,10 @@ const CRED_SOURCE = `${process.env.HOME}/.claude/.credentials.json`;
 const CLAUDE_JSON_TEMPLATE = "/tmp/clauctl-resume-derisk/.claude.json";
 
 // Pinned versions; assertVersions() aborts the run on mismatch (README Hygiene).
-export const PINNED = { sdk: "0.3.195" };
+// Round 1 ran pinned to 0.3.195 (bundled CLI 2.1.195); round 2
+// (README-20260828.md) repinned to 0.3.250 (CLI 2.1.250). Round-1 reports
+// in captures/ record which pin produced them.
+export const PINNED = { sdk: "0.3.250" };
 
 export function assertVersions() {
   const pkg = JSON.parse(fs.readFileSync(

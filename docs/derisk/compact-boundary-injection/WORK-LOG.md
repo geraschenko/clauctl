@@ -446,6 +446,135 @@ Also settled from existing evidence while addressing the review comments:
 - Native `logicalParentUuid` semantics confirmed in p0b/p0c captures (see
   FINDINGS): always the last message before the summarization point.
 
+## 2026-08-28/29 — Round 2: loader re-derivation on SDK 0.3.250 / CLI 2.1.250
+
+Plan + source-reading detail: README-20260828.md (reviewer-hardened, pictl
+agent be9d9690; two rounds of probe-design fixes — p14 redesigned around an
+anchor child after the original was shown non-discriminating, E1 relabeled
+from "free" after a live-call audit, p11a's thinking fixture replaced with a
+text+tool_use split to dodge the thinking-strip mask).
+
+**Phase 0 + E2 (source)**: read the 2.1.250 binary. Found the resume relink
+`Ser` hiding in `H0t`'s `finish` callback (round 1 missed it); traced the
+full call graph resume→relink→walk→expansion→sanitizers→normalization→wire,
+and the request pipeline (`$oe` user-merge, `DJn` same-id regroup, `_vt`
+positional tool-pair repair, `eye` unresolved-tool_use drop). Key reading:
+the cut runs BEFORE the expansion on resume; getSessionMessages is a
+separate pipeline (sequential-all relink, no cut).
+
+**E1 (rerun)**: full round-1 suite p0a–p10 + check-reports on 0.3.250 — all
+PASS after two non-loader fixes (p4 q8 prompt pinned to absolute paths — a
+model flake wrote /tmp/notes.txt; /tmp fixture regeneration after a reboot).
+Zero loader drift. One writer drift: native /compact keep-segment reach
+shrank on the p4 q7 fixture (2.1.195 kept old-summary→probe-turn; 2.1.250
+kept only the final assistant turn's entries, excluding even its user
+prompt). One data point per version; selection rule untraced;
+check-reports.mjs now version-conditions that assertion. harness.mjs
+repinned to 0.3.250.
+
+**E3 (wire probes, `round2.mjs` + p11a–p17)**: all 8 matched their
+pre-registered source-predicted model, zero violations.
+
+- p13: API-message expansion ACTIVE on plain resume (off-path fork sibling
+  - result on the wire).
+- p11a/p11b: cut-before-expansion — playlist-excluded same-id siblings
+  (text; fork tool_use + its result) absent from the wire, present in the
+  same fixture's getSessionMessages output. P8's divergence explained.
+- p12 plain: three consecutive preserved users MERGED into one API user
+  message, all markers intact — no drop rule exists.
+- p12 results: playlist order [call1, call2, result1, result2] → call1
+  synthetically healed, real result1 dropped, adjacent call2/result2
+  intact. Triage (post-run): NOT a fixture defect (result1's tool_use_id is
+  present) — `_vt` pairing is positional; results must sit immediately
+  after their calls.
+- p14: duplicated playlist rewritten UNCHECKED (anchor-child discriminator)
+  — REVERSES round 1's m4 claim, whose fixture was masked. FINDINGS,
+  session-tree.md Ground truth, and loader.ts comments updated; our
+  duplicate rejection re-labeled a deliberate fail-closed divergence.
+- p15a: trailing invalid boundary → abort-untouched on resume (earlier
+  valid boundary NOT consulted); gSM applied it — per-consumer split.
+- p16: cut + orphan reparent on resume (raw pre-boundary ancestors gone,
+  orphan repointed to playlist tail); gSM followed raw parents — no cut.
+- p17: call-without-result → whole assistant message dropped (`eye`), no
+  synthetic heal.
+
+Corroborating live experiment (Anton, session ee0d): merged users perceived
+as one message ("Only once"); orphan result dropped; call-without-result.
+
+**E4**: FINDINGS.md rewritten as the living document (pipeline-ordered,
+per-consumer scoping, m4 reversal, drift section); session-tree.md Ground
+truth re-derived for 2.1.250 (resume-consumer scoping, post-walk stages,
+p15a confirmation, m4 caveat resolved); D6 timestamp-repair divergence
+recorded as a loader.ts comment (deferred — corrupted files only).
+Follow-up specs queued in docs/specs/next.md (set-context closure, TUI
+post-set-context rendering, probes as SDK-upgrade regression suite).
+
+## 2026-08-29 — TDC round (e691fe6): p18–p20, three claim revisions
+
+Anton committed E4 with eight in-place TDC review comments; the load-
+bearing ones demanded wire answers instead of hedges. 17 wire calls
+(p18×3; p19 3+3, p20 4+4 — reruns after run 1 falsified every
+pre-registered model on one case each; post-hoc models are marked in the
+scripts and held on the confirming rerun).
+
+- Native parallel-call raw shape verified against real sessions
+  (~/.claude/projects/-home-anton/4cbaa4de…, 4d92f439…): same-id entries
+  chain callA→callB, each result is a CHILD of its call (branch at
+  callA), continuation parents on the LAST result. round2.mjs
+  forkFixture (both calls user-parented) does NOT match; p13's oracle
+  role moved to p18's native-shaped control.
+- p18: BOTH playlist orderings ([calls then results] and per-pair
+  interleaved) presented the exact native shape — one assistant API
+  message with both calls, one user message with both results, zero
+  heals. REVISES "only consecutive same-id entries join": reassembly
+  crosses intervening tool_result users. Ordering only matters for
+  calls in distinct API messages (p12).
+- p19: same-model resume forwards signed thinking (control: 5 blocks on
+  wire — kills the round-2 "not wire-discriminable" hedge, cf. p2-a).
+  Excluded thinking sibling absent (cut-before-expansion). NEW: excluding
+  the TEXT sibling dropped the whole message — thinking-only assistant
+  messages are dropped; thinking is never presented without a
+  non-thinking sibling. Run-1 marker-collision lesson: bare
+  XYLOPHONE-77431 also occurs in result2's tool_result; the magic TEXT
+  entry needs the `**`-marked form.
+- p20: REVISES p17's whole-message reading — the unresolved-call drop is
+  BLOCK-level: kill0 (text+2 calls, 0 results) presented the text alone;
+  kill1 (1 result) kept text+callA+resultA, dropped callB with NO
+  synthetic heal (the block dies before `_vt`). Partial-message
+  playlists work per-entry (part1/part2). Side observation: a file
+  ending on a tool result gets a CLI-appended "Continue from where you
+  left off" user text + "No response requested." assistant turn.
+
+Docs updated (FINDINGS pipeline steps 3–5, failure modes, provenance;
+next.md closure rules; session-tree step 8); check-reports extended to
+p1–p20 (66 assertions, PASS). ee0d "merged users perceived as one" claim
+withdrawn (it asked about responses, not appearances); all
+content-preservation claims now scoped to the wire.
+
+## 2026-08-31 — Reviewer round on the pipeline description: APPROVED
+
+Reviewer be9d9690 (revived with its E4 context) reviewed the p18–p20
+material plus the new terminology block and five-stage overview. Two
+block rounds (10 + 4 findings, all evidence-scoping/terminology; no new
+probes), all agreed and fixed. Substantive corrections: stage-2 output
+is chronological root-to-leaf (`uye` walks leaf→root, then REVERSES);
+the overview had the native parallel-fork geometry inverted (the calls
+CHAIN and stay on the walked path — the RESULTS branch, so the walk
+loses off-path results and expansion exists to recover them); stage 4
+filters content blocks WITHIN entries (terminology block updated —
+entries are the unit of stages 1–3); the thinking-only drop's stage
+attribution is left untraced in the overview too; session-tree.md
+ground truth split into step 8 (resume sanitization) and step 9
+(request normalization) with citations untangled (expansion: p13/p18;
+cut-before-expansion exclusion: p11a/p11b/p19); the "wire" evidence
+class now notes p18–p20 assert request captures only; the capability
+table's subset-closure and message-order rows restated per p18–p20;
+next.md's API-message closure bullet labeled intent-preservation
+POLICY, not a loader requirement (p20-part1); post-hoc models labeled
+at their citation sites and the headline no longer reads as blanket
+prediction success. Final verdict: "ready to serve as the basis for the
+real specs."
+
 ## 2026-07-17 — P10: empty preserved list (tui-tree spec derisk)
 
 The TUI `/tree` "rewind to the first user message" pick needs a context reset

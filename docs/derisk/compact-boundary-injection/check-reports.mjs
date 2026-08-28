@@ -1,6 +1,6 @@
 // Hard pass/fail assertions over the recorded experiment reports.
 //
-// Usage: rerun the p1–p9 scripts (regenerating captures/*-report.json), then
+// Usage: rerun the p1–p20 scripts (regenerating captures/*-report.json), then
 //   node check-reports.mjs
 // A clean exit means the pinned behaviors still hold on the current SDK/CLI —
 // this is the upgrade-regression gate the FINDINGS header calls for.
@@ -33,7 +33,7 @@ const starts = (u, p) => typeof u === "string" && u.startsWith(p);
   check("p1.a exact replay: summary first, red preserved", r.a.probe.summaryIdx === 0 && r.a.probe.preservedRedIdx === 1 && r.a.probe.u2OnlyInSummary);
   check("p1.b synthetic: 3 messages, parent = red", r.b.probe.nMessages === 3 && starts(r.b.firstNewUserParent, RED));
   check("p1.c durability: prior probe survived second resume", r.c.priorProbeStillThere === true);
-  check("p1.d bad uuid: relink skipped (red absent), summary-only context", r.d.probe.preservedRedIdx === -1 && r.d.probe.nMessages === 3);
+  check("p1.d bad uuid: invalid playlist abort, summary-only signature (red absent)", r.d.probe.preservedRedIdx === -1 && r.d.probe.nMessages === 3);
 }
 
 // --- p2: option space + branch navigation ---
@@ -84,7 +84,9 @@ const starts = (u, p) => typeof u === "string" && u.startsWith(p);
   check("p3.m3 reverse-chronological playlist honored, parent = list tail",
     r.m3.resultSubtype === "success" && mk(r.m3).u3Tag === 0 && mk(r.m3).u2Tag === 2
     && starts(r.m3.firstNewUserParent, FOUR));
-  check("p3.m4 duplicate uuid: relink skipped, summary-only signature",
+  // NOTE: this shape is MASKED — an unchecked rewrite (the binary's real
+  // behavior, p14) and an explicit skip predict the same observation here.
+  check("p3.m4 duplicate uuid: masked summary-only signature",
     r.m4.resultSubtype === "success" && r.m4.probe.nMessages === 3
     && mk(r.m4).red === -1 && mk(r.m4).synth1 === 0);
   check("p3.m5 stacked boundaries: last wins entirely",
@@ -105,7 +107,19 @@ const starts = (u, p) => typeof u === "string" && u.startsWith(p);
     r.q7.compactSubtype === "success" && r.q7.compactReqScope.nMessages === 3
     && r.q7.compactReqScope.hasSynthSummary && r.q7.compactReqScope.hasRed
     && !r.q7.compactReqScope.hasU1 && !r.q7.compactReqScope.hasU2);
-  check("p4.q7 post-compact probe sees new compacted context", r.q7.postProbe.hasOldSynthSummary && r.q7.postProbe.hasFirstProbe);
+  // Compaction WRITER keep-reach drift on this fixture (loader behavior
+  // unchanged): 2.1.195 kept a segment from the old summary through the
+  // probe turn; 2.1.250 kept only the trailing assistant turn — old summary
+  // and first probe gone, post-compact context = [new summary, assistant
+  // turn, probe] (3 messages). Known versions only: an unknown SDK version
+  // FAILS here so drift gets characterized, not silently accepted.
+  const keptOld = r.q7.postProbe.hasOldSynthSummary && r.q7.postProbe.hasFirstProbe;
+  const keptTailOnly = !r.q7.postProbe.hasOldSynthSummary && !r.q7.postProbe.hasFirstProbe
+    && r.q7.postProbe.nMessages === 3;
+  check("p4.q7 post-compact probe sees new compacted context (known writer keep-reach per version)",
+    r.versions.sdk === "0.3.195" ? keptOld
+    : r.versions.sdk === "0.3.250" ? keptTailOnly
+    : false);
   check("p4.q8 live dry-run rewind works", r.q8.liveDryRun.canRewind === true);
   check("p4.q8 behind-boundary rewind refused", r.q8.behindBoundaryDryRun.canRewind === false
     && r.q8.behindBoundaryDryRun.error?.includes("No file checkpoint") && r.q8.contentAfterRewind === "V2");
@@ -163,9 +177,98 @@ const starts = (u, p) => typeof u === "string" && u.startsWith(p);
     && !r.c.markerPresence.red && r.c.newEntriesBeyondProbeTurn.length === 0);
 }
 
+// --- p10: empty preserved list ---
+{
+  const r = load("p10-report");
+  check("p10 empty-boundary wipe: no violations, no fixture markers, parent = boundary",
+    r.violations.length === 0 && Object.values(r.markerPresence).every((present) => !present));
+}
+
+// --- p11a–p17: round-2 wire probes (loader round 2, README-20260828.md).
+// Run-stable gate: zero violations + the source-predicted model matched.
+{
+  const expectModel = {
+    "p11a": "cut-before-expansion",
+    "p11b": "cut-before-expansion",
+    "p13": "expansion-active",
+    "p14": "unchecked-rewrite",
+    "p15a": "abort-untouched",
+    "p16": "cut-plus-reparent",
+    "p17": "eye-drop",
+  };
+  for (const [name, model] of Object.entries(expectModel)) {
+    const r = load(`${name}-report`);
+    check(`${name} no violations, matched [${model}]`,
+      r.violations.length === 0 && r.matching.length === 1 && r.matching[0] === model);
+  }
+  // Per-consumer splits: the same fixtures through getSessionMessages.
+  const p11a = load("p11a-report");
+  check("p11a gSM keeps the excluded sibling (per-consumer split)",
+    p11a.gsm.includesExcludedSibling === true);
+  const p11b = load("p11b-report");
+  check("p11b gSM keeps excluded fork call+result; wire drops both",
+    p11b.gsm.callB && p11b.gsm.resultB && !p11b.wire.callB && !p11b.wire.resultB);
+  const p15a = load("p15a-report");
+  check("p15a gSM applies the earlier boundary the resume abort ignores",
+    p15a.gsm.u2 && p15a.gsm.four && p15a.gsm.s1 && p15a.gsm.mid);
+  const p16 = load("p16-report");
+  check("p16 gSM follows raw parents (no cut)",
+    p16.gsm.red && p16.gsm.u3 && p16.gsm.orphan);
+  // p12 has no single predicted model: plain = merge (asserted in-script as
+  // a violation); the results variant is exploratory characterization —
+  // positional tool-pair repair (call1 healed, real result1 dropped,
+  // adjacent call2/result2 intact).
+  const p12 = load("p12-report");
+  check("p12 no violations; plain users merged (all markers, one API message)",
+    p12.violations.length === 0 && p12.plain.matching.includes("merge")
+    && p12.plain.grouping.userMessagesCarryingMarkers === 1);
+  check("p12 results: positional repair characterization stable",
+    p12.results.wire.call1 && p12.results.wire.call2 && !p12.results.wire.result1
+    && p12.results.wire.result2 && p12.results.wire.syntheticRepair);
+}
+
+// --- p18: parallel same-id calls through a playlist ---
+{
+  const r = load("p18-report");
+  const NATIVE = ["user:prompt", "assistant:callA+callB", "user:resultA+resultB", "assistant:done"];
+  check("p18 no violations; oracle shape is the native presented form",
+    r.violations.length === 0 && JSON.stringify(r.oracleShape) === JSON.stringify(NATIVE));
+  check("p18 grouped ordering reproduces the native presented shape",
+    r.groupedMatchesNative === true);
+  check("p18 interleaved ordering ALSO normalizes to the native shape, no synthetic heals",
+    r.interleavedVerdict === "matches-native"
+    && !r.syntheticHealMarkers.grouped && !r.syntheticHealMarkers.interleaved);
+}
+
+// --- p19: thinking exclusion (same-model) ---
+{
+  const r = load("p19-report");
+  check("p19 control: same-model resume forwards signed thinking to the wire",
+    r.violations.length === 0 && r.control.thinkingOnWire === true && r.control.nThinkingBlocks >= 5);
+  check("p19 excl-think: excluded thinking sibling absent (cut before expansion)",
+    r.exclThink.matching.length === 1 && r.exclThink.matching[0] === "cut-before-expansion");
+  check("p19 excl-text: thinking-only assistant message dropped whole",
+    r.exclText.matching.length === 1 && r.exclText.matching[0] === "thinking-only-dropped");
+}
+
+// --- p20: unresolved-tool-use drop semantics + partial-message playlists ---
+{
+  const r = load("p20-report");
+  const m = (k) => r.cases[`p20-${k}`].matching;
+  check("p20 no violations", r.violations.length === 0);
+  check("p20 kill0: unresolved tool_use BLOCKS dropped, bundled text kept",
+    m("kill0").length === 1 && m("kill0")[0] === "drops-calls-keeps-text");
+  check("p20 kill1: only the unresolved call's block dropped, no synthetic heal",
+    m("kill1").length === 1 && m("kill1")[0] === "drops-unresolved-block");
+  check("p20 part1: playlist keeping one call+result presents exactly that",
+    m("part1").length === 1 && m("part1")[0] === "cut-per-entry");
+  check("p20 part2: text + one pair kept, other pair absent",
+    m("part2").length === 1 && m("part2")[0] === "cut-per-entry");
+}
+
 if (failures.length) {
   console.error(`FAIL — ${failures.length}/${count} assertions failed:`);
   for (const f of failures) console.error("  ✗ " + f);
   process.exit(1);
 }
-console.log(`PASS — ${count} assertions over p1–p9 reports`);
+console.log(`PASS — ${count} assertions over p1–p20 reports`);

@@ -43,6 +43,7 @@ export class DisplayTree {
   }
 }
 
+// TDC: We need to make it so that when there's a compaction boundary created by set-context with an explicit playlist (as opposed to a rewind or "effectively normal" compaction), we show exactly what the assistant sees. This means we somehow need to identify those compaction boundaries. For those cases, we should *not* reparent the boundary (instead treat it as having no parent?) and *do* show the `@boundary` rows in its playlist.
 /** The human view, derived from the full tree by three rules:
  *  1. each boundary row with a valid non-empty preserved list reparents
  *     onto the raw row of its last preserved uuid;

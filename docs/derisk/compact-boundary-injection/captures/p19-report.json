@@ -1,0 +1,80 @@
+{
+  "sdkVersion": "0.3.250",
+  "control": {
+    "resultSubtype": "success",
+    "error": null,
+    "stderr": null,
+    "thinkingOnWire": true,
+    "nThinkingBlocks": 5
+  },
+  "exclThink": {
+    "resultSubtype": "success",
+    "stderr": null,
+    "verdicts": {
+      "cut-before-expansion": {
+        "matches": true,
+        "mismatches": []
+      },
+      "expansion-recovers": {
+        "matches": false,
+        "mismatches": [
+          "missing: magic word clearly"
+        ]
+      }
+    },
+    "matching": [
+      "cut-before-expansion"
+    ],
+    "requestMessages": [
+      "user: [{\"type\":\"text\",\"text\":\"<system-reminder>\\nAvailable agent types for the Agent tool:\\n- claude: Catch-all for any task that doesn't fit a mo",
+      "assistant: [{\"type\":\"thinking\",\"thinking\":\"The user is asking me to read a file called \\\"fact.txt\\\" and find the magic word in it. They've also include",
+      "user: [{\"type\":\"tool_result\",\"content\":\"File does not exist. Note: your current working directory is /tmp/clauctl-cbi-derisk/p0b-native-compact-cw",
+      "assistant: [{\"type\":\"thinking\",\"thinking\":\"The file doesn't exist at /fact.txt. Let me try looking in the current working directory. The current workin",
+      "user: [{\"tool_use_id\":\"toolu_019QEjxGUTxVVwrPKv3YWPD2\",\"type\":\"tool_result\",\"content\":\"1\\tThe magic word is XYLOPHONE-77431.\\n2\\t\"}]",
+      "assistant: [{\"type\":\"text\",\"text\":\"The magic word is **XYLOPHONE-77431**.\"}]",
+      "user: \"What is 2+2? Answer with just the number. (tag: NONCE-U2)\"",
+      "assistant: [{\"type\":\"thinking\",\"thinking\":\"The user is asking a simple math question: 2+2. They want just the number as the answer.\\n\\n2+2 = 4\\n\\nThey ",
+      "user: \"Name any primary color, one word. (tag: NONCE-U3)\"",
+      "assistant: [{\"type\":\"thinking\",\"thinking\":\"The user is asking me to name any primary color in one word. The primary colors are typically red, blue, and",
+      "user: [{\"type\":\"text\",\"text\":\"<system-reminder>\\nThe following skills are available for use with the Skill tool:\\n\\n- dataviz: Use this skill when"
+    ]
+  },
+  "exclText": {
+    "resultSubtype": "success",
+    "stderr": null,
+    "verdicts": {
+      "cut-per-entry": {
+        "matches": false,
+        "mismatches": [
+          "missing: magic word clearly"
+        ]
+      },
+      "thinking-only-dropped": {
+        "matches": true,
+        "mismatches": []
+      },
+      "expansion-recovers": {
+        "matches": false,
+        "mismatches": [
+          "missing: **XYLOPHONE-77431**",
+          "missing: magic word clearly"
+        ]
+      }
+    },
+    "matching": [
+      "thinking-only-dropped"
+    ],
+    "requestMessages": [
+      "user: [{\"type\":\"text\",\"text\":\"<system-reminder>\\nAvailable agent types for the Agent tool:\\n- claude: Catch-all for any task that doesn't fit a mo",
+      "assistant: [{\"type\":\"thinking\",\"thinking\":\"The user is asking me to read a file called \\\"fact.txt\\\" and find the magic word in it. They've also include",
+      "user: [{\"type\":\"tool_result\",\"content\":\"File does not exist. Note: your current working directory is /tmp/clauctl-cbi-derisk/p0b-native-compact-cw",
+      "assistant: [{\"type\":\"thinking\",\"thinking\":\"The file doesn't exist at /fact.txt. Let me try looking in the current working directory. The current workin",
+      "user: [{\"tool_use_id\":\"toolu_019QEjxGUTxVVwrPKv3YWPD2\",\"type\":\"tool_result\",\"content\":\"1\\tThe magic word is XYLOPHONE-77431.\\n2\\t\"},{\"type\":\"text\"",
+      "assistant: [{\"type\":\"thinking\",\"thinking\":\"The user is asking a simple math question: 2+2. They want just the number as the answer.\\n\\n2+2 = 4\\n\\nThey ",
+      "user: \"Name any primary color, one word. (tag: NONCE-U3)\"",
+      "assistant: [{\"type\":\"thinking\",\"thinking\":\"The user is asking me to name any primary color in one word. The primary colors are typically red, blue, and",
+      "user: [{\"type\":\"text\",\"text\":\"<system-reminder>\\nThe following skills are available for use with the Skill tool:\\n\\n- dataviz: Use this skill when"
+    ]
+  },
+  "violations": []
+}
