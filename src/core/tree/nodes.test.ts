@@ -105,13 +105,10 @@ test("pathToLeaf: root-first path, null leaf, absent leaf", () => {
     { ref: { uuid: otherEntry.uuid! }, parent: root },
     { ref: child, parent: root },
   ]);
-  const entryOf = entriesByUuid([rootEntry, childEntry, otherEntry]);
-  assert.deepEqual(pathToLeaf(tree, entryOf, child), [
-    { ref: root, entry: rootEntry },
-    { ref: child, entry: childEntry },
-  ]);
-  assert.deepEqual(pathToLeaf(tree, entryOf, null), []);
-  assert.deepEqual(pathToLeaf(tree, entryOf, { uuid: uuid() }), []);
+  const byUuid = entriesByUuid([rootEntry, childEntry, otherEntry]);
+  assert.deepEqual(pathToLeaf(tree, byUuid, child), [root, child]);
+  assert.deepEqual(pathToLeaf(tree, byUuid, null), []);
+  assert.deepEqual(pathToLeaf(tree, byUuid, { uuid: uuid() }), []);
 });
 
 test("pathToLeaf distinguishes occurrences by viaBoundary", () => {
@@ -132,15 +129,15 @@ test("pathToLeaf distinguishes occurrences by viaBoundary", () => {
     { ref: boundaryRef, parent: raw },
     { ref: relinked, parent: boundaryRef },
   ]);
-  const entryOf = entriesByUuid([entry, boundary]);
+  const byUuid = entriesByUuid([entry, boundary]);
 
   // A bare ref stops at the raw occurrence; the via ref walks into the
   // substructure.
-  assert.deepEqual(pathToLeaf(tree, entryOf, raw), [{ ref: raw, entry }]);
-  assert.deepEqual(pathToLeaf(tree, entryOf, relinked), [
-    { ref: raw, entry },
-    { ref: boundaryRef, entry: boundary },
-    { ref: relinked, entry },
+  assert.deepEqual(pathToLeaf(tree, byUuid, raw), [raw]);
+  assert.deepEqual(pathToLeaf(tree, byUuid, relinked), [
+    raw,
+    boundaryRef,
+    relinked,
   ]);
 });
 
@@ -151,11 +148,11 @@ test("pathToLeaf throws on a parent cycle and on a missing entry", () => {
     { ref: a, parent: b },
     { ref: b, parent: a },
   ]);
-  const entryOf = entriesByUuid([
+  const byUuid = entriesByUuid([
     { uuid: a.uuid, type: "user" },
     { uuid: b.uuid, type: "user" },
   ]);
-  assert.throws(() => pathToLeaf(cyclic, entryOf, a), /parent cycle/);
+  assert.throws(() => pathToLeaf(cyclic, byUuid, a), /parent cycle/);
 
   const lone = treeOf([{ ref: a, parent: null }]);
   assert.throws(
@@ -198,7 +195,7 @@ function chainFixture(
 ): {
   ids: string[];
   children: Map<string | null, string[]>;
-  entryOf: Map<UUID, SessionEntry>;
+  byUuid: Map<UUID, SessionEntry>;
 } {
   const refs = entries.map((entry): TreeNodeRef => ({
     uuid: entry.uuid!,
@@ -213,16 +210,16 @@ function chainFixture(
   return {
     ids: refs.map(formatTreeNodeRef),
     children: treeChildren(tree),
-    entryOf: entriesByUuid(entries),
+    byUuid: entriesByUuid(entries),
   };
 }
 
 test("isFinalAssistantEntry: same-message.id child means non-final", () => {
   const thinking = assistantEntry("msg_1");
   const text = assistantEntry("msg_1");
-  const { ids, children, entryOf } = chainFixture([thinking, text]);
-  assert.ok(!isFinalAssistantEntry(ids[0]!, children, entryOf));
-  assert.ok(isFinalAssistantEntry(ids[1]!, children, entryOf));
+  const { ids, children, byUuid } = chainFixture([thinking, text]);
+  assert.ok(!isFinalAssistantEntry(ids[0]!, children, byUuid));
+  assert.ok(isFinalAssistantEntry(ids[1]!, children, byUuid));
 
   const followedUp = chainFixture([
     assistantEntry("msg_1"),
@@ -232,22 +229,22 @@ test("isFinalAssistantEntry: same-message.id child means non-final", () => {
     isFinalAssistantEntry(
       followedUp.ids[0]!,
       followedUp.children,
-      followedUp.entryOf,
+      followedUp.byUuid,
     ),
   );
 });
 
 test("isFinalAssistantEntry: non-assistant false, missing message.id final", () => {
   const user = chainFixture([{ uuid: uuid(), type: "user" }]);
-  assert.ok(!isFinalAssistantEntry(user.ids[0]!, user.children, user.entryOf));
+  assert.ok(!isFinalAssistantEntry(user.ids[0]!, user.children, user.byUuid));
   const bare = chainFixture([assistantEntry(undefined)]);
-  assert.ok(isFinalAssistantEntry(bare.ids[0]!, bare.children, bare.entryOf));
+  assert.ok(isFinalAssistantEntry(bare.ids[0]!, bare.children, bare.byUuid));
 });
 
 test("isFinalAssistantEntry over via occurrences uses relink-chain children", () => {
   const thinking = assistantEntry("msg_1");
   const text = assistantEntry("msg_1");
-  const { ids, children, entryOf } = chainFixture([thinking, text], uuid());
-  assert.ok(!isFinalAssistantEntry(ids[0]!, children, entryOf));
-  assert.ok(isFinalAssistantEntry(ids[1]!, children, entryOf));
+  const { ids, children, byUuid } = chainFixture([thinking, text], uuid());
+  assert.ok(!isFinalAssistantEntry(ids[0]!, children, byUuid));
+  assert.ok(isFinalAssistantEntry(ids[1]!, children, byUuid));
 });

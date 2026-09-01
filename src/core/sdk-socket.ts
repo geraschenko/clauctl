@@ -185,6 +185,9 @@ export type SetContextRequest =
 export interface SetContextResult {
   boundaryUuid?: UUID;
   summaryUuid?: UUID;
+  /** Uuids normalization inserted into the preserved list (uuids mode only;
+   *  omitted when nothing was added). */
+  added?: UUID[];
 }
 
 function assertUuid(value: unknown, label: string): UUID {

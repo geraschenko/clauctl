@@ -191,7 +191,13 @@ entries of that message. **Active on plain resume** (wire: p13 — an off-path
 fork sibling tool_use + its result reached the API; note p13's fixture
 parented both calls on the user, which is NOT the native raw shape —
 natively same-id entries chain callA→callB with each result a child of
-its own call and the next turn continuing from the LAST result. That raw
+its own call and the next turn continuing from the last-WRITTEN result —
+the file tip at continuation-write time, not a position fixed at call
+time. Discriminating evidence: results usually complete in call order
+(both real sessions below, incl. a three-call chain whose continuation
+parents the THIRD call's result), but readonly-fold.jsonl's second tool
+finished first, and its continuation parents the FIRST call's result —
+the last one written. That raw
 shape was established by inspecting real session files; p18's
 native-shaped synthetic control then established its wire presentation —
 [both calls][both results] — and now serves as the oracle).
@@ -211,6 +217,20 @@ thinking is dropped whole by a later stage (p19 excl-text; POST-HOC
 model — run 1 falsified both pre-registered models, confirmed on
 rerun). So thinking can never be presented without a non-thinking
 sibling, while text survives without its thinking fine.
+
+**Splice position** (source-traced in `Aer`, 2.1.250; it fires
+`tengu_chain_parallel_tr_recovered` telemetry): for each group, the
+recovered block — missing same-id siblings timestamp-sorted, then
+missing tool_results timestamp-sorted — is inserted immediately after
+the LAST on-path assistant entry sharing the `message.id`; on-path
+entries keep their positions. Consequence: on file-shaped input the
+recovered block always lands strictly BEFORE the walk tip (it follows
+the group's last assistant, and results are written after calls, so a
+tip inside a group with later off-path results is impossible), so the
+expanded chain's last element is still the true file leaf. Since the
+continuation parents on the last-written result, the on-path result
+sorts last among the group's results, and the expanded order equals
+plain "calls in write order, then results in write order".
 
 ### 4. Resume sanitizers (`eye` and friends)
 

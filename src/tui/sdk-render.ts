@@ -22,11 +22,9 @@ import type {
   SDKMessage,
   SDKUserMessage,
 } from "@anthropic-ai/claude-agent-sdk";
-import {
-  treeNodeRefsEqual,
-  type PathNode,
-  type TreeNodeRef,
-} from "../core/tree/nodes.ts";
+import type { UUID } from "node:crypto";
+import type { SessionEntry } from "../core/session/file.ts";
+import { treeNodeRefsEqual, type TreeNodeRef } from "../core/tree/nodes.ts";
 import type {
   RenderAssistant,
   RenderBlock,
@@ -251,28 +249,27 @@ export function toolResultsOf(message: SDKUserMessage): RenderToolResult[] {
  * `boundaryMissing` set; the caller decides whether to warn.
  */
 export function pathUpToBoundary(
-  path: PathNode[],
+  path: TreeNodeRef[],
+  byUuid: ReadonlyMap<UUID, SessionEntry>,
   leafRow: TreeNodeRef | undefined,
-): { nodes: PathNode[]; boundaryMissing: boolean } {
+): { nodes: TreeNodeRef[]; boundaryMissing: boolean } {
   if (leafRow === undefined) {
     return { nodes: path, boundaryMissing: false };
   }
-  const matchIndex = path.findIndex((node) =>
-    treeNodeRefsEqual(node.ref, leafRow),
-  );
+  const matchIndex = path.findIndex((ref) => treeNodeRefsEqual(ref, leafRow));
   if (matchIndex === -1) {
     return { nodes: path, boundaryMissing: true };
   }
   return {
     nodes: [
       ...path.slice(0, matchIndex + 1),
-      ...path
-        .slice(matchIndex + 1)
-        .filter(
-          (node) =>
-            node.entry.subtype === "compact_boundary" ||
-            node.entry.isCompactSummary === true,
-        ),
+      ...path.slice(matchIndex + 1).filter((ref) => {
+        const entry = byUuid.get(ref.uuid);
+        return (
+          entry?.subtype === "compact_boundary" ||
+          entry?.isCompactSummary === true
+        );
+      }),
     ],
     boundaryMissing: false,
   };

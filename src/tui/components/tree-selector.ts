@@ -60,7 +60,7 @@ export type TreePickAction =
 function summaryChainUuids(
   summary: SessionEntry,
   entries: SessionEntry[],
-  entryOf: ReadonlyMap<UUID, SessionEntry>,
+  byUuid: ReadonlyMap<UUID, SessionEntry>,
   onInvalid: OnInvalid,
 ): UUID[] | undefined {
   // NOTE: For an "up_to" summary, the summary appears in the assistant's
@@ -78,7 +78,7 @@ function summaryChainUuids(
     return undefined;
   }
   return chain.filter((uuid) => {
-    const type = entryOf.get(uuid)?.type;
+    const type = byUuid.get(uuid)?.type;
     return type === "user" || type === "assistant";
   });
 }
@@ -107,11 +107,11 @@ function summaryChainUuids(
 export function resolveTreePick(
   fullTree: ParentMap,
   entries: SessionEntry[],
-  entryOf: ReadonlyMap<UUID, SessionEntry>,
+  byUuid: ReadonlyMap<UUID, SessionEntry>,
   pick: TreeNodeRef,
   onInvalid: OnInvalid,
 ): TreePickAction {
-  const pickedEntry = entryOf.get(pick.uuid);
+  const pickedEntry = byUuid.get(pick.uuid);
   if (pickedEntry?.subtype === "compact_boundary") {
     const boundaryIndex = entries.findIndex(
       (entry) => entry.uuid === pickedEntry.uuid,
@@ -119,7 +119,7 @@ export function resolveTreePick(
     const rewindTo = loadedContext(
       entries.slice(0, boundaryIndex),
       onInvalid,
-    ).findLast((ref) => entryOf.get(ref.uuid)?.type === "assistant");
+    ).findLast((ref) => byUuid.get(ref.uuid)?.type === "assistant");
     return rewindTo === undefined
       ? { kind: "newRoot" }
       : { kind: "rewind", rewindTo };
@@ -127,31 +127,33 @@ export function resolveTreePick(
   if (
     pickedEntry?.isCompactSummary === true &&
     pickedEntry.parentUuid != null &&
-    entryOf.get(pickedEntry.parentUuid)?.subtype === "compact_boundary"
+    byUuid.get(pickedEntry.parentUuid)?.subtype === "compact_boundary"
   ) {
-    const chain = summaryChainUuids(pickedEntry, entries, entryOf, onInvalid);
+    const chain = summaryChainUuids(pickedEntry, entries, byUuid, onInvalid);
     if (chain !== undefined) {
       return { kind: "setChain", uuids: chain };
     }
   }
-  const path = pathToLeaf(fullTree, entryOf, pick);
-  const picked = path.at(-1);
-  if (picked?.entry.type === "assistant") {
+  const path = pathToLeaf(fullTree, byUuid, pick);
+  const entryAt = (index: number): SessionEntry | undefined => {
+    const ref = path.at(index);
+    return ref === undefined ? undefined : byUuid.get(ref.uuid);
+  };
+  const picked = entryAt(-1);
+  if (picked?.type === "assistant") {
     return { kind: "rewind", rewindTo: pick };
   }
   const pickedContent =
-    picked !== undefined &&
-    picked.entry.type === "user" &&
-    typeof picked.entry.message === "object" &&
-    picked.entry.message !== null
-      ? (picked.entry.message as { content?: unknown }).content
+    picked?.type === "user" &&
+    typeof picked.message === "object" &&
+    picked.message !== null
+      ? (picked.message as { content?: unknown }).content
       : undefined;
   const editorText = extractTextContent(pickedContent);
   const editorTextField = editorText === "" ? {} : { editorText };
   for (let index = path.length - 2; index >= 0; index -= 1) {
-    const ancestor = path[index]!;
-    if (ancestor.entry.type === "assistant") {
-      return { kind: "rewind", rewindTo: ancestor.ref, ...editorTextField };
+    if (entryAt(index)?.type === "assistant") {
+      return { kind: "rewind", rewindTo: path[index]!, ...editorTextField };
     }
   }
   return { kind: "newRoot", ...editorTextField };
@@ -191,14 +193,14 @@ export class TreeSelectorComponent extends Container implements Focusable {
   constructor(
     leaf: TreeNodeRef | null,
     displayTree: DisplayTree,
-    entryOf: ReadonlyMap<UUID, SessionEntry>,
+    byUuid: ReadonlyMap<UUID, SessionEntry>,
     onSelect: (pick: TreeNodeRef) => void,
     onCancel: () => void,
   ) {
     super();
     const parentMap = displayTree.parentMap;
     this.roots = toLayoutTree(parentMap, (id) =>
-      entryOf.get(parseTreeNodeRef(id).uuid)!,
+      byUuid.get(parseTreeNodeRef(id).uuid)!,
     );
     // A hidden leaf occurrence marks its nearest visible row (a rootless
     // hidden chain → no marker, matching filtered-leaf behavior).
@@ -206,11 +208,11 @@ export class TreeSelectorComponent extends Container implements Focusable {
       leaf === null ? undefined : displayTree.nearestVisibleRow(leaf);
     this.currentLeafId =
       leafRow === undefined ? null : formatTreeNodeRef(leafRow);
-    this.toolNames = collectToolNames([...entryOf.values()]);
+    this.toolNames = collectToolNames([...byUuid.values()]);
     this.finalIds = collectFinalAssistantIds(
       parentMap,
       treeChildren(parentMap),
-      entryOf,
+      byUuid,
     );
     this.onSelect = onSelect;
     this.onCancel = onCancel;

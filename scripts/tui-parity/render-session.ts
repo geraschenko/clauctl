@@ -31,7 +31,7 @@ export function renderSessionFile(
   const onInvalid = (message: string): void => {
     console.error(`warning: ${sessionFilePath}: ${message}`);
   };
-  const entryOf = entriesByUuid(entries);
+  const byUuid = entriesByUuid(entries);
   const fullTree = buildTree(entries, onInvalid);
   const displayTree = toDisplayTree(fullTree, entries);
   const leaf = seedFromEntries(entries, onInvalid).leaf ?? null;
@@ -39,8 +39,8 @@ export function renderSessionFile(
     leaf === null ? null : (displayTree.nearestVisibleRow(leaf) ?? null);
   const container = new Container();
   const renderer = new TranscriptRenderer(container);
-  for (const node of pathToLeaf(displayTree.parentMap, entryOf, leafRow)) {
-    renderer.appendPathNode(node);
+  for (const ref of pathToLeaf(displayTree.parentMap, byUuid, leafRow)) {
+    renderer.appendEntry(byUuid.get(ref.uuid)!);
   }
   return container.render(width);
 }

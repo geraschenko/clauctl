@@ -1,15 +1,18 @@
 /**
  * The CLI loader's load-time transform, ported from the decompiled binary
- * (v2.1.195). The "Ground truth" section of docs/specs/session-tree.md
- * records the transform and the extraction method; probe ids (e.g. P10,
- * p14) cite docs/derisk/compact-boundary-injection/FINDINGS.md. This
- * module owns every relink rule — buildTree and the display transform call
- * in here rather than restating any of them.
+ * (v2.1.250), in stages: 1 boundary relink + cut, 2 root-to-leaf walk,
+ * 3 parallel-tool-group expansion, 4 resume sanitization. (Stage 5, wire
+ * normalization, happens per request inside the CLI — out of scope here.)
+ * "The load pipeline" section of
+ * docs/derisk/compact-boundary-injection/FINDINGS.md specifies the stages;
+ * probe ids in comments (e.g. P10, p14) cite the same file. This module
+ * owns every relink rule — buildTree and the display transform call in
+ * here rather than restating any of them.
  */
 
 import type { UUID } from "node:crypto";
 import type { SessionEntry } from "../session/file.ts";
-import type { TreeNodeRef } from "./nodes.ts";
+import { formatTreeNodeRef, type TreeNodeRef } from "./nodes.ts";
 
 /** Sink for corrupt-session-file diagnostics (an invalid relink, a
  *  parentUuid cycle). Required so ignoring them is a visible choice at the
@@ -77,8 +80,12 @@ export function invalidRelinkReason(
   const preserved = boundary.preservedMessages;
   if (new Set(preserved.uuids).size !== preserved.uuids.length) {
     // Deliberate fail-closed divergence: the binary rewrites a duplicated
-    // playlist unchecked, leaving parent cycles (p14; see file comment).
-    // TDC: why on earth would we have this divergence?
+    // preserved list unchecked over a uuid-keyed map, so the repeat clobbers
+    // its earlier reparenting — the prefix before the duplicate's
+    // second-to-last occurrence is functionally deleted and the remainder keeps
+    // a parent cycle (p14: the summary vanished from the wire; see file
+    // comment). A duplicate can never mean "this message twice", so rejecting
+    // loses nothing.
     return "duplicated uuid in preservedMessages.uuids";
   }
   if (preserved.uuids.includes(preserved.anchorUuid)) {
@@ -150,14 +157,253 @@ export function parentOfPreserved(
     : { uuid: preserved.uuids[index - 1]!, viaBoundary: boundary.uuid };
 }
 
+/** The group-collection maps both stage-3 expansion (see file comment) and
+ *  the display tree build from the same code: all assistant entries per API
+ *  message.id, and the tool_result user children per call entry. Values are
+ *  uuids: byUuid stays the single store of entry payloads, and both
+ *  consumers already hold it. First occurrence wins on a duplicated uuid,
+ *  matching buildTree; uuid-less entries contribute nothing. */
+export interface ToolGroupMaps {
+  assistantsByMessageId: Map<string, UUID[]>;
+  /** Result entry uuids per CALL ENTRY uuid (each result's parentUuid) —
+   *  not per toolu_… tool call id. */
+  resultsByCallUuid: Map<UUID, UUID[]>;
+}
+
+/** Content blocks of an entry's API message ([] for non-array content). */
+interface ContentBlock {
+  type?: string;
+  /** tool_use block id. */
+  id?: string;
+  /** tool_result block back-reference to its tool_use block id. */
+  tool_use_id?: string;
+}
+function contentBlocks(entry: SessionEntry): ContentBlock[] {
+  const content = (entry.message as { content?: unknown } | undefined)?.content;
+  return Array.isArray(content) ? (content as ContentBlock[]) : [];
+}
+
+function apiMessageIdOf(entry: SessionEntry): string | undefined {
+  return (entry.message as { id?: string } | undefined)?.id;
+}
+
+/** The entry carries a tool_use block — the entry-level "tool call" whose
+ *  pairing with its tool_result children preserved-uuids normalization
+ *  guards. */
+export function isToolCallEntry(entry: SessionEntry): boolean {
+  return (
+    entry.type === "assistant" &&
+    contentBlocks(entry).some((block) => block.type === "tool_use")
+  );
+}
+
+/** The toolu_… tool_use block ids the entry carries. */
+export function toolCallIdsOf(entry: SessionEntry): string[] {
+  return contentBlocks(entry)
+    .filter((block) => block.type === "tool_use")
+    .flatMap((block) => (block.id === undefined ? [] : [block.id]));
+}
+
+/** The entry carries a tool_result block (a call's user-side child). */
+export function isToolResultEntry(entry: SessionEntry): boolean {
+  return (
+    entry.type === "user" &&
+    contentBlocks(entry).some((block) => block.type === "tool_result")
+  );
+}
+
+/** Every content block is thinking — the shape stage 4 drops when a whole
+ *  API-message group reduces to it (p19; see file comment). */
+export function isThinkingOnlyEntry(entry: SessionEntry): boolean {
+  const blocks = contentBlocks(entry);
+  return (
+    blocks.length > 0 &&
+    blocks.every(
+      (block) =>
+        // The API's two thinking block kinds; the SDK's BetaContentBlock
+        // union (node_modules/@anthropic-ai/sdk/resources/beta/messages/
+        // messages.d.ts) is the reference for possible block types.
+        // redacted_thinking is thinking the API returned encrypted;
+        // classing it as thinking-kind follows the API's typing — the p19
+        // probes exercised only plain thinking.
+        block.type === "thinking" || block.type === "redacted_thinking",
+    )
+  );
+}
+
+function appendToGroup<K>(map: Map<K, UUID[]>, key: K, entryUuid: UUID): void {
+  const group = map.get(key);
+  if (group === undefined) {
+    map.set(key, [entryUuid]);
+  } else {
+    group.push(entryUuid);
+  }
+}
+
+export function toolGroupMaps(entries: SessionEntry[]): ToolGroupMaps {
+  const assistantsByMessageId = new Map<string, UUID[]>();
+  const resultsByCallUuid = new Map<UUID, UUID[]>();
+  const seenUuids = new Set<UUID>();
+  for (const entry of entries) {
+    if (entry.uuid === undefined || seenUuids.has(entry.uuid)) {
+      continue;
+    }
+    seenUuids.add(entry.uuid);
+    if (entry.type === "assistant") {
+      const apiMessageId = apiMessageIdOf(entry);
+      if (apiMessageId !== undefined) {
+        appendToGroup(assistantsByMessageId, apiMessageId, entry.uuid);
+      }
+    } else if (entry.parentUuid != null && isToolResultEntry(entry)) {
+      appendToGroup(resultsByCallUuid, entry.parentUuid, entry.uuid);
+    }
+  }
+  return { assistantsByMessageId, resultsByCallUuid };
+}
+
+/** Stage 3 of the load pipeline, mirroring the binary's parallel-group
+ *  recovery exactly: for each API-message group with an on-chain member,
+ *  splice the missing same-id assistant siblings (timestamp-sorted)
+ *  then the missing tool_result children of all group members
+ *  (timestamp-sorted) immediately after the group's LAST on-chain assistant
+ *  entry. On-chain refs keep their positions and their viaBoundary;
+ *  recovered entries enter as bare `{uuid}` refs (they are never
+ *  boundary-preserved). byUuid is both the entry-payload store and the
+ *  recovery universe — pass only entries that survived the relink + cut:
+ *  an excluded pre-boundary sibling must NOT be recovered (p20-part1; see
+ *  file comment). Precondition: chain is a root-first path, so its refs
+ *  are unique. */
+export function expandParallelToolGroups(
+  chain: TreeNodeRef[],
+  byUuid: Map<UUID, SessionEntry>,
+): TreeNodeRef[] {
+  const { assistantsByMessageId, resultsByCallUuid } = toolGroupMaps([
+    ...byUuid.values(),
+  ]);
+  const onChain = new Set<UUID>();
+  /** Splice anchor per API message id: overwriting in chain order matches
+   *  the claude binary (its map assignment keeps the LAST on-chain assistant). */
+  const anchorRefOf = new Map<string, TreeNodeRef>();
+  for (const ref of chain) {
+    onChain.add(ref.uuid);
+    const entry = byUuid.get(ref.uuid);
+    if (entry?.type === "assistant") {
+      const apiMessageId = apiMessageIdOf(entry);
+      if (apiMessageId !== undefined) {
+        anchorRefOf.set(apiMessageId, ref);
+      }
+    }
+  }
+  const timestampOf = (entryUuid: UUID): string =>
+    (byUuid.get(entryUuid)?.timestamp as string | undefined) ?? "";
+  const byTimestamp = (a: UUID, b: UUID): number =>
+    timestampOf(a).localeCompare(timestampOf(b));
+  const recovered = new Set<UUID>();
+  const insertionsAfter = new Map<string, UUID[]>();
+  for (const [apiMessageId, anchorRef] of anchorRefOf) {
+    const members = assistantsByMessageId.get(apiMessageId) ?? [];
+    const missingSiblings = members
+      .filter((member) => !onChain.has(member) && !recovered.has(member))
+      .sort(byTimestamp);
+    const missingResults = members
+      .flatMap((member) => resultsByCallUuid.get(member) ?? [])
+      .filter((result) => !onChain.has(result) && !recovered.has(result))
+      .sort(byTimestamp);
+    const block = [...missingSiblings, ...missingResults];
+    if (block.length === 0) {
+      continue;
+    }
+    for (const entryUuid of block) {
+      recovered.add(entryUuid);
+    }
+    insertionsAfter.set(formatTreeNodeRef(anchorRef), block);
+  }
+  if (insertionsAfter.size === 0) {
+    return chain;
+  }
+  const expanded: TreeNodeRef[] = [];
+  for (const ref of chain) {
+    expanded.push(ref);
+    const block = insertionsAfter.get(formatTreeNodeRef(ref));
+    if (block !== undefined) {
+      expanded.push(...block.map((entryUuid) => ({ uuid: entryUuid })));
+    }
+  }
+  return expanded;
+}
+
+/** Stage 4, resume sanitization, entry-level, in order: drop assistant
+ *  entries whose content is only tool_use blocks none of which has a
+ *  tool_result anywhere on the expanded chain (killed turns, p20; see file
+ *  comment); then drop API-message groups reduced to thinking-only entries
+ *  (p19; see file comment).
+ *  Entry-granularity approximation: a mixed text + dead-tool_use entry is
+ *  kept whole where the CLI drops just the dead block (not a shape the CLI
+ *  writes — one block per assistant entry). */
+function sanitizeForResume(
+  chain: TreeNodeRef[],
+  byUuid: Map<UUID, SessionEntry>,
+): TreeNodeRef[] {
+  const resolvedCallIds = new Set<string>();
+  for (const ref of chain) {
+    const entry = byUuid.get(ref.uuid);
+    if (entry?.type === "user") {
+      for (const block of contentBlocks(entry)) {
+        if (block.type === "tool_result" && block.tool_use_id !== undefined) {
+          resolvedCallIds.add(block.tool_use_id);
+        }
+      }
+    }
+  }
+  const isDeadCall = (entry: SessionEntry): boolean => {
+    if (entry.type !== "assistant") {
+      return false;
+    }
+    const blocks = contentBlocks(entry);
+    return (
+      blocks.length > 0 &&
+      blocks.every(
+        (block) =>
+          block.type === "tool_use" &&
+          !(block.id !== undefined && resolvedCallIds.has(block.id)),
+      )
+    );
+  };
+  /** Remaining assistant members per API message id (id-less assistants
+   *  are their own singleton group), collected while filtering. */
+  const groupMembers = new Map<string, UUID[]>();
+  const afterCallDrop: TreeNodeRef[] = [];
+  for (const ref of chain) {
+    const entry = byUuid.get(ref.uuid);
+    if (entry !== undefined && isDeadCall(entry)) {
+      continue;
+    }
+    if (entry?.type === "assistant") {
+      appendToGroup(groupMembers, apiMessageIdOf(entry) ?? ref.uuid, ref.uuid);
+    }
+    afterCallDrop.push(ref);
+  }
+  const dropped = new Set<UUID>();
+  for (const members of groupMembers.values()) {
+    if (members.every((member) => isThinkingOnlyEntry(byUuid.get(member)!))) {
+      for (const member of members) {
+        dropped.add(member);
+      }
+    }
+  }
+  return afterCallDrop.filter((ref) => !dropped.has(ref.uuid));
+}
+
 /** Our best estimate of the context the NEXT appended message will see:
  *  the loader transform of the current file — the last boundary's relink
  *  and cut, leaf selection, then the parent walk from the leaf. A trailing
  *  boundary is honored even though the binary applies it only on the next
  *  load, because that next load is exactly what the next appended message
- *  gets. Estimate: downstream request normalization (tool-pair
- *  sanitization, attachment dropping, API-message grouping — FINDINGS
- *  "failure modes") is out of scope. An element carries viaBoundary iff
+ *  gets. Models stages 1–4 of the load pipeline: relink + cut, leaf walk,
+ *  parallel-group expansion, resume sanitization. Stage 5 (wire
+ *  normalization: adjacent-user merge, same-id regrouping, cross-model
+ *  thinking strip) is out of scope — it reshapes API messages, not which
+ *  entries are present. An element carries viaBoundary iff
  *  its uuid is among the boundary's preserved uuids. Duplicated raw uuids
  *  are last-wins, matching the loader's uuid-keyed map (legal re-persisted
  *  copies; see Edge cases in docs/specs/session-tree.md). */
@@ -320,7 +566,16 @@ export function loadedContext(
     current = parentOf(current);
   }
   chain.reverse();
-  return chain;
+  // Stages 3 + 4 over the entries that survived the cut: an entry a
+  // boundary cut away must be neither recovered nor consulted (its
+  // tool_result cannot revive a call the preserved list kept).
+  const survivingByUuid = new Map(
+    [...byUuid].filter(([entryUuid]) => !deleted(entryUuid)),
+  );
+  return sanitizeForResume(
+    expandParallelToolGroups(chain, survivingByUuid),
+    survivingByUuid,
+  );
 }
 
 /** Uuid projection of loadedContext. */

@@ -45,12 +45,6 @@ export interface SessionSnapshot {
   leaf: TreeNodeRef | null;
 }
 
-/** One occurrence with its entry payload — the render/path unit. */
-export interface PathNode {
-  ref: TreeNodeRef;
-  entry: SessionEntry;
-}
-
 /** "<uuid>" or "<uuid>@<viaBoundary>" ("@" cannot appear in a uuid). */
 export function formatTreeNodeRef(ref: TreeNodeRef): string {
   return ref.viaBoundary === undefined
@@ -124,18 +118,18 @@ export function treeNodeRefsEqual(
 
 /** Root-first path to the leaf occurrence; [] when leaf is null or absent
  *  from the tree. Iterative parent walk (no recursion). Throws on a parent
- *  cycle or an occurrence whose uuid is missing from entryOf — both are
+ *  cycle or an occurrence whose uuid is missing from byUuid — both are
  *  corruption, impossible from buildTree + entriesByUuid over the same
  *  entries. */
 export function pathToLeaf(
   parentMap: ParentMap,
-  entryOf: ReadonlyMap<UUID, SessionEntry>,
+  byUuid: ReadonlyMap<UUID, SessionEntry>,
   leaf: TreeNodeRef | null,
-): PathNode[] {
+): TreeNodeRef[] {
   if (leaf === null || !parentMap.has(formatTreeNodeRef(leaf))) {
     return [];
   }
-  const path: PathNode[] = [];
+  const path: TreeNodeRef[] = [];
   const seen = new Set<string>();
   let current: string | null = formatTreeNodeRef(leaf);
   while (current !== null) {
@@ -150,11 +144,10 @@ export function pathToLeaf(
       throw new Error(`pathToLeaf: parent ${current} names no tree occurrence`);
     }
     const ref = parseTreeNodeRef(current);
-    const entry = entryOf.get(ref.uuid);
-    if (entry === undefined) {
+    if (!byUuid.has(ref.uuid)) {
       throw new Error(`pathToLeaf: no entry for uuid ${ref.uuid}`);
     }
-    path.push({ ref, entry });
+    path.push(ref);
     current = parent;
   }
   path.reverse();
@@ -188,9 +181,9 @@ function apiMessageIdOf(entry: SessionEntry | undefined): string | undefined {
 export function isFinalAssistantEntry(
   id: string,
   children: ReadonlyMap<string | null, readonly string[]>,
-  entryOf: ReadonlyMap<UUID, SessionEntry>,
+  byUuid: ReadonlyMap<UUID, SessionEntry>,
 ): boolean {
-  const entry = entryOf.get(parseTreeNodeRef(id).uuid);
+  const entry = byUuid.get(parseTreeNodeRef(id).uuid);
   if (entry?.type !== "assistant") {
     return false;
   }
@@ -201,7 +194,6 @@ export function isFinalAssistantEntry(
   const childIds = children.get(id) ?? [];
   return !childIds.some(
     (child) =>
-      apiMessageIdOf(entryOf.get(parseTreeNodeRef(child).uuid)) ===
-      apiMessageId,
+      apiMessageIdOf(byUuid.get(parseTreeNodeRef(child).uuid)) === apiMessageId,
   );
 }

@@ -10,14 +10,24 @@
  * behavior.
  */
 
-import type { UUID } from "node:crypto";
+import { randomUUID, type UUID } from "node:crypto";
 import type { NonNullableUsage } from "@anthropic-ai/claude-agent-sdk";
-import { loadedContext, loadedContextUuids } from "../tree/loader.ts";
+import {
+  invalidRelinkReason,
+  isThinkingOnlyEntry,
+  isToolCallEntry,
+  isToolResultEntry,
+  loadedContext,
+  loadedContextUuids,
+  toolCallIdsOf,
+  toolGroupMaps,
+} from "../tree/loader.ts";
 import type { SetContextRequest, SetContextResult } from "../sdk-socket.ts";
 import type { TreeNodeRef } from "../tree/nodes.ts";
 import {
   appendSessionEntries,
   buildBoundaryEntries,
+  entriesByUuid,
   readSessionEntries,
   type SessionEntry,
 } from "../session/file.ts";
@@ -39,6 +49,158 @@ const preTokensOf = (usage: NonNullableUsage | undefined): number =>
       usage.cache_creation_input_tokens +
       usage.cache_read_input_tokens +
       usage.output_tokens;
+
+export type NormalizePreservedUuidsResult =
+  { ok: true; uuids: UUID[]; added: UUID[] } | { ok: false; reason: string };
+
+/** Normalize or reject requested preserved uuids against the file: the
+ *  boundary written from the result presents exactly this list — expansion
+ *  adds nothing, sanitization drops nothing. Completes mismatched tool
+ *  call/result pairs from the file (missing result inserted immediately
+ *  after its call, missing call immediately before its result), reporting
+ *  what it added; fail-closed rejects lists completion cannot fix (either
+ *  half of a pair nonexistent in the file; thinking-only API message
+ *  groups; relink-invalid shapes — duplicates, unknown uuids — delegated
+ *  to invalidRelinkReason so the check exists in one place). Rejection
+ *  philosophy: a caller who really wants an entry dropped should send a
+ *  shorter list that omits it explicitly. */
+export function normalizePreservedUuids(
+  requested: UUID[],
+  byUuid: Map<UUID, SessionEntry>,
+): NormalizePreservedUuidsResult {
+  // Relink validity exactly as the loader will judge the written boundary.
+  // The synthetic anchor keeps the anchor-in-uuids rule out of play:
+  // buildBoundaryEntries mints a fresh anchor uuid, so that shape is
+  // unproducible here.
+  const relinkReason = invalidRelinkReason(new Set(byUuid.keys()), {
+    uuid: randomUUID(),
+    preservedMessages: { anchorUuid: randomUUID(), uuids: requested },
+  });
+  if (relinkReason !== undefined) {
+    const rationale = relinkReason.startsWith("duplicated uuid")
+      ? " — the loader's relink rewrites parents over a uuid-keyed map, so" +
+        " a repeated uuid clobbers its earlier reparenting: everything" +
+        " before the duplicate's second-to-last occurrence is functionally" +
+        " deleted and the rest keeps a parent cycle. A duplicate cannot" +
+        ' mean "this message twice"; if the deletion is what you want,' +
+        " send the shorter list explicitly"
+      : "";
+    return { ok: false, reason: `${relinkReason}${rationale}` };
+  }
+
+  const { assistantsByMessageId, resultsByCallUuid } = toolGroupMaps([
+    ...byUuid.values(),
+  ]);
+  const requestedSet = new Set(requested);
+
+  // Rejections up front, so placement below cannot fail. Only requested
+  // entries can reject: a pulled-in call has at least the requested result
+  // that pulled it in, and a pulled-in result's call is the entry being
+  // placed.
+  for (const entryUuid of requested) {
+    const entry = byUuid.get(entryUuid)!; // membership checked by the relink gate
+    if (isToolResultEntry(entry)) {
+      const callUuid = entry.parentUuid;
+      if (callUuid == null || !byUuid.has(callUuid)) {
+        return {
+          ok: false,
+          reason:
+            `tool result ${entryUuid} has no call entry in the file — ` +
+            "its parent is missing, so the pair cannot be completed; " +
+            "omit the result explicitly",
+        };
+      }
+    } else if (
+      isToolCallEntry(entry) &&
+      (resultsByCallUuid.get(entryUuid) ?? []).length === 0
+    ) {
+      return {
+        ok: false,
+        reason:
+          `tool call ${entryUuid} (${toolCallIdsOf(entry).join(", ")}) has ` +
+          "no tool_result anywhere in the file (killed turn) — the loader " +
+          "would silently drop the call entry; omit it explicitly",
+      };
+    }
+  }
+
+  // Sets are insertion-ordered, so each doubles as the output sequence and
+  // its own fast containment check; the relink gate already rejected
+  // duplicates, so add() never silently collapses two requests.
+  const placed = new Set<UUID>();
+  const added = new Set<UUID>();
+  /** Place the entry, first pulling in the missing half of any tool pair:
+   *  a result's call goes immediately before it, a call's results
+   *  immediately after — otherwise the written list still splits the pair.
+   *  A dependency that was itself requested is left for its own turn in
+   *  the loop below, so the requested order passes through verbatim. */
+  const place = (entryUuid: UUID): void => {
+    if (placed.has(entryUuid)) {
+      return;
+    }
+    const entry = byUuid.get(entryUuid)!;
+    if (isToolResultEntry(entry)) {
+      const callUuid = entry.parentUuid as UUID; // validated above
+      if (!requestedSet.has(callUuid)) {
+        place(callUuid);
+      }
+    }
+    placed.add(entryUuid);
+    if (!requestedSet.has(entryUuid)) {
+      added.add(entryUuid);
+    }
+    if (isToolCallEntry(entry)) {
+      for (const result of resultsByCallUuid.get(entryUuid) ?? []) {
+        if (!requestedSet.has(result)) {
+          place(result);
+        }
+      }
+    }
+  };
+  for (const entryUuid of requested) {
+    place(entryUuid);
+  }
+
+  // Thinking-only API-message groups after completion: the loader drops such
+  // turns whole (p19; see file comment), so their presented context would
+  // silently diverge from the preserved list.
+  for (const [apiMessageId, members] of assistantsByMessageId) {
+    const included = members.filter((member) => placed.has(member));
+    if (
+      included.length > 0 &&
+      included.every((member) => isThinkingOnlyEntry(byUuid.get(member)!))
+    ) {
+      return {
+        ok: false,
+        reason:
+          `the list keeps only thinking entries of API message ` +
+          `${apiMessageId} — the loader drops thinking-only turns whole; ` +
+          "omit them explicitly",
+      };
+    }
+  }
+  // An id-less thinking-only assistant is its own group: every real
+  // assistant entry records its API message id, but SessionEntry cannot
+  // guarantee one, and the loader's sanitizer groups by
+  // `apiMessageIdOf(entry) ?? uuid` — it would drop such an entry, so
+  // accepting it here would silently diverge.
+  for (const entryUuid of placed) {
+    const entry = byUuid.get(entryUuid)!;
+    if (
+      entry.type === "assistant" &&
+      (entry.message as { id?: string } | undefined)?.id === undefined &&
+      isThinkingOnlyEntry(entry)
+    ) {
+      return {
+        ok: false,
+        reason:
+          `thinking-only entry ${entryUuid} — the loader drops ` +
+          "thinking-only turns whole; omit it explicitly",
+      };
+    }
+  }
+  return { ok: true, uuids: [...placed], added: [...added] };
+}
 
 /** The daemon state set-context shares with the rest of request handling:
  *  the reader/writer gate it takes exclusively, and the two slots it writes
@@ -194,9 +356,10 @@ export function createSetContextHandler(
       return {};
     }
 
-    // Abandoned branch (unreachable by resumeSessionAt, P2 e) or a member of
-    // a boundary's preserved uuids (reachable but with boundary-kept
-    // semantics, P9 c): append a no-summary boundary listing the computed
+    // Abandoned branch (unreachable by resumeSessionAt, P2 e; see file
+    // comment) or a member of a boundary's preserved uuids (reachable but
+    // with boundary-kept semantics, P9 c; see file comment): append a
+    // no-summary boundary listing the computed
     // chain (P9 a; see file comment). System entries on the chain (e.g.
     // turn_duration) carry no context and are left off the preserved uuids.
     const messageUuids = desired.filter((uuid) => {
@@ -221,17 +384,13 @@ export function createSetContextHandler(
 
   return async (parsed: SetContextRequest): Promise<SetContextResult> => {
     if ("uuids" in parsed) {
-      // Empty uuids without a summary is a deliberate context reset (P10):
+      // Empty uuids without a summary is a deliberate context reset (P10;
+      // see file comment):
       // the appended boundary preserves nothing and the loader honors it as
       // an empty context.
       if (parsed.anchor === "summary" && parsed.summaryText === undefined) {
         throw new Error(
           'set-context: anchor "summary" requires summaryText — nothing to anchor on',
-        );
-      }
-      if (new Set(parsed.uuids).size !== parsed.uuids.length) {
-        throw new Error(
-          "set-context: duplicate uuids — the loader silently skips the whole relink",
         );
       }
     }
@@ -341,14 +500,12 @@ export function createSetContextHandler(
 
       let result: SetContextResult;
       if ("uuids" in parsed) {
-        const onDisk = new Set(
-          entries.map((entry) => entry.uuid).filter((uuid) => uuid),
+        const normalized = normalizePreservedUuids(
+          parsed.uuids,
+          entriesByUuid(entries),
         );
-        const missing = parsed.uuids.filter((uuid) => !onDisk.has(uuid));
-        if (missing.length > 0) {
-          throw new Error(
-            `set-context: uuids not in the session file: ${missing.join(", ")}`,
-          );
+        if (!normalized.ok) {
+          throw new Error(`set-context: ${normalized.reason}`);
         }
         const anchor =
           parsed.summaryText === undefined
@@ -357,7 +514,7 @@ export function createSetContextHandler(
         const built = buildBoundaryEntries({
           sessionId: sessionId as UUID,
           cwd: deps.cwd,
-          uuids: parsed.uuids,
+          uuids: normalized.uuids,
           ...(parsed.summaryText !== undefined && {
             summaryText: parsed.summaryText,
           }),
@@ -375,12 +532,15 @@ export function createSetContextHandler(
         const summaryUuid = built.result.summaryUuid;
         const expected =
           summaryUuid === undefined
-            ? parsed.uuids
+            ? normalized.uuids
             : anchor === "summary"
-              ? [summaryUuid, ...parsed.uuids]
-              : [...parsed.uuids, summaryUuid];
+              ? [summaryUuid, ...normalized.uuids]
+              : [...normalized.uuids, summaryUuid];
         await restartAndVerify(expected);
-        result = built.result;
+        result =
+          normalized.added.length > 0
+            ? { ...built.result, added: normalized.added }
+            : built.result;
       } else {
         result = await handleRewind(parsed.rewindTo, {
           filePath,

@@ -229,11 +229,11 @@ export function entrySummary(
 export function collectFinalAssistantIds(
   parentMap: ParentMap,
   children: ReadonlyMap<string | null, readonly string[]>,
-  entryOf: ReadonlyMap<UUID, SessionEntry>,
+  byUuid: ReadonlyMap<UUID, SessionEntry>,
 ): Set<string> {
   const finalIds = new Set<string>();
   for (const id of parentMap.keys()) {
-    if (isFinalAssistantEntry(id, children, entryOf)) {
+    if (isFinalAssistantEntry(id, children, byUuid)) {
       finalIds.add(id);
     }
   }
@@ -280,7 +280,7 @@ export function formatSessionSnapshot(
   snapshot: SessionSnapshot,
   options: TreeFormatOptions,
 ): string {
-  const entryOf = entriesByUuid(snapshot.entries);
+  const byUuid = entriesByUuid(snapshot.entries);
   const fullTree = buildTree(snapshot.entries, () => {});
   let parentMap: ParentMap;
   let currentLeafId: string | null;
@@ -301,10 +301,10 @@ export function formatSessionSnapshot(
   const finalIds = collectFinalAssistantIds(
     parentMap,
     treeChildren(parentMap),
-    entryOf,
+    byUuid,
   );
   const lines = flattenVisibleTree(
-    toLayoutTree(parentMap, (id) => entryOf.get(parseTreeNodeRef(id).uuid)!),
+    toLayoutTree(parentMap, (id) => byUuid.get(parseTreeNodeRef(id).uuid)!),
     currentLeafId,
     (node) =>
       passesFilter(

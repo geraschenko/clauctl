@@ -167,7 +167,7 @@ test("compactBoundaryAt: present-but-malformed preservedMessages throws", () => 
   );
 });
 
-test("invalidRelinkReason: missing uuid, duplicate (fail-closed divergence, p14), valid otherwise", () => {
+test("invalidRelinkReason: missing uuid, duplicate (fail-closed divergence, p14; see file comment), valid otherwise", () => {
   const sid = uuid();
   const u1 = userEntry(null, sid);
   const fileUuids = new Set([u1.uuid]);
@@ -339,7 +339,7 @@ test("a trailing metadata-less boundary supersedes an earlier metadata boundary,
   ]);
 });
 
-test("P10: a trailing valid empty-uuids boundary wipes the context", () => {
+test("P10 (see file comment): a trailing valid empty-uuids boundary wipes the context", () => {
   const sid = uuid();
   const u1 = userEntry(null, sid);
   const a1 = assistantEntry(u1.uuid, sid);
@@ -379,7 +379,7 @@ test("a missing preserved uuid degrades the boundary to a wipe (named divergence
   );
 });
 
-test("duplicated uuid in the preserved list degrades the same way (fail-closed divergence; binary rewrites unchecked, p14)", () => {
+test("duplicated uuid in the preserved list degrades the same way (fail-closed divergence; binary rewrites unchecked, p14; see file comment)", () => {
   const sid = uuid();
   const u1 = userEntry(null, sid);
   const a1 = assistantEntry(u1.uuid, sid);
@@ -611,6 +611,259 @@ test("duplicated raw uuids (re-persisted copies) are tolerated silently, last-wi
       { uuid: u2.uuid, viaBoundary: boundary.uuid },
       { uuid: a2.uuid, viaBoundary: boundary.uuid },
     ],
+  );
+});
+
+// --- loadedContext: stage 3 (parallel-group expansion) -----------------------
+
+/** An assistant tool-call entry; parallel calls share apiMessageId. */
+function callEntry(
+  parentUuid: UUID | null,
+  sessionId: UUID,
+  apiMessageId: string,
+  callId: string,
+  timestamp: string,
+): SessionEntry & { uuid: UUID } {
+  return {
+    uuid: uuid(),
+    parentUuid,
+    type: "assistant",
+    sessionId,
+    timestamp,
+    message: {
+      role: "assistant",
+      id: apiMessageId,
+      content: [{ type: "tool_use", id: callId, name: "Bash", input: {} }],
+    },
+  };
+}
+
+function resultEntry(
+  call: SessionEntry & { uuid: UUID },
+  sessionId: UUID,
+  timestamp: string,
+): SessionEntry & { uuid: UUID } {
+  const callId = (call.message as { content: { id: string }[] }).content[0]!.id;
+  return {
+    uuid: uuid(),
+    parentUuid: call.uuid,
+    type: "user",
+    sessionId,
+    timestamp,
+    message: {
+      role: "user",
+      content: [{ type: "tool_result", tool_use_id: callId, content: "ok" }],
+    },
+  };
+}
+
+function thinkingEntry(
+  parentUuid: UUID | null,
+  sessionId: UUID,
+  apiMessageId: string,
+  timestamp: string,
+): SessionEntry & { uuid: UUID } {
+  return {
+    uuid: uuid(),
+    parentUuid,
+    type: "assistant",
+    sessionId,
+    timestamp,
+    message: {
+      role: "assistant",
+      id: apiMessageId,
+      content: [{ type: "thinking", thinking: "hm", signature: "sig" }],
+    },
+  };
+}
+
+/** The readonly-fold shape (parity fixture readonly-fold.jsonl, turn
+ *  xbYKZyKk): thinking → callA; callB chains off callA; resultB is written
+ *  FIRST (child of callB), resultA last; the continuation parents on
+ *  resultA, the last-written result. The walk alone loses callB and
+ *  resultB. */
+function parallelTurnFixture(): {
+  entries: SessionEntry[];
+  uuids: Record<
+    "u1" | "thinking" | "callA" | "callB" | "resultA" | "resultB" | "u2",
+    UUID
+  >;
+} {
+  const sid = uuid();
+  const messageId = "msg_parallel";
+  const u1 = userEntry(null, sid);
+  const thinking = thinkingEntry(u1.uuid, sid, messageId, "T1");
+  const callA = callEntry(thinking.uuid, sid, messageId, "toolu_A", "T2");
+  const callB = callEntry(callA.uuid, sid, messageId, "toolu_B", "T3");
+  const resultB = resultEntry(callB, sid, "T4");
+  const resultA = resultEntry(callA, sid, "T5");
+  const u2 = userEntry(resultA.uuid, sid);
+  return {
+    entries: [u1, thinking, callA, callB, resultB, resultA, u2],
+    uuids: {
+      u1: u1.uuid,
+      thinking: thinking.uuid,
+      callA: callA.uuid,
+      callB: callB.uuid,
+      resultA: resultA.uuid,
+      resultB: resultB.uuid,
+      u2: u2.uuid,
+    },
+  };
+}
+
+test("stage 3: the off-path call and result splice after the group's last on-chain assistant", () => {
+  const { entries, uuids } = parallelTurnFixture();
+  const { u1, thinking, callA, callB, resultA, resultB, u2 } = uuids;
+  assert.deepEqual(loadedContextUuids(entries, failOnInvalid), [
+    u1,
+    thinking,
+    callA,
+    callB,
+    resultB,
+    resultA,
+    u2,
+  ]);
+  // `.at(-1)` leaf invariant: the chain tip is the file's last entry.
+  assert.equal(loadedContextUuids(entries, failOnInvalid).at(-1), u2);
+});
+
+test("stage 3: a post-boundary parallel turn recovers as bare refs after the preserved chain", () => {
+  const sid = uuid();
+  const u1 = userEntry(null, sid);
+  const a1 = assistantEntry(u1.uuid, sid);
+  const boundary = boundaryEntry({
+    sessionId: sid,
+    uuids: [a1.uuid],
+    anchor: "own",
+  });
+  const messageId = "msg_postboundary";
+  const thinking = thinkingEntry(a1.uuid, sid, messageId, "T1");
+  const callA = callEntry(thinking.uuid, sid, messageId, "toolu_A", "T2");
+  const callB = callEntry(callA.uuid, sid, messageId, "toolu_B", "T3");
+  const resultB = resultEntry(callB, sid, "T4");
+  const resultA = resultEntry(callA, sid, "T5");
+  const u2 = userEntry(resultA.uuid, sid);
+  assert.deepEqual(
+    loadedContext(
+      [u1, a1, boundary, thinking, callA, callB, resultB, resultA, u2],
+      failOnInvalid,
+    ),
+    [
+      { uuid: a1.uuid, viaBoundary: boundary.uuid },
+      { uuid: thinking.uuid },
+      { uuid: callA.uuid },
+      { uuid: callB.uuid },
+      { uuid: resultB.uuid },
+      { uuid: resultA.uuid },
+      { uuid: u2.uuid },
+    ],
+  );
+});
+
+test("stage 3: a pair cut away by a boundary is NOT recovered (p20-part1; see file comment)", () => {
+  // A preserved list may omit a COMPLETE call/result pair of a parallel turn:
+  // the cut removes the pair from the recovery universe, so the
+  // exclusion is presented as-is.
+  const { entries, uuids } = parallelTurnFixture();
+  const sid = entries[0]!.sessionId as UUID;
+  const boundary = boundaryEntry({
+    sessionId: sid,
+    uuids: [uuids.u1, uuids.thinking, uuids.callA, uuids.resultA],
+    anchor: "own",
+  });
+  const refs = loadedContext([...entries, boundary], failOnInvalid);
+  assert.deepEqual(
+    refs,
+    [uuids.u1, uuids.thinking, uuids.callA, uuids.resultA].map((entryUuid) => ({
+      uuid: entryUuid,
+      viaBoundary: boundary.uuid,
+    })),
+  );
+});
+
+test("stage 3: a sibling cut away by a boundary is NOT recovered (p20-part1; see file comment)", () => {
+  const sid = uuid();
+  const messageId = "msg_excluded";
+  const u1 = userEntry(null, sid);
+  const thinking = thinkingEntry(u1.uuid, sid, messageId, "T1");
+  const call = callEntry(thinking.uuid, sid, messageId, "toolu_X", "T2");
+  const result = resultEntry(call, sid, "T3");
+  // The list deliberately omits the thinking sibling: the loader
+  // presents the exclusion as-is because the cut removes the sibling from
+  // the recovery universe.
+  const boundary = boundaryEntry({
+    sessionId: sid,
+    uuids: [call.uuid, result.uuid],
+    anchor: "own",
+  });
+  assert.deepEqual(
+    loadedContextUuids([u1, thinking, call, result, boundary], failOnInvalid),
+    [call.uuid, result.uuid],
+  );
+});
+
+test("stage 3: single-call and interleaved same-id turns pass through untouched", () => {
+  const sid = uuid();
+  // Single call.
+  const u1 = userEntry(null, sid);
+  const call = callEntry(u1.uuid, sid, "msg_single", "toolu_S", "T1");
+  const result = resultEntry(call, sid, "T2");
+  const u2 = userEntry(result.uuid, sid);
+  assert.deepEqual(loadedContextUuids([u1, call, result, u2], failOnInvalid), [
+    u1.uuid,
+    call.uuid,
+    result.uuid,
+    u2.uuid,
+  ]);
+  // Interleaved: call → result → call → result, one message.id, fully
+  // on-chain (a later call parents onto the already-arrived result —
+  // observed in real sessions, e.g. group gzs8Qh in session 4d92f439).
+  const callA = callEntry(u1.uuid, sid, "msg_inter", "toolu_IA", "T1");
+  const resultA = resultEntry(callA, sid, "T2");
+  const callB = callEntry(resultA.uuid, sid, "msg_inter", "toolu_IB", "T3");
+  const resultB = resultEntry(callB, sid, "T4");
+  const u3 = userEntry(resultB.uuid, sid);
+  assert.deepEqual(
+    loadedContextUuids([u1, callA, resultA, callB, resultB, u3], failOnInvalid),
+    [u1.uuid, callA.uuid, resultA.uuid, callB.uuid, resultB.uuid, u3.uuid],
+  );
+});
+
+// --- loadedContext: stage 4 (resume sanitization) ----------------------------
+
+test("stage 4: a result-less tool_use entry is dropped (p20, killed turn; see file comment)", () => {
+  const sid = uuid();
+  const u1 = userEntry(null, sid);
+  const a1 = assistantEntry(u1.uuid, sid);
+  const call = callEntry(a1.uuid, sid, "msg_killed", "toolu_K", "T1");
+  assert.deepEqual(loadedContextUuids([u1, a1, call], failOnInvalid), [
+    u1.uuid,
+    a1.uuid,
+  ]);
+});
+
+test("stage 4: a thinking-only turn is dropped whole (p19; see file comment), including one reduced by the call drop", () => {
+  const sid = uuid();
+  const u1 = userEntry(null, sid);
+  // Pure thinking-only turn.
+  const lone = thinkingEntry(u1.uuid, sid, "msg_lone", "T1");
+  assert.deepEqual(loadedContextUuids([u1, lone], failOnInvalid), [u1.uuid]);
+  // thinking + result-less call: the call drop reduces the group to
+  // thinking-only, which then drops too.
+  const thinking = thinkingEntry(u1.uuid, sid, "msg_reduced", "T1");
+  const call = callEntry(thinking.uuid, sid, "msg_reduced", "toolu_R", "T2");
+  assert.deepEqual(loadedContextUuids([u1, thinking, call], failOnInvalid), [
+    u1.uuid,
+  ]);
+  // A thinking sibling of a COMPLETED call stays (the group is not
+  // thinking-only).
+  const thinking2 = thinkingEntry(u1.uuid, sid, "msg_kept", "T1");
+  const call2 = callEntry(thinking2.uuid, sid, "msg_kept", "toolu_C", "T2");
+  const result2 = resultEntry(call2, sid, "T3");
+  assert.deepEqual(
+    loadedContextUuids([u1, thinking2, call2, result2], failOnInvalid),
+    [u1.uuid, thinking2.uuid, call2.uuid, result2.uuid],
   );
 });
 

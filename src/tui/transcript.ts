@@ -34,7 +34,7 @@ import type {
   SessionMessage,
 } from "@anthropic-ai/claude-agent-sdk";
 import { entryToSessionMessage } from "../core/session/file.ts";
-import type { PathNode } from "../core/tree/nodes.ts";
+import type { SessionEntry } from "../core/session/file.ts";
 import { AssistantMessageComponent } from "./components/assistant-message.ts";
 import { ToolExecutionComponent } from "./components/tool-execution.ts";
 import { UserCommandComponent } from "./components/user-command.ts";
@@ -394,47 +394,47 @@ export class TranscriptRenderer {
   }
 
   /**
-   * Replay one history node through the exact live pipeline: boundary nodes
-   * render the banner their live compact_boundary event would; user prompts
-   * render via appendUserTurn THEN append (tool-result resolution;
+   * Replay one history entry through the exact live pipeline: boundary
+   * entries render the banner their live compact_boundary event would; user
+   * prompts render via appendUserTurn THEN append (tool-result resolution;
    * result-only messages have no visible views); assistant → append.
    * Session-entry metadata that entryToSessionMessage drops (cwd, and later
    * isCompactSummary) is read from the entry here. A SessionMessage carries
    * every field its SDKMessage variant requires, so the cast is a narrowing
    * of `message: unknown`, not a fabrication.
    */
-  appendPathNode(node: PathNode): void {
-    if (node.entry.subtype === "compact_boundary") {
-      const metadata = node.entry.compactMetadata as
+  appendEntry(entry: SessionEntry): void {
+    if (entry.subtype === "compact_boundary") {
+      const metadata = entry.compactMetadata as
         Record<string, unknown> | undefined;
       this.addBanner(compactBanner(metadata?.preTokens, metadata?.postTokens));
       return;
     }
-    if (typeof node.entry.cwd === "string") {
-      this.cwd = node.entry.cwd;
+    if (typeof entry.cwd === "string") {
+      this.cwd = entry.cwd;
     }
     // Slash commands and their stdout can live in system/local_command
     // entries (empirical: /login, /context; others arrive as user
     // messages), which entryToSessionMessage drops.
     if (
-      node.entry.type === "system" &&
-      node.entry.subtype === "local_command" &&
-      typeof node.entry.content === "string"
+      entry.type === "system" &&
+      entry.subtype === "local_command" &&
+      typeof entry.content === "string"
     ) {
-      for (const view of userTurnViewsFromText(node.entry.content)) {
+      for (const view of userTurnViewsFromText(entry.content)) {
         this.appendUserView(view);
       }
       return;
     }
-    if (node.entry.isCompactSummary === true) {
-      const content = (node.entry.message as { content?: unknown } | undefined)
+    if (entry.isCompactSummary === true) {
+      const content = (entry.message as { content?: unknown } | undefined)
         ?.content;
       if (typeof content === "string") {
         this.addCompactSummary(content);
         return;
       }
     }
-    const message = entryToSessionMessage(node.entry);
+    const message = entryToSessionMessage(entry);
     if (message === undefined) {
       return;
     }
@@ -446,7 +446,7 @@ export class TranscriptRenderer {
   }
 
   /** cwd for headerArg path abbreviation; InteractiveMode feeds it from
-   *  AgentState.cwd, appendPathNode from entry.cwd. */
+   *  AgentState.cwd, appendEntry from entry.cwd. */
   setCwd(cwd: string | undefined): void {
     this.cwd = cwd;
   }

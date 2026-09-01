@@ -1,0 +1,1 @@
+For long sessions, get-entries requests become pretty slow, which makes it so that things like `/tree` have very noticable lag. To address this, the daemon should keep a prefix of the session file in memory and file reads in src/core/session/file.ts should only read from the last read byte offset (or something like that).

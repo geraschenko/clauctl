@@ -213,3 +213,5 @@ implementation:
 - `docs/specs/convenience-commands.md` — `format` and `completion`.
 - `docs/user-message-tracking.md` — why the daemon tracks user prompts itself
   (the prompt-visibility invariant and its accepted limitations).
+- `docs/session-views.md` — the three views of a session (file truth,
+  assistant context, user display).

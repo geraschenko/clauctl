@@ -6,7 +6,7 @@ import type {
   SDKMessage,
   SDKUserMessage,
 } from "@anthropic-ai/claude-agent-sdk";
-import type { PathNode } from "../core/tree/nodes.ts";
+import type { SessionEntry } from "../core/session/file.ts";
 import { TranscriptRenderer } from "./transcript.ts";
 
 // The Edit view's expanded diff reads pi's theme singleton; the TUI
@@ -54,8 +54,8 @@ function toolResultMessage(
   ]) as SDKMessage;
 }
 
-function pathNode(entry: Record<string, unknown>): PathNode {
-  return { ref: { uuid: entry.uuid }, entry } as unknown as PathNode;
+function sessionEntry(entry: Record<string, unknown>): SessionEntry {
+  return entry as unknown as SessionEntry;
 }
 
 /** Rendered plain text: ANSI/OSC stripped, blank edges trimmed. */
@@ -201,17 +201,17 @@ test("parent_tool_use_id routes content nested under the owning tool", () => {
   assert.match(renderedText(container), /subagent says hi/);
 });
 
-test("appendPathNode: boundary banner, user prompt + result resolution, assistant", () => {
+test("appendEntry: boundary banner, user prompt + result resolution, assistant", () => {
   const { renderer, container } = makeRenderer();
-  renderer.appendPathNode(
-    pathNode({
+  renderer.appendEntry(
+    sessionEntry({
       type: "user",
       uuid: "u1",
       message: { role: "user", content: "replayed prompt" },
     }),
   );
-  renderer.appendPathNode(
-    pathNode({
+  renderer.appendEntry(
+    sessionEntry({
       type: "assistant",
       uuid: "a1",
       message: {
@@ -220,8 +220,8 @@ test("appendPathNode: boundary banner, user prompt + result resolution, assistan
       },
     }),
   );
-  renderer.appendPathNode(
-    pathNode({
+  renderer.appendEntry(
+    sessionEntry({
       type: "user",
       uuid: "u2",
       message: {
@@ -236,8 +236,8 @@ test("appendPathNode: boundary banner, user prompt + result resolution, assistan
       },
     }),
   );
-  renderer.appendPathNode(
-    pathNode({
+  renderer.appendEntry(
+    sessionEntry({
       type: "system",
       subtype: "compact_boundary",
       compactMetadata: { preTokens: 156_000, postTokens: 12_000 },
@@ -254,33 +254,33 @@ test("appendPathNode: boundary banner, user prompt + result resolution, assistan
 
 test("compact banner omits token counts the boundary does not carry", () => {
   const { renderer, container } = makeRenderer();
-  renderer.appendPathNode(
-    pathNode({
+  renderer.appendEntry(
+    sessionEntry({
       type: "system",
       subtype: "compact_boundary",
       compactMetadata: { preTokens: 156_000 },
     }),
   );
-  renderer.appendPathNode(
-    pathNode({ type: "system", subtype: "compact_boundary" }),
+  renderer.appendEntry(
+    sessionEntry({ type: "system", subtype: "compact_boundary" }),
   );
   const text = renderedText(container);
   assert.match(text, /context compacted \(156k tokens\)/);
   assert.match(text, /context compacted$/m);
 });
 
-test("appendPathNode skips meta and sidechain entries", () => {
+test("appendEntry skips meta and sidechain entries", () => {
   const { renderer, container } = makeRenderer();
-  renderer.appendPathNode(
-    pathNode({
+  renderer.appendEntry(
+    sessionEntry({
       type: "user",
       uuid: "m1",
       isMeta: true,
       message: { role: "user", content: "meta noise" },
     }),
   );
-  renderer.appendPathNode(
-    pathNode({
+  renderer.appendEntry(
+    sessionEntry({
       type: "user",
       uuid: "s1",
       isSidechain: true,
@@ -322,16 +322,16 @@ test("a fold run sums thinking durations and counts tools, claude-style", () => 
   const { renderer, container } = makeRenderer();
   const at = (seconds: number): string =>
     new Date(1700000000000 + seconds * 1000).toISOString();
-  renderer.appendPathNode(
-    pathNode({
+  renderer.appendEntry(
+    sessionEntry({
       type: "user",
       uuid: "u1",
       timestamp: at(0),
       message: { role: "user", content: "read both files" },
     }),
   );
-  renderer.appendPathNode(
-    pathNode({
+  renderer.appendEntry(
+    sessionEntry({
       type: "assistant",
       uuid: "a1",
       timestamp: at(2.21),
@@ -344,8 +344,8 @@ test("a fold run sums thinking durations and counts tools, claude-style", () => 
       },
     }),
   );
-  renderer.appendPathNode(
-    pathNode({
+  renderer.appendEntry(
+    sessionEntry({
       type: "user",
       uuid: "u2",
       timestamp: at(3),
@@ -357,8 +357,8 @@ test("a fold run sums thinking durations and counts tools, claude-style", () => 
       },
     }),
   );
-  renderer.appendPathNode(
-    pathNode({
+  renderer.appendEntry(
+    sessionEntry({
       type: "assistant",
       uuid: "a2",
       timestamp: at(5.67),
@@ -371,8 +371,8 @@ test("a fold run sums thinking durations and counts tools, claude-style", () => 
       },
     }),
   );
-  renderer.appendPathNode(
-    pathNode({
+  renderer.appendEntry(
+    sessionEntry({
       type: "user",
       uuid: "u3",
       timestamp: at(6),
@@ -414,8 +414,8 @@ test("error results and non-readOnly tools break fold runs", () => {
 
 test("claude layout: Update header, Added/removed summary, expanded diff", () => {
   const { renderer, container } = makeRenderer();
-  renderer.appendPathNode(
-    pathNode({
+  renderer.appendEntry(
+    sessionEntry({
       type: "user",
       uuid: "u0",
       cwd: "/repo",
@@ -436,8 +436,8 @@ test("claude layout: Update header, Added/removed summary, expanded diff", () =>
       },
     ]),
   );
-  renderer.appendPathNode(
-    pathNode({
+  renderer.appendEntry(
+    sessionEntry({
       type: "user",
       uuid: "u1",
       message: {
@@ -538,16 +538,16 @@ test("setToolsExpanded expands collapsed tool output", () => {
 
 test("slash command with stdout renders a \u276f command block with \u23bf output", () => {
   const { renderer, container } = makeRenderer();
-  renderer.appendPathNode(
-    pathNode({
+  renderer.appendEntry(
+    sessionEntry({
       type: "system",
       subtype: "local_command",
       content:
         "<command-name>/login</command-name>\n            <command-message>login</command-message>\n            <command-args></command-args>",
     }),
   );
-  renderer.appendPathNode(
-    pathNode({
+  renderer.appendEntry(
+    sessionEntry({
       type: "system",
       subtype: "local_command",
       content: "<local-command-stdout>Login successful</local-command-stdout>",
@@ -565,8 +565,8 @@ test("/compact stdout and 'No response requested.' are hidden", () => {
       "<command-name>/compact</command-name>\n            <command-message>compact</command-message>\n            <command-args></command-args>",
     ),
   );
-  renderer.appendPathNode(
-    pathNode({
+  renderer.appendEntry(
+    sessionEntry({
       type: "system",
       subtype: "local_command",
       content:
@@ -596,8 +596,8 @@ test("bash passthrough: \u276f ! command with unescaped collapsed output", () =>
 
 test("compact summary: collapsed one-liner, full markdown when expanded", () => {
   const { renderer, container } = makeRenderer();
-  renderer.appendPathNode(
-    pathNode({
+  renderer.appendEntry(
+    sessionEntry({
       type: "user",
       uuid: "cs1",
       isCompactSummary: true,

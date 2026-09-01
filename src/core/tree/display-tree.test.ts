@@ -40,7 +40,13 @@ function assistantEntry(
     parentUuid,
     type: "assistant",
     sessionId,
-    message: { role: "assistant", id: "msg_x", content: [] },
+    // A unique API message id per entry: distinct turns never share one in
+    // real files, and a shared id means rule 4 grouping.
+    message: {
+      role: "assistant",
+      id: `msg_${randomUUID().slice(0, 8)}`,
+      content: [],
+    },
   };
 }
 
@@ -363,6 +369,126 @@ test("a duplicated boundary uuid is first-wins even when the first copy is metad
     ],
   );
   assert.deepEqual(display.nearestVisibleRow({ uuid: bUuid }), { uuid: bUuid });
+});
+
+// --- rule 4: parallel-group linearization ------------------------------------
+
+function callEntry(
+  parentUuid: UUID | null,
+  sessionId: UUID,
+  apiMessageId: string,
+  callId: string,
+): SessionEntry & { uuid: UUID } {
+  return {
+    uuid: uuid(),
+    parentUuid,
+    type: "assistant",
+    sessionId,
+    message: {
+      role: "assistant",
+      id: apiMessageId,
+      content: [{ type: "tool_use", id: callId, name: "Bash", input: {} }],
+    },
+  };
+}
+
+function resultEntry(
+  call: SessionEntry & { uuid: UUID },
+  sessionId: UUID,
+): SessionEntry & { uuid: UUID } {
+  const callId = (call.message as { content: { id: string }[] }).content[0]!.id;
+  return {
+    uuid: uuid(),
+    parentUuid: call.uuid,
+    type: "user",
+    sessionId,
+    message: {
+      role: "user",
+      content: [{ type: "tool_result", tool_use_id: callId, content: "ok" }],
+    },
+  };
+}
+
+test("rule 4: a parallel turn linearizes in file order; outside children of results move to the tail; forks off calls stay forks", () => {
+  // The readonly-fold shape: callB chains off callA, resultB is written
+  // first, the continuation parents on resultA (the last-written result).
+  const sid = uuid();
+  const messageId = "msg_par";
+  const u1 = userEntry(null, sid);
+  const thinking: SessionEntry & { uuid: UUID } = {
+    uuid: uuid(),
+    parentUuid: u1.uuid,
+    type: "assistant",
+    sessionId: sid,
+    message: {
+      role: "assistant",
+      id: messageId,
+      content: [{ type: "thinking", thinking: "hm", signature: "sig" }],
+    },
+  };
+  const callA = callEntry(thinking.uuid, sid, messageId, "toolu_A");
+  const callB = callEntry(callA.uuid, sid, messageId, "toolu_B");
+  const resultB = resultEntry(callB, sid);
+  const resultA = resultEntry(callA, sid);
+  const u2 = userEntry(resultA.uuid, sid);
+  // A fork off the NON-tail result: displays under the group's tail so it
+  // follows the whole turn.
+  const forkOffResult = userEntry(resultB.uuid, sid);
+  // A fork off a call keeps its raw parent: still a fork.
+  const forkOffCall = userEntry(callA.uuid, sid);
+  const entries = [
+    u1,
+    thinking,
+    callA,
+    callB,
+    resultB,
+    resultA,
+    u2,
+    forkOffResult,
+    forkOffCall,
+  ];
+  const display = toDisplayTree(buildTree(entries, failOnInvalid), entries);
+  assert.deepEqual(
+    [...display.parentMap],
+    [
+      [u1.uuid, null],
+      [thinking.uuid, u1.uuid],
+      [callA.uuid, thinking.uuid],
+      [callB.uuid, callA.uuid],
+      [resultB.uuid, callB.uuid],
+      [resultA.uuid, resultB.uuid],
+      [u2.uuid, resultA.uuid],
+      [forkOffResult.uuid, resultA.uuid],
+      [forkOffCall.uuid, callA.uuid],
+    ],
+  );
+});
+
+test("rule 4: an interleaved same-id turn comes out identity", () => {
+  // call → result → call → result, one message.id: later calls parent onto
+  // already-arrived results (observed in real sessions, e.g. group gzs8Qh
+  // in session 4d92f439). Chronological linearization restates the raw
+  // chain.
+  const sid = uuid();
+  const u1 = userEntry(null, sid);
+  const callA = callEntry(u1.uuid, sid, "msg_inter", "toolu_A");
+  const resultA = resultEntry(callA, sid);
+  const callB = callEntry(resultA.uuid, sid, "msg_inter", "toolu_B");
+  const resultB = resultEntry(callB, sid);
+  const u2 = userEntry(resultB.uuid, sid);
+  const entries = [u1, callA, resultA, callB, resultB, u2];
+  const display = toDisplayTree(buildTree(entries, failOnInvalid), entries);
+  assert.deepEqual(
+    [...display.parentMap],
+    [
+      [u1.uuid, null],
+      [callA.uuid, u1.uuid],
+      [resultA.uuid, callA.uuid],
+      [callB.uuid, resultA.uuid],
+      [resultB.uuid, callB.uuid],
+      [u2.uuid, resultB.uuid],
+    ],
+  );
 });
 
 test("a rootless hidden chain displays no row", () => {

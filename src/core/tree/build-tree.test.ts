@@ -317,7 +317,7 @@ test("uuid-less entries get no occurrence", () => {
   assert.deepEqual([...tree], [[e1.uuid, null]]);
 });
 
-test("empty-uuids boundary (P10): no block, no decoration, stays anchored", () => {
+test("empty-uuids boundary (P10; see file comment): no block, no decoration, stays anchored", () => {
   const sid = uuid();
   const e1 = userEntry(null, sid);
   const e2 = assistantEntry(e1.uuid, sid);

@@ -18,6 +18,14 @@
 - Always ask before removing functionality or code that appears intentional.
 - Do not preserve backward compatibility unless the user asks for it.
 - Do not delete explanatory comments unless they are obsolete; preserve or update them when refactoring.
+- Iterating over the same collection several times in one function is a design smell; combine passes unless a pass genuinely needs lookahead over the whole collection.
+
+## Naming and References
+
+- Name things by their semantic role, so the name is comprehensible without external context. Never name after an arbitrary ordering (`rule4Parent` bad, `linearizedGroupParent` good).
+- Use the repo's established terminology; do not coin synonyms for concepts that already have names (a boundary's list of kept uuids is its "preserved uuids").
+- Shorthand references in comments and test names (probe ids like `p20`, pipeline stage numbers) must be locally resolvable: define the pointer once in the file's header comment and write "…; see file comment" at each use site.
+- Minified identifiers from decompiled code belong only in the derisk findings docs, never in product code or comments.
 
 ## User Override
 

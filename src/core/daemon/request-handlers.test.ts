@@ -692,6 +692,58 @@ test("boundary mode without summary uses the boundary's own uuid as anchor", asy
   );
 });
 
+test("boundary mode completes a split tool pair, verifies, and reports what it added", async () => {
+  const f = fixture();
+  const sid = f.sessionId;
+  const u1 = userEntry(null, sid, "run it");
+  const call: SessionEntry & { uuid: UUID } = {
+    uuid: uuid(),
+    parentUuid: u1.uuid,
+    type: "assistant",
+    sessionId: sid,
+    message: {
+      role: "assistant",
+      id: "msg_pair",
+      content: [{ type: "tool_use", id: "toolu_1", name: "Bash", input: {} }],
+    },
+  };
+  const result: SessionEntry & { uuid: UUID } = {
+    uuid: uuid(),
+    parentUuid: call.uuid,
+    type: "user",
+    sessionId: sid,
+    message: {
+      role: "user",
+      content: [{ type: "tool_result", tool_use_id: "toolu_1", content: "ok" }],
+    },
+  };
+  f.writeEntries([u1, call, result]);
+  // The requested uuids split the pair; normalization completes it from the
+  // file, so verification sees effective == normalized and succeeds.
+  const setResult = (await f.handle({
+    type: "set-context",
+    uuids: [u1.uuid, call.uuid],
+    id: "c1",
+  })) as { boundaryUuid: UUID; added?: UUID[] };
+  assert.deepEqual(setResult.added, [result.uuid]);
+  const entries = readSessionEntries(f.file);
+  const metadata = entries.at(-1)!.compactMetadata as {
+    preservedMessages: { uuids: UUID[] };
+  };
+  assert.deepEqual(metadata.preservedMessages.uuids, [
+    u1.uuid,
+    call.uuid,
+    result.uuid,
+  ]);
+  const messages = (await f.handle({ type: "get-messages", id: "g1" })) as {
+    uuid: string;
+  }[];
+  assert.deepEqual(
+    messages.map((message) => message.uuid),
+    [u1.uuid, call.uuid, result.uuid],
+  );
+});
+
 // --- set-context rewind mode ---------------------------------------------------
 
 test("rewind on the active chain uses resumeSessionAt and mutates nothing", async () => {
@@ -1013,10 +1065,11 @@ test("rewind to an assistant with a re-persisted earlier sibling succeeds", asyn
   assert.deepEqual(f.restarts, [{ resume: f.sessionId, at: text.uuid }]);
 });
 
-// P10: after an empty-uuids wipe the first real prompt parents onto the
-// boundary itself, so parentage alone cannot distinguish it from a summary —
-// only the isCompactSummary child leaves the window open.
-test("an empty-uuids wipe's first real turn closes the synthesis window (P10)", () => {
+// P10 (see file comment): after an empty-uuids wipe the first real prompt
+// parents onto the boundary itself, so parentage alone cannot distinguish
+// it from a summary — only the isCompactSummary child leaves the window
+// open.
+test("an empty-uuids wipe's first real turn closes the synthesis window (P10; see file comment)", () => {
   const sid = uuid();
   const u1 = userEntry(null, sid);
   const a1 = assistantEntry(u1.uuid, sid);
@@ -1304,7 +1357,8 @@ test("viaBoundary rewind to a prefix of the active chain takes the no-write path
     rewindTo: { uuid: a1.uuid, viaBoundary: boundary.uuid },
     id: "c1",
   });
-  // No file mutation; resumeSessionAt into the preserved member (P9 c).
+  // No file mutation; resumeSessionAt into the preserved member (P9 c; see
+  // file comment).
   assert.equal(readSessionEntries(f.file).length, entries.length);
   assert.deepEqual(f.restarts, [{ resume: f.sessionId, at: a1.uuid }]);
   const event = f.emitted.findLast(
@@ -1333,7 +1387,8 @@ test("viaBoundary rewind into a superseded boundary's chain appends a prefix bou
     anchor: "own",
   });
   // Stacked boundaries: the second wins entirely, abandoning the first's
-  // chain (P3 m5) — a pick inside the first cannot resume, so it appends.
+  // chain (P3 m5; see file comment) — a pick inside the first cannot
+  // resume, so it appends.
   f.writeEntries([u1, a1, u2, a2, first, second]);
 
   await f.handle({

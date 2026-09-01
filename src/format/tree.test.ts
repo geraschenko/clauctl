@@ -611,10 +611,10 @@ test("picker keeps user text, final assistants with text, boundaries, and the le
 
 test("formatTreeNodeLine omitUuid drops the uuid column", () => {
   const entries = [userEntry(uuid(1), "hello there")];
-  const entryOf = entriesByUuid(entries);
+  const byUuid = entriesByUuid(entries);
   const roots = toLayoutTree(
     buildTree(entries, () => {}),
-    (id) => entryOf.get(parseTreeNodeRef(id).uuid)!,
+    (id) => byUuid.get(parseTreeNodeRef(id).uuid)!,
   );
   const flat = flattenVisibleTree(roots, uuid(1), () => true);
   const toolNames = new Map<string, string>();
@@ -645,10 +645,10 @@ test("formatTreeNodeLine marks relinked rows with ~ before the summary when the 
       },
     },
   ];
-  const entryOf = entriesByUuid(entries);
+  const byUuid = entriesByUuid(entries);
   const roots = toLayoutTree(
     buildTree(entries, () => {}),
-    (id) => entryOf.get(parseTreeNodeRef(id).uuid)!,
+    (id) => byUuid.get(parseTreeNodeRef(id).uuid)!,
   );
   const flat = flattenVisibleTree(roots, null, () => true);
   const relinkedRow = flat.find(

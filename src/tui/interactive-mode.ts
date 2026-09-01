@@ -50,7 +50,6 @@ import {
 import {
   pathToLeaf,
   type ParentMap,
-  type PathNode,
   type SessionSnapshot,
   type TreeNodeRef,
 } from "../core/tree/nodes.ts";
@@ -531,7 +530,7 @@ class InteractiveMode {
     try {
       const data = await this.client.request({ type: "get-entries" });
       const snapshot = data as SessionSnapshot;
-      const entryOf = entriesByUuid(snapshot.entries);
+      const byUuid = entriesByUuid(snapshot.entries);
       const fullTree = buildTree(snapshot.entries, (message) =>
         this.addBanner(message),
       );
@@ -544,15 +543,18 @@ class InteractiveMode {
         snapshot.leaf == null
           ? undefined
           : displayTree.nearestVisibleRow(snapshot.leaf);
-      const path = pathToLeaf(displayTree.parentMap, entryOf, leafRow ?? null);
+      const path = pathToLeaf(displayTree.parentMap, byUuid, leafRow ?? null);
       const { nodes, boundaryMissing } = pathUpToBoundary(
         path,
+        byUuid,
         this.agentState.leaf === undefined
           ? undefined
           : displayTree.nearestVisibleRow(this.agentState.leaf),
       );
-      for (const node of nodes) {
-        this.renderPathNode(node, replayed);
+      // pathToLeaf validated every path uuid against byUuid, so the lookup
+      // cannot miss.
+      for (const ref of nodes) {
+        this.renderEntry(byUuid.get(ref.uuid)!, replayed);
       }
       if (
         boundaryMissing &&
@@ -592,26 +594,26 @@ class InteractiveMode {
   }
 
   /**
-   * One path node: the rendering itself lives in
-   * TranscriptRenderer.appendPathNode; this wrapper keeps only the replay
+   * One path entry: the rendering itself lives in
+   * TranscriptRenderer.appendEntry; this wrapper keeps only the replay
    * dedupe bookkeeping (which uuids rendered, so their buffered live events
    * fold without re-rendering). It re-derives the rendered uuid with the
    * same entryToSessionMessage the renderer uses — a pure conversion, run
    * twice so the renderer stays free of attach-only dedupe state.
    */
-  private renderPathNode(node: PathNode, replayed: Set<string>): void {
-    if (node.entry.subtype === "compact_boundary") {
-      if (node.entry.uuid !== undefined) {
-        replayed.add(node.entry.uuid);
-        this.replayedBoundaryUuids.add(node.entry.uuid);
+  private renderEntry(entry: SessionEntry, replayed: Set<string>): void {
+    if (entry.subtype === "compact_boundary") {
+      if (entry.uuid !== undefined) {
+        replayed.add(entry.uuid);
+        this.replayedBoundaryUuids.add(entry.uuid);
       }
     } else {
-      const message = entryToSessionMessage(node.entry);
+      const message = entryToSessionMessage(entry);
       if (message !== undefined) {
         replayed.add(message.uuid);
       }
     }
-    this.transcript.appendPathNode(node);
+    this.transcript.appendEntry(entry);
   }
 
   handleEvent(event: SdkEvent, state: AgentState): void {
@@ -1030,7 +1032,7 @@ class InteractiveMode {
       .request({ type: "get-entries" })
       .then((data) => {
         const snapshot = data as SessionSnapshot;
-        const entryOf = entriesByUuid(snapshot.entries);
+        const byUuid = entriesByUuid(snapshot.entries);
         const fullTree = buildTree(snapshot.entries, (message) =>
           this.addBanner(message),
         );
@@ -1042,9 +1044,9 @@ class InteractiveMode {
         const selector = new TreeSelectorComponent(
           snapshot.leaf,
           displayTree,
-          entryOf,
+          byUuid,
           (pick) =>
-            this.confirmTreePick(fullTree, snapshot.entries, entryOf, pick),
+            this.confirmTreePick(fullTree, snapshot.entries, byUuid, pick),
           () => this.closeTreeSelector(),
         );
         this.treeSelectorPending = false;
@@ -1064,7 +1066,7 @@ class InteractiveMode {
   private confirmTreePick(
     fullTree: ParentMap,
     entries: SessionEntry[],
-    entryOf: ReadonlyMap<UUID, SessionEntry>,
+    byUuid: ReadonlyMap<UUID, SessionEntry>,
     pick: TreeNodeRef,
   ): void {
     if (!isIdle(this.agentState)) {
@@ -1074,12 +1076,8 @@ class InteractiveMode {
       this.ui.requestRender();
       return;
     }
-    const action = resolveTreePick(
-      fullTree,
-      entries,
-      entryOf,
-      pick,
-      (message) => this.addBanner(message),
+    const action = resolveTreePick(fullTree, entries, byUuid, pick, (message) =>
+      this.addBanner(message),
     );
     this.closeTreeSelector();
     const request =
