@@ -172,9 +172,14 @@ async function daemon(this: CommandContext, flags: DaemonFlags): Promise<void> {
 
   // The AgentState seed's settings tier: what the NEXT query would use, for
   // observers of a cold agent (init is only authoritative once a child
-  // spawns). Display prediction only — the child resolves its own settings
-  // cascade (an unset permissionMode omits --permission-mode, letting
-  // permissions.defaultMode take effect natively).
+  // spawns). Model and effort are display prediction only — the child
+  // resolves its own cascade. Permission mode is also forwarded to the
+  // child: the SDK spawns `--permission-mode default` whenever
+  // permissionMode is unset (its `resolvePermissionModeInCli` switch is
+  // private), which would override permissions.defaultMode from every
+  // settings file. tests/sdk/permission-mode.test.ts asserts both that
+  // the SDK still forces the flag and that the explicit value reaches the
+  // CLI; while the former passes, this merge stays.
   const settings = await settingsSeed(record.persistedOptions, record.cwd);
 
   const buildOptions = (
@@ -182,6 +187,10 @@ async function daemon(this: CommandContext, flags: DaemonFlags): Promise<void> {
     resumeSessionAt?: string,
   ): Options => ({
     ...record.persistedOptions,
+    ...(record.persistedOptions.permissionMode === undefined &&
+      settings.permissionMode !== undefined && {
+        permissionMode: settings.permissionMode,
+      }),
     ...invariantOptions(),
     cwd: record.cwd,
     env: childEnv(record.persistedOptions.env, agentId),

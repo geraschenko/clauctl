@@ -22,8 +22,8 @@ exactly the channel probe-induced failures would land in.
 Essential-traffic mode suppresses both, plus other nonessential network
 traffic (gateway discovery, quota probes, feature-flag fetches).
 
-Implementation: `compact-boundary-injection/harness.mjs` sets it at
-module scope, covering all probes that import it (directly or via
-`round2.mjs`) — both CLI spawns (`baseEnv` spreads `process.env`) and
-in-process SDK calls. New experiment harnesses in other subdirectories
-must do the equivalent.
+Implementation: `tests/sdk/harness.ts` sets it at module scope;
+`compact-boundary-injection/harness.mjs` re-exports from it, covering all
+probes that import either (directly or via `round2.mjs`) — both CLI
+spawns (`baseEnv` spreads `process.env`) and in-process SDK calls. New
+experiment harnesses in other subdirectories must do the equivalent.

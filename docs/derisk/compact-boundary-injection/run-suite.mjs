@@ -7,9 +7,9 @@
 //
 // LIVE: about 75 haiku calls plus p6's sonnet calls, roughly $1 and 20
 // minutes; needs a valid ~/.claude access token (>15 min left). Run only
-// with approval, as a step of skills/update-claude-agent-sdk. Outputs land
-// in captures/ (tracked — they are the provenance record of which SDK
-// produced them); p0b also refreshes its native-compact reference captures.
+// with approval, as a step of skills/update-claude-agent-sdk (wrapped by
+// tests/sdk/compact-boundary-suite.test.ts). Outputs land in captures/
+// (untracked); p0b also refreshes its native-compact reference captures.
 //
 // A failure is a finding, not noise: triage it against FINDINGS.md before
 // touching an assertion. A p4 "fixture setup failed" message is the one

@@ -197,23 +197,31 @@ range.
    - observe `system/init`, the expected manifest `claude_code_version`, assistant
      output, `result`, idle, and clean archive.
 
-   Always include the loader regression suite, because the session-loading
-   model behind `src/core/tree/loader.ts` and `src/core/daemon/set-context.ts`
-   is empirical and pinned to the bundled binary
-   (`docs/derisk/compact-boundary-injection/FINDINGS.md`):
+   Always include the SDK expectation tests, which assert the SDK/CLI
+   behaviors clauctl's code is built on:
 
    ```bash
-   node docs/derisk/compact-boundary-injection/run-suite.mjs
+   npm run test:sdk
    ```
 
-   About 75 haiku calls plus a few sonnet calls (roughly $1, 20 minutes). It
-   regenerates the tracked reports and p0b's native-compact reference captures.
-   `check-reports.mjs` fails by design on an SDK version it has no writer-drift
-   expectation for (p4.q7): characterize the new behavior and extend its version
-   table; never loosen an assertion to make a bump pass. Any other failure is a
-   loader-model finding — triage it against FINDINGS before changing loader.ts
-   or the assertion. A p4 "fixture setup failed" message is the known model
-   flake; rerun that probe alone, then check-reports.
+   - `tests/sdk/permission-mode.test.ts` (two haiku calls): the SDK forces
+     `--permission-mode default` when `permissionMode` is unset, and an explicit
+     value reaches the CLI. While the _workaround required_ case passes, the
+     `buildOptions` merge in `src/core/daemon/daemon.ts` stays; if it fails,
+     re-examine the merge rather than the test.
+   - `tests/sdk/compact-boundary-suite.test.ts`: the loader regression
+     suite (`docs/derisk/compact-boundary-injection/run-suite.mjs`), because
+     the session-loading model behind `src/core/tree/loader.ts` and
+     `src/core/daemon/set-context.ts` is empirical and pinned to the bundled
+     binary (`docs/derisk/compact-boundary-injection/FINDINGS.md`). About 75
+     haiku calls plus a few sonnet calls (roughly $1, 3–20 minutes); outputs
+     land in the untracked `captures/`. `check-reports.mjs` fails by design on
+     an SDK version it has no writer-drift expectation for (p4.q7):
+     characterize the new behavior and extend its version table; never loosen
+     an assertion to make a bump pass. Any other failure is a loader-model
+     finding — triage it against FINDINGS before changing loader.ts or the
+     assertion. A p4 "fixture setup failed" message is the known model flake;
+     rerun that probe alone, then check-reports.
 
    Add only further cases for changed behavior that clauctl actually depends on:
    Query controls, queueing, tools/MCP, compaction, session rollover, resume,
