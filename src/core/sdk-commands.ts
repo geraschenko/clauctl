@@ -220,8 +220,8 @@ async function setMaxThinkingTokens(
   });
 }
 
-/** Inline-JSON-or-file settings argument for apply-flag-settings. */
-function parseSettingsArg(value: string): FlagSettings {
+/** Inline-JSON-or-file settings argument (apply-flag-settings, update-settings). */
+function parseSettingsArg(value: string): Record<string, unknown> {
   const raw = value.trimStart().startsWith("{")
     ? value
     : readFileSync(value, "utf8");
@@ -234,7 +234,7 @@ function parseSettingsArg(value: string): FlagSettings {
   if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
     throw new UsageError("settings must be a JSON object");
   }
-  return parsed as FlagSettings;
+  return parsed as Record<string, unknown>;
 }
 
 async function applyFlagSettings(
@@ -244,6 +244,21 @@ async function applyFlagSettings(
 ): Promise<void> {
   await sendRequest(this, {
     type: "apply-flag-settings",
+    settings: parseSettingsArg(settings) as FlagSettings,
+  });
+}
+
+const SETTINGS_SOURCES = ["localSettings"] as const;
+
+async function updateSettings(
+  this: CommandContext,
+  _flags: Record<never, never>,
+  source: string,
+  settings: string,
+): Promise<void> {
+  await sendRequest(this, {
+    type: "update-settings",
+    source: oneOf(source, SETTINGS_SOURCES, "source"),
     settings: parseSettingsArg(settings),
   });
 }
@@ -483,6 +498,25 @@ async function setContext(
 
 // --- reads with arguments ------------------------------------------------------
 
+const getContextUsageFlags = {
+  detail: enumFlag(
+    "'full' (default) counts each category via the token-count API; 'summary' uses the last response's usage and local estimates",
+    ["summary", "full"] as const,
+  ),
+};
+
+type GetContextUsageFlags = InferFlags<typeof getContextUsageFlags>;
+
+async function getContextUsage(
+  this: CommandContext,
+  flags: GetContextUsageFlags,
+): Promise<void> {
+  await sendRequest(this, {
+    type: "get-context-usage",
+    ...(flags.detail !== undefined && { detail: flags.detail }),
+  });
+}
+
 const readFileFlags = {
   maxBytes: parsedFlag(
     "Byte cap (default 1MB)",
@@ -613,6 +647,27 @@ export const sdkRoutes = {
     },
     audited: true,
     func: applyFlagSettings,
+  }),
+  "update-settings": commandOneTarget<Record<never, never>, [string, string]>({
+    docs: {
+      brief:
+        "merge settings into a settings file via the CLI's writer and apply them",
+    },
+    parameters: {
+      positional: {
+        kind: "tuple",
+        parameters: [
+          stringArg(
+            `Settings file (${SETTINGS_SOURCES.join("|")})`,
+            "source",
+            completeChoices(SETTINGS_SOURCES),
+          ),
+          stringArg("Inline JSON or a settings file path", "json-or-path"),
+        ],
+      },
+    },
+    audited: true,
+    func: updateSettings,
   }),
   "set-mcp-servers": commandOneTarget<Record<never, never>, [string]>({
     docs: { brief: "replace the dynamically-added MCP servers" },
@@ -754,10 +809,11 @@ export const sdkRoutes = {
   "mcp-server-status": bareRequestCommand("print MCP server statuses", {
     type: "mcp-server-status",
   }),
-  "get-context-usage": bareRequestCommand(
-    "print the context window usage breakdown",
-    { type: "get-context-usage" },
-  ),
+  "get-context-usage": commandOneTarget<GetContextUsageFlags>({
+    docs: { brief: "print the context window usage breakdown" },
+    parameters: { flags: getContextUsageFlags },
+    func: getContextUsage,
+  }),
   usage: bareRequestCommand("print session cost/usage and plan rate limits", {
     type: "usage",
   }),

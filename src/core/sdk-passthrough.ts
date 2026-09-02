@@ -31,6 +31,7 @@ const MUTATION_TYPES: Record<SdkControlMutation["type"], true> = {
   "set-model": true,
   "set-max-thinking-tokens": true,
   "apply-flag-settings": true,
+  "update-settings": true,
   "set-mcp-servers": true,
   "toggle-mcp-server": true,
   "reconnect-mcp-server": true,
@@ -117,6 +118,10 @@ export async function applyMutation(
         mutation.settings as Parameters<Query["applyFlagSettings"]>[0],
       );
     }
+    case "update-settings":
+      // The SDK enforces its own key allowlist and transport gate; the daemon
+      // forwards the request and lets that rejection propagate.
+      return await query.updateSettings(mutation.source, mutation.settings);
     case "set-mcp-servers":
       return await query.setMcpServers(mutation.servers);
     case "toggle-mcp-server":
@@ -184,6 +189,10 @@ export async function persistedOptionsAfter(
       // All entries arrived over JSON, so all are serializable by
       // construction (in-process SdkMcpServer entries cannot reach here).
       return { ...current, mcpServers: mutation.servers };
+    case "update-settings":
+      // The settings file it writes is the record: the CLI reads it back
+      // through the settings cascade on every respawn.
+      return undefined;
     case "set-mcp-permission-mode-override":
     case "toggle-mcp-server":
     case "reconnect-mcp-server":
@@ -214,7 +223,9 @@ export async function runRead(
     case "mcp-server-status":
       return await query.mcpServerStatus();
     case "get-context-usage":
-      return await query.getContextUsage();
+      return await query.getContextUsage({
+        ...(read.detail !== undefined && { detail: read.detail }),
+      });
     case "usage":
       // Stable alias for the experimental method; rename here when the SDK
       // stabilizes it.

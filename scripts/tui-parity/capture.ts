@@ -116,21 +116,39 @@ export const claudeEnv = {
 };
 
 /**
- * Seeds the isolated config dir ONCE from the real credentials and
- * top-level config (login + onboarding state; without them claude blocks on
- * the login/onboarding wizard). The seeded `.claude.json` drops the user's
- * per-project map — the harness shouldn't inherit per-project MCP servers
- * or history — and marks the fullscreen-renderer upsell as already seen:
- * that dialog's default answer OPTS IN to a different renderer, so the
- * generic Enter-dismissal must never reach it. Existing copies are never
- * overwritten — claude refreshes tokens and records trust in the copies, so
- * re-copying could clobber fresher state. Delete the dir to re-seed.
+ * Seeds the isolated config dir from the real credentials and top-level
+ * config (login + onboarding state; without them claude blocks on the
+ * login/onboarding wizard).
+ *
+ * Credentials are re-copied on EVERY run and the real file is the only
+ * source of truth: OAuth refresh rotates the refresh token, so a copy goes
+ * stale as soon as the real installation refreshes, and a copy that
+ * refreshes on its own invalidates the real installation's refresh token
+ * instead. Refusing to run on an already-expired access token keeps the
+ * isolated claude from ever being the one to refresh.
+ *
+ * `.claude.json` is seeded ONCE: it drops the user's per-project map — the
+ * harness shouldn't inherit per-project MCP servers or history — and marks
+ * the fullscreen-renderer upsell as already seen: that dialog's default
+ * answer OPTS IN to a different renderer, so the generic Enter-dismissal
+ * must never reach it. Claude records workdir trust in the copy, so it is
+ * never overwritten; delete the dir to re-seed it.
  */
 export async function ensureClaudeConfigDir(): Promise<void> {
   await mkdir(claudeConfigDir, { recursive: true });
   const credentialsSource = join(homedir(), ".claude", ".credentials.json");
   const credentialsDestination = join(claudeConfigDir, ".credentials.json");
-  if (existsSync(credentialsSource) && !existsSync(credentialsDestination)) {
+  if (existsSync(credentialsSource)) {
+    const credentials = JSON.parse(
+      await readFile(credentialsSource, "utf8"),
+    ) as { claudeAiOauth?: { expiresAt?: number } };
+    const expiresAt = credentials.claudeAiOauth?.expiresAt;
+    if (expiresAt !== undefined && expiresAt <= Date.now()) {
+      throw new Error(
+        `${credentialsSource}: OAuth access token expired at ${new Date(expiresAt).toISOString()}; ` +
+          "run claude in the real config dir to refresh it before capturing",
+      );
+    }
     await copyFile(credentialsSource, credentialsDestination);
   }
   const configSource = join(homedir(), ".claude.json");

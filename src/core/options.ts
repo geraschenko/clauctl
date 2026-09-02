@@ -2,7 +2,7 @@
  * The four-bucket partition of the SDK `Options` type (spec: Phase 1,
  * "Options handling"), and the `claude`-flag → `Options` parser that `spawn`
  * uses — the inverse of the SDK's `initialize()` argv builder, pinned to SDK
- * 0.3.250.
+ * 0.3.258.
  *
  * OPTION_BUCKETS is exhaustive over `keyof Options` via `satisfies`, so an SDK
  * bump that adds or removes a field breaks the build until it is classified —
@@ -278,6 +278,25 @@ function parsePositiveNumber(flag: string, value: string): number {
   return parsed;
 }
 
+/**
+ * The SDK sends a bare-string `systemPrompt` as an unrecorded custom prompt
+ * and reads `snapshot` only off the object shapes, so attaching
+ * `--system-prompt-snapshot` promotes the current value to the shape that
+ * carries it (the bare `claude_code` preset when no prompt flag was given).
+ */
+function withSystemPromptSnapshot(
+  current: Options["systemPrompt"],
+  snapshot: boolean,
+): Options["systemPrompt"] {
+  if (current === undefined) {
+    return { type: "preset", preset: "claude_code", snapshot };
+  }
+  if (typeof current === "string" || Array.isArray(current)) {
+    return { type: "custom", prompt: current, snapshot };
+  }
+  return { ...current, snapshot };
+}
+
 /** Split "a,b,c"; the SDK joins list flags with commas, this is the inverse. */
 function splitCommaList(value: string): string[] {
   return value === "" ? [] : value.split(",");
@@ -295,6 +314,9 @@ export function parseClaudeFlags(args: readonly string[]): ParsedClaudeFlags {
   let resume: string | undefined;
   const extraArgs: Record<string, string | null> = {};
   const addDirs: string[] = [];
+  // Folded into systemPrompt after the loop: it must compose with a
+  // --system-prompt/--append-system-prompt given in either order.
+  let systemPromptSnapshot: boolean | undefined;
 
   let index = 0;
   // Set when the current token used `--flag=value` syntax.
@@ -430,6 +452,10 @@ export function parseClaudeFlags(args: readonly string[]): ParsedClaudeFlags {
           append: next(flag),
         };
         break;
+      case "--system-prompt-snapshot":
+        systemPromptSnapshot =
+          oneOf(next(flag), ["on", "off"] as const, flag) === "on";
+        break;
       case "--resume":
         resume = next(flag);
         break;
@@ -459,6 +485,12 @@ export function parseClaudeFlags(args: readonly string[]): ParsedClaudeFlags {
 
   if (addDirs.length > 0) {
     options.additionalDirectories = addDirs;
+  }
+  if (systemPromptSnapshot !== undefined) {
+    options.systemPrompt = withSystemPromptSnapshot(
+      options.systemPrompt,
+      systemPromptSnapshot,
+    );
   }
   if (Object.keys(extraArgs).length > 0) {
     options.extraArgs = extraArgs;

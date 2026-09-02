@@ -1,6 +1,6 @@
 {
-  "claudeVersion": "2.1.250",
-  "sdkVersion": "0.3.250",
+  "claudeVersion": "2.1.258",
+  "sdkVersion": "0.3.258",
   "tools": [
     {
       "name": "Agent",
@@ -22,7 +22,7 @@
             "type": "string"
           },
           "model": {
-            "description": "Optional model override for this agent. Takes precedence over the agent definition's model frontmatter. If omitted, uses the agent definition's model, or inherits from the parent. Ignored for subagent_type: \"fork\" — forks always inherit the parent model.",
+            "description": "Optional model override for this agent. Takes precedence over the agent definition's model frontmatter and the configured default subagent model. If omitted, uses the agent definition's model, else the default (inherits from the parent unless a default subagent model is configured). Ignored for subagent_type: \"fork\" — forks always inherit the parent model.",
             "type": "string",
             "enum": ["sonnet", "opus", "haiku", "fable"]
           },
@@ -903,7 +903,7 @@
     },
     {
       "name": "WebSearch",
-      "description": "Search the web. Returns result blocks with titles and URLs. US-only.\n\n- The current month is August 2026 — use this when searching for recent information.\n- `allowed_domains` / `blocked_domains` filter results.\n- After answering from results, end with a \"Sources:\" list of the URLs you used as markdown links.",
+      "description": "Search the web. Returns result blocks with titles and URLs. US-only.\n\n- The current month is September 2026 — use this when searching for recent information.\n- `allowed_domains` / `blocked_domains` filter results.\n- After answering from results, end with a \"Sources:\" list of the URLs you used as markdown links.",
       "input_schema": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "type": "object",

@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>TUI parity diff catalog — claude 2.1.258</title>
+<style>
+  body { background: #16161e; color: #d4d4d4; font-family: system-ui, sans-serif;
+         max-width: 1500px; margin: 0 auto; padding: 1rem 2rem 4rem; }
+  h1 { font-weight: 600; }
+  h2 { margin-top: 3rem; border-bottom: 1px solid #333; padding-bottom: .3rem; font-weight: 600; }
+  h3 { margin-top: 2.2rem; font-family: ui-monospace, monospace; font-weight: 600; }
+  p, li { line-height: 1.45; max-width: 75ch; }
+  table { border-collapse: collapse; margin: 1rem 0; }
+  th, td { border: 1px solid #333; padding: .3rem .7rem; text-align: left; font-size: .85rem; }
+  th { color: #aaa; font-weight: 600; }
+  .badge { display: inline-block; font-size: .75rem; font-family: ui-monospace, monospace;
+           padding: .1rem .5rem; border-radius: 999px; vertical-align: middle; margin-left: .6rem; }
+  .match { background: #1c3a1c; color: #7ec87e; }
+  .differ { background: #3a2c1c; color: #d8a860; }
+  .skip { background: #333; color: #999; }
+  .investigate { background: #1c2c3a; color: #6fb3d8; }
+  .pair { display: grid; grid-template-columns: 1fr 1fr; gap: .8rem; margin: .8rem 0; }
+  .pane { min-width: 0; }
+  .pane .label { font-size: .75rem; font-family: ui-monospace, monospace; color: #888;
+                 text-transform: uppercase; letter-spacing: .08em; margin-bottom: .25rem; }
+  pre { background: #0d0d12; border: 1px solid #2a2a35; border-radius: 6px; padding: .7rem .9rem;
+        overflow-x: auto; font-size: .78rem; line-height: 1.35; margin: 0;
+        font-family: ui-monospace, "Cascadia Code", Menlo, monospace; }
+  .src { color: #666; font-size: .72rem; font-family: ui-monospace, monospace; margin-top: .2rem; }
+  .note { color: #aaa; font-size: .9rem; }
+  .om { color: #666; font-style: italic; }
+  .b { font-weight: bold; } .i { font-style: italic; }
+  .white { color: #fff; }
+  .code256 { color: #afd7ff; }
+  .userbg { background: #3a3a44; }
+  .dim { color: #8a8a8a; }
+</style>
+</head>
+<body>
+
+<h1>TUI parity diff catalog — claude 2.1.258</h1>
+<p>Rendering differences between native claude (v2.1.258, left) and the clauctl
+transcript renderer (right), from the <code>scripts/tui-parity/out/</code>
+recapture of 2026-09-01 (5 scenarios, 0/5 identical). Successor to
+<code>diff-catalog-2.1.250.html</code> (2026-08-28). Every hunk in the five
+diffs maps to a previously decided entry; there is nothing new to triage.</p>
+
+<table>
+<tr><th>Entry</th><th>Status</th><th>Triage</th><th>Scenarios</th></tr>
+<tr><td>write-success-preview</td><td>re-attested on a create-type Write (tools)</td><td>match (keep decision)</td><td>tools</td></tr>
+<tr><td>readonly-fold</td><td>decided (differ); fold label "searched for N patterns" also covers Bash find calls</td><td>differ (keep decision)</td><td>tools</td></tr>
+<tr><td>welcome-banner-compact, input-footer</td><td>decided, unchanged</td><td>differ (keep decisions)</td><td>all</td></tr>
+<tr><td>code-fence-keep</td><td>decided, unchanged</td><td>differ (keep decision)</td><td>markdown</td></tr>
+<tr><td>subagent-expand-hint</td><td>harness artifact, unchanged</td><td>skip (keep decision)</td><td>subagent</td></tr>
+</table>
+
+<p class="note">Corpus note. The first pass of this recapture rendered a tools
+session generated under 2.1.211 (July), in which haiku wrote to
+<code>~/notes.txt</code>, hit the read-before-overwrite error against a stale
+home-directory file, read it, and rewrote identical content. claude renders that
+update-type, empty-diff Write result as a bare result line while clauctl shows the
+create-style preview. The scenario prompt was later anchored to the workdir
+(<code>scripts/tui-parity/scenarios.ts</code>), so the tools session was
+regenerated on 2.1.258 and the hunk disappeared. An update-type Write with a
+non-empty diff remains unattested by any scenario.</p>
+
+<p class="note">Unattested in this corpus (stamps left at 2.1.250): Bash
+"(No output)", WebSearch rendering, the trust dialog.</p>
+
+<h2>Previously decided, still visible</h2>
+
+<h3>readonly-fold <span class="badge differ">decided: differ (keep decision)</span></h3>
+<p class="note">Two read-only Bash calls collapse into "searched for 2 patterns"
+in claude. clauctl keeps the calls visible per the 2026-07 decision.</p>
+<div class="pair">
+<div class="pane"><div class="label">claude</div><pre>
+  Thought for 5s, searched for 2 patterns (ctrl+o to expand)
+
+● The current directory contains only notes.txt, and the /usr/share/doc directory starts with system
+</pre><div class="src">tools.claude.txt</div></div>
+<div class="pane"><div class="label">clauctl</div><pre>
+  Thought for 2s (ctrl+o to expand)
+
+● Bash(find . -type f)
+  ⎿  ./notes.txt
+
+● Bash(find /usr/share/doc -maxdepth 1 | sort | head -200)
+  ⎿  /usr/share/doc
+     /usr/share/doc/7zip
+     /usr/share/doc/accountsservice
+     … +197 lines (ctrl+o to expand)
+
+  Thought for 3s (ctrl+o to expand)
+
+● The current directory contains only notes.txt, and the /usr/share/doc directory starts with system
+</pre><div class="src">tools.clauctl.txt</div></div>
+</div>
+
+</body>
+</html>

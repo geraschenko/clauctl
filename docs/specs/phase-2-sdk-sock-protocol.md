@@ -206,24 +206,26 @@ exclusion; `usage` is the stable alias for
 `set-max-thinking-tokens` is deprecated SDK-side but kept as the only runtime
 thinking control (commented).
 
-| subcommand                                                                                                                                               | args/flags                                                     |
-| -------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------- |
-| `set-permission-mode`                                                                                                                                    | `<mode>` (exists)                                              |
-| `set-mcp-permission-mode-override`                                                                                                                       | `<server> <default\|auto\|clear>` (`clear` → `null`)           |
-| `set-model`                                                                                                                                              | `[--model <m>]` (exists)                                       |
-| `set-max-thinking-tokens`                                                                                                                                | `<n\|clear>` `[--thinking-display summarized\|omitted\|clear]` |
-| `apply-flag-settings`                                                                                                                                    | `<json-or-path>` (inline-JSON-or-file, like `--mcp-config`)    |
-| `set-mcp-servers`                                                                                                                                        | `<json-or-path>` (same parse)                                  |
-| `toggle-mcp-server`                                                                                                                                      | `<server> <enabled\|disabled>`                                 |
-| `reconnect-mcp-server`                                                                                                                                   | `<server>`                                                     |
-| `stop-task`                                                                                                                                              | `<task-id>`                                                    |
-| `background-tasks`                                                                                                                                       | `[--tool-use-id <id>]`                                         |
-| `rewind-files`                                                                                                                                           | `<user-message-id> [--dry-run]`                                |
-| `seed-read-state`                                                                                                                                        | `<path> <mtime>`                                               |
-| `reload-plugins`, `reload-skills`                                                                                                                        | —                                                              |
-| `interrupt`                                                                                                                                              | (exists)                                                       |
-| `initialization-result`, `supported-commands`, `supported-models`, `supported-agents`, `mcp-server-status`, `get-context-usage`, `usage`, `account-info` | —                                                              |
-| `read-file`                                                                                                                                              | `<path> [--max-bytes <n>] [--base64]`                          |
+| subcommand                                                                                                                          | args/flags                                                     |
+| ----------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------- |
+| `set-permission-mode`                                                                                                               | `<mode>` (exists)                                              |
+| `set-mcp-permission-mode-override`                                                                                                  | `<server> <default\|auto\|clear>` (`clear` → `null`)           |
+| `set-model`                                                                                                                         | `[--model <m>]` (exists)                                       |
+| `set-max-thinking-tokens`                                                                                                           | `<n\|clear>` `[--thinking-display summarized\|omitted\|clear]` |
+| `apply-flag-settings`                                                                                                               | `<json-or-path>` (inline-JSON-or-file, like `--mcp-config`)    |
+| `update-settings`                                                                                                                   | `<source> <json-or-path>` (`source`: `localSettings`)          |
+| `set-mcp-servers`                                                                                                                   | `<json-or-path>` (same parse)                                  |
+| `toggle-mcp-server`                                                                                                                 | `<server> <enabled\|disabled>`                                 |
+| `reconnect-mcp-server`                                                                                                              | `<server>`                                                     |
+| `stop-task`                                                                                                                         | `<task-id>`                                                    |
+| `background-tasks`                                                                                                                  | `[--tool-use-id <id>]`                                         |
+| `rewind-files`                                                                                                                      | `<user-message-id> [--dry-run]`                                |
+| `seed-read-state`                                                                                                                   | `<path> <mtime>`                                               |
+| `reload-plugins`, `reload-skills`                                                                                                   | —                                                              |
+| `interrupt`                                                                                                                         | (exists)                                                       |
+| `initialization-result`, `supported-commands`, `supported-models`, `supported-agents`, `mcp-server-status`, `usage`, `account-info` | —                                                              |
+| `get-context-usage`                                                                                                                 | `[--detail summary\|full]`                                     |
+| `read-file`                                                                                                                         | `<path> [--max-bytes <n>] [--base64]`                          |
 
 **`query`** gains:
 
@@ -258,6 +260,8 @@ Mutations persist into `agent.json` as in Phase 1, extended to the full map:
   merges; from then on the merged object is what persists.
 - `set-mcp-servers` → `mcpServers` (all entries arrived over JSON, so all are
   serializable by construction)
+- `update-settings` persists nothing in `agent.json`: the settings file it
+  writes is the record, read back through the settings cascade on respawn.
 - All other mutations persist nothing (transient session state).
 
 ### Type design
@@ -294,6 +298,7 @@ export type SdkControlMutation =
   | { type: "set-model"; model?: string }
   | { type: "set-max-thinking-tokens"; maxThinkingTokens: number | null; thinkingDisplay?: "summarized" | "omitted" | null }
   | { type: "apply-flag-settings"; settings: { [K in keyof Settings]?: Settings[K] | null } }
+  | { type: "update-settings"; source: "localSettings"; settings: Record<string, unknown> }
   | { type: "set-mcp-servers"; servers: Record<string, McpServerConfig> }
   | { type: "toggle-mcp-server"; serverName: string; enabled: boolean }
   | { type: "reconnect-mcp-server"; serverName: string }
@@ -311,7 +316,7 @@ export type SdkControlRead =
   | { type: "supported-models" }
   | { type: "supported-agents" }
   | { type: "mcp-server-status" }
-  | { type: "get-context-usage" }
+  | { type: "get-context-usage"; detail?: "summary" | "full" }
   | { type: "usage" }
   | { type: "account-info" }
   | { type: "read-file"; path: string; maxBytes?: number; encoding?: "utf-8" | "base64" };

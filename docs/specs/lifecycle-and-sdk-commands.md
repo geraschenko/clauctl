@@ -57,7 +57,7 @@ parse and validate subcommand arguments — "don't expose" ≠ "don't use".
 **Plain passthrough subcommands** (mutations / control):
 `interrupt`, `setPermissionMode`, `setMcpPermissionModeOverride`, `setModel`,
 `setMcpServers`, `reconnectMcpServer`, `toggleMcpServer`, `applyFlagSettings`,
-`reloadPlugins`, `reloadSkills`, `rewindFiles`, `seedReadState`, `stopTask`,
+`updateSettings`, `reloadPlugins`, `reloadSkills`, `rewindFiles`, `seedReadState`, `stopTask`,
 `backgroundTasks`, and the deprecated `setMaxThinkingTokens` (kept because it is
 the only _runtime_ thinking-level control, which DECISION-5 requires us to change
 mid-session and persist; comment the deprecation at the mapping site).

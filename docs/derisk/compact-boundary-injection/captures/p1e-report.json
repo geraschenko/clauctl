@@ -1,24 +1,32 @@
 {
+  "versions": {
+    "sdk": "0.3.258"
+  },
   "1-no-metadata": {
     "error": null,
-    "nMessages": 3,
-    "summaryPresent": true,
+    "resultSubtype": "error_during_execution",
+    "stderr": "Failed to resume session: undefined is not an object (evaluating 'r.compactMetadata.postTokens')",
+    "nMessages": 0,
+    "summaryPresent": false,
     "preservedRedPresent": false,
     "parentIsPreservedTail": false,
-    "firstNewUserParent": "5270eba4",
     "relinked": false
   },
   "2-empty-uuids": {
     "error": null,
+    "resultSubtype": "success",
+    "stderr": null,
     "nMessages": 3,
     "summaryPresent": true,
     "preservedRedPresent": false,
     "parentIsPreservedTail": false,
-    "firstNewUserParent": "80892617",
+    "firstNewUserParent": "055a7383",
     "relinked": false
   },
   "3-no-summary-flag": {
     "error": null,
+    "resultSubtype": "success",
+    "stderr": null,
     "nMessages": 3,
     "summaryPresent": true,
     "preservedRedPresent": true,
@@ -28,6 +36,8 @@
   },
   "4-segment-only": {
     "error": null,
+    "resultSubtype": "success",
+    "stderr": null,
     "nMessages": 3,
     "summaryPresent": true,
     "preservedRedPresent": true,
@@ -37,6 +47,8 @@
   },
   "5-plain-content": {
     "error": null,
+    "resultSubtype": "success",
+    "stderr": null,
     "nMessages": 3,
     "summaryPresent": true,
     "preservedRedPresent": true,

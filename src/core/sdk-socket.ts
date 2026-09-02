@@ -117,6 +117,14 @@ export type SdkControlMutation =
       thinkingDisplay?: "summarized" | "omitted" | null;
     }
   | { type: "apply-flag-settings"; settings: FlagSettings }
+  // Writes a settings FILE through the CLI's own writer and live-applies it;
+  // the SDK accepts only an explicit key allowlist (outputStyle today) with
+  // string values, and only the project's local settings file as target.
+  | {
+      type: "update-settings";
+      source: "localSettings";
+      settings: Record<string, unknown>;
+    }
   | { type: "set-mcp-servers"; servers: Record<string, McpServerConfig> }
   | { type: "toggle-mcp-server"; serverName: string; enabled: boolean }
   | { type: "reconnect-mcp-server"; serverName: string }
@@ -145,7 +153,9 @@ export type SdkControlRead =
   | { type: "supported-models" }
   | { type: "supported-agents" }
   | { type: "mcp-server-status" }
-  | { type: "get-context-usage" }
+  // "full" (default) counts each category with the token-count API;
+  // "summary" answers from the last response's usage and local estimates.
+  | { type: "get-context-usage"; detail?: "summary" | "full" }
   | { type: "usage" }
   | { type: "account-info" }
   | {

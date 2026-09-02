@@ -7,7 +7,7 @@
 // ai-title, mode entries) + an appended synthetic boundary+summary + one entry
 // carrying an unknown custom field, to test verbatim passthrough.
 
-import { makeConfigDir, readJsonl, EXP_DIR, projectKey } from "./harness.mjs";
+import { assertVersions, makeConfigDir, readJsonl, EXP_DIR, projectKey } from "./harness.mjs";
 import { importSessionToStore, InMemorySessionStore } from "../../../node_modules/@anthropic-ai/claude-agent-sdk/sdk.mjs";
 import fs from "node:fs";
 import path from "node:path";
@@ -67,6 +67,7 @@ try { await importSessionToStore(randomUUID(), new InMemorySessionStore(), { dir
 catch (e) { missingError = String(e); }
 
 const report = {
+  versions: assertVersions(),
   importError,
   rawCount: raw.length,
   storedCount: stored.length,

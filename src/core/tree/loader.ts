@@ -1,6 +1,6 @@
 /**
  * The CLI loader's load-time transform, ported from the decompiled binary
- * (v2.1.250), in stages: 1 boundary relink + cut, 2 root-to-leaf walk,
+ * (v2.1.258), in stages: 1 boundary relink + cut, 2 root-to-leaf walk,
  * 3 parallel-tool-group expansion, 4 resume sanitization. (Stage 5, wire
  * normalization, happens per request inside the CLI — out of scope here.)
  * "The load pipeline" section of
@@ -532,7 +532,7 @@ export function loadedContext(
     walked.add(current.uuid);
     const entry = byUuid.get(current.uuid);
     if (entry === undefined || deleted(current.uuid)) {
-      // Known divergence from the 2.1.250 binary (corrupted files only):
+      // Known divergence from the 2.1.258 binary (corrupted files only):
       // its resume chain builder repairs a parent pointer that names no
       // file entry by splicing to the nearest earlier entry within 5s with
       // matching isSidechain (telemetry tengu_chain_timestamp_fallback).

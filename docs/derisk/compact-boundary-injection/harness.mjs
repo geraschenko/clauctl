@@ -2,11 +2,11 @@
 //
 // SECURITY: never writes to the real ~/.claude. Every session runs with
 // env = baseEnv(...), which points CLAUDE_CONFIG_DIR at a scratch dir seeded
-// with a read-only COPY of ~/.claude/.credentials.json (the resume-persistence
-// scratch creds have a dead refresh token). The copied access token stays valid
-// for hours and scratch CLIs don't refresh before expiry, so the real session's
-// refresh-token family is not rotated. Onboarding state (.claude.json) comes
-// from the old scratch template. Uses the SDK-bundled `claude` binary.
+// with a mode-0600 COPY of ~/.claude/.credentials.json. The copied access
+// token stays valid for hours and scratch CLIs don't refresh before expiry,
+// so the real session's refresh-token family is not rotated. Onboarding
+// state is the real ~/.claude.json with its project list cleared. Uses the
+// SDK-bundled `claude` binary.
 //
 // TELEMETRY: probes deliberately put sessions into error-shaped states
 // (crashes between tool call and result, malformed boundary playlists), which
@@ -29,19 +29,19 @@ export const EXP_DIR = path.dirname(fileURLToPath(import.meta.url));
 export const REPO_DIR = path.resolve(EXP_DIR, "../../..");
 export const HAIKU = "claude-haiku-4-5-20251001";
 const CRED_SOURCE = `${process.env.HOME}/.claude/.credentials.json`;
-const CLAUDE_JSON_TEMPLATE = "/tmp/clauctl-resume-derisk/.claude.json";
+const CLAUDE_JSON_SOURCE = `${process.env.HOME}/.claude.json`;
 
-// Pinned versions; assertVersions() aborts the run on mismatch (README Hygiene).
-// Round 1 ran pinned to 0.3.195 (bundled CLI 2.1.195); round 2
-// (README-20260828.md) repinned to 0.3.250 (CLI 2.1.250). Round-1 reports
-// in captures/ record which pin produced them.
-export const PINNED = { sdk: "0.3.250" };
-
+// The suite must exercise the SDK clauctl ships: the installed package has to
+// equal package.json's exact pin (README Hygiene). Reports record which
+// version produced them; check-reports.mjs version-conditions the assertions
+// that carry known drift.
 export function assertVersions() {
-  const pkg = JSON.parse(fs.readFileSync(
-    path.join(REPO_DIR, "node_modules/@anthropic-ai/claude-agent-sdk/package.json"), "utf8"));
-  if (pkg.version !== PINNED.sdk) throw new Error(`SDK version ${pkg.version} != pinned ${PINNED.sdk}`);
-  return { sdk: pkg.version };
+  const pinned = JSON.parse(fs.readFileSync(path.join(REPO_DIR, "package.json"), "utf8"))
+    .dependencies["@anthropic-ai/claude-agent-sdk"];
+  const installed = JSON.parse(fs.readFileSync(
+    path.join(REPO_DIR, "node_modules/@anthropic-ai/claude-agent-sdk/package.json"), "utf8")).version;
+  if (installed !== pinned) throw new Error(`installed SDK ${installed} != package.json pin ${pinned} — run npm ci`);
+  return { sdk: installed };
 }
 
 // Fresh scratch CLAUDE_CONFIG_DIR seeded with auth. One per experiment case.
@@ -55,9 +55,10 @@ export function makeConfigDir(caseName) {
     throw new Error(`~/.claude access token expires at ${new Date(expiresAt).toISOString()} — ` +
       `refusing to run (a scratch-CLI refresh could rotate the real session's tokens)`);
   }
-  fs.writeFileSync(`${dir}/.credentials.json`, JSON.stringify(creds));
-  // .claude.json carries onboarding state; without it the CLI may block on first-run prompts.
-  const cj = JSON.parse(fs.readFileSync(CLAUDE_JSON_TEMPLATE, "utf8"));
+  fs.writeFileSync(`${dir}/.credentials.json`, JSON.stringify(creds), { mode: 0o600 });
+  // .claude.json carries onboarding state; without it the CLI may block on
+  // first-run prompts. Projects are cleared so no real trust state leaks in.
+  const cj = JSON.parse(fs.readFileSync(CLAUDE_JSON_SOURCE, "utf8"));
   fs.writeFileSync(`${dir}/.claude.json`, JSON.stringify({ ...cj, projects: {} }));
   return dir;
 }
@@ -144,6 +145,10 @@ export function makeSession(options) {
 export const readJsonl = (file) =>
   fs.readFileSync(file, "utf8").split("\n").filter(Boolean).map((l) => JSON.parse(l));
 
-// Inference requests from a shim capture file (filters count_tokens, telemetry, etc.).
+// Inference requests from a shim capture file (filters count_tokens, telemetry,
+// etc.). The shim creates the file on the first request, so a session that
+// never reached the API leaves none — an empty capture, not a crash, so the
+// probe can report the session error instead.
 export const readCapturedInference = (captureFile) =>
-  readJsonl(captureFile).filter((r) => r.path?.startsWith("/v1/messages") && !r.path.includes("count_tokens") && r.body?.messages);
+  (fs.existsSync(captureFile) ? readJsonl(captureFile) : [])
+    .filter((r) => r.path?.startsWith("/v1/messages") && !r.path.includes("count_tokens") && r.body?.messages);

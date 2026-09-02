@@ -102,6 +102,51 @@ test("--system-prompt vs --append-system-prompt", () => {
   );
 });
 
+test("--system-prompt-snapshot promotes the prompt to a snapshot-bearing shape", () => {
+  assert.deepEqual(
+    parseClaudeFlags(["--system-prompt-snapshot", "on"]).persistedOptions
+      .systemPrompt,
+    { type: "preset", preset: "claude_code", snapshot: true },
+  );
+  // Order-independent: the string prompt becomes the custom shape either way.
+  const expectedCustom = { type: "custom", prompt: "be terse", snapshot: true };
+  assert.deepEqual(
+    parseClaudeFlags([
+      "--system-prompt",
+      "be terse",
+      "--system-prompt-snapshot",
+      "on",
+    ]).persistedOptions.systemPrompt,
+    expectedCustom,
+  );
+  assert.deepEqual(
+    parseClaudeFlags([
+      "--system-prompt-snapshot",
+      "on",
+      "--system-prompt",
+      "be terse",
+    ]).persistedOptions.systemPrompt,
+    expectedCustom,
+  );
+  assert.deepEqual(
+    parseClaudeFlags([
+      "--append-system-prompt",
+      "and rhyme",
+      "--system-prompt-snapshot=off",
+    ]).persistedOptions.systemPrompt,
+    {
+      type: "preset",
+      preset: "claude_code",
+      append: "and rhyme",
+      snapshot: false,
+    },
+  );
+  assert.throws(
+    () => parseClaudeFlags(["--system-prompt-snapshot", "maybe"]),
+    /--system-prompt-snapshot/,
+  );
+});
+
 test("skip-permissions spellings set allowDangerouslySkipPermissions", () => {
   for (const flag of [
     "--allow-dangerously-skip-permissions",

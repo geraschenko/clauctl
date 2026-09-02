@@ -136,9 +136,22 @@ async function waitForEntries(file, pred, timeoutMs = 15000) {
     env: baseEnv(configDir),
   });
   // Absolute path: with a bare "notes.txt" the model sometimes writes
-  // /tmp/notes.txt instead of the cwd (2.1.250 rerun flake).
-  await s.send(`Create a file ${cwd}/notes.txt containing exactly the text "V1" and nothing else. (tag: CP-U1)`);
-  await s.send(`Overwrite ${cwd}/notes.txt so it contains exactly the text "V2" and nothing else. (tag: CP-U2)`);
+  // /tmp/notes.txt instead of the cwd (2.1.250 rerun flake). The fixture
+  // depends on the model actually making each write, so verify the file
+  // after every setup turn: a miss is a model flake, not a loader finding,
+  // and must not reach the q8 assertions disguised as one.
+  const expectNotes = async (prompt, expected) => {
+    await s.send(prompt);
+    const notes = `${cwd}/notes.txt`;
+    const actual = fs.existsSync(notes) ? fs.readFileSync(notes, "utf8").trim() : null;
+    if (actual !== expected) {
+      s.close();
+      throw new Error(`p4 q8 fixture setup failed: expected ${notes} to contain ${JSON.stringify(expected)}, ` +
+        `got ${JSON.stringify(actual)} — model flake during setup, not a loader finding; rerun p4`);
+    }
+  };
+  await expectNotes(`Create a file ${cwd}/notes.txt containing exactly the text "V1" and nothing else. (tag: CP-U1)`, "V1");
+  await expectNotes(`Overwrite ${cwd}/notes.txt so it contains exactly the text "V2" and nothing else. (tag: CP-U2)`, "V2");
   const sessionId = s.lastInit()?.session_id;
   const file = sessionFile(configDir, cwd, sessionId);
   await waitForEntries(file, (es) => es.some((e) => e.type === "user" && JSON.stringify(e).includes("CP-U2")));

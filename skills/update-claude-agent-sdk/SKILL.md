@@ -197,12 +197,29 @@ range.
    - observe `system/init`, the expected manifest `claude_code_version`, assistant
      output, `result`, idle, and clean archive.
 
-   Add only cases for changed behavior that clauctl actually depends on: Query
-   controls, queueing, tools/MCP, compaction, session rollover, resume, set-context,
-   or TUI rendering. A declaration change alone does not require a live case. Reuse
-   focused harnesses under
-   `docs/derisk/` when they directly cover a changed assumption; do not rerun every
-   historical experiment. State expected assertions and dollar/time ceilings before
+   Always include the loader regression suite, because the session-loading
+   model behind `src/core/tree/loader.ts` and `src/core/daemon/set-context.ts`
+   is empirical and pinned to the bundled binary
+   (`docs/derisk/compact-boundary-injection/FINDINGS.md`):
+
+   ```bash
+   node docs/derisk/compact-boundary-injection/run-suite.mjs
+   ```
+
+   About 75 haiku calls plus a few sonnet calls (roughly $1, 20 minutes). It
+   regenerates the tracked reports and p0b's native-compact reference captures.
+   `check-reports.mjs` fails by design on an SDK version it has no writer-drift
+   expectation for (p4.q7): characterize the new behavior and extend its version
+   table; never loosen an assertion to make a bump pass. Any other failure is a
+   loader-model finding — triage it against FINDINGS before changing loader.ts
+   or the assertion. A p4 "fixture setup failed" message is the known model
+   flake; rerun that probe alone, then check-reports.
+
+   Add only further cases for changed behavior that clauctl actually depends on:
+   Query controls, queueing, tools/MCP, compaction, session rollover, resume,
+   set-context, or TUI rendering. A declaration change alone does not require a
+   live case. Reuse other focused harnesses under `docs/derisk/` when they
+   directly cover a changed assumption; do not rerun every historical experiment. State expected assertions and dollar/time ceilings before
    seeking approval. Enforce the wall-clock ceiling
    externally; for spend, account for `maxBudgetUsd`'s one-request overshoot and stop
    before the approved headroom is exhausted. Preserve only sanitized failing

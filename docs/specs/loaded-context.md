@@ -362,9 +362,6 @@ not serialize).
   post-boundary context via the same loader code — no UI-specific
   reimplementation. Related TDC in display-tree.ts (show
   boundaries' `@boundary` rows for explicit-uuids set-context).
-- **Probes as an SDK-upgrade regression suite**: rewrite the derisk
-  probes to assert expectations on every SDK bump; harden the flaky p4
-  q8 relative-path fixture.
 - **Blog corrections** (geraschenko.com claude-context): loader is not
   a pure parent walk (expansion), relink details
   (last-boundary-only, cut, abort-untouched), request-time merge —
@@ -442,3 +439,13 @@ encountered.
       FINDINGS "The load pipeline"; probe-id references ("; see file
       comment") and no-minified-names audits done; review patterns
       recorded in AGENTS.md (Naming and References).
+- [x] Probes as an SDK-upgrade regression suite (2026-09-01): kept
+      check-reports.mjs as the single assertion site and added
+      run-suite.mjs (ordered probe runner + check-reports, nonzero exit);
+      harness asserts installed SDK == package.json pin instead of a
+      hand pin, seeds onboarding from ~/.claude.json (the /tmp template
+      was lost on reboots), writes copied credentials 0600; p0b's
+      native boundary+summary shape now asserted; p4 q8 verifies each
+      setup write and aborts with a "fixture setup failed" message so a
+      model flake cannot masquerade as loader drift; the suite is a
+      standing approval-gated step of skills/update-claude-agent-sdk.

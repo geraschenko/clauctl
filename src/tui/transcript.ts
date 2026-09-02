@@ -646,7 +646,7 @@ function suppressNoResponse(rendered: RenderAssistant): RenderAssistant {
   return suppress ? { ...rendered, content: [] } : rendered;
 }
 
-/** Whole seconds for a "Thought for Ns" label, as claude 2.1.250 shows
+/** Whole seconds for a "Thought for Ns" label, as claude 2.1.258 shows
  *  them: floored, with a 1s minimum for sub-second durations (observed in
  *  parity captures; all multi-second durations matched the floor). */
 function displayThinkingSeconds(seconds: number): number {

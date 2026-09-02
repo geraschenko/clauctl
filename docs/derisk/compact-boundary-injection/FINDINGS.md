@@ -32,9 +32,10 @@ p18–p20 assert request captures only); **source** = minified JS read out of th
 binary (offsets in README-20260828.md; behaviors attributed to named
 functions only where the call graph from resume to request was traced);
 **probe-indirect** = jsonl/report observations. Upgrade-regression gate on
-every SDK bump: rerun the probe scripts (p10+ fail their process on
-violations) and `check-reports.mjs`, which hard-asserts over the full
-p1–p20 report set.
+every SDK bump: `node run-suite.mjs` reruns every probe in order (p10+ fail
+their process on violations) and then `check-reports.mjs`, which
+hard-asserts over the full p0b–p20 report set; it is a standing step of
+the update-claude-agent-sdk skill (live, about $1).
 
 **Consumer scoping (critical)**: every claim below names the loader it was
 tested on. The two tested consumers — **resume** (interactive `--resume`,
@@ -397,8 +398,12 @@ Append two lines to the session jsonl, then resume with `resume: sessionId`:
    boundary's uuid and any content we like. With no summary entry, set
    `anchorUuid` = the boundary's own uuid (P9 a — pure navigation).
 
-Ablation: removing `compactMetadata` or emptying `uuids` kills the relink
-(the boundary still wipes: P10); removing `isCompactSummary` +
+Ablation: emptying `uuids` kills the relink (the boundary still wipes:
+P10); removing `compactMetadata` entirely killed the relink on 2.1.250
+(summary-only context) and on 2.1.258 aborts the resume before any request
+(`error_during_execution` result, stderr "Failed to resume session:
+undefined is not an object (evaluating 'r.compactMetadata.postTokens')");
+removing `isCompactSummary` +
 `isVisibleInTranscriptOnly`, using the legacy `preservedSegment` encoding,
 or replacing the boilerplate summary text does not. Relink happens at load
 time only; on-disk entries keep their original parents.
@@ -478,7 +483,7 @@ The CLI separately re-injects recent tool calls/results from the summarized
 region as `<system-reminder>` text after a NATIVE compaction; synthetic
 injection doesn't get this unless we add it.
 
-## Version drift observed (2.1.195 → 2.1.250)
+## Version drift observed (2.1.195 → 2.1.250 → 2.1.258)
 
 The full round-1 rerun found **zero loader-side drift** — every relink,
 navigation, lifecycle, and sanitization assertion held identically. One
@@ -489,6 +494,22 @@ assistant turn's entries, not even the user prompt that elicited them. One
 data point per version on a tiny conversation; the selection rule is
 untraced (could be a threshold change rather than a policy change).
 `check-reports.mjs` carries a version-dependent expectation.
+
+The 2.1.258 suite run (2026-09-01) again found zero loader-side drift, and
+the keep-segment reach on the same fixture flipped back to the 2.1.195
+shape (old summary through the probe turn kept). Three versions, three
+data points, two shapes with no monotone trend: treat the native keep-reach
+as unstable writer behavior, not a rule the loader may depend on.
+
+One loader-side drift in 2.1.258, outside the fixture space clauctl writes:
+a `compact_boundary` entry with no `compactMetadata` now fails the resume
+(p1e variant 1; see the ablation note above). Source: the resumed-context
+token estimate reads `postTokens` off the last boundary unconditionally and
+falls back to estimating from the post-boundary entries when it is absent,
+so a boundary whose metadata omits `postTokens` is fine. clauctl always
+writes `compactMetadata` without `postTokens` (`src/core/session/file.ts`),
+and p9/p10/p11b/p17 exercise that shape and passed, so no product change
+follows.
 
 ## Deviations from the approved plans
 

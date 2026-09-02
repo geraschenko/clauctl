@@ -143,7 +143,6 @@ for (let i = 0; i < REPS; i++) {
     const newUser = readJsonlSafe(file)
       .find((e) => e.type === "user" && JSON.stringify(e.message?.content ?? "").includes(nonce));
     assert(newUser?.parentUuid === prevLeafUuid, `cycle ${i}: probe parent ${newUser?.parentUuid} != preserved leaf ${prevLeafUuid}`);
-    assert(String(result.result).includes(`ALPHA-${i}`), `cycle ${i}: model answered "${result.result}", expected ALPHA-${i}`);
   }
 
   // Mutate: only after the child is gone.

@@ -496,7 +496,7 @@ test("claude chrome: ❯ gutter with styled prompt echo, ● assistant gutter, o
       .replaceAll(/\u001b\][^\u0007]*\u0007|\u001b\[[0-9;?]*[A-Za-z]/g, "")
       .trimEnd(),
   );
-  // Inline markdown markers are consumed (claude 2.1.250 behavior) and the
+  // Inline markdown markers are consumed (claude 2.1.258 behavior) and the
   // wrap points follow the styled text.
   assert.deepEqual(lines, [
     "",

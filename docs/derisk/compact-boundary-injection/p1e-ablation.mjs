@@ -17,7 +17,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 
-assertVersions();
+const versions = assertVersions();
 const CWD = "/tmp/clauctl-cbi-derisk/p0b-native-compact-cwd";
 const SESSION_ID = "c4a1bb69-58cb-4e57-b5f9-7f7e27a9fe36";
 const preContent = fs.readFileSync(`${EXP_DIR}/captures/p1-fixture-pre.jsonl`, "utf8");
@@ -69,20 +69,24 @@ for (const [name, v] of Object.entries(VARIANTS)) {
   const preLines = readJsonl(file).length;
   const capture = `${EXP_DIR}/captures/p1e-${name}-requests.jsonl`;
   const shim = await startShim(capture);
+  let stderr = "";
   const s = makeSession({
-    model: HAIKU, cwd: CWD, resume: SESSION_ID,
+    model: HAIKU, cwd: CWD, resume: SESSION_ID, stderr: (chunk) => { stderr += chunk; },
     env: baseEnv(configDir, { ANTHROPIC_BASE_URL: `http://127.0.0.1:${shim.port}` }),
   });
-  let error = null;
+  let error = null, turn = [];
   const nonce = `NONCE-${name}`;
-  try { await s.send(`Reply with exactly the word pong. (tag: ${nonce})`); } catch (e) { error = String(e); }
+  try { turn = await s.send(`Reply with exactly the word pong. (tag: ${nonce})`); } catch (e) { error = String(e); }
   s.close(); shim.kill();
+  const result = turn.find((m) => m.type === "result");
   const probeReq = readCapturedInference(capture).find((r) => JSON.stringify(r.body.messages).includes(nonce));
   const msgs = probeReq?.body.messages ?? [];
   const str = JSON.stringify(msgs);
   const firstNewUser = readJsonl(file).slice(preLines).find((e) => e.type === "user" && JSON.stringify(e.message?.content ?? "").includes(nonce));
   results[name] = {
     error,
+    resultSubtype: result?.subtype ?? null,
+    stderr: stderr.trim().split("\n")[0] || null,
     nMessages: msgs.length,
     summaryPresent: str.includes("SYNTH-SUMMARY"),
     preservedRedPresent: str.includes('"text":"Red"'),
@@ -92,4 +96,4 @@ for (const [name, v] of Object.entries(VARIANTS)) {
   };
   console.log(name, JSON.stringify(results[name]));
 }
-fs.writeFileSync(`${EXP_DIR}/captures/p1e-report.json`, JSON.stringify(results, null, 2));
+fs.writeFileSync(`${EXP_DIR}/captures/p1e-report.json`, JSON.stringify({ versions, ...results }, null, 2));

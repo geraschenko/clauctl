@@ -1,9 +1,14 @@
 // Hard pass/fail assertions over the recorded experiment reports.
 //
-// Usage: rerun the p1–p20 scripts (regenerating captures/*-report.json), then
+// Usage: `node run-suite.mjs` runs every probe (regenerating
+// captures/*-report.json) and then this script; or run it alone after
+// rerunning individual probes:
 //   node check-reports.mjs
 // A clean exit means the pinned behaviors still hold on the current SDK/CLI —
-// this is the upgrade-regression gate the FINDINGS header calls for.
+// this is the upgrade-regression gate the FINDINGS header calls for. Reports
+// carry the producing SDK version; assertions with known per-version drift
+// (p4.q7) fail on an UNKNOWN version so drift gets characterized and the
+// version table extended, never loosened.
 //
 // Only run-stable invariants are asserted: fixture uuids (stable across runs)
 // may be compared exactly; uuids minted during a run (leaf markers, the CLI's
@@ -27,6 +32,26 @@ const MAGIC_B = "41a8c835";  // BRANCH U1-turn assistant
 const REDLEAF_B = "91d9474f"; // BRANCH abandoned-branch leaf
 const starts = (u, p) => typeof u === "string" && u.startsWith(p);
 
+// --- p0b: native /compact writer shape — the on-disk boundary+summary form
+// that compactBoundaryAt (src/core/tree/loader.ts) parses and
+// buildBoundaryEntries imitates. Which entries native compaction KEEPS is
+// writer policy (version drift recorded under p4.q7), not asserted here.
+{
+  const r = load("p0b-native-compact-report");
+  const [boundary, summary] = r.boundaryAndSummaryEntries;
+  const preserved = boundary?.compactMetadata?.preservedMessages;
+  check("p0b native /compact succeeded", r.compactResult === "success");
+  check("p0b boundary: system/compact_boundary, null parentUuid, logicalParentUuid set",
+    boundary?.type === "system" && boundary.subtype === "compact_boundary"
+    && boundary.parentUuid === null && typeof boundary.logicalParentUuid === "string");
+  check("p0b boundary preservedMessages: anchorUuid = summary, uuids non-empty, allUuids === uuids",
+    Array.isArray(preserved?.uuids) && preserved.uuids.length > 0 && preserved.anchorUuid === summary?.uuid
+    && JSON.stringify(preserved.allUuids) === JSON.stringify(preserved.uuids));
+  check("p0b summary: user entry flagged isCompactSummary, parent = boundary",
+    summary?.type === "user" && summary.isCompactSummary === true && summary.parentUuid === boundary?.uuid);
+  check("p0b post-compact probe reached the API", (r.probeContext?.nMessages ?? 0) > 0);
+}
+
 // --- p1: injection validity ---
 {
   const r = load("p1-report");
@@ -34,6 +59,21 @@ const starts = (u, p) => typeof u === "string" && u.startsWith(p);
   check("p1.b synthetic: 3 messages, parent = red", r.b.probe.nMessages === 3 && starts(r.b.firstNewUserParent, RED));
   check("p1.c durability: prior probe survived second resume", r.c.priorProbeStillThere === true);
   check("p1.d bad uuid: invalid playlist abort, summary-only signature (red absent)", r.d.probe.preservedRedIdx === -1 && r.d.probe.nMessages === 3);
+}
+
+// --- p1e: field ablation — which boundary/summary fields are load-bearing ---
+{
+  const r = load("p1e-report");
+  const relinks = (name) => r[name].resultSubtype === "success" && r[name].relinked === true;
+  check("p1e no-summary-flag / segment-only / plain-content still relink",
+    relinks("3-no-summary-flag") && relinks("4-segment-only") && relinks("5-plain-content"));
+  check("p1e empty uuids: summary shown, no relink", r["2-empty-uuids"].resultSubtype === "success"
+    && r["2-empty-uuids"].summaryPresent === true && r["2-empty-uuids"].relinked === false);
+  const noMeta = r["1-no-metadata"];
+  check("p1e missing compactMetadata (known writer behavior per version)",
+    r.versions.sdk === "0.3.250" ? noMeta.nMessages === 3 && noMeta.summaryPresent && !noMeta.relinked
+    : r.versions.sdk === "0.3.258" ? noMeta.resultSubtype === "error_during_execution" && noMeta.nMessages === 0
+    : false);
 }
 
 // --- p2: option space + branch navigation ---
@@ -119,6 +159,7 @@ const starts = (u, p) => typeof u === "string" && u.startsWith(p);
   check("p4.q7 post-compact probe sees new compacted context (known writer keep-reach per version)",
     r.versions.sdk === "0.3.195" ? keptOld
     : r.versions.sdk === "0.3.250" ? keptTailOnly
+    : r.versions.sdk === "0.3.258" ? keptOld
     : false);
   check("p4.q8 live dry-run rewind works", r.q8.liveDryRun.canRewind === true);
   check("p4.q8 behind-boundary rewind refused", r.q8.behindBoundaryDryRun.canRewind === false
@@ -271,4 +312,4 @@ if (failures.length) {
   for (const f of failures) console.error("  ✗ " + f);
   process.exit(1);
 }
-console.log(`PASS — ${count} assertions over p1–p20 reports`);
+console.log(`PASS — ${count} assertions over p0b–p20 reports`);

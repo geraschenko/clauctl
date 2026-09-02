@@ -1,12 +1,12 @@
 {
   "versions": {
-    "sdk": "0.3.250"
+    "sdk": "0.3.258"
   },
   "q7": {
     "probeUsage": {
       "input": 10,
-      "cacheCreate": 0,
-      "cacheRead": 22542
+      "cacheCreate": 2767,
+      "cacheRead": 21036
     },
     "compactSubtype": "success",
     "compactReqScope": {
@@ -18,31 +18,31 @@
     },
     "newBoundaryMetadata": {
       "trigger": "manual",
-      "preTokens": 22616,
-      "durationMs": 16067,
+      "preTokens": 23869,
+      "durationMs": 17266,
       "preservedSegment": {
-        "headUuid": "113180f5-a9c1-4de1-b4c3-83700d2dadde",
-        "anchorUuid": "803b6c88-db10-421f-806e-a64b2b0fff66",
-        "tailUuid": "78e5bb70-03a5-4a97-bdc6-17f5a46b70b0"
+        "headUuid": "3482986e-4812-4cc1-8bd3-30c08f6b3fb6",
+        "anchorUuid": "6b28343d-2036-4332-8651-7b0ab98e310c",
+        "tailUuid": "623cd900-fbf5-43c7-af48-ef974ddb90fb"
       },
       "preservedMessages": {
-        "anchorUuid": "803b6c88-db10-421f-806e-a64b2b0fff66",
+        "anchorUuid": "6b28343d-2036-4332-8651-7b0ab98e310c",
         "uuids": [
-          "113180f5-a9c1-4de1-b4c3-83700d2dadde",
-          "78e5bb70-03a5-4a97-bdc6-17f5a46b70b0"
+          "3482986e-4812-4cc1-8bd3-30c08f6b3fb6",
+          "623cd900-fbf5-43c7-af48-ef974ddb90fb"
         ],
         "allUuids": [
-          "113180f5-a9c1-4de1-b4c3-83700d2dadde",
-          "78e5bb70-03a5-4a97-bdc6-17f5a46b70b0"
+          "3482986e-4812-4cc1-8bd3-30c08f6b3fb6",
+          "623cd900-fbf5-43c7-af48-ef974ddb90fb"
         ]
       },
-      "postTokens": 674,
-      "cumulativeDroppedTokens": 60942
+      "postTokens": 1178,
+      "cumulativeDroppedTokens": 61691
     },
     "postProbe": {
       "nMessages": 3,
-      "hasOldSynthSummary": false,
-      "hasFirstProbe": false
+      "hasOldSynthSummary": true,
+      "hasFirstProbe": true
     }
   },
   "q8": {
@@ -70,7 +70,7 @@
     "contentAfterOnChain": "V1"
   },
   "q9": {
-    "resultToLeafOnDiskMs": 177,
+    "resultToLeafOnDiskMs": 179,
     "fileGrewAfterLeaf": false,
     "bytesAfterLeaf": 0,
     "sentinelSurvivedClose": true,
