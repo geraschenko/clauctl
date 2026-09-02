@@ -1,9 +1,9 @@
 /**
  * The `/tree` picker: the session tree rendered exactly as `clauctl format
- * tree --filter picker` renders it (shared flattenVisibleTree +
- * formatTreeNodeLine, uuids omitted), with pi-style search and navigation.
- * Pick semantics (resolveTreePick) live here too; interactive-mode owns the
- * busy gate and the set-context request.
+ * tree --filter picker` renders it (shared treeLines, uuids omitted), with
+ * pi-style search and navigation over the row lines. Pick semantics
+ * (resolveTreePick) live here too; interactive-mode owns the busy gate and
+ * the set-context request.
  */
 
 import type { UUID } from "node:crypto";
@@ -21,30 +21,24 @@ import {
 } from "../../core/tree/loader.ts";
 import type { SessionEntry } from "../../core/session/file.ts";
 import {
-  treeChildren,
   formatTreeNodeRef,
   parseTreeNodeRef,
   pathToLeaf,
   type ParentMap,
   type TreeNodeRef,
 } from "../../core/tree/nodes.ts";
-import { toLayoutTree } from "../../format/generated/flat-tree.ts";
+import { treeChildren } from "../../core/tree/parent-map.ts";
+import { dagLineText, type DagLine } from "../../format/dag-lines.ts";
 import { extractTextContent } from "../../format/generated/text.ts";
-import {
-  flattenVisibleTree,
-  type FlatLayoutNode,
-  type LayoutNode,
-} from "../../format/generated/tree-layout.ts";
 import {
   collectFinalAssistantIds,
   collectToolNames,
-  entrySummary,
-  formatTreeNodeLine,
   passesFilter,
+  treeLines,
 } from "../../format/tree.ts";
 import { theme } from "../theme.ts";
 
-const MAX_VISIBLE_ROWS = 15;
+const MAX_VISIBLE_LINES = 15;
 
 export type TreePickAction =
   | { kind: "rewind"; rewindTo: TreeNodeRef; editorText?: string }
@@ -173,10 +167,8 @@ function isPrintable(data: string): boolean {
 export class TreeSelectorComponent extends Container implements Focusable {
   focused = false;
 
-  private readonly roots: LayoutNode<SessionEntry>[];
-  private readonly currentLeafId: string | null;
-  private readonly toolNames: ReadonlyMap<string, string>;
-  private readonly finalIds: ReadonlySet<string>;
+  /** The whole picker-filtered tree, rendered once. */
+  private readonly treeLines: readonly DagLine[];
   /** Display-tree parent relation (layout ids), for
    *  nearest-visible-ancestor selection recovery when search hides the
    *  selected row. */
@@ -185,8 +177,11 @@ export class TreeSelectorComponent extends Container implements Focusable {
   private readonly onCancel: () => void;
 
   private searchQuery = "";
-  private visibleRows: readonly FlatLayoutNode<SessionEntry>[] = [];
-  private selectedIndex = 0;
+  /** What is shown: treeLines, or the search matches (row lines only,
+   *  drawn without connectors). */
+  private lines: readonly DagLine[] = [];
+  /** Index into `lines`; always a line with a rowId when any exists. */
+  private selectedLine = 0;
   private lastSelectedId: string | null;
   private warning: string | undefined;
 
@@ -199,25 +194,30 @@ export class TreeSelectorComponent extends Container implements Focusable {
   ) {
     super();
     const parentMap = displayTree.parentMap;
-    this.roots = toLayoutTree(parentMap, (id) =>
-      byUuid.get(parseTreeNodeRef(id).uuid)!,
-    );
-    // A hidden leaf occurrence marks its nearest visible row (a rootless
-    // hidden chain → no marker, matching filtered-leaf behavior).
+    // A hidden leaf occurrence's row is its nearest visible row (a rootless
+    // hidden chain → no active chain, matching filtered-leaf behavior).
     const leafRow =
       leaf === null ? undefined : displayTree.nearestVisibleRow(leaf);
-    this.currentLeafId =
+    const currentLeafId =
       leafRow === undefined ? null : formatTreeNodeRef(leafRow);
-    this.toolNames = collectToolNames([...byUuid.values()]);
-    this.finalIds = collectFinalAssistantIds(
+    const finalIds = collectFinalAssistantIds(
       parentMap,
       treeChildren(parentMap),
       byUuid,
     );
+    this.treeLines = treeLines(
+      parentMap,
+      byUuid,
+      currentLeafId,
+      (id, entry) =>
+        passesFilter(entry, id === currentLeafId, finalIds.has(id), "picker"),
+      collectToolNames([...byUuid.values()]),
+      true,
+    );
     this.onSelect = onSelect;
     this.onCancel = onCancel;
     this.parentMap = parentMap;
-    this.lastSelectedId = this.currentLeafId;
+    this.lastSelectedId = currentLeafId;
     this.applyFilter();
   }
 
@@ -227,56 +227,45 @@ export class TreeSelectorComponent extends Container implements Focusable {
   }
 
   /**
-   * Recompute the visible rows: the fixed "picker" filter AND-composed with
-   * the search tokens in one predicate, so hidden-parent re-attachment keeps
-   * working during search. The current-leaf exemption is part of the fixed
-   * filter only — a search that doesn't match the leaf hides it (pi parity).
+   * Recompute the shown lines: the rendered tree when the query is empty,
+   * else the row lines whose label contains every search token. The
+   * current-leaf exemption is part of the picker filter only — a search
+   * that doesn't match the leaf hides it (pi parity).
    */
   private applyFilter(): void {
-    const selected = this.visibleRows[this.selectedIndex];
-    if (selected !== undefined) {
-      this.lastSelectedId = selected.node.id;
+    const selected = this.lines[this.selectedLine];
+    if (selected?.rowId !== undefined) {
+      this.lastSelectedId = selected.rowId;
     }
     const tokens = this.searchQuery
       .toLowerCase()
       .split(/\s+/)
       .filter((token) => token !== "");
-    this.visibleRows = flattenVisibleTree(
-      this.roots,
-      this.currentLeafId,
-      (node) => {
-        if (
-          !passesFilter(
-            node.payload,
-            node.id === this.currentLeafId,
-            this.finalIds.has(node.id),
-            "picker",
-          )
-        ) {
-          return false;
-        }
-        if (tokens.length === 0) {
-          return true;
-        }
-        const summary = entrySummary(
-          node.payload,
-          this.toolNames,
-        ).toLowerCase();
-        return tokens.every((token) => summary.includes(token));
-      },
-    );
-    this.selectedIndex =
+    this.lines =
+      tokens.length === 0
+        ? this.treeLines
+        : this.treeLines.filter((line) => {
+            if (line.rowId === undefined) {
+              return false;
+            }
+            const label = line.label.toLowerCase();
+            return tokens.every((token) => label.includes(token));
+          });
+    this.selectedLine =
       this.lastSelectedId === null
-        ? 0
+        ? this.nearestSelectableLine(0, 1)
         : this.nearestVisibleIndex(this.lastSelectedId);
   }
 
-  /** The row of `id` if visible, else its nearest visible ancestor, else a
-   *  clamp of the previous selection. */
+  /** The line of `id` if shown, else its nearest shown ancestor, else a
+   *  clamp of the previous selection (snapped to a selectable line). */
   private nearestVisibleIndex(id: string): number {
-    const indexById = new Map(
-      this.visibleRows.map((row, index) => [row.node.id, index]),
-    );
+    const indexById = new Map<string, number>();
+    for (const [index, line] of this.lines.entries()) {
+      if (line.rowId !== undefined) {
+        indexById.set(line.rowId, index);
+      }
+    }
     let currentId: string | null = id;
     while (currentId !== null) {
       const index = indexById.get(currentId);
@@ -285,10 +274,39 @@ export class TreeSelectorComponent extends Container implements Focusable {
       }
       currentId = this.parentMap.get(currentId) ?? null;
     }
-    return Math.min(
-      this.selectedIndex,
-      Math.max(0, this.visibleRows.length - 1),
-    );
+    return this.nearestSelectableLine(this.selectedLine, -1);
+  }
+
+  /** The nearest line with a rowId at or beyond `from` (clamped into
+   *  range) in `direction` (+1/-1), falling back to the other direction;
+   *  the clamped `from` when there is none at all. */
+  private nearestSelectableLine(from: number, direction: 1 | -1): number {
+    const start = Math.max(0, Math.min(from, this.lines.length - 1));
+    for (const step of [direction, -direction]) {
+      for (
+        let index = start;
+        index >= 0 && index < this.lines.length;
+        index += step
+      ) {
+        if (this.lines[index]!.rowId !== undefined) {
+          return index;
+        }
+      }
+    }
+    return start;
+  }
+
+  private lineText(line: DagLine, width: number): string {
+    const dimGlyph = line.rowId?.includes("@") === true;
+    if (this.searchQuery === "") {
+      const text = dagLineText(line, width);
+      return dimGlyph
+        ? text.replace(line.glyph, theme.fg("dim", line.glyph))
+        : text;
+    }
+    // Search view: a flat list, no connectors.
+    const glyph = dimGlyph ? theme.fg("dim", line.glyph) : line.glyph;
+    return `${glyph} ${dagLineText({ ...line, prefix: "", glyph: "", suffix: "" }, Math.max(0, width - 2))}`;
   }
 
   override render(width: number): string[] {
@@ -302,25 +320,20 @@ export class TreeSelectorComponent extends Container implements Focusable {
         `pick a tree entry (${confirmKey} to rewind, ${cancelKey} to cancel)`,
       ),
     );
-    if (this.visibleRows.length === 0) {
+    if (this.lines.length === 0) {
       lines.push(theme.fg("dim", "(no matching entries)"));
     } else {
       const start = Math.max(
         0,
         Math.min(
-          this.selectedIndex - Math.floor(MAX_VISIBLE_ROWS / 2),
-          this.visibleRows.length - MAX_VISIBLE_ROWS,
+          this.selectedLine - Math.floor(MAX_VISIBLE_LINES / 2),
+          this.lines.length - MAX_VISIBLE_LINES,
         ),
       );
-      const end = Math.min(start + MAX_VISIBLE_ROWS, this.visibleRows.length);
+      const end = Math.min(start + MAX_VISIBLE_LINES, this.lines.length);
       for (let index = start; index < end; index += 1) {
-        const line = formatTreeNodeLine(
-          this.visibleRows[index]!,
-          this.toolNames,
-          width,
-          true,
-        );
-        lines.push(index === this.selectedIndex ? theme.inverse(line) : line);
+        const line = this.lineText(this.lines[index]!, width);
+        lines.push(index === this.selectedLine ? theme.inverse(line) : line);
       }
     }
     if (this.searchQuery !== "") {
@@ -337,30 +350,26 @@ export class TreeSelectorComponent extends Container implements Focusable {
     // search editing (backspace, printable input) is text editing and stays
     // on hard-coded keys.
     const keybindings = getKeybindings();
-    const rowCount = this.visibleRows.length;
     if (keybindings.matches(data, "tui.select.up")) {
-      if (rowCount > 0) {
-        this.selectedIndex =
-          this.selectedIndex === 0 ? rowCount - 1 : this.selectedIndex - 1;
-      }
+      this.selectedLine = this.nearestSelectableLine(this.selectedLine - 1, -1);
     } else if (keybindings.matches(data, "tui.select.down")) {
-      if (rowCount > 0) {
-        this.selectedIndex =
-          this.selectedIndex === rowCount - 1 ? 0 : this.selectedIndex + 1;
-      }
+      this.selectedLine = this.nearestSelectableLine(this.selectedLine + 1, 1);
     } else if (keybindings.matches(data, "tui.select.pageUp")) {
-      this.selectedIndex = Math.max(0, this.selectedIndex - MAX_VISIBLE_ROWS);
+      this.selectedLine = this.nearestSelectableLine(
+        this.selectedLine - MAX_VISIBLE_LINES,
+        -1,
+      );
     } else if (keybindings.matches(data, "tui.select.pageDown")) {
-      this.selectedIndex = Math.min(
-        Math.max(0, rowCount - 1),
-        this.selectedIndex + MAX_VISIBLE_ROWS,
+      this.selectedLine = this.nearestSelectableLine(
+        this.selectedLine + MAX_VISIBLE_LINES,
+        1,
       );
     } else if (keybindings.matches(data, "tui.select.confirm")) {
-      const selected = this.visibleRows[this.selectedIndex];
-      if (selected !== undefined) {
-        // Layout ids ARE formatTreeNodeRef output, so the pick recovers the
+      const rowId = this.lines[this.selectedLine]?.rowId;
+      if (rowId !== undefined) {
+        // Row ids ARE formatTreeNodeRef output, so the pick recovers the
         // occurrence directly — no parallel bookkeeping.
-        this.onSelect(parseTreeNodeRef(selected.node.id));
+        this.onSelect(parseTreeNodeRef(rowId));
       }
     } else if (keybindings.matches(data, "tui.select.cancel")) {
       if (this.searchQuery !== "") {

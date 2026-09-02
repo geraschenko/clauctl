@@ -88,7 +88,7 @@ function summaryEntry(
 
 // --- native shapes (the spec's concrete examples) ---------------------------
 
-test("up_to shape: block at the boundary's position, forward anchor, decorated post entries", () => {
+test("up_to shape: block right after its anchor's row, decorated post entries", () => {
   const sid = uuid();
   const e1 = userEntry(null, sid);
   const e2 = assistantEntry(e1.uuid, sid);
@@ -104,8 +104,9 @@ test("up_to shape: block at the boundary's position, forward anchor, decorated p
   const s = summaryEntry(b.uuid, sid, summaryUuid);
   const e5 = userEntry(e4.uuid, sid);
   const tree = buildTree([e1, e2, e3, e4, b, s, e5], failOnInvalid);
-  // Materialization order: raw rows at file position, the block at the
-  // boundary's position (its anchor is a forward reference to the summary).
+  // Materialization order: raw rows at file position, the block right
+  // after the summary (its anchor, which arrives after the boundary), so
+  // every row follows its parent.
   assert.deepEqual(
     [...tree],
     [
@@ -114,9 +115,9 @@ test("up_to shape: block at the boundary's position, forward anchor, decorated p
       [e3.uuid, e2.uuid],
       [e4.uuid, e3.uuid],
       [b.uuid, e4.uuid],
+      [summaryUuid, b.uuid],
       [`${e3.uuid}@${b.uuid}`, summaryUuid],
       [`${e4.uuid}@${b.uuid}`, `${e3.uuid}@${b.uuid}`],
-      [summaryUuid, b.uuid],
       [e5.uuid, `${e4.uuid}@${b.uuid}`],
     ],
   );
@@ -256,8 +257,16 @@ test("dangling up_to anchor: the block roots and is reported", () => {
     anchor: uuid(),
     logicalParentUuid: e1.uuid,
   });
+  const e2 = assistantEntry(e1.uuid, sid);
   const invalidMessages: string[] = [];
-  const tree = buildTree([e1, b], (message) => invalidMessages.push(message));
+  const tree = buildTree([e1, b, e2], (message) =>
+    invalidMessages.push(message),
+  );
+  // The block is materialized at end of file, after every raw row.
+  assert.deepEqual(
+    [...tree.keys()],
+    [e1.uuid, b.uuid, e2.uuid, `${e1.uuid}@${b.uuid}`],
+  );
   assert.equal(tree.get(`${e1.uuid}@${b.uuid}`), null);
   assert.match(invalidMessages[0]!, /names no tree occurrence/);
 });

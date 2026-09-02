@@ -232,7 +232,7 @@ export const formatRoute = {
           common: true,
           docs: {
             brief:
-              "format get-entries output or session-file JSONL as an indented tree",
+              "format get-entries output or session-file JSONL as a chronological DAG",
           },
           parameters: { flags: treeFlags, positional: filePositional },
           func: formatTree,

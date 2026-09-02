@@ -1,5 +1,9 @@
 # Handoff: adopt pictl's shared `flat-tree.ts` (dedupe the flat→layout adapter)
 
+> **Superseded:** `flat-tree.ts` / `tree-layout.ts` are deleted by
+> `docs/specs/tree-presentation.md` (renderdag rendering); this handoff is
+> historical.
+
 ## Context
 
 After clauctl's session-snapshot-and-forest change

@@ -20,10 +20,12 @@ import {
  *  through the latest boundary encountered so far (effectiveParent, which
  *  yields `uuid@B` refs when the parent uuid is among that boundary's
  *  preserved uuids), plus each valid boundary's relinked block
- *  `uuids[i]@B → parentOfPreserved(i)` at the boundary's file position
- *  (the block's one genuine forward reference is the up_to anchor's raw
- *  occurrence, which arrives after the boundary; a final pass nulls
- *  parents that never materialized). EVERY encountered boundary becomes
+ *  `uuids[i]@B → parentOfPreserved(i)`, materialized right after its
+ *  anchor's row: at the boundary's own position when the anchor is the
+ *  boundary (from-shape), right after the anchor entry's raw row when it
+ *  arrives later (up_to summary), at end of file when it never arrives
+ *  (its rows become roots, reported). So every row follows its parent in
+ *  iteration order, which the renderers rely on. EVERY encountered boundary becomes
  *  the latest — an invalid or empty boundary contributes no rules but
  *  still ends the previous boundary's effect (last-wins).
  *  Exactly one raw occurrence per uuid-bearing entry — a duplicate occurrence
@@ -50,6 +52,9 @@ export function buildTree(
    *  the previous boundary's effect and contributes no rules, which this
    *  represents as undefined. */
   let latest: CompactBoundary | undefined;
+  /** Relinked blocks whose anchor entry has not arrived yet, keyed by the
+   *  anchor uuid: flushed right after that raw row is set. */
+  const pendingBlockByAnchor = new Map<UUID, [string, string][]>();
 
   for (const [index, entry] of entries.entries()) {
     if (entry.uuid === undefined) {
@@ -64,6 +69,12 @@ export function buildTree(
       key,
       parentRef === undefined ? null : formatTreeNodeRef(parentRef),
     );
+    for (const [blockKey, blockParent] of pendingBlockByAnchor.get(
+      entry.uuid,
+    ) ?? []) {
+      parentMap.set(blockKey, blockParent);
+    }
+    pendingBlockByAnchor.delete(entry.uuid);
     if (entry.subtype !== "compact_boundary") {
       continue;
     }
@@ -76,14 +87,29 @@ export function buildTree(
       continue;
     }
     const preservedUuids = boundary.preservedMessages.uuids;
-    for (const [preservedIndex, preservedUuid] of preservedUuids.entries()) {
-      parentMap.set(
+    const block: [string, string][] = preservedUuids.map(
+      (preservedUuid, preservedIndex) => [
         formatTreeNodeRef({ uuid: preservedUuid, viaBoundary: boundary.uuid }),
         formatTreeNodeRef(parentOfPreserved(boundary, preservedIndex)),
-      );
+      ],
+    );
+    const anchorUuid = boundary.preservedMessages.anchorUuid;
+    if (parentMap.has(anchorUuid)) {
+      for (const [blockKey, blockParent] of block) {
+        parentMap.set(blockKey, blockParent);
+      }
+    } else if (block.length > 0) {
+      pendingBlockByAnchor.set(anchorUuid, block);
     }
     if (preservedUuids.length > 0) {
       latest = boundary;
+    }
+  }
+  // Blocks whose anchor never arrived: their first row dangles and roots
+  // in the pass below.
+  for (const block of pendingBlockByAnchor.values()) {
+    for (const [blockKey, blockParent] of block) {
+      parentMap.set(blockKey, blockParent);
     }
   }
 

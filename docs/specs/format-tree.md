@@ -1,5 +1,9 @@
 # Spec: `clauctl format tree` — readable rendering of the session tree
 
+> **Superseded (layout):** the indented layout described here is replaced
+> by the renderdag DAG rendering of `docs/specs/tree-presentation.md`;
+> filters and `entrySummary` remain as specified here.
+
 > Status: **implemented, awaiting review.** Follow-up to
 > `docs/specs/format.md` (which deferred `format tree`) and
 > `docs/specs/session-tree-and-set-context.md` (which shipped `get-tree`).

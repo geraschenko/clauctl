@@ -1,14 +1,14 @@
 /**
  * The tree vocabulary and pure tree operations: ref/node types shared by
  * the loader model (loader.ts), tree construction (build-tree.ts), and
- * every consumer of get-entries output. Its only non-core dependency is
- * the shared ParentMap type; construction stays in build-tree.ts — it
- * needs the relink machinery.
+ * every consumer of get-entries output. Construction stays in
+ * build-tree.ts — it needs the relink machinery; the bare parent-relation
+ * primitives live in parent-map.ts.
  */
 
 import type { UUID } from "node:crypto";
 import type { SessionEntry } from "../session/file.ts";
-import type { ParentMap } from "../../format/generated/flat-tree.ts";
+import type { ParentMap } from "./parent-map.ts";
 import { isUuidPrefix, resolveUuidPrefix, UUID_PATTERN } from "../uuid.ts";
 
 export type { ParentMap };
@@ -30,7 +30,8 @@ export interface TreeNodeRef {
  *  position, relinked occurrences at their boundary's file position.
  *  Deliberately flat: a nested node type nests one JSON level per entry on a
  *  mostly-linear session, and JSON.stringify overflows the call stack near
- *  depth ~5000. ParentMap is re-exported above to preserve this core API. */
+ *  depth ~5000. ParentMap is defined in parent-map.ts and re-exported
+ *  above so tree consumers need only this module. */
 
 /** get-entries response: every file entry verbatim, plus the daemon-computed
  *  context tip resolved to its occurrence in these entries. Entries lacking
@@ -152,23 +153,6 @@ export function pathToLeaf(
   }
   path.reverse();
   return path;
-}
-
-/** Child occurrence ids per parent id, roots under null. Materialization
- *  order. Derived by inverting `parentMap`. */
-export function treeChildren(
-  parentMap: ParentMap,
-): Map<string | null, string[]> {
-  const children = new Map<string | null, string[]>();
-  for (const [id, parent] of parentMap) {
-    const siblings = children.get(parent);
-    if (siblings === undefined) {
-      children.set(parent, [id]);
-    } else {
-      siblings.push(id);
-    }
-  }
-  return children;
 }
 
 function apiMessageIdOf(entry: SessionEntry | undefined): string | undefined {

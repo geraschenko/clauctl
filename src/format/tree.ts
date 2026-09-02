@@ -1,10 +1,11 @@
 /**
- * `format tree`: renders a session snapshot as an indented tree, one line
- * per visible entry — behavioral parity with `pictl format tree`. The layout
- * geometry is the synced generated/tree-layout.ts; this file owns the
- * clauctl-specific parts: entry summaries, filters, and payload adaptation. Lenient
- * like `format messages` — verbatim entries drift with Anthropic CLI
- * versions, so unrecognized shapes render generically rather than rejecting.
+ * `format tree`: renders a session snapshot as a git-log-style DAG, rows in
+ * file order with the active chain in column 0 (see
+ * docs/specs/tree-presentation.md). The graph geometry is dag-lines.ts
+ * (generic); this file owns the clauctl-specific parts: entry glyphs and
+ * summaries, filters, and the visible relation. Lenient like `format
+ * messages` — verbatim entries drift with Anthropic CLI versions, so
+ * unrecognized shapes render generically rather than rejecting.
  */
 
 import type { UUID } from "node:crypto";
@@ -12,28 +13,36 @@ import { buildTree } from "../core/tree/build-tree.ts";
 import { toDisplayTree } from "../core/tree/display-tree.ts";
 import { entriesByUuid, type SessionEntry } from "../core/session/file.ts";
 import {
-  treeChildren,
   formatTreeNodeRef,
   isFinalAssistantEntry,
   parseTreeNodeRef,
   type ParentMap,
   type SessionSnapshot,
 } from "../core/tree/nodes.ts";
+import { treeChildren } from "../core/tree/parent-map.ts";
 import { isRecord } from "../core/generated/util.ts";
 import { displayUuid } from "../core/uuid.ts";
-import { toLayoutTree } from "./generated/flat-tree.ts";
+import {
+  ASSISTANT_GLYPH,
+  COMPACT_BOUNDARY_GLYPH,
+  COMPACT_SUMMARY_GLYPH,
+  OTHER_ENTRY_GLYPH,
+  TOOL_CALL_GLYPH,
+  TOOL_RESULT_GLYPH,
+  USER_GLYPH,
+} from "../tui/glyphs.ts";
+import {
+  dagLineText,
+  renderDagLines,
+  type DagLine,
+  type DagRow,
+} from "./dag-lines.ts";
 import {
   contentBlocks,
   extractTextContent,
   hasContentBlock,
   oneLine,
-  truncateText,
 } from "./generated/text.ts";
-import {
-  flattenVisibleTree,
-  treePrefix,
-  type FlatLayoutNode,
-} from "./generated/tree-layout.ts";
 
 export const FILTER_MODES = [
   "conversation",
@@ -170,10 +179,7 @@ export function entrySummary(
 ): string {
   if (entry.type === "user") {
     if (hasText(entry)) {
-      const text = oneLine(extractTextContent(messageContent(entry)));
-      return entry.isCompactSummary === true
-        ? `compaction: ${text}`
-        : `user: ${text}`;
+      return oneLine(extractTextContent(messageContent(entry)));
     }
     const results = recordBlocks(entry).filter(
       (block) => block.type === "tool_result",
@@ -210,7 +216,7 @@ export function entrySummary(
         parts.push(`(${stopReason})`);
       }
     }
-    return `assistant: ${parts.length === 0 ? "(no content)" : parts.join(" ")}`;
+    return parts.length === 0 ? "(no content)" : parts.join(" ");
   }
   if (entry.subtype === "compact_boundary") {
     const preTokens = isRecord(entry.compactMetadata)
@@ -240,42 +246,100 @@ export function collectFinalAssistantIds(
   return finalIds;
 }
 
-/** `omitUuid` drops the uuid column — the /tree selector's rows (uuids are
- *  for CLI copy-paste, noise in an interactive picker). Relinked occurrences
- *  (layout id carries `@boundary`) are marked `~` just before the uuid
- *  column (before the summary when the uuid is omitted). */
-export function formatTreeNodeLine(
-  flatNode: FlatLayoutNode<SessionEntry>,
+/** Classifies the entry into the glyphs.ts vocabulary, first match wins:
+ *  compact boundary, compact summary, user with text, tool_result-only
+ *  user, assistant with a tool_use block, other assistant, anything else.
+ *  Lives here (not in glyphs.ts) because it is entry classification,
+ *  sharing hasText/toolResultOnly with passesFilter. */
+export function treeRowGlyph(entry: SessionEntry): string {
+  if (entry.subtype === "compact_boundary") {
+    return COMPACT_BOUNDARY_GLYPH;
+  }
+  if (entry.isCompactSummary === true) {
+    return COMPACT_SUMMARY_GLYPH;
+  }
+  if (entry.type === "user") {
+    if (hasText(entry)) {
+      return USER_GLYPH;
+    }
+    if (toolResultOnly(entry)) {
+      return TOOL_RESULT_GLYPH;
+    }
+  }
+  if (entry.type === "assistant") {
+    return hasContentBlock(messageContent(entry), "tool_use")
+      ? TOOL_CALL_GLYPH
+      : ASSISTANT_GLYPH;
+  }
+  return OTHER_ENTRY_GLYPH;
+}
+
+/** The one rendering shared by `format tree` and `/tree`: the rows of
+ *  `parentMap` passing `passes`, in parentMap order, hidden rows' children
+ *  re-attached to their nearest visible ancestor; the active chain = the
+ *  leaf's row → root over that visible relation, where the leaf's row is
+ *  currentLeafId itself when it passes, else its nearest visible ancestor
+ *  (null → no chain; also for a currentLeafId unknown to the tree).
+ *  Labels: the 8-char uuid prefix (`~`-prefixed on relinked ids) unless
+ *  omitUuid, then entrySummary. Because a row always follows its parent
+ *  (throws otherwise — a buildTree/toDisplayTree invariant), one forward
+ *  pass resolves every row's nearest visible ancestor. */
+export function treeLines(
+  parentMap: ParentMap,
+  byUuid: ReadonlyMap<UUID, SessionEntry>,
+  currentLeafId: string | null,
+  passes: (id: string, entry: SessionEntry) => boolean,
   toolNames: ReadonlyMap<string, string>,
-  width: number,
-  omitUuid?: boolean,
-): string {
-  const marker = flatNode.isCurrentLeaf
-    ? "* "
-    : flatNode.isOnActivePath
-      ? "• "
-      : "";
-  const relinked =
-    parseTreeNodeRef(flatNode.node.id).viaBoundary === undefined ? "" : "~";
-  const uuid8 = omitUuid
-    ? ""
-    : `${displayUuid(String(flatNode.node.payload.uuid))} `;
-  const prefix = `${treePrefix(flatNode)}${marker}${relinked}${uuid8}`;
-  const availableSummary = Math.max(0, width - [...prefix].length);
-  const summary = entrySummary(flatNode.node.payload, toolNames);
-  return `${prefix}${truncateText(summary, availableSummary)}`.trimEnd();
+  omitUuid: boolean,
+): DagLine[] {
+  /** Every id → its nearest visible strict ancestor (null = none). */
+  const visibleAncestorOf = new Map<string, string | null>();
+  const visible = new Set<string>();
+  const rows: DagRow[] = [];
+  for (const [id, parent] of parentMap) {
+    let visibleAncestor: string | null = null;
+    if (parent !== null) {
+      if (!visibleAncestorOf.has(parent)) {
+        throw new Error(`treeLines: row ${id} precedes its parent ${parent}`);
+      }
+      visibleAncestor = visible.has(parent)
+        ? parent
+        : visibleAncestorOf.get(parent)!;
+    }
+    visibleAncestorOf.set(id, visibleAncestor);
+    const ref = parseTreeNodeRef(id);
+    const entry = byUuid.get(ref.uuid)!;
+    if (!passes(id, entry)) {
+      continue;
+    }
+    visible.add(id);
+    const label = omitUuid
+      ? entrySummary(entry, toolNames)
+      : `${ref.viaBoundary === undefined ? "" : "~"}${displayUuid(ref.uuid)} ${entrySummary(entry, toolNames)}`;
+    rows.push({
+      id,
+      parentId: visibleAncestor,
+      glyph: treeRowGlyph(entry),
+      label,
+    });
+  }
+  let leafRow: string | null = null;
+  if (currentLeafId !== null) {
+    leafRow = visible.has(currentLeafId)
+      ? currentLeafId
+      : (visibleAncestorOf.get(currentLeafId) ?? null);
+  }
+  return renderDagLines(rows, leafRow);
 }
 
 /** Whole-input formatter for `format tree`: builds the tree from the
- * snapshot's entries, adapts it to LayoutNode<SessionEntry>[], calls
- * flattenVisibleTree, renders lines + the cursor line. `raw` mode renders
- * buildTree's output verbatim; every other mode renders the display tree,
- * with the leaf marker on the visible row that carries a hidden leaf
- * occurrence (the `[cursor: …]` line keeps the true leaf uuid; a leaf on
- * a rootless hidden chain renders no marker). Layout ids are the tree keys.
- * Relink diagnostics are declared-ignored: interleaving them with the
- * rendered tree would corrupt the output, and invalid relinks still
- * render (un-relinked). */
+ * snapshot's entries, renders treeLines + the cursor line. `raw` mode
+ * renders buildTree's output verbatim; every other mode renders the
+ * display tree, with a hidden leaf occurrence mapped to its nearest
+ * visible row (the `[cursor: …]` line keeps the true leaf uuid). Relink
+ * diagnostics are declared-ignored: interleaving them with the rendered
+ * tree would corrupt the output, and invalid relinks still render
+ * (un-relinked). */
 export function formatSessionSnapshot(
   snapshot: SessionSnapshot,
   options: TreeFormatOptions,
@@ -303,17 +367,20 @@ export function formatSessionSnapshot(
     treeChildren(parentMap),
     byUuid,
   );
-  const lines = flattenVisibleTree(
-    toLayoutTree(parentMap, (id) => byUuid.get(parseTreeNodeRef(id).uuid)!),
+  const lines = treeLines(
+    parentMap,
+    byUuid,
     currentLeafId,
-    (node) =>
+    (id, entry) =>
       passesFilter(
-        node.payload,
-        node.id === currentLeafId,
-        finalIds.has(node.id),
+        entry,
+        id === currentLeafId,
+        finalIds.has(id),
         options.filter,
       ),
-  ).map((flatNode) => formatTreeNodeLine(flatNode, toolNames, options.width));
+    toolNames,
+    false,
+  ).map((line) => dagLineText(line, options.width));
   lines.push(`[cursor: ${snapshot.leaf?.uuid ?? "null"}]`);
   return `${lines.join("\n")}\n`;
 }

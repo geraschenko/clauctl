@@ -2,16 +2,14 @@ import assert from "node:assert/strict";
 import type { UUID } from "node:crypto";
 import { test } from "node:test";
 import { buildTree } from "../core/tree/build-tree.ts";
-import { parseTreeNodeRef, type SessionSnapshot } from "../core/tree/nodes.ts";
+import type { SessionSnapshot } from "../core/tree/nodes.ts";
 import { loadedContext } from "../core/tree/loader.ts";
 import { entriesByUuid, type SessionEntry } from "../core/session/file.ts";
 import {
   formatSessionSnapshot,
-  formatTreeNodeLine,
+  treeLines,
   type TreeFormatOptions,
 } from "./tree.ts";
-import { toLayoutTree } from "./generated/flat-tree.ts";
-import { flattenVisibleTree } from "./generated/tree-layout.ts";
 
 /** Deterministic uuids whose first 8 chars are readable: uuid(1) renders as
  *  "00000001". */
@@ -58,9 +56,11 @@ function render(
   });
 }
 
-// --- markers, ordering, geometry ---------------------------------------------
+// --- ordering, geometry ----------------------------------------------------------
+// Exact connector geometry is renderdag's (docs/specs/tree-presentation.md);
+// these pin its actual output.
 
-test("branches render with the active branch first and leaf/ancestor markers", () => {
+test("a fork renders chronologically with the active chain in column 0", () => {
   const input: SessionSnapshot = {
     entries: [
       userEntry(uuid(1), "Start"),
@@ -72,28 +72,59 @@ test("branches render with the active branch first and leaf/ancestor markers", (
   };
   assert.equal(
     render(input),
-    "• 00000001 user: Start\n" +
-      "├─ • 00000003 user: Second branch\n" +
-      "│     * 00000004 assistant: active leaf\n" +
-      "└─ 00000002 assistant: First branch\n" +
+    "❯    00000001 Start\n" +
+      "├─╮\n" +
+      "│ ●  00000002 First branch\n" +
+      "❯  00000003 Second branch\n" +
+      "●  00000004 active leaf\n" +
       `[cursor: ${uuid(4)}]\n`,
   );
 });
 
-// Pins pictl parity for multi-root sessions: virtual-root children render
-// flush without connectors (their own descendants indent one extra level).
-// Known divergence from pi's TreeSelector, which shifts EVERY node's display
-// indent under multiple roots — see the format-tree.md work log.
-test("multiple roots render flush under the virtual root", () => {
+// The leaf rewound to a row with children: the active chain ends there,
+// column 0 is reserved below it (terminator + padding), both branches
+// move right.
+test("a leaf with children keeps column 0 empty below it", () => {
   const input: SessionSnapshot = {
-    entries: [userEntry(uuid(1), "root one"), userEntry(uuid(2), "root two")],
-    leaf: { uuid: uuid(2) },
+    entries: [
+      userEntry(uuid(1), "Start"),
+      assistantEntry(uuid(2), "First branch", uuid(1)),
+      userEntry(uuid(3), "Second branch", uuid(1)),
+      assistantEntry(uuid(4), "active leaf", uuid(3)),
+    ],
+    leaf: { uuid: uuid(1) },
   };
   assert.equal(
     render(input),
-    "* 00000002 user: root two\n" +
-      "00000001 user: root one\n" +
+    "❯      00000001 Start\n" +
+      "├─┬─╮\n" +
+      "│ │ │\n" +
+      "~ │ │\n" +
+      "  │ │\n" +
+      "  ● │  00000002 First branch\n" +
+      "    ❯  00000003 Second branch\n" +
+      "    ●  00000004 active leaf\n" +
+      `[cursor: ${uuid(1)}]\n`,
+  );
+});
+
+// The active root takes column 0 even when it is not the first root; with
+// no leaf, renderdag separates two unconnected one-line rows with a blank
+// filler line.
+test("multiple roots: the active root is column 0", () => {
+  const entries = [
+    userEntry(uuid(1), "root one"),
+    userEntry(uuid(2), "root two"),
+  ];
+  assert.equal(
+    render({ entries, leaf: { uuid: uuid(2) } }),
+    "  ❯  00000001 root one\n" +
+      "❯  00000002 root two\n" +
       `[cursor: ${uuid(2)}]\n`,
+  );
+  assert.equal(
+    render({ entries, leaf: null }),
+    "❯  00000001 root one\n" + "\n" + "❯  00000002 root two\n[cursor: null]\n",
   );
 });
 
@@ -122,12 +153,13 @@ test("a boundary and its summary render off the active path", () => {
   };
   assert.equal(
     render(input),
-    "• 00000001 user: Set up the build\n" +
-      "• 00000002 assistant: Build green\n" +
-      "├─ • 00000004 user: Fix the first failure\n" +
-      "│     * 00000005 assistant: Fixed\n" +
-      "└─ 00000003 [compaction: 42k tokens]\n" +
-      "      00000006 compaction: Earlier we set up the build\n" +
+    "❯  00000001 Set up the build\n" +
+      "●    00000002 Build green\n" +
+      "├─╮\n" +
+      "❯ │  00000004 Fix the first failure\n" +
+      "● │  00000005 Fixed\n" +
+      "  ═  00000003 [compaction: 42k tokens]\n" +
+      "  □  00000006 Earlier we set up the build\n" +
       `[cursor: ${uuid(5)}]\n`,
   );
 });
@@ -159,44 +191,43 @@ function hiddenBoundarySession(): SessionSnapshot {
 }
 
 // A summary-less boundary with no displayed descendants disappears; the
-// relinked leaf's marker lands on its representative (the raw row), and the
+// relinked leaf's chain ends on its representative (the raw row), and the
 // tree reads as a plain linear conversation.
-test("a hidden boundary's relinked leaf marks its representative raw row", () => {
+test("a hidden boundary's relinked leaf ends the chain on its representative raw row", () => {
   assert.equal(
     render(hiddenBoundarySession()),
-    "• 00000001 user: Start\n" +
-      "* 00000002 assistant: Reply\n" +
-      `[cursor: ${uuid(2)}]\n`,
+    "❯  00000001 Start\n" + "●  00000002 Reply\n" + `[cursor: ${uuid(2)}]\n`,
   );
 });
 
-// `raw` mode is buildTree's output verbatim: the boundary block forks off
-// the raw chain and the relinked occurrence renders as its own row, marked
-// `~` immediately before the uuid column.
+// `raw` mode is buildTree's output verbatim: the raw reply forks off the
+// chain, the boundary and its relinked block (marked `~` before the uuid)
+// carry the active chain.
 test("raw mode shows the boundary block with ~ on relinked rows", () => {
   assert.equal(
     render(hiddenBoundarySession(), { filter: "raw" }),
-    "• 00000001 user: Start\n" +
-      "├─ • 00000003 [compaction: 1k tokens]\n" +
-      "│     * ~00000002 assistant: Reply\n" +
-      "└─ 00000002 assistant: Reply\n" +
+    "❯    00000001 Start\n" +
+      "├─╮\n" +
+      "│ ●  00000002 Reply\n" +
+      "═  00000003 [compaction: 1k tokens]\n" +
+      "●  ~00000002 Reply\n" +
       `[cursor: ${uuid(2)}]\n`,
   );
 });
 
-// A filter that hides the representative row leaves the marker absent,
-// matching existing filtered-leaf behavior; the cursor line is unaffected.
-test("a filter-hidden representative row drops the marker", () => {
+// A filter that hides the representative row ends the chain at its nearest
+// visible ancestor; the cursor line is unaffected.
+test("a filter-hidden representative row ends the chain at its visible ancestor", () => {
   const output = render(hiddenBoundarySession(), { filter: "user-only" });
-  assert.equal(output, "• 00000001 user: Start\n" + `[cursor: ${uuid(2)}]\n`);
+  assert.equal(output, "❯  00000001 Start\n" + `[cursor: ${uuid(2)}]\n`);
 });
 
 // End-to-end over loadedContext (the get-entries handler's leaf
-// composition): a fresh up_to compaction renders linear, the `*` lands on
-// the summary row (the hidden relinked leaf's visible row), and the
-// cursor line keeps the true leaf uuid — marker row and cursor uuid
-// legitimately differ.
-test("a compacted session renders linear with the leaf marker on the summary", () => {
+// composition): a fresh up_to compaction renders linear, the chain ends on
+// the summary row (the hidden relinked leaf's visible row), and the cursor
+// line keeps the true leaf uuid — chain end and cursor uuid legitimately
+// differ.
+test("a compacted session renders linear with the chain ending on the summary", () => {
   const start = userEntry(uuid(1), "Start");
   const reply = assistantEntry(uuid(2), "Reply", uuid(1));
   const boundary: SessionEntry = {
@@ -224,18 +255,17 @@ test("a compacted session renders linear with the leaf marker on the summary", (
   };
   assert.equal(
     render(input, { filter: "all" }),
-    "• 00000001 user: Start\n" +
-      "• 00000002 assistant: Reply\n" +
-      "• 00000003 [compaction: 2k tokens]\n" +
-      "* 00000004 compaction: Earlier: a reply\n" +
+    "❯  00000001 Start\n" +
+      "●  00000002 Reply\n" +
+      "═  00000003 [compaction: 2k tokens]\n" +
+      "□  00000004 Earlier: a reply\n" +
       `[cursor: ${uuid(2)}]\n`,
   );
 });
 
-// The spec's up_to example (success criterion 1): a compaction mid-way
-// through a linear conversation with a follow-up turn renders as one
-// straight chain, each occurrence exactly once.
-test("an up_to compaction with a follow-up turn renders as one linear chain", () => {
+/** The spec's up_to example: a compaction mid-way through a linear
+ *  conversation with a follow-up turn. */
+function upToSession(): SessionSnapshot {
   const boundary: SessionEntry = {
     uuid: uuid(6),
     parentUuid: null,
@@ -262,15 +292,40 @@ test("an up_to compaction with a follow-up turn renders as one linear chain", ()
     ],
     leaf: { uuid: uuid(7) },
   };
+  return input;
+}
+
+// Display mode: one straight chain, each occurrence exactly once.
+test("an up_to compaction with a follow-up turn renders as one linear chain", () => {
   assert.equal(
-    render(input),
-    "• 00000001 user: Start\n" +
-      "• 00000002 assistant: First reply\n" +
-      "• 00000004 user: Continue\n" +
-      "• 00000005 assistant: Second reply\n" +
-      "• 00000006 [compaction: 3k tokens]\n" +
-      "• 00000003 compaction: Earlier: setup\n" +
-      "* 00000007 user: After compaction\n" +
+    render(upToSession()),
+    "❯  00000001 Start\n" +
+      "●  00000002 First reply\n" +
+      "❯  00000004 Continue\n" +
+      "●  00000005 Second reply\n" +
+      "═  00000006 [compaction: 3k tokens]\n" +
+      "□  00000003 Earlier: setup\n" +
+      "❯  00000007 After compaction\n" +
+      `[cursor: ${uuid(7)}]\n`,
+  );
+});
+
+// Raw mode (success criterion 6): the relinked block appears right after
+// its summary row, connected under it; the file's raw 4 and 5 keep their
+// place under 2, ending that column.
+test("raw mode shows the up_to block connected under its summary row", () => {
+  assert.equal(
+    render(upToSession(), { filter: "raw" }),
+    "❯  00000001 Start\n" +
+      "●    00000002 First reply\n" +
+      "├─╮\n" +
+      "│ ❯  00000004 Continue\n" +
+      "│ ●  00000005 Second reply\n" +
+      "═  00000006 [compaction: 3k tokens]\n" +
+      "□  00000003 Earlier: setup\n" +
+      "❯  ~00000004 Continue\n" +
+      "●  ~00000005 Second reply\n" +
+      "❯  00000007 After compaction\n" +
       `[cursor: ${uuid(7)}]\n`,
   );
 });
@@ -311,13 +366,14 @@ test("a from-shape summary row renders under the boundary without ~", () => {
   };
   assert.equal(
     render(input),
-    "• 00000001 user: Start\n" +
-      "• 00000002 assistant: First reply\n" +
-      "├─ • 00000006 [compaction: 4k tokens]\n" +
-      "│     • 00000007 compaction: Recap of the abandoned tail\n" +
-      "│     * 00000008 user: New direction\n" +
-      "└─ 00000004 user: Abandoned\n" +
-      "      00000005 assistant: Abandoned reply\n" +
+    "❯  00000001 Start\n" +
+      "●    00000002 First reply\n" +
+      "├─╮\n" +
+      "│ ❯  00000004 Abandoned\n" +
+      "│ ●  00000005 Abandoned reply\n" +
+      "═  00000006 [compaction: 4k tokens]\n" +
+      "□  00000007 Recap of the abandoned tail\n" +
+      "❯  00000008 New direction\n" +
       `[cursor: ${uuid(8)}]\n`,
   );
 });
@@ -357,59 +413,69 @@ function toolSession(): SessionSnapshot {
   };
 }
 
-test("conversation hides tool traffic and re-attaches visible descendants", () => {
-  assert.equal(
-    render(toolSession()),
-    "• 00000001 user: Run a tool\n" +
-      "* 00000004 assistant: Done\n" +
-      `[cursor: ${uuid(4)}]\n`,
-  );
+test("conversation and no-tools hide tool traffic and re-attach visible descendants", () => {
+  for (const filter of ["conversation", "no-tools"] as const) {
+    assert.equal(
+      render(toolSession(), { filter }),
+      "❯  00000001 Run a tool\n" +
+        "●  00000004 Done\n" +
+        `[cursor: ${uuid(4)}]\n`,
+    );
+  }
 });
 
-test("no-tools hides tool-only assistant and tool_result-only user entries", () => {
-  assert.equal(
-    render(toolSession(), { filter: "no-tools" }),
-    "• 00000001 user: Run a tool\n" +
-      "* 00000004 assistant: Done\n" +
-      `[cursor: ${uuid(4)}]\n`,
-  );
-});
-
+// The leaf exemption keeps the tool call visible; as a leaf with a child
+// it gets the reserved column below it.
 test("a tool-only assistant that is the current leaf stays visible", () => {
   const input = toolSession();
   input.leaf = { uuid: uuid(2) };
   for (const filter of ["conversation", "no-tools"] as const) {
-    const lines = render(input, { filter }).split("\n");
-    assert.equal(lines[1], "* 00000002 assistant: [tool: Bash]");
+    assert.equal(
+      render(input, { filter }),
+      "❯  00000001 Run a tool\n" +
+        "▸    00000002 [tool: Bash]\n" +
+        "├─╮\n" +
+        "│ │\n" +
+        "~ │\n" +
+        "  │\n" +
+        "  ●  00000004 Done\n" +
+        `[cursor: ${uuid(2)}]\n`,
+    );
   }
 });
 
-test("a tool_result leaf stays hidden and the marker simply does not appear", () => {
+// The tool_result exemption does not exist under no-tools: the hidden leaf
+// ends the chain at its nearest visible ancestor (the user row), which gets
+// the reserved column; the cursor line keeps the true leaf.
+test("a filter-hidden tool_result leaf ends the chain at its visible ancestor", () => {
   const input = toolSession();
   input.leaf = { uuid: uuid(3) };
-  const lines = render(input, { filter: "no-tools" }).trimEnd().split("\n");
-  const treeLines = lines.slice(0, -1);
-  assert.ok(treeLines.every((line) => !line.includes("00000003")));
-  assert.ok(treeLines.every((line) => !line.includes("*")));
-  assert.equal(lines.at(-1), `[cursor: ${uuid(3)}]`);
-});
-
-test("user-only shows only user entries with text", () => {
-  // The hidden leaf's ancestry stays marked: the active path is computed
-  // over the full tree before filtering (pictl parity).
   assert.equal(
-    render(toolSession(), { filter: "user-only" }),
-    "• 00000001 user: Run a tool\n" + `[cursor: ${uuid(4)}]\n`,
+    render(input, { filter: "no-tools" }),
+    "❯    00000001 Run a tool\n" +
+      "├─╮\n" +
+      "│ │\n" +
+      "~ │\n" +
+      "  │\n" +
+      "  ●  00000004 Done\n" +
+      `[cursor: ${uuid(3)}]\n`,
   );
 });
 
-test("all shows every node", () => {
+test("user-only shows only user entries with text", () => {
+  assert.equal(
+    render(toolSession(), { filter: "user-only" }),
+    "❯  00000001 Run a tool\n" + `[cursor: ${uuid(4)}]\n`,
+  );
+});
+
+test("all shows every node, with the tool call and result glyphs", () => {
   assert.equal(
     render(toolSession(), { filter: "all" }),
-    "• 00000001 user: Run a tool\n" +
-      "• 00000002 assistant: [tool: Bash]\n" +
-      "• 00000003 Bash: ok\n" +
-      "* 00000004 assistant: Done\n" +
+    "❯  00000001 Run a tool\n" +
+      "▸  00000002 [tool: Bash]\n" +
+      "⤷  00000003 Bash: ok\n" +
+      "●  00000004 Done\n" +
       `[cursor: ${uuid(4)}]\n`,
   );
 });
@@ -424,13 +490,14 @@ test("conversation hides isMeta user entries", () => {
   };
   assert.equal(
     render(input),
-    "* 00000002 user: real text\n" + `[cursor: ${uuid(2)}]\n`,
+    "❯  00000002 real text\n" + `[cursor: ${uuid(2)}]\n`,
   );
 });
 
-// --- summaries -------------------------------------------------------------------
+// --- glyphs and summaries ----------------------------------------------------------
 
-/** Renders a single-entry snapshot under `all` and returns the summary part. */
+/** Renders a single-entry snapshot under `all` and returns its row minus
+ *  the uuid column: "<glyph>  <summary>". */
 function summaryOf(entry: SessionEntry): string {
   const output = render(
     { entries: [{ ...entry, uuid: uuid(1) }], leaf: null },
@@ -440,10 +507,10 @@ function summaryOf(entry: SessionEntry): string {
 }
 
 test("summary: user text, compact summary, tool results", () => {
-  assert.equal(summaryOf(userEntry(uuid(1), "hi\nthere")), "user: hi there");
+  assert.equal(summaryOf(userEntry(uuid(1), "hi\nthere")), "❯  hi there");
   assert.equal(
     summaryOf({ ...userEntry(uuid(1), "recap"), isCompactSummary: true }),
-    "compaction: recap",
+    "□  recap",
   );
   const result = (isError: boolean): SessionEntry => ({
     type: "user",
@@ -459,8 +526,8 @@ test("summary: user text, compact summary, tool results", () => {
       ],
     },
   });
-  assert.equal(summaryOf(result(false)), "tool: ok");
-  assert.equal(summaryOf(result(true)), "tool: error");
+  assert.equal(summaryOf(result(false)), "⤷  tool: ok");
+  assert.equal(summaryOf(result(true)), "⤷  tool: error");
 });
 
 test("summary: assistant parts, abnormal stop_reason, no content", () => {
@@ -477,21 +544,21 @@ test("summary: assistant parts, abnormal stop_reason, no content", () => {
         stop_reason: "tool_use",
       },
     }),
-    "assistant: [thinking] [tool: Read] Looking.",
+    "▸  [thinking] [tool: Read] Looking.",
   );
   assert.equal(
     summaryOf({
       type: "assistant",
       message: { role: "assistant", content: [], stop_reason: "refusal" },
     }),
-    "assistant: (refusal)",
+    "●  (refusal)",
   );
   assert.equal(
     summaryOf({
       type: "assistant",
       message: { role: "assistant", content: [] },
     }),
-    "assistant: (no content)",
+    "●  (no content)",
   );
 });
 
@@ -502,16 +569,16 @@ test("summary: boundary token count and generic types", () => {
       subtype: "compact_boundary",
       compactMetadata: { preTokens: 123_456 },
     }),
-    "[compaction: 123k tokens]",
+    "═  [compaction: 123k tokens]",
   );
   assert.equal(
     summaryOf({ type: "system", subtype: "compact_boundary" }),
-    "[compaction]",
+    "═  [compaction]",
   );
-  assert.equal(summaryOf({ type: "attachment" }), "attachment");
+  assert.equal(summaryOf({ type: "attachment" }), "·  attachment");
   assert.equal(
     summaryOf({ type: "system", subtype: "informational" }),
-    "system: informational",
+    "·  system: informational",
   );
 });
 
@@ -523,7 +590,7 @@ test("width truncates the whole rendered line", () => {
     leaf: { uuid: uuid(1) },
   };
   const output = render(input, { width: 24 });
-  assert.equal(output.split("\n")[0], "* 00000001 user: a ques…");
+  assert.equal(output.split("\n")[0], "❯  00000001 a question …");
   assert.ok(
     output
       .trimEnd()
@@ -536,15 +603,12 @@ test("an empty snapshot renders just the cursor line", () => {
   assert.equal(render({ entries: [], leaf: null }), "[cursor: null]\n");
 });
 
-test("a leaf matching no occurrence renders no markers but keeps the cursor", () => {
+test("a leaf matching no occurrence renders no chain but keeps the cursor", () => {
   const input: SessionSnapshot = {
     entries: [userEntry(uuid(1), "hello")],
     leaf: { uuid: uuid(9) },
   };
-  assert.equal(
-    render(input),
-    "00000001 user: hello\n" + `[cursor: ${uuid(9)}]\n`,
-  );
+  assert.equal(render(input), "❯  00000001 hello\n" + `[cursor: ${uuid(9)}]\n`);
 });
 
 test("a duplicated raw uuid renders once, silently (first-wins)", () => {
@@ -553,7 +617,7 @@ test("a duplicated raw uuid renders once, silently (first-wins)", () => {
   const entry = userEntry(uuid(1), "hello");
   assert.equal(
     render({ entries: [entry, { ...entry }], leaf: null }),
-    "00000001 user: hello\n[cursor: null]\n",
+    "❯  00000001 hello\n[cursor: null]\n",
   );
 });
 
@@ -609,28 +673,9 @@ test("picker keeps user text, final assistants with text, boundaries, and the le
   assert.ok(output.includes("00000005"));
 });
 
-test("formatTreeNodeLine omitUuid drops the uuid column", () => {
-  const entries = [userEntry(uuid(1), "hello there")];
-  const byUuid = entriesByUuid(entries);
-  const roots = toLayoutTree(
-    buildTree(entries, () => {}),
-    (id) => byUuid.get(parseTreeNodeRef(id).uuid)!,
-  );
-  const flat = flattenVisibleTree(roots, uuid(1), () => true);
-  const toolNames = new Map<string, string>();
-  assert.equal(
-    formatTreeNodeLine(flat[0]!, toolNames, 80),
-    "* 00000001 user: hello there",
-  );
-  assert.equal(
-    formatTreeNodeLine(flat[0]!, toolNames, 80, true),
-    "* user: hello there",
-  );
-});
+// --- treeLines (the /tree rendering) ----------------------------------------------
 
-// Rule 8's uuid-omitted half: on picker-style rows the `~` sits immediately
-// before the summary text.
-test("formatTreeNodeLine marks relinked rows with ~ before the summary when the uuid is omitted", () => {
+test("treeLines omitUuid drops the uuid column and the ~ marker", () => {
   const boundaryUuid = uuid(2);
   const entries: SessionEntry[] = [
     userEntry(uuid(1), "hello"),
@@ -646,21 +691,40 @@ test("formatTreeNodeLine marks relinked rows with ~ before the summary when the 
     },
   ];
   const byUuid = entriesByUuid(entries);
-  const roots = toLayoutTree(
-    buildTree(entries, () => {}),
-    (id) => byUuid.get(parseTreeNodeRef(id).uuid)!,
-  );
-  const flat = flattenVisibleTree(roots, null, () => true);
-  const relinkedRow = flat.find(
-    (node) => parseTreeNodeRef(node.node.id).viaBoundary !== undefined,
-  )!;
+  const fullTree = buildTree(entries, () => {});
   const toolNames = new Map<string, string>();
-  assert.equal(
-    formatTreeNodeLine(relinkedRow, toolNames, 80),
-    "~00000001 user: hello",
-  );
-  assert.equal(
-    formatTreeNodeLine(relinkedRow, toolNames, 80, true),
-    "~user: hello",
+  const labels = (omitUuid: boolean): string[] =>
+    treeLines(fullTree, byUuid, null, () => true, toolNames, omitUuid)
+      .filter((line) => line.rowId !== undefined)
+      .map((line) => `${line.glyph} ${line.label}`);
+  assert.deepEqual(labels(false), [
+    "❯ 00000001 hello",
+    "═ 00000002 [compaction]",
+    "❯ ~00000001 hello",
+  ]);
+  // Relinked rows are told apart by rowId (the sink dims the glyph).
+  assert.deepEqual(labels(true), ["❯ hello", "═ [compaction]", "❯ hello"]);
+});
+
+test("treeLines rejects a row preceding its parent", () => {
+  const entries = [
+    userEntry(uuid(1), "hello"),
+    userEntry(uuid(2), "reply", uuid(1)),
+  ];
+  const outOfOrder = new Map<string, string | null>([
+    [uuid(2), uuid(1)],
+    [uuid(1), null],
+  ]);
+  assert.throws(
+    () =>
+      treeLines(
+        outOfOrder,
+        entriesByUuid(entries),
+        null,
+        () => true,
+        new Map(),
+        false,
+      ),
+    /precedes its parent/,
   );
 });

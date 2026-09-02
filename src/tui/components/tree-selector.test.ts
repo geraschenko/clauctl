@@ -264,14 +264,23 @@ function isInverse(line: string): boolean {
   return line.includes("\x1b[7m");
 }
 
-/** The tree rows of a render: everything between the header line and the
- *  trailing search/warning lines, ANSI-stripped. */
+/** The tree row lines of a render: everything between the header line and
+ *  the trailing search/warning lines, ANSI-stripped, connector-only filler
+ *  lines dropped. */
 function renderedRows(selector: TreeSelectorComponent): string[] {
   return selector
     .render(100)
     .slice(1)
     .map(stripAnsi)
-    .filter((line) => !/^(search: |context changed)/.test(line));
+    .filter(
+      (line) =>
+        !/^(search: |context changed)/.test(line) && /[a-z[]/.test(line),
+    );
+}
+
+/** A rendered row line minus its graph prefix and glyph. */
+function labelOf(row: string): string {
+  return row.replace(/^[^a-z[(]*/u, "");
 }
 
 function selectedRow(selector: TreeSelectorComponent): string | undefined {
@@ -298,23 +307,21 @@ function makeSelector(): {
 
 test("selector shows the display rows with the leaf's visible row pre-selected", () => {
   const { selector } = makeSelector();
-  const summaries = renderedRows(selector).map((row) =>
-    row.replace(/^[\s│├└─*•]*/u, ""),
-  );
   // The relinked occurrences are hidden; the boundary re-anchors at raw 3
-  // (the last preserved uuid's row), forking there with 4; the active
-  // branch renders first.
-  assert.deepEqual(summaries, [
-    "user: hello world",
-    "assistant: hi there",
-    "user: second question",
-    "[compaction: 1k tokens]",
-    "compaction: summary text",
-    "assistant: answer two",
+  // (the last preserved uuid's row), forking there with 4; rows are in
+  // file order with the active chain in column 0.
+  assert.deepEqual(selector.render(100).slice(1).map(stripAnsi), [
+    "❯  hello world",
+    "●  hi there",
+    "❯    second question",
+    "├─╮",
+    "│ ●  answer two",
+    "═  [compaction: 1k tokens]",
+    "□  summary text",
   ]);
   // Initial selection: the hidden relinked leaf's nearest visible row, the
   // summary row.
-  assert.match(selectedRow(selector)!, /\* compaction: summary text$/u);
+  assert.equal(selectedRow(selector), "□  summary text");
 });
 
 test("selector enter reports the selected row's own occurrence ref", () => {
@@ -323,15 +330,29 @@ test("selector enter reports the selected row's own occurrence ref", () => {
   assert.deepEqual(picks, [{ uuid: uuid(6) }]);
 });
 
-test("selector navigation wraps around", () => {
+test("selector navigation stops at the ends", () => {
   const { selector, picks } = makeSelector();
-  selector.handleInput(DOWN); // to the last row
-  selector.handleInput(DOWN); // wraps to the first
+  selector.handleInput(DOWN); // already on the last row: stays
   selector.handleInput(ENTER);
-  assert.deepEqual(picks, [{ uuid: uuid(1) }]);
-  selector.handleInput(UP); // and back to the last
+  assert.deepEqual(picks, [{ uuid: uuid(6) }]);
+  for (let step = 0; step < 10; step += 1) {
+    selector.handleInput(UP);
+  }
+  selector.handleInput(UP); // on the first row: stays
   selector.handleInput(ENTER);
-  assert.deepEqual(picks.at(-1), { uuid: uuid(4) });
+  assert.deepEqual(picks.at(-1), { uuid: uuid(1) });
+});
+
+test("selector navigation skips connector lines", () => {
+  const { selector, picks } = makeSelector();
+  selector.handleInput(UP);
+  selector.handleInput(UP);
+  assert.equal(labelOf(selectedRow(selector)!), "answer two");
+  selector.handleInput(UP); // over the ├─╮ line
+  assert.equal(labelOf(selectedRow(selector)!), "second question");
+  selector.handleInput(DOWN);
+  selector.handleInput(ENTER);
+  assert.deepEqual(picks, [{ uuid: uuid(4) }]);
 });
 
 test("selector search filters rows and recovers selection via ancestors", () => {
@@ -339,11 +360,11 @@ test("selector search filters rows and recovers selection via ancestors", () => 
   for (const char of "answer") {
     selector.handleInput(char);
   }
-  // Only assistant(4) matches (off the active path, so no marker); none of
-  // the selected summary row's ancestors are visible, so the selection
+  // Only assistant(4) matches, shown as a flat glyph + label line; none
+  // of the selected summary row's ancestors are visible, so the selection
   // clamps to it. The leaf visibility exemption does not apply to search.
-  assert.deepEqual(renderedRows(selector), ["assistant: answer two"]);
-  assert.match(selectedRow(selector)!, /assistant: answer two$/u);
+  assert.deepEqual(renderedRows(selector), ["● answer two"]);
+  assert.equal(selectedRow(selector), "● answer two");
   assert.ok(
     selector.render(100).map(stripAnsi).includes("search: answer"),
     "search query line is rendered",
@@ -357,7 +378,7 @@ test("selector backspace edits the search query", () => {
   }
   assert.deepEqual(renderedRows(selector), ["(no matching entries)"]);
   selector.handleInput(BACKSPACE);
-  assert.deepEqual(renderedRows(selector), ["assistant: answer two"]);
+  assert.deepEqual(renderedRows(selector), ["● answer two"]);
 });
 
 test("selector escape clears the search, then cancels", () => {

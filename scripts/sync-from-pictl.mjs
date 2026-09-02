@@ -77,12 +77,7 @@ const SYNC_SETS = [
     sourceDir: join(pictlDir, "src", "format"),
     outDir: join(repoRoot, "src", "format", "generated"),
     outsidePrefix: "../",
-    files: [
-      "flat-tree.ts",
-      "flat-tree.test.ts",
-      "text.ts",
-      "tree-layout.ts",
-    ],
+    files: ["text.ts"],
   },
 ];
 

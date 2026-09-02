@@ -2,8 +2,8 @@ import assert from "node:assert/strict";
 import { randomUUID, type UUID } from "node:crypto";
 import { test } from "node:test";
 import { entriesByUuid, type SessionEntry } from "../session/file.ts";
+import { treeChildren } from "./parent-map.ts";
 import {
-  treeChildren,
   formatTreeNodeRef,
   isFinalAssistantEntry,
   parseTreeNodeRef,
