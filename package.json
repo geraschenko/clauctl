@@ -1,6 +1,6 @@
 {
   "name": "@geraschenko/clauctl",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Spawn, observe, control, and attach to claude instances",
   "keywords": [
     "claude",
