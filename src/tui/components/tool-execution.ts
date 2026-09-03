@@ -2,17 +2,20 @@
 // tool-execution.ts; taken out of scripts/update-ports.sh when it stopped
 // tracking pi's layout). Renders claude 2.1.211's transcript layout —
 //
-//   ● Name(headerArg)          header wrapped to ≤2 lines, "…)" truncated
-//     ⎿  summary               per-tool view, or generic first 3 visual
+//   ▸ Name(headerArg)          header wrapped to ≤2 lines, "…)" truncated
+//     ⤷  summary               per-tool view, or generic first 3 visual
 //        … +N lines (ctrl+o…)  lines of the result
 //
 // with colors/formats captured by scripts/tui-parity/ (claude-derived:
-// update against fresh captures on claude version bumps). A view's
-// resultBody (the Edit diff) hangs beneath the ⎿ block in both toggle
-// states, as claude renders it. Expanded shows pretty-printed args + full
-// result, plus the nested subagent transcript, which stays hidden while
-// collapsed behind the "(ctrl+o to expand)" hint line. pi lineage: the
-// Component/Container shapes and truncateToVisualLines.
+// update against fresh captures on claude version bumps), except the
+// glyphs: claude draws `●` and `⎿ `+nbsp; ours come from glyphs.ts so the
+// transcript and the session tree agree (decided divergence, see
+// docs/specs/tree-presentation.md). A view's resultBody (the Edit diff)
+// hangs beneath the ⤷ block in both toggle states, as claude renders it.
+// Expanded shows pretty-printed args + full result, plus the nested
+// subagent transcript, which stays hidden while collapsed behind the
+// "(ctrl+o to expand)" hint line. pi lineage: the Component/Container
+// shapes and truncateToVisualLines.
 
 import { isAbsolute } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -25,17 +28,18 @@ import {
 import { truncateToVisualLines } from "@earendil-works/pi-coding-agent";
 import { claudeStyle } from "../claude-style.ts";
 import type { RenderToolResult } from "../render-types.ts";
+import { TOOL_CALL_GLYPH, TOOL_RESULT_GLYPH } from "../glyphs.ts";
 import { CachedLinesComponent } from "./cached-lines.ts";
 import { toolViewFor, type ToolView } from "../tool-views/tool-view.ts";
 
 const COLLAPSED_RESULT_VISUAL_LINES = 3;
 const HEADER_MAX_LINES = 2;
-/** Continuation indent of a wrapped header ("● Bash(…" second line). */
+/** Continuation indent of a wrapped header ("▸ Bash(…" second line). */
 const HEADER_CONTINUATION_INDENT = 6;
-/** Result lines after the first hang under the summary text, past "  ⎿ ". */
+/** Result lines after the first hang under the summary text, past the
+ *  RESULT_PREFIX columns. */
 const RESULT_CONTINUATION_INDENT = 5;
-/** claude ends the ⎿-prefix with a non-breaking space. */
-const RESULT_PREFIX = "  ⎿ \xa0";
+const RESULT_PREFIX = `  ${TOOL_RESULT_GLYPH}  `;
 const EXPAND_HINT = "(ctrl+o to expand)";
 
 /**
@@ -156,18 +160,18 @@ export class ToolExecutionComponent extends CachedLinesComponent {
 
   private headerLines(width: number): string[] {
     const name = this.view?.displayName ?? this.toolName;
-    const bulletColor =
+    const glyphColor =
       this.result === undefined
         ? claudeStyle.grey
         : this.result.isError
           ? claudeStyle.error
           : claudeStyle.success;
-    const prefix = `${bulletColor("●")} ${claudeStyle.bold(name)}`;
+    const prefix = `${glyphColor(TOOL_CALL_GLYPH)} ${claudeStyle.bold(name)}`;
     const arg = this.view?.headerArg(this.args, this.cwd);
     if (arg === undefined) {
       return [prefix];
     }
-    // "● " + name + "(" columns; the styled prefix hides its escape codes.
+    // "▸ " + name + "(" columns; the styled prefix hides its escape codes.
     const prefixWidth = 2 + name.length + 1;
     const wrapped = wrapHeaderArg(
       `${arg})`,
@@ -240,7 +244,7 @@ export class ToolExecutionComponent extends CachedLinesComponent {
   }
 }
 
-/** Collapsed ⎿-output: the first 3 visual lines of the content, then a dim
+/** Collapsed ⤷-output: the first 3 visual lines of the content, then a dim
  *  "… +N lines (ctrl+o to expand)". Shared with the local-command blocks. */
 export function collapsedOutputLines(
   content: string,
@@ -266,8 +270,8 @@ export function collapsedOutputLines(
   return lines;
 }
 
-/** A full ⎿-block: text wrapped to the result capacity, first line after
- *  the grey "  ⎿ " prefix, the rest hanging at the same indent. */
+/** A full ⤷-block: text wrapped to the result capacity, first line after
+ *  the grey RESULT_PREFIX, the rest hanging at the same indent. */
 export function resultBlockLines(
   text: string,
   width: number,
@@ -283,7 +287,7 @@ export function resultBlockLines(
   return prefixed(visualLines, color);
 }
 
-/** A resultBody block: wrapped like a ⎿-block but with no ⎿ prefix — every
+/** A resultBody block: wrapped like a ⤷-block but with no ⤷ prefix — every
  *  line hangs at the result indent (claude's diff placement). */
 function hangingBlockLines(text: string, width: number): string[] {
   const capacity = Math.max(1, width - RESULT_CONTINUATION_INDENT);

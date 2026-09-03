@@ -1103,3 +1103,14 @@ wraps them with a gutter continuation (blank number field + repeated
 gutter, content capacity ≈ pane − prefix − 1); we wrap at the plain
 result indent. Matching would push the render width into `resultBody`
 for two lines in a 5000-line session (session-44a0b993 capture).
+
+## 2026-09-03 — decided divergence: transcript glyphs
+
+The transcript's entry-kind glyphs now come from `src/tui/glyphs.ts`,
+shared with the session tree (`format tree`, `/tree`): tool-call header
+`▸` (claude: `●`, indistinguishable from assistant text) and result
+prefix `⤷` (claude: `⎿` + nbsp). Assistant `●` and user `❯` are
+unchanged. Same colors, same column widths, so every capture line
+containing a tool header or result prefix now differs in that one glyph;
+the captures under `scripts/tui-parity/out/` stay claude's output. Spec:
+`docs/specs/tree-presentation.md`, "TUI glyph unification".

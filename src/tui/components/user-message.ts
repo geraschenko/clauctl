@@ -17,6 +17,7 @@
 import { wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import { CachedLinesComponent } from "./cached-lines.ts";
 import { claudeStyle } from "../claude-style.ts";
+import { USER_GLYPH } from "../glyphs.ts";
 import { wrapHeaderArg } from "./tool-execution.ts";
 
 const OSC133_ZONE_START = "\x1b]133;A\x07";
@@ -47,7 +48,9 @@ export function userPromptLines(text: string, width: number): string[] {
 function bandLines(lines: string[]): string[] {
   return lines.map((line, index) => {
     const gutter =
-      index === 0 ? claudeStyle.userGutter("❯ ") : " ".repeat(GUTTER_WIDTH);
+      index === 0
+        ? claudeStyle.userGutter(`${USER_GLYPH} `)
+        : " ".repeat(GUTTER_WIDTH);
     return claudeStyle.userBg(gutter + line);
   });
 }

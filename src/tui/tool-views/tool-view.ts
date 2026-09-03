@@ -29,7 +29,7 @@ export interface ToolView<A> {
    *  hyperlink-capable terminal (and the arg fits on a single header
    *  line). Undefined/absent → plain text. */
   headerLink?(args: A): string | undefined;
-  /** Collapsed ⎿ summary; undefined → generic first-lines + "… +N lines". */
+  /** Collapsed ⤷ summary; undefined → generic first-lines + "… +N lines". */
   resultSummary(
     args: A,
     result: RenderToolResult,
@@ -38,7 +38,7 @@ export interface ToolView<A> {
   /** Fold-line contribution, e.g. (2) => "read 2 files"; absent → the
    *  generic "used Name N times" clause. */
   foldLabel?(count: number): string;
-  /** Extra block rendered beneath the ⎿ summary in BOTH toggle states
+  /** Extra block rendered beneath the ⤷ summary in BOTH toggle states
    *  (claude renders it identically collapsed and expanded). Exists
    *  specifically for the Edit view, whose result rendering is the
    *  line-numbered diff — no other view implements it. */

@@ -1,6 +1,6 @@
 # Spec: tree presentation — renderdag rendering of the session tree
 
-> Status: **IMPLEMENTED** (2026-09-02; suite + presubmit green; awaiting Anton's review and commit)
+> Status: **IMPLEMENTED** (2026-09-02; review round 49c77d5 and the TUI glyph unification follow-up done 2026-09-03; suite + presubmit green; awaiting Anton's review and commit)
 > (2026-09-02). Phase A of the tree-presentation effort; phases B
 > (explicit-playlist boundary display) and C (`set-context --rewind-to X
 > <uuids…>`) are specced in `docs/specs/context-tree.md` (written; its
@@ -123,7 +123,7 @@ column — renderdag places it in a fixed grid. The clauctl-independent files
 its own glyph set through the same layer.
 
 ```ts
-/** Transcript gutter glyphs, shared with the TUI components (follow-up). */
+/** Transcript gutter glyphs, shared with the TUI components. */
 export const USER_GLYPH = "❯";
 export const ASSISTANT_GLYPH = "●";
 export const TOOL_CALL_GLYPH = "▸";
@@ -337,12 +337,45 @@ current width).
 - `toContextTree` and any change to `toDisplayTree` — phase B
   (`docs/specs/context-tree.md`), which rewires the data flow to
   full → context → display.
-- **Follow-up (required, separate commit): TUI glyph unification** — point
-  `tool-execution.ts` (tool `●` → `TOOL_CALL_GLYPH`, `⎿` prefix →
-  `TOOL_RESULT_GLYPH`), `user-command.ts`, `user-message.ts`, and
-  `assistant-message.ts` at `src/tui/glyphs.ts`, update their parity
-  comments and transcript tests. Until then the tree shows `▸`/`⤷` where
-  the transcript shows `●`/`⎿`.
+- Rewriting `docs/specs/tui-rendering-parity.md`'s capture-derived
+  descriptions of `●`/`⎿` (see "TUI glyph unification" below: one decided
+  divergence entry there is the record) or the claude captures under
+  `scripts/tui-parity/out/`, which are claude's own output.
+
+## TUI glyph unification (separate commit; approved 2026-09-03)
+
+The transcript components render entry kinds through `src/tui/glyphs.ts`
+instead of literals, so the transcript and the tree show the same glyph
+for the same kind. This is an intentional break from claude parity: claude
+draws tool calls as `●` (same as assistant text) and tool results as
+`⎿` + nbsp.
+
+Success criteria:
+
+1. A tool call header line starts with `TOOL_CALL_GLYPH` (`▸`) in the
+   status color (grey pending, success/error otherwise); the assistant
+   text gutter stays `ASSISTANT_GLYPH` (`●`); the user prompt band and the
+   local-command line stay `USER_GLYPH` (`❯`).
+2. A tool result / local-command output block's first line is
+   `"  " + TOOL_RESULT_GLYPH + "  "` (5 columns: 2-space indent, `⤷`, two
+   plain spaces — no nbsp) in grey, continuation lines hang at column 5 as
+   today. Layout math is untouched: every glyph is one column.
+3. No glyph literal in component code outside `glyphs.ts` (tests may
+   spell glyphs); the layout diagrams and comments in `tool-execution.ts`,
+   `user-message.ts`, `user-command.ts`, `assistant-message.ts`,
+   `claude-style.ts`, `tool-view.ts`, `transcript.ts` show the new glyphs
+   and `tool-execution.ts`'s header names the parity break.
+4. `transcript.test.ts` asserts `⤷` where it asserted `⎿`; suite and
+   presubmit green.
+5. `docs/specs/tui-rendering-parity.md` gains one dated work-log entry
+   recording the decided divergence (glyphs, pointing here); its existing
+   capture-derived text is left as-is.
+
+Type design: no new symbols. Import sites: `tool-execution.ts`
+(`TOOL_CALL_GLYPH` in `headerLines`; `RESULT_PREFIX` becomes
+`` `  ${TOOL_RESULT_GLYPH}  ` ``), `user-message.ts` (`USER_GLYPH` in
+`bandLines`), `assistant-message.ts` (`ASSISTANT_GLYPH` in
+`withClaudeLayout`). Cost: none.
 
 # IMPLEMENTATION IDEAS
 
@@ -404,9 +437,10 @@ current width).
       boundaries) in raw and conversation mode — chain in column 0, blocks
       under their boundaries; criterion 6 verified on 04deccac (up_to
       185k-token compaction: block connected under its `□` summary row)
-- [ ] Follow-up commit: TUI glyph unification (see Non-goals)
+- [x] Follow-up commit: TUI glyph unification (SPEC section of that name)
+      — 2026-09-03, presubmit green; awaiting Anton's commit
 - [x] Status notes in format-tree.md / flat-tree-sync-handoff.md
-- [ ] Measure `/tree` keystroke latency on a large session
+- [x] `/tree` keystroke latency judged reasonable by Anton (2026-09-03)
 
 2026-09-02 — derisk: scope/phasing, the semantic definition of display
 branching, and the phase B/C design state were recorded here across a
@@ -431,6 +465,13 @@ violation in display maps declared impossible from CLI files → throw;
 transcript (`❯ ● ▸ ⤷`) via new `src/tui/glyphs.ts`, TUI component switch
 deferred to a required follow-up (intentional Claude Code parity break);
 page up/down snap direction fallback.
+
+2026-09-03 — review round 3 (49c77d5, TDC comments): `renderDagLines`
+derives the active chain from `leafId` (parameter dropped); "children"
+terminology kept throughout dag-lines with a note on renderdag's reversed
+arrows; `treeLines` uses a `visible` set; `/tree` up/down stop at the
+ends (no wrap). TUI glyph unification derisked and specced (SPEC section):
+nbsp dropped from the result prefix, parity doc gets one divergence entry.
 
 ## Implementation-Time Decisions
 

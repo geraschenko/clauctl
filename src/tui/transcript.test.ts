@@ -536,7 +536,7 @@ test("setToolsExpanded expands collapsed tool output", () => {
   assert.match(renderedText(container), /line 11/);
 });
 
-test("slash command with stdout renders a \u276f command block with \u23bf output", () => {
+test("slash command with stdout renders a \u276f command block with \u2937 output", () => {
   const { renderer, container } = makeRenderer();
   renderer.appendEntry(
     sessionEntry({
@@ -555,7 +555,7 @@ test("slash command with stdout renders a \u276f command block with \u23bf outpu
   );
   const lines = renderedText(container).split("\n");
   assert.equal(lines[0], "\u276f /login");
-  assert.match(lines[1]!, /\u23bf\s+Login successful/u);
+  assert.match(lines[1]!, /\u2937 {2}Login successful/u);
 });
 
 test("/compact stdout and 'No response requested.' are hidden", () => {
@@ -591,7 +591,7 @@ test("bash passthrough: \u276f ! command with unescaped collapsed output", () =>
   );
   const lines = renderedText(container).split("\n");
   assert.equal(lines[0], "\u276f ! git show HEAD");
-  assert.match(lines[1]!, /\u23bf\s+Author: A <a@b\.c>/u);
+  assert.match(lines[1]!, /\u2937 {2}Author: A <a@b\.c>/u);
 });
 
 test("compact summary: collapsed one-liner, full markdown when expanded", () => {

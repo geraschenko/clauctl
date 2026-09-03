@@ -1,13 +1,13 @@
 // Custom, claude-2.1.211-style local-command block (parity spec, phase 5):
 //
 //   ❯ /login                       (or `❯ ! cmd` for bash passthrough)
-//     ⎿  Login successful          captured output, collapsed like a tool
+//     ⤷  Login successful          captured output, collapsed like a tool
 //        … +N lines (ctrl+o to expand)
 //
 // The command line reuses the user prompt's ❯ band; the output block reuses
-// the tool components' ⎿ formatting and the same ctrl+o expansion. A
+// the tool components' ⤷ formatting and the same ctrl+o expansion. A
 // standalone output (no preceding command in the transcript) renders as a
-// bare ⎿ block.
+// bare ⤷ block.
 
 import { CachedLinesComponent } from "./cached-lines.ts";
 import { collapsedOutputLines, resultBlockLines } from "./tool-execution.ts";

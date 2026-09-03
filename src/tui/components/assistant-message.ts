@@ -20,6 +20,7 @@ import {
   Text,
 } from "@earendil-works/pi-tui";
 import { claudeStyle } from "../claude-style.ts";
+import { ASSISTANT_GLYPH } from "../glyphs.ts";
 import { getMarkdownTheme, theme } from "../theme.ts";
 import type { RenderAssistant } from "../render-types.ts";
 
@@ -249,7 +250,7 @@ function withClaudeLayout(markdown: Markdown, gutter: boolean): Component {
         .render(width + 2)
         .map((line) => line.replace(/ +$/u, ""));
       if (gutter && lines.length > 0) {
-        lines[0] = `${claudeStyle.white("●")} ${lines[0]!.slice(2)}`;
+        lines[0] = `${claudeStyle.white(ASSISTANT_GLYPH)} ${lines[0]!.slice(2)}`;
       }
       return lines;
     },

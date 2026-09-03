@@ -284,7 +284,7 @@ test("writeView: Wrote N lines summary with cwd-relative path", () => {
     ),
     "Wrote 2 lines to fruit.txt",
   );
-  // Unexpected shapes fall back to the bare ⎿ summary, not a crash.
+  // Unexpected shapes fall back to the bare ⤷ summary, not a crash.
   assert.equal(writeView.resultSummary({}, result(undefined), undefined), "");
   assert.equal(
     writeView.resultSummary({}, result(undefined, true), undefined),

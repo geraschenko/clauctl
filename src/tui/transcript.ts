@@ -255,7 +255,7 @@ export class TranscriptRenderer {
         // they render nothing. commands_changed is a caller side effect.
         if (message.subtype === "local_command_output") {
           // Steered `!` output: the CLI's own rendering (embedded ANSI
-          // passes through the ⎿ block), attached to the preceding command.
+          // passes through the ⤷ block), attached to the preceding command.
           this.attachCommandOutput(message.content);
         } else if (message.subtype === "compact_boundary") {
           this.addBanner(
@@ -359,7 +359,7 @@ export class TranscriptRenderer {
   }
 
   /** Command output renders under the immediately preceding command block;
-   *  with none (or one already holding output), as a standalone ⎿ block.
+   *  with none (or one already holding output), as a standalone ⤷ block.
    *  /compact's transient stdout is hidden — claude does (observed on the
    *  failed-compact capture), and the success path renders the boundary
    *  banner + full summary instead. */

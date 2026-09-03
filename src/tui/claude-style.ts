@@ -7,11 +7,11 @@
  */
 
 export const claudeStyle = {
-  /** Fold lines, `⎿ ` prefixes, hint text. */
+  /** Fold lines, `⤷` result prefixes, hint text. */
   grey: (text: string): string => `\x1b[38;5;246m${text}\x1b[39m`,
-  /** Successful tool `●`. */
+  /** Successful tool-call `▸`. */
   success: (text: string): string => `\x1b[38;5;114m${text}\x1b[39m`,
-  /** Failed tool `●` and error summaries. */
+  /** Failed tool-call `▸` and error summaries. */
   error: (text: string): string => `\x1b[38;5;211m${text}\x1b[39m`,
   /** Assistant text `●` and user-prompt text. */
   white: (text: string): string => `\x1b[38;5;231m${text}\x1b[39m`,
