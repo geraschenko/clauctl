@@ -7,7 +7,8 @@
 > review proceeds in parallel). Supersedes the layout half of `docs/specs/format-tree.md`
 > and `docs/specs/flat-tree-sync-handoff.md`. Sources:
 > `docs/thoughts/tree-presentation.md`, `docs/session-views.md`,
-> `docs/specs/session-tree.md` (display rules 1–4).
+> `docs/specs/session-tree.md` (display rules 1–4, since replaced by the
+> context tree — `docs/specs/context-tree.md`).
 
 # SPEC
 
@@ -321,7 +322,7 @@ current width).
   `reserve`d first, so it is column 0 even when it is not the first row;
   other roots take later columns.
 - A row preceding its parent in a `toDisplayTree` map is impossible from
-  CLI-written files (rule 4's outside-child reparent could produce it only
+  CLI-written files (group linearization's outside-child reparent could produce it only
   if a group result were written after the next turn, and the CLI does
   not start a turn until every call resolves); `renderDagLines` throws,
   crashing `format tree` on such a hand-crafted file by design.

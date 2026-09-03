@@ -13,6 +13,7 @@
 import { Container } from "@earendil-works/pi-tui";
 import { initTheme } from "@earendil-works/pi-coding-agent";
 import { buildTree } from "../../src/core/tree/build-tree.ts";
+import { toContextTree } from "../../src/core/tree/context-tree.ts";
 import { toDisplayTree } from "../../src/core/tree/display-tree.ts";
 import { pathToLeaf } from "../../src/core/tree/nodes.ts";
 import {
@@ -33,7 +34,11 @@ export function renderSessionFile(
   };
   const byUuid = entriesByUuid(entries);
   const fullTree = buildTree(entries, onInvalid);
-  const displayTree = toDisplayTree(fullTree, entries);
+  const displayTree = toDisplayTree(
+    fullTree,
+    toContextTree(fullTree, byUuid),
+    byUuid,
+  );
   const leaf = seedFromEntries(entries, onInvalid).leaf ?? null;
   const leafRow =
     leaf === null ? null : (displayTree.nearestVisibleRow(leaf) ?? null);

@@ -41,6 +41,7 @@ import { readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { buildTree } from "../core/tree/build-tree.ts";
+import { toContextTree } from "../core/tree/context-tree.ts";
 import { toDisplayTree } from "../core/tree/display-tree.ts";
 import {
   entriesByUuid,
@@ -534,7 +535,11 @@ class InteractiveMode {
       const fullTree = buildTree(snapshot.entries, (message) =>
         this.addBanner(message),
       );
-      const displayTree = toDisplayTree(fullTree, snapshot.entries);
+      const displayTree = toDisplayTree(
+        fullTree,
+        toContextTree(fullTree, byUuid),
+        byUuid,
+      );
       // History renders the display path: leaves map to the visible row
       // that carries them (a hidden relinked leaf renders as its summary
       // row's line). A stale leaf maps to itself, so the raced-leaf
@@ -1040,7 +1045,11 @@ class InteractiveMode {
         // tree (a picked row's context path — e.g. the nearest assistant
         // ancestor of a post-compaction user row — runs through relinked
         // occurrences the display tree hides).
-        const displayTree = toDisplayTree(fullTree, snapshot.entries);
+        const displayTree = toDisplayTree(
+          fullTree,
+          toContextTree(fullTree, byUuid),
+          byUuid,
+        );
         const selector = new TreeSelectorComponent(
           snapshot.leaf,
           displayTree,

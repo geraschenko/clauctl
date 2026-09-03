@@ -214,7 +214,7 @@ test("reject: a uuid naming no file entry", () => {
   assert.equal(normalized.ok, false);
   assert.match(
     (normalized as { reason: string }).reason,
-    /names no file entry/,
+    /names no earlier entry/,
   );
 });
 

@@ -1,10 +1,12 @@
 # Spec: context tree and explicit-playlist boundary display
 
-> Status: **spec written, awaiting review** (2026-09-02). Phases B and C of
-> the tree-presentation effort; phase A (renderdag rendering) is
-> `docs/specs/tree-presentation.md` and is implemented first. Phase B is
-> display-only; phase C changes `set-context`. The "round" references in this
-> file are the derisk discussion rounds summarized in the WORK LOG.
+> Status: **spec approved, implementing** (2026-09-03). Phases B and C of
+> the tree-presentation effort; phase A (renderdag rendering,
+> `docs/specs/tree-presentation.md`) is implemented (1de5db3). Phase B
+> changes the tree builders and display only, not what `set-context`
+> writes; phase C changes `set-context`. Implementation order: B,
+> then C. The "round" references in this file are the derisk discussion
+> rounds summarized in the WORK LOG.
 
 # SPEC
 
@@ -41,11 +43,15 @@ Two things are wanted:
 
 ## Success criteria
 
-1. `toContextTree(buildTree(F), F).contextAt(tip)` equals
-   `loadedContext(F[..k])` for `tip = loadedContext(F[..k]).at(-1)`, for
-   every fixture `F` and every prefix length `k` whose tip is a turn end
-   (not a tool call whose results arrive later in `F`; the loader judges
-   such a call dead in the prefix but alive in the file — see Edge cases).
+1. `toContextTree(buildTree(F), F).contextAt(tip)` presents the same
+   context as `loadedContext(F[..k])` for `tip = loadedContext(F[..k]).at(-1)`
+   — equal after each API-message group's results are sorted (the
+   request builder merges them into one user message; only their block
+   order differs, see Edge cases) — for
+   every fixture `F` and every settled prefix length `k` (nothing in the
+   prefix awaits a later entry: no tool call awaits its result, no
+   boundary awaits its anchor; elsewhere the loader judges a call dead in
+   the prefix but alive in the file — see Edge cases).
    Property test; fixtures that legitimately differ are enumerated in the
    test with the reason.
 2. A native `/compact` boundary (up_to shape, list = tail of the live
@@ -161,10 +167,10 @@ import type { ParentMap, TreeNodeRef } from "./nodes.ts";
  *  path to any occurrence is the assistant context there. */
 export class ContextTree {
   /** Full-tree (materialization) order minus boundary rows. Parent = the
-   *  full-tree parent with each parallel tool group linearized in
-   *  first-occurrence file order (today's display rule 4 — non-first group
-   *  members parent onto their predecessor, an outside child of a group
-   *  tool_result parents onto the group's last element), and null where
+   *  full-tree parent with each parallel tool group linearized in file
+   *  order (each group row parents onto the previous group row; rows
+   *  that end the group or arrive after it keep their parents — see Edge
+   *  cases), and null where
    *  the full-tree parent is a boundary row: an up_to summary, a
    *  no-summary block's first row, and a post-wipe prompt are context
    *  roots. Boundaries are in the raw tree only; the display tree
@@ -181,9 +187,18 @@ export class ContextTree {
    *  An entry the loader drops only on SOME paths (a call whose result
    *  exists off-path) is not a member, so a list omitting it fails to
    *  match at the next entry — see Edge cases. */
-  readonly excluded: ReadonlySet<string>;
+  readonly excluded: ReadonlySet<UUID>;
 
-  constructor(parentMap: ParentMap, excluded: ReadonlySet<string>);
+  constructor(
+    parentMap: ParentMap,
+    excluded: ReadonlySet<UUID>,
+    relinkedOccurrencesOf: ReadonlyMap<UUID, string[]>,
+  );
+
+  /** Every occurrence of `uuid`, in materialization order. */
+  occurrencesOf(uuid: UUID): string[];
+  /** The context predecessor of `id`: its nearest non-excluded ancestor. */
+  nonExcludedPredecessor(id: string): string | null;
 
   /** The assistant context with `ref` as the tip: the parentMap path
    *  root-first to ref, minus excluded occurrences. A straight walk —
@@ -193,12 +208,43 @@ export class ContextTree {
   contextAt(ref: TreeNodeRef): TreeNodeRef[];
 }
 
-/** Precondition: fullTree came from buildTree over `entries`. Calls
- *  linearizedGroupParents (moved here from display-tree.ts, unchanged
- *  semantics) and toolGroupMaps; excluded is computed once from entries. */
+/** tool-group.ts — a parallel tool group as the rolling builders see it:
+ *  the assistant entries sharing one API message id and the results
+ *  answering their tool calls, in file order, each row the context parent
+ *  of the next. Holds both loader judgements about groups: membership
+ *  (expandParallelToolGroups) and dead calls (sanitizeForResume, by tool
+ *  call id). */
+export class ToolGroup {
+  /** Starts the group at its first row, an assistant entry. */
+  constructor(entry: UuidEntry);
+  /** Appends `entry` when it is the group's next row — a same-id
+   *  assistant (id-less assistants are each their own group) or a result
+   *  answering one of its calls — and returns the row it parents onto;
+   *  undefined when the entry ends the group instead. */
+  push(entry: UuidEntry): UUID | undefined;
+  /** Whether a call still awaits its result. */
+  awaitingResults(): boolean;
+  /** Uuids the resume sanitizer drops once the group has ended: call
+   *  entries none of whose calls was answered, and thinking-only members
+   *  when nothing survives. */
+  excludedAtEnd(): UUID[];
+}
+
+/** session/file.ts */
+export type UuidEntry = SessionEntry & { uuid: UUID };
+export function hasUuid(entry: SessionEntry): entry is UuidEntry;
+
+/** One pass over fullTree (materialization order). Precondition: fullTree
+ *  came from buildTree and byUuid from entriesByUuid over the same entries;
+ *  throws when they disagree or a parent follows its child. One tool group
+ *  is active at a time: it starts at an assistant row, continues through
+ *  same-id assistants and answering results (`ToolGroup.push`), and ends at
+ *  any other row, when its `excluded` contributions settle (calls without
+ *  a result, thinking-only members without a surviving sibling). Revised
+ *  in the 48536d3 and c767566 review rounds — see WORK LOG. */
 export function toContextTree(
   fullTree: ParentMap,
-  entries: SessionEntry[],
+  byUuid: ReadonlyMap<UUID, SessionEntry>,
 ): ContextTree;
 
 export interface PreservedListMatch {
@@ -226,7 +272,7 @@ export function matchPreservedList(
   contextTree: ContextTree,
   preservedUuids: readonly UUID[],
   anchorIsSummary: boolean,
-  materialized: ReadonlySet<string>,
+  materialized: Pick<ReadonlySet<string>, "has">,
   hidden: ReadonlySet<string>,
 ): PreservedListMatch | undefined;
 ```
@@ -266,13 +312,18 @@ export function matchPreservedList(
 export function toDisplayTree(
   fullTree: ParentMap,
   contextTree: ContextTree,
-  entries: SessionEntry[],
+  byUuid: ReadonlyMap<UUID, SessionEntry>,
 ): DisplayTree;
 ```
 
+Boundary validity in the display pass is checked against the rows placed
+so far (`invalidRelinkReason(precedingUuids, boundary)` — see the
+fail-closed divergence in the WORK LOG's 48536d3 round), so the pass
+needs no scan of the entries.
+
 `DisplayTree` (class: `parentMap`, `nearestVisibleRow`) is unchanged.
-Deleted from this file: rule 4 (`linearizedGroupParents` moves to
-context-tree.ts; the context relation is already linearized) and rule 3
+Deleted from this file: rule 4 (`linearizedGroupParents` — group
+linearization is inline in `toContextTree`) and rule 3
 (pruning): a matched no-summary boundary has no `═` row to prune, a
 summary boundary always has its `□` under it, and no-match/invalid/empty
 boundaries are shown by definition.
@@ -344,7 +395,9 @@ explicit list, so it reduces to the uuids path:
 
 ### Deletions
 
-- `display-tree.ts`: rule 4 and `linearizedGroupParents` (moved).
+- `display-tree.ts`: rule 4 and `linearizedGroupParents` (linearization
+  is inline in `toContextTree`); `loader.ts`: `toolGroupMaps` is now the
+  loader's own (expansion only).
 - `sdk-commands.ts`: `anchor` flag; `sdk-socket.ts`: `anchor` field and its
   parsing; `file.ts`: `anchor` parameter; `set-context.ts`: anchor
   derivation, `messageUuids` filter; `tree-selector.ts`: the type filter in
@@ -369,8 +422,10 @@ rewind-and-append.
 
 ## Cost
 
-- One extra `ParentMap` per tree build (O(occurrences)); the rule-4 pass
-  moves from `toDisplayTree` to `toContextTree`, not duplicated.
+- One extra `ParentMap` per tree build, plus the relinked-occurrence
+  index and `excluded`: all built in `toContextTree`'s single pass over
+  the full tree (O(occurrences)); `buildTree` and `toDisplayTree` are
+  single passes too, with no separate scan of the entries.
 - `matchPreservedList`, per boundary: Σ over non-excluded list entries of
   (occurrences of that uuid × predecessor-chain walk length). A walk stops
   at the first non-excluded occurrence, so its length is the number of
@@ -391,21 +446,48 @@ rewind-and-append.
   dead-call judgement is per prefix/path. A call whose results exist in
   the file is alive in the context tree but dead for the prefix ending at
   the call (results not yet written) and for a path its results are not
-  on. Hence the turn-end restriction in success criterion 1, and: a
+  on. Hence the settled-prefix restriction in success criterion 1, and: a
   boundary listing such a path (prompt parented on the call with the
   results off-path) matches up to the entry before the call and displays
   as a fork. Not producible by clauctl once every rewind writes a boundary
   (the list then omits the call, and the next prompt parents on the
   block); documented for native files, not modeled.
+- **Group order is canonical, not the loader's.** The loader (mirroring
+  the binary's stage 3) splices a group's off-path results after its
+  last ON-PATH assistant entry, so the entry order inside an interleaved
+  group depends on the tip; the tree keeps file order. After stage-5
+  reassembly the difference is only the tool_result block order inside
+  the merged user message (byte-observable, semantically nil). Decided
+  2026-09-06: keep the canonical order, compare criterion 1 up to it;
+  486/9322 settled prefixes of session 7fdff629 differ this way.
+- **Late fork off a mid-group tool result** (`--resume-session-at` onto
+  `resultB` of `[callA, callB, resultB, resultA]`, prompt written after
+  the group ended): the context tree keeps the raw parent, so `contextAt`
+  omits `resultA` where the loader splices it in (the API needs every
+  tool_use answered). Deliberate divergence from criterion 1 (decided in
+  review round c767566): remembering ended groups would cost a persistent
+  per-result map for a shape clauctl never produces (its rewinds write a
+  boundary) and native rewinds don't target.
+- **Queued-prompt races in pre-2.1.258 files.** Old CLIs wrote a prompt
+  queued during `/compact` with a pre-compaction parent — before the
+  boundary line (2.1.195, session 474b3175) or after it (2.1.220,
+  2dafe15d); the loader cuts and/or reattaches the turn onto the block
+  tail (FINDINGS §1). The context tree keeps the raw parent, so those
+  turns display under the pre-compaction history and `check-context-at`
+  reports every prefix in the affected segment. Deliberate (2026-09-07):
+  2.1.258 dequeues the prompt after the compaction writes and chains it
+  onto them, so the raw parent is correct there and the extra
+  placed-since-boundary state would serve only old files.
 - **Legacy clauctl boundaries** written with the user/assistant filter have
   gaps (attachments, `turn_duration`) relative to the context tree. Matching
   is strict — they display as forks with `~` rows. Deliberate: not worth
   complicating the tree for shapes phase C stops producing.
 - **Property-test divergences** (`contextAt` vs `loadedContext` on corrupt
   fixtures, known from round 4): duplicate uuids (buildTree first-wins vs
-  loader last-wins), invalid boundary (buildTree no-relink vs loader wipe),
-  dangling parent. The test lists these fixtures by name with the reason;
-  reconciling them is out of scope.
+  loader last-wins), invalid boundary (buildTree no-relink vs loader wipe).
+  A dangling parent does not diverge (both sides root the entry). The test
+  lists the divergent fixtures by name with the reason; reconciling them is
+  out of scope.
 - **`--rewind-to X` with X excluded** (a dead call or a thinking-only
   entry): X is implicitly replaced by its nearest non-excluded ancestor in
   the context tree. `loadedContextUuids` of the prefix through X already
@@ -426,7 +508,7 @@ rewind-and-append.
   reject that list too — consistent).
 - A pure no-summary rewind is invisible in the display tree (no row); its
   leaf occurrence and the next turn display on the branch point. `format
-  tree --filter raw` still shows the boundary and its block.
+tree --filter raw` still shows the boundary and its block.
 
 ## Non-goals
 
@@ -463,10 +545,10 @@ rewind-and-append.
   raw occurrences fails for lists that pass through relinked rows
   (`[1,2,3,7,12,55]` after `[1,2,3,7,12,16]` must branch off `12@b`);
   hence set stepping over all occurrences, with visibility (a hidden row
-  cannot be a branch point) supplied by `toDisplayTree` through
-  `isCandidate` — visibility of earlier occurrences is settled by the time
-  a later boundary is matched, because boundaries are processed in
-  materialization order.
+  cannot be a branch point) supplied by `toDisplayTree` through the
+  `materialized` and `hidden` sets — visibility of earlier occurrences is
+  settled by the time a later boundary is matched, because boundaries are
+  processed in materialization order.
 
 ## Matching details
 
@@ -485,7 +567,7 @@ rewind-and-append.
   boundary uuid, summary present) and no-summary boundaries use the
   strict rule.
 - Identification of explicit playlists is structural: `compactMetadata.
-  trigger` is `"manual"` for native manual `/compact` and for clauctl
+trigger` is `"manual"` for native manual `/compact` and for clauctl
   boundaries alike (4474 local boundaries), `"auto"` only for native
   auto-compaction — no marker to rely on.
 
@@ -542,8 +624,9 @@ gaps caused by that filter.
   ancestor, `X@B` unchanged).
 - Spec written from the round-6 decisions. Deviations from the recorded
   `matchPreservedList` signature, made while writing and flagged for
-  review: `isCandidate` parameter added (success criterion 5 needs
-  visibility, which only `toDisplayTree` knows); `byUuid` parameter
+  review: visibility inputs added (success criterion 5 needs visibility,
+  which only `toDisplayTree` knows; now the `materialized` and `hidden`
+  sets); `byUuid` parameter
   dropped (the context tree carries the occurrence index and boundary-row
   set itself). Also made explicit: no-match ⇒ root (not "keep placement");
   `excluded` is stated as "uuids no accepted list can contain" because
@@ -562,15 +645,16 @@ gaps caused by that filter.
 
 ## Phase B
 
-- [ ] `context-tree.ts`: `ContextTree`, `toContextTree`,
+- [x] `context-tree.ts`: `ContextTree`, `toContextTree`,
       `linearizedGroupParents` moved, `matchPreservedList`
-- [ ] `context-tree.test.ts`: property test over fixtures × prefixes,
+- [x] `context-tree.test.ts`: property test over fixtures × prefixes,
       divergent fixtures listed; matching unit tests (examples above)
-- [ ] `display-tree.ts`: forward-pass placement over the context tree;
+- [x] `display-tree.ts`: forward-pass placement over the context tree;
       rules 3 and 4 deleted
-- [ ] callers: `format/tree.ts`, `interactive-mode.ts` ×2
-- [ ] docs: session-tree.md display rules, session-views.md (context view
-      becomes the context tree)
+- [x] callers: `format/tree.ts`, `interactive-mode.ts` ×2 (also
+      `scripts/tui-parity/render-session.ts`, `tree-selector.test.ts`)
+- [x] docs: session-tree.md display rules, session-views.md (context view
+      becomes the context tree); tree-presentation.md rule references
 
 ## Phase C
 
@@ -579,8 +663,400 @@ gaps caused by that filter.
       exclusivity
 - [ ] `file.ts`: `buildBoundaryEntries` without `anchor`
 - [ ] `set-context.ts`: `handleRewind` with `append` + normalize; filter
-      removed; no-write path + `filterTail` override + `logicalTipOverride`
-      + resume-at restart argument deleted
+      removed; no-write path + `filterTail` override + `logicalTipOverride` + resume-at restart argument deleted
 - [ ] test: tail-rewind boundary followed by native `/compact`
 - [ ] `tree-selector.ts`: filter removed
 - [ ] tests and docs (session-tree-and-set-context.md, README usage)
+
+## 2026-09-03
+
+- Spec approved after review round 1 (b0175f7) and the (a) rework.
+  Phase A landed in 1de5db3 (renderdag, `parent-map.ts`, `glyphs.ts`,
+  block-after-anchor `buildTree` order). Starting phase B.
+
+## 2026-09-03 — phase B implemented
+
+Suite green (616 tests), presubmit clean. Behavior changes pinned by updated
+tests: a matched from-shape summary boundary has no `═` row (the summary
+forks off the branch point — `format/tree.test.ts`, `display-tree.test.ts`);
+`hiddenBoundarySession` (format/tree.test.ts) now preserves `[1,2]`, a
+real pure rewind — its old list `[2]` is a criterion-4 new root under the
+stated edge meaning.
+
+### Implementation-Time Decisions
+
+- **`matchPreservedList`'s `materialized` is a has-only view**
+  (`Pick<ReadonlySet<string>, "has">`, not `ReadonlySet`). The display
+  pass's map of placed rows IS the materialized set; copying it into a
+  Set per boundary would cost O(occurrences × boundaries). A `ReadonlyMap`
+  satisfies the pick structurally.
+- **`ContextTree` exposes `occurrencesOf(uuid)` and
+  `nonExcludedPredecessor(id)`** beyond the spec's `contextAt`: both are
+  what matching needs, and the relinked-occurrence index (spec:
+  "relinkedOccurrencesOf … inside the ContextTree") is built once in the
+  constructor from `parentMap`, so the constructor takes no entries
+  (later the `excluded` and `relinkedOccurrencesOf` arguments were added;
+  see type design).
+  `occurrencesOf` orders raw first, then relinked in materialization
+  order — exact for every producer-written file (a relinked occurrence
+  materializes at its boundary, which follows the entry); the
+  "preserved uuid names a later entry" corruption could reorder them, not
+  modeled.
+- **Property-test "settled prefix"**: a prefix qualifies when no tool
+  call in it awaits a result (a prefix ending at a parallel turn's first
+  result still has the other call pending, and the loader drops it there;
+  a group's calls stop waiting when the group ends — from then on the
+  loader judges them dead in every prefix) and no boundary in it awaits
+  its anchor (the loader's chain stops at the unwritten summary; the
+  context tree has the block under it). Three
+  fixtures, 29 of 34 prefixes checked.
+- **Divergent fixtures**: duplicate uuid with a rewritten parent and an
+  invalid boundary are enumerated with the two answers asserted. The
+  round-4 "dangling parent" case turned out NOT to diverge (both sides
+  root the entry), so it is not listed.
+- **Matched no-summary boundary row** is modeled as hidden with parent =
+  branch point, so `nearestVisibleRow(B)` answers the branch point (as
+  the old rule-3 behavior did) rather than "unknown".
+
+## 2026-09-03 — review round 48536d3 (phase B, pre-commit)
+
+Anton's TDC comments on the phase B working tree (`git show
+48536d3`) and the agreed resolutions. Phase B is NOT committed yet; this
+round lands in the same commit. Anton will rewind the conversation to the
+phase-B report and paste the "Rewind summary" below in its place.
+
+### Decisions
+
+- **Passes.** One pass total over a builder's input is the target. Mental
+  model: the daemon will eventually keep a rolling `tail -f` of the
+  session file and place each row once on arrival; group linearization
+  and boundary relinking retroactively touch a bounded recent past.
+  Restructure phase B code toward that model (design notes in
+  docs/thoughts/get-entries-caching.md); `fullTree`/`ContextTree`
+  separation stays for now.
+  - `toContextTree(fullTree, byUuid)`: one pass over `fullTree`; group
+    bookkeeping inline (parent = group tail _so far_; outside child of a
+    group result → tail so far — differs from "final tail" only if a
+    group member is written after an outside child of one of its
+    results); relinked index and topological assertion in the same loop;
+    calls and thinking-only uuids collected, `excluded` built from them at
+    the end. `toolGroupMaps`/`linearizedGroupParents` no longer used here.
+  - `toDisplayTree(fullTree, contextTree, byUuid)`: no entries pass —
+    boundary validation is against rows materialized so far.
+  - `buildTree`: in-loop parent-present check (root + onInvalid) replaces
+    the final rooting pass, making "every row follows its parent" true.
+- **`excluded: ReadonlySet<UUID>`**, not occurrence ids.
+- **Cycle check** leaves `contextAt`; `buildTree` enforces topological
+  order, `toContextTree` asserts it.
+- **Matching** stays parent-direction (no children map); the candidate
+  filter is restated readably (no ternary-of-conjunctions).
+- **Fail-closed divergence (new):** a preserved uuid must name an
+  _earlier_ entry. The binary validates against the whole-file map, but
+  a later entry would mean the file was invalid between the boundary's
+  write and that entry's. `invalidRelinkReason(precedingUuids, boundary)`
+  → "names no earlier entry"; `buildTree` passes rows so far,
+  `loadedContext` first-index < cut, `set-context` unchanged.
+  `compactBoundaryAt(entries, index)` → `compactBoundaryOf(entry)`.
+- **Comments.** Doc comments say how to use/think about a symbol;
+  algorithm detail lives in this spec. Audit every comment added in phase
+  B (reviewer focus). Rule recorded in AGENTS.md.
+- **Real-session verification.** (a) `scripts/` script: run
+  `contextAt` vs `loadedContext` at every settled prefix of a given
+  session file. (b) Intercepting oracle: non-forwarding variant of
+  `docs/derisk/compact-boundary-injection/shim.mjs` answering a canned
+  SSE stream; resume truncated copies at each settled prefix and compare
+  the captured request's uuid chain with `contextAt`. Nothing leaves the
+  machine. `getSessionMessages` is NOT a valid oracle (no cut, all
+  boundaries, no sanitizer — FINDINGS §getSessionMessages). Later, not
+  now: a `tests/sdk/` guard like compact-boundary-suite.test.ts so an SDK
+  change in context construction is noticed.
+
+### Tasks
+
+- [x] AGENTS.md + ~/.claude/CLAUDE.md rules (comments, passes)
+- [x] docs/thoughts/get-entries-caching.md rolling-builder notes
+- [x] loader.ts: `compactBoundaryOf`, `invalidRelinkReason` preceding-only;
+      loadedContext first-index; tests + session-tree.md Edge cases
+- [x] build-tree.ts in-loop check (`place`); tests
+- [x] context-tree.ts single pass, `excluded` uuids, assertion, filter
+- [x] display-tree.ts byUuid, no entries pass
+- [x] callers (format/tree.ts, interactive-mode.ts ×2, render-session.ts,
+      tests)
+- [x] `src/core/tree/context-check.ts` (turnEndPrefixLengths,
+      contextAtMismatches — shared by the unit test) +
+      `scripts/check-context-at.ts <session.jsonl>...` (tier a). NOT yet
+      run on a real session — explain, then run.
+- [ ] tier (b) intercepting oracle: non-forwarding shim (canned SSE:
+      message_start / text delta / message_stop) + script that, per
+      settled prefix of a session, writes the truncated copy into a
+      makeConfigDir scratch dir (tests/sdk/harness.ts), resumes via the
+      SDK with ANTHROPIC_BASE_URL at the shim (pattern: resumeProbe in
+      docs/derisk/compact-boundary-injection/round2.mjs), and compares
+      the captured request's message chain with contextAt. Zero API
+      traffic. Ask Anton before the first run.
+- [ ] comment audit (own pass done in the rewrites; reviewer focus)
+- [ ] /reviewer round (focus: comments, pass structure, fail-closed
+      divergence, buildTree `place`)
+- [ ] presubmit (npm test green 616/616 after restructure; presubmit not
+      yet re-run); finalize Rewind summary
+
+### Review round c767566 (2026-09-06) — addressed
+
+Anton's TDC comments (`git show c767566`), all addressed and removed.
+His non-TDC edits in that commit (`place` → `setParent` in
+build-tree.ts; thoughts-doc reflow + "TUI rolling trees via
+`get-entries --since`" alternative; AGENTS.md one-pass bullet marked as
+soon-to-be-obsolete) stand as-is.
+
+Decisions:
+
+- `toContextTree` tracks ONE active `ToolGroup` (apiMessageId, members,
+  tail, pendingCalls, thinkingOnly, hasSurvivor); `continuesToolGroup`
+  (exported, shared with context-check) says which rows extend it; the
+  group settles its `excluded` contributions when it ends, so the two
+  post-loop passes are gone. Group members are occurrence-id strings —
+  no `as UUID`.
+- Late forks off an ended group's rows stay forks (Edge cases entry);
+  the display test's expectation flipped accordingly.
+- "Turn end" → "settled prefix" (nothing in the prefix awaits a later
+  entry); pending calls/anchors tracked add-on-sight/delete-on-arrival,
+  no index pre-pass; a group's calls stop pending when it ends. The
+  "if already seen continue" part of comment (3) is NOT implemented: a
+  seen-set misfires on re-persisted boundary + summary copies (at the
+  second boundary its anchor is already seen), so the code assumes an
+  anchor is the boundary itself or follows it (comment in code).
+- `ContextMismatch.actual: string[]`; contextAt errors propagate;
+  elementwise comparison. Empty loaded context (wipe boundary / no
+  user-assistant yet) has no tip and is not counted.
+
+Comments as recorded before addressing:
+
+- context-check.ts `turnEndPrefixLengths`: (1) no pre-pass over entries
+  for `fileIndexOf` — populate indices as you go; (2) pending tool calls:
+  push the call when met, remove when its result is observed — not a
+  min-over-results index scheme; (3) boundary anchor: record the anchor
+  uuid; if already seen continue, else add to a pending list like
+  pending results; (4) NAMING: a tool result is not a "turn end" — turn
+  end = assistant stopped, user's turn (src/core/until.ts is the SDK-side
+  definition). Checking prefixes at every entry is fine, but don't call
+  them turn ends.
+- context-check.ts `contextAtMismatches`: (5) "no tip" — is that an
+  error? what does a check position with no tip mean?; (6)
+  `actual: string[] | string` is sloppy type use — don't carry the error
+  in a union; (7) compare lists, not joined strings.
+- context-tree.ts group linearization: (8) too many group lookups
+  (groupOfMessageId / groupOfCall / groupOfResult / groupOfParent;
+  groupOfParent computed even where meaningless). Expected algorithm:
+  track ONE active `group` (uuids in file order) + its `apiMessageId`; a
+  new apiMessageId assistant resets the group to itself; a tool call or
+  result whose parent is in the current group reparents onto the group's
+  last entry. If more complexity is genuinely required (thinking-only
+  members? interleaved groups?), say why. (9) `fullParent as UUID` relies
+  on viaBoundary being absent — parse fullParent once at the loop top and
+  use `.uuid`.
+
+### Review round e2c62f8 (2026-09-06) — addressed
+
+- `ToolGroup` is a class in `tool-group.ts` (type design above), used by
+  `toContextTree` and `settledPrefixLengths`; `continuesToolGroup` and
+  the inline settle closure are gone. Only a result answering one of the
+  group's calls continues it.
+- Results are matched to calls by tool call id (the sanitizer's key, so
+  deadness is judged as the binary does), with the call entry's uuid kept
+  alongside for `excluded`. The loader's expansion matches by
+  `parentUuid`; the keys differ only on corrupt files.
+- `awaitingResult` (the result is pending, not the call); `hasSurvivor`
+  private. `settledPrefixLengths` is a generator. `toolResultIdsOf`
+  added to loader.ts beside `toolCallIdsOf`.
+
+### Review round 6aa4079 (2026-09-06) — addressed
+
+- Every row that continues a group parents onto the group's tail (a
+  same-id assistant's raw parent is the tail; a result's is its call, the
+  tail or an earlier member), so `ToolGroup` needs no member set and no
+  `linearizedParent`; `toContextTree`'s group handling is one
+  if/else-if/else. Rows that end a group — boundary rows included — keep
+  their parents.
+- `UuidEntry` + `hasUuid` in session/file.ts; `ToolGroup` takes the
+  entry alone. Renames from the commit (`continuesWith`,
+  `awaitingResults`) kept.
+
+### Review round 0053ee2 (2026-09-06) — addressed
+
+- `ToolGroup.push(entry): UUID | undefined` — accepts-and-returns the
+  predecessor row or rejects; `continuesWith` and `tail` folded in.
+- Real-session run (`scripts/check-context-at.ts` on 7fdff629, 14924
+  entries): 507 mismatches in two classes. (1) 21 prefixes ending at a
+  CLI-re-persisted copy of an up_to boundary (the summary copy follows):
+  fixed — a boundary awaits its anchor whenever the anchor is not the
+  boundary itself (up_to summaries are always written after; from/wipe
+  anchors are the boundary). (2) 486 prefixes with the same set and tip
+  but a different order inside one parallel tool group: the loader
+  splices off-chain results after the group's last ON-CHAIN assistant,
+  which depends on the tip, so no tree order reproduces it. Decision:
+  canonical tree order stays; criterion 1 compares presented contexts
+  (`presentedOrder` in context-check.ts sorts each group's results);
+  documented in Edge cases. Anchor fix kept.
+
+### Review round 3316da5 (2026-09-06) — IN PROGRESS
+
+- TDC in `presentedOrder`: don't assume every result after an API message
+  belongs to it — use `ToolGroup.push` to admit only the group's own
+  results. Not yet done.
+- Anton ran the check on 474b3175 (6350 entries): 2833 settled prefixes,
+  788 mismatches — being classified. (`/tmp/mismatches2` header says
+  7fdff629 / 486, i.e. a pre-canonicalization run; 7fdff629 is clean with
+  the current code.)
+- 474b3175 mismatch classes (788 = 483 "loader has 3–4 more" + 305
+  "mixed"), both compaction racing concurrent activity; NOT fixed —
+  awaiting Anton's decision on each:
+  - **A. Queued prompt written between boundary and summary** (entries
+    1954–1958: boundary B preserving [03de,161d,cfae] anchor=summary
+    700f; then prompt a3e6 with parentUuid=cfae (the preserved tail)
+    BEFORE the summary 700f; a later prompt parents on 700f). Loader (with
+    the anchor in the prefix): `[700f, block, a3e6]`. Tree: a3e6 arrived
+    while B's block was still pending its anchor, so buildTree rooted it
+    (`names no tree occurrence`) — contextAt = `[a3e6]`. Fix candidates:
+    defer rows whose parent is a pending block row until the block
+    flushes (bounded like the block), or accept as a divergence.
+  - **B. Compaction during an in-flight turn** (5267–5292: prompt 8943 +
+    attachment acd4, THEN boundary preserving [802c,492f,7e1f] (8943/acd4
+    cut, not preserved), summary 8a6b, caveat; then the assistant turn
+    452c→7867→be49 parented on acd4 — the cut attachment). Loader applies
+    its "surviving turn whose parent was cut → attach to the preserved
+    tail" rule (loader.ts `parentOf`, commented "should never happen"):
+    `[8a6b, block, 452c, 7867, be49]`. Tree keeps raw parents: 173-entry
+    pre-boundary history. This shape DOES happen (305 prefixes here).
+    Fix candidate: context tree rule "raw row whose raw parent precedes
+    the latest boundary and is not preserved by it → parent = that
+    boundary's block tail" (rolling: needs only the latest boundary's
+    preserved set + cut position); display follows. Whether the binary
+    really reattaches (vs. drops) is per FINDINGS §2 leaf/walk — verify
+    before implementing.
+- DECISIONS (Anton, 2026-09-06): **A — defer**: buildTree must hold
+  rows whose parent is a pending block row until the block flushes (also
+  fixes the crash `clauctl format tree --filter raw 474b3175…` →
+  "treeLines: row a3e6… precedes its parent cfae…@71e7…"). **B — dig
+  in before modeling**: Anton's read is that 8943 ("Let's implement it.")
+  was queued during `/compact` and is chronologically BEFORE the boundary,
+  so it should be cut, not a "surviving turn"; the only hint it belongs
+  in context is that it follows the boundary's logicalParentUuid 7e1f.
+  Investigate what the binary does (evidence: the assistant turn 452c's
+  content/timestamps — did it see the prompt?), update FINDINGS, then
+  decide the tree rule. Reproduce with
+  `sed -n '5250,5300p;5300q' <file> | clauctl format tree --filter raw`
+  and `… | clauctl format entries`.
+- B evidence gathered (not yet acted on): timestamps put the prompt
+  8943 AFTER the boundary (boundary 15:02:57.900, summary .899, prompt
+  and attachment 15:02:58.160, assistant 452c 15:03:02.260) even though
+  it sits two lines BEFORE the boundary in the file — the queued prompt
+  was written by a path that raced the boundary write. The assistant
+  turn 452c acted on it (its first tool call reads implement.md), so
+  live the context was `[summary, block, 8943, acd4, 452c…]`; on a
+  file-based resume the prompt is cut (pre-boundary line, not
+  preserved) and the loader's reattach rule keeps the turn without its
+  prompt. Which of those the tree should model is the open question;
+  FINDINGS §2 needs this shape ("queued prompt races the boundary
+  write") recorded either way.
+- **A DONE** (2026-09-06): `buildTree` defers a raw row whose effective
+  parent is a pending block row (or a row already deferred behind one)
+  into that block's list (`pendingBlockOf` key → block) and flushes the
+  list in order when the anchor arrives (or at end of file). 474b3175:
+  788 → 305 mismatches (all class B); `format tree --filter raw` on it
+  no longer crashes (from source — the installed `clauctl` runs a stale
+  `dist/`). Behavior change on the corrupt dangling-anchor shape: a row
+  under a pending block row now flushes with the block at end of file
+  instead of rooting (build-tree.test.ts updated); session-tree.md
+  buildTree contract updated.
+- Anton on B: the loader's cut must be either timestamp-based or "delete
+  everything at and before logicalParentUuid" (he prefers the latter as
+  a model); investigate what the binary actually does next.
+- **B investigated** (2026-09-06, binary 2.1.258 relink `Nns`, just
+  before the `tengu_relink_walk_broken` string): the cut is by FILE
+  POSITION — map index `< lastBoundaryIdx && !preserved` — neither
+  timestamp nor logicalParentUuid; and "surviving user/assistant whose
+  parentUuid was cut → parentUuid = uuids.last()" is a general rule.
+  `loadedContext` already matches; its "should never happen" comment
+  replaced. Recorded in FINDINGS §1 (two new sub-bullets). Resumed
+  context for the shape: `[summary, block, 452c, 7867, be49]` — the
+  answer without its question. PROPOSED tree rule (not yet agreed): in
+  `toContextTree` (display follows the context tree's relation; the raw
+  view keeps the file's parents), a raw row whose full-tree parent is a
+  raw row placed before the latest boundary and not preserved by it →
+  parent = that boundary's block tail (the anchor for a wipe). Needs a
+  row-position lookup (one index map over the full-tree order, or the
+  boundary's position + a per-row index); bounded per boundary.
+- Review round 84d04ec (three TDCs on the deferral) addressed: the
+  second map is now `deferredAnchorOf: row key → anchor uuid` (was
+  key → block array), `flushBlock(anchorUuid)` owns both deletes, the
+  first-wins comment covers deferred keys too.
+- B clarified for Anton: `452c` reattaches onto `7e1f@B` (the playlist
+  tail); the caveat chain 5272–5282 (parented on the summary = anchor)
+  also moves onto the tail by the anchor-child rule and is an unwalked
+  sibling branch. "Let's implement it." is absent from the resumed
+  context.
+- **B DECIDED (2026-09-07): not modeled.** Live experiment on 2.1.258
+  (queued prompt during `/compact`, debriefed post-compaction, then
+  rewound): the prompt is dequeued after the boundary/summary/preserved/
+  caveat-chain writes and chains onto them — live, file, and resume
+  agree. The 474b3175 shape is a 2.1.195 write race; assume upstream
+  keeps resume == live. Anton also wants `buildTree` to stay raw + relink
+  only (`format tree --filter raw` as a file-inspection tool; later
+  `--filter all --raw`). Recorded in FINDINGS §1.
+- 2dafe15d (2.1.220): 429 mismatches, a third race variant — the queued
+  prompt lands AFTER the boundary line with a cut parent; the loader
+  reattaches it onto the tail (matches live). Anton: not worth modeling
+  for pre-2.1.258 files; keep the simpler rule. Recorded as an Edge case
+  ("Queued-prompt races in pre-2.1.258 files").
+- 3316da5 TDC addressed: `presentedOrder` routes rows through
+  `ToolGroup.push` (assistant continuations go straight to the presented
+  list, the group's own results are buffered and sorted at group end).
+- Reviewer round (agent a2af8780, 2026-09-07) addressed: id-less
+  assistants classified by `ToolGroup` (constructor → `admit`, test);
+  call entries excluded only when none of their calls is answered
+  (matches the sanitizer's `every`); boundaries never deferred in
+  `buildTree`; uuid-less rows yield settled prefixes; no seen-set for
+  anchors (comment explains why); builder doc comments trimmed to
+  contracts; stale spec references fixed. Approved; presubmit green.
+
+- Observed 2026-09-07 on this session's file: a rewind boundary written
+  by today's `set-context` renders its block as a `~` fork from the
+  `/compact` stdout row on — the legacy user/assistant-filtered playlist
+  skips the attachments that follow the stdout, so strict matching stops
+  there. Expected per the "Legacy clauctl boundaries" Edge case; phase C
+  writes the full loaded context and stops producing the shape.
+
+### Rewind summary (paste in place of the phase-B report)
+
+Phase B implemented and iterated through Anton's TDC rounds 48536d3,
+c767566, e2c62f8, 6aa4079, 0053ee2, 3316da5, 84d04ec and a fresh-context
+reviewer round; every decision is recorded above in this WORK LOG. Final
+shape: `buildTree` = raw rows + relink only (rows parented on a pending
+block row are deferred behind it; boundaries never deferred);
+`toContextTree(fullTree, byUuid)` one pass with `ToolGroup` (one active
+group; same-id assistants and answering results parent onto the previous
+group row; rows ending or following a group keep raw parents; `excluded`
+= dead call entries, orphan results, thinking-only without survivor);
+`toDisplayTree(fullTree, contextTree, byUuid)`; `context-check.ts`
+(settled prefixes, `presentedOrder` per-group result canonicalization) +
+`scripts/check-context-at.ts`. Criterion 1 is "presents the same
+context" (group results order-insensitive). Documented divergences: group
+order canonical not the loader's; late fork off a mid-group result; pre-
+2.1.258 queued-prompt races (2.1.195 pre-boundary, 2.1.220 post-boundary
+with a cut parent — loader cuts/reattaches, tree keeps raw parents;
+verified on 2.1.258 by a live experiment that live == file == resume).
+Binary facts learned: the relink cut is by file position (FINDINGS §1);
+the reattach-to-tail rule is general. Verification: 7fdff629 0/10382
+mismatches; 474b3175 and 2dafe15d only the legacy race classes. Suite
+617/617, presubmit green. Committed by Anton as phase B. Next: phase C
+(`set-context --rewind-to X <uuids…>`) as ONE commit after explicit
+go-ahead. Decisions taken before the rewind: the playlist is
+`contextAt(X)` from the context tree (attachments included, `excluded`
+already dropped) followed by the appended uuids; the boundary's
+`logicalParentUuid` is set structurally — the uuid of the branch point
+`matchPreservedList` finds for that list against the pre-boundary tree
+(typically X; the last matched row when the appends continue X's
+existing children); `--anchor` and the user/assistant playlist filter go
+away. Later: tier (b) intercepting oracle, `tests/sdk/` guard, remove
+the AGENTS.md one-pass bullet once the rolling builder lands, and the
+`--filter all --raw` CLI change Anton wants for `format tree`.

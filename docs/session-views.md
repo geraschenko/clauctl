@@ -29,12 +29,23 @@ binary outranks elegance: this view exists to predict, not to please. Stage 5
 is out of scope. set-context playlists are instructions about THIS view, and are
 validated/normalized against loader semantics before being written.
 
+`ContextTree` (src/core/tree/context-tree.ts) is the same view in tree form:
+every full-tree occurrence except boundary rows, each under its context
+predecessor (parallel groups linearized, entries the loader always drops
+marked `excluded`), so `contextAt(ref)` is the context the assistant had
+with `ref` as the tip — `loadedContext` for every prefix at once, as one
+relation. It exists so the display view can compare contexts without
+re-running the loader per boundary.
+
 ## 3. What's presented to the user
 
 The display tree and TUI transcript (src/core/tree/display-tree.ts, src/tui/):
 optimized for human comprehension, deliberately different from both other views.
-It shows MORE than the assistant sees (pre-boundary history survives compaction
-on screen), HIDES file artifacts (relinked `@boundary` duplicates, navigation
-boundaries), and prefers strict chronological order
+It is the context tree's relation with an edge meaning — row Y under row X iff
+the assistant context at Y is "the context at X, then Y" — plus boundary rows
+re-inserted where they are shown (docs/specs/context-tree.md). It shows MORE
+than the assistant sees (pre-boundary history survives compaction on screen),
+HIDES file artifacts (a boundary's relinked block, when the block reproduces a
+context that already existed on screen), and prefers strict chronological order
 (docs/thoughts/tree-presentation.md) where the loader's order would misrepresent
 what happened.

@@ -9,7 +9,7 @@ import { randomUUID, type UUID } from "node:crypto";
 import { test } from "node:test";
 import type { SessionEntry } from "../session/file.ts";
 import {
-  compactBoundaryAt,
+  compactBoundaryOf,
   effectiveParent,
   invalidRelinkReason,
   loadedContext,
@@ -113,26 +113,26 @@ function summaryEntry(
 
 // --- parsing and rules -----------------------------------------------------
 
-test("compactBoundaryAt parses preservedMessages and throws on a non-boundary", () => {
+test("compactBoundaryOf parses preservedMessages and throws on a non-boundary", () => {
   const sid = uuid();
   const u1 = userEntry(null, sid);
   const anchor = uuid();
   const boundary = boundaryEntry({ sessionId: sid, uuids: [u1.uuid], anchor });
-  const parsed = compactBoundaryAt([u1, boundary], 1);
+  const parsed = compactBoundaryOf([u1, boundary][1]!);
   assert.deepEqual(parsed, {
     uuid: boundary.uuid,
     preservedMessages: { anchorUuid: anchor, uuids: [u1.uuid] },
   });
   assert.throws(
-    () => compactBoundaryAt([u1, boundary], 0),
+    () => compactBoundaryOf([u1, boundary][0]!),
     /not a uuid-bearing compact_boundary/,
   );
 });
 
-test("compactBoundaryAt: absent preservedMessages normalizes to a wipe", () => {
+test("compactBoundaryOf: absent preservedMessages normalizes to a wipe", () => {
   const sid = uuid();
   const bare = bareBoundaryEntry(sid);
-  assert.deepEqual(compactBoundaryAt([bare], 0), {
+  assert.deepEqual(compactBoundaryOf([bare][0]!), {
     uuid: bare.uuid,
     preservedMessages: { anchorUuid: bare.uuid, uuids: [] },
   });
@@ -141,20 +141,20 @@ test("compactBoundaryAt: absent preservedMessages normalizes to a wipe", () => {
     ...bareBoundaryEntry(sid),
     compactMetadata: { preservedSegment: { startUuid: uuid() } },
   };
-  assert.deepEqual(compactBoundaryAt([segmentOnly], 0), {
+  assert.deepEqual(compactBoundaryOf([segmentOnly][0]!), {
     uuid: segmentOnly.uuid,
     preservedMessages: { anchorUuid: segmentOnly.uuid, uuids: [] },
   });
 });
 
-test("compactBoundaryAt: present-but-malformed preservedMessages throws", () => {
+test("compactBoundaryOf: present-but-malformed preservedMessages throws", () => {
   const sid = uuid();
   const noUuidsArray = {
     ...bareBoundaryEntry(sid),
     compactMetadata: { preservedMessages: { anchorUuid: uuid() } },
   };
   assert.throws(
-    () => compactBoundaryAt([noUuidsArray], 0),
+    () => compactBoundaryOf([noUuidsArray][0]!),
     /malformed preservedMessages/,
   );
   const noAnchor = {
@@ -162,7 +162,7 @@ test("compactBoundaryAt: present-but-malformed preservedMessages throws", () => 
     compactMetadata: { preservedMessages: { uuids: [uuid()] } },
   };
   assert.throws(
-    () => compactBoundaryAt([noAnchor], 0),
+    () => compactBoundaryOf([noAnchor][0]!),
     /malformed preservedMessages/,
   );
 });
@@ -171,54 +171,55 @@ test("invalidRelinkReason: missing uuid, duplicate (fail-closed divergence, p14;
   const sid = uuid();
   const u1 = userEntry(null, sid);
   const fileUuids = new Set([u1.uuid]);
-  const valid = compactBoundaryAt(
-    [boundaryEntry({ sessionId: sid, uuids: [u1.uuid], anchor: "own" })],
-    0,
+  const valid = compactBoundaryOf(
+    [boundaryEntry({ sessionId: sid, uuids: [u1.uuid], anchor: "own" })][0]!,
   );
   assert.equal(invalidRelinkReason(fileUuids, valid), undefined);
-  const missing = compactBoundaryAt(
+  const missing = compactBoundaryOf(
     [
       boundaryEntry({
         sessionId: sid,
         uuids: [u1.uuid, uuid()],
         anchor: "own",
       }),
-    ],
-    0,
+    ][0]!,
   );
-  assert.match(invalidRelinkReason(fileUuids, missing)!, /names no file entry/);
-  const duplicated = compactBoundaryAt(
+  assert.match(
+    invalidRelinkReason(fileUuids, missing)!,
+    /names no earlier entry/,
+  );
+  const duplicated = compactBoundaryOf(
     [
       boundaryEntry({
         sessionId: sid,
         uuids: [u1.uuid, u1.uuid],
         anchor: "own",
       }),
-    ],
-    0,
+    ][0]!,
   );
   assert.match(invalidRelinkReason(fileUuids, duplicated)!, /duplicated uuid/);
   // Deliberate divergence (like the duplicate rejection): an anchor among
   // the preserved uuids makes the binary's sequential passes self-parent
   // the chain, so the shape is rejected instead.
-  const anchorInList = compactBoundaryAt(
+  const anchorInList = compactBoundaryOf(
     [
       boundaryEntry({
         sessionId: sid,
         uuids: [u1.uuid],
         anchor: u1.uuid,
       }),
-    ],
-    0,
+    ][0]!,
   );
   assert.match(
     invalidRelinkReason(fileUuids, anchorInList)!,
     /anchorUuid appears/,
   );
-  // Validation is anywhere-in-file, not earlier-entries-only: a preserved
-  // uuid naming a LATER entry is valid (see Edge cases in
-  // docs/specs/session-tree.md).
-  assert.equal(invalidRelinkReason(fileUuids, valid), undefined);
+  // Only entries written before the boundary count (deliberate fail-closed
+  // divergence; see Edge cases in docs/specs/session-tree.md).
+  assert.match(
+    invalidRelinkReason(new Set(), valid)!,
+    /names no earlier entry/,
+  );
 });
 
 test("effectiveParent: the anchor-child rule, uuids[0] exempt", () => {
@@ -226,9 +227,8 @@ test("effectiveParent: the anchor-child rule, uuids[0] exempt", () => {
   const u1 = userEntry(null, sid);
   const u2 = userEntry(u1.uuid, sid);
   const anchor = uuid();
-  const boundary = compactBoundaryAt(
-    [boundaryEntry({ sessionId: sid, uuids: [u1.uuid, u2.uuid], anchor })],
-    0,
+  const boundary = compactBoundaryOf(
+    [boundaryEntry({ sessionId: sid, uuids: [u1.uuid, u2.uuid], anchor })][0]!,
   );
   const anchorChild = userEntry(anchor, sid);
   assert.deepEqual(effectiveParent(boundary, anchorChild), {
@@ -274,9 +274,8 @@ test("parentOfPreserved: the chain-rewrite rule", () => {
   const u1 = userEntry(null, sid);
   const u2 = userEntry(u1.uuid, sid);
   const anchor = uuid();
-  const boundary = compactBoundaryAt(
-    [boundaryEntry({ sessionId: sid, uuids: [u1.uuid, u2.uuid], anchor })],
-    0,
+  const boundary = compactBoundaryOf(
+    [boundaryEntry({ sessionId: sid, uuids: [u1.uuid, u2.uuid], anchor })][0]!,
   );
   assert.deepEqual(parentOfPreserved(boundary, 0), { uuid: anchor });
   assert.deepEqual(parentOfPreserved(boundary, 1), {
@@ -368,7 +367,7 @@ test("a missing preserved uuid degrades the boundary to a wipe (named divergence
   assert.deepEqual(loadedContext([u1, a1, boundary, summary], collectInvalid), [
     { uuid: summaryUuid },
   ]);
-  assert.match(invalidMessages[0]!, /names no file entry/);
+  assert.match(invalidMessages[0]!, /names no earlier entry/);
   // The binary aborts the transform and loads raw parents, which would give
   // [u1, a1, u2] here; degrading to a wipe cuts pre-boundary history
   // instead, so the turn reparents onto the boundary and stands alone.

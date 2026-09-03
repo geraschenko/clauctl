@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import type { UUID } from "node:crypto";
 import { test } from "node:test";
 import { buildTree } from "../../core/tree/build-tree.ts";
+import { toContextTree } from "../../core/tree/context-tree.ts";
 import { toDisplayTree } from "../../core/tree/display-tree.ts";
 import { entriesByUuid, type SessionEntry } from "../../core/session/file.ts";
 import type { TreeNodeRef } from "../../core/tree/nodes.ts";
@@ -87,7 +88,11 @@ const ENTRIES = [
 ];
 const ENTRY_OF = entriesByUuid(ENTRIES);
 const PARENT_MAP = buildTree(ENTRIES, failOnInvalid);
-const DISPLAY_TREE = toDisplayTree(PARENT_MAP, ENTRIES);
+const DISPLAY_TREE = toDisplayTree(
+  PARENT_MAP,
+  toContextTree(PARENT_MAP, ENTRY_OF),
+  ENTRY_OF,
+);
 const LEAF: TreeNodeRef = { uuid: uuid(3), viaBoundary: BOUNDARY };
 
 function resolve(pick: TreeNodeRef): unknown {

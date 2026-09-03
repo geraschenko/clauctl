@@ -6,15 +6,26 @@
 import assert from "node:assert/strict";
 import { randomUUID, type UUID } from "node:crypto";
 import { test } from "node:test";
-import type { SessionEntry } from "../session/file.ts";
+import { entriesByUuid, type SessionEntry } from "../session/file.ts";
 import { buildTree } from "./build-tree.ts";
-import { toDisplayTree } from "./display-tree.ts";
+import { toContextTree } from "./context-tree.ts";
+import { toDisplayTree, type DisplayTree } from "./display-tree.ts";
+import type { OnInvalid } from "./loader.ts";
 
 const uuid = (): UUID => randomUUID();
 
 const failOnInvalid = (message: string): never => {
   throw new Error(`unexpected onInvalid: ${message}`);
 };
+
+function displayTreeOf(
+  entries: SessionEntry[],
+  onInvalid: OnInvalid = failOnInvalid,
+): DisplayTree {
+  const fullTree = buildTree(entries, onInvalid);
+  const byUuid = entriesByUuid(entries);
+  return toDisplayTree(fullTree, toContextTree(fullTree, byUuid), byUuid);
+}
 
 // --- entry builders --------------------------------------------------------
 
@@ -41,7 +52,7 @@ function assistantEntry(
     type: "assistant",
     sessionId,
     // A unique API message id per entry: distinct turns never share one in
-    // real files, and a shared id means rule 4 grouping.
+    // real files, and a shared id means parallel-group linearization.
     message: {
       role: "assistant",
       id: `msg_${randomUUID().slice(0, 8)}`,
@@ -109,7 +120,7 @@ test("up_to compaction of a linear conversation renders linearly (criterion 2)",
   const s = summaryEntry(b.uuid, sid, summaryUuid);
   const e5 = userEntry(e4.uuid, sid);
   const entries = [e1, e2, e3, e4, b, s, e5];
-  const display = toDisplayTree(buildTree(entries, failOnInvalid), entries);
+  const display = displayTreeOf(entries);
   // One straight line: 1→2→3→4→B→S→5; the relinked rows are hidden.
   assert.deepEqual(
     [...display.parentMap],
@@ -162,7 +173,7 @@ test("stacked compactions render as one straight line (criterion 2)", () => {
   const s2 = summaryEntry(b2.uuid, sid, s2Uuid);
   const e7 = userEntry(e6.uuid, sid);
   const entries = [e1, e2, e3, e4, b1, s1, e5, e6, b2, s2, e7];
-  const display = toDisplayTree(buildTree(entries, failOnInvalid), entries);
+  const display = displayTreeOf(entries);
   assert.deepEqual(
     [...display.parentMap],
     [
@@ -196,7 +207,7 @@ test("stacked compactions render as one straight line (criterion 2)", () => {
   }
 });
 
-test("from-shape rewind with summary and a new turn: boundary forks off the rewind target", () => {
+test("from-shape rewind with summary and a new turn: the summary forks off the rewind target, no boundary row", () => {
   const sid = uuid();
   const e1 = userEntry(null, sid);
   const e2 = assistantEntry(e1.uuid, sid);
@@ -211,13 +222,16 @@ test("from-shape rewind with summary and a new turn: boundary forks off the rewi
   const t = summaryEntry(x.uuid, sid);
   const e5 = userEntry(t.uuid, sid);
   const entries = [e1, e2, e3, e4, x, t, e5];
-  const { parentMap } = toDisplayTree(
-    buildTree(entries, failOnInvalid),
-    entries,
-  );
-  // X forks off raw 2 (rule 1); T resolves to X through the hidden block.
-  assert.equal(parentMap.get(x.uuid), e2.uuid);
-  assert.equal(parentMap.get(t.uuid), x.uuid);
+  const display = displayTreeOf(entries);
+  const { parentMap } = display;
+  // [1,2] reproduces raw 2's context: X has no row (its anchor is itself,
+  // so it is not an up_to summary boundary); T, under the hidden block in
+  // the full tree, displays under the branch point.
+  assert.equal(parentMap.has(x.uuid), false);
+  assert.deepEqual(display.nearestVisibleRow({ uuid: x.uuid }), {
+    uuid: e2.uuid,
+  });
+  assert.equal(parentMap.get(t.uuid), e2.uuid);
   assert.equal(parentMap.get(e5.uuid), t.uuid);
   // The abandoned branch stays visible.
   assert.equal(parentMap.get(e3.uuid), e2.uuid);
@@ -237,7 +251,7 @@ test("boundary rewind with no summary and no new turn is invisible (criterion 3)
     logicalParentUuid: e2.uuid,
   });
   const entries = [e1, e2, e3, e4, x];
-  const display = toDisplayTree(buildTree(entries, failOnInvalid), entries);
+  const display = displayTreeOf(entries);
   // Indistinguishable from a plain tail rewind: 1 → 2 → 3 → 4, no X row.
   assert.deepEqual(
     [...display.parentMap],
@@ -262,7 +276,7 @@ test("boundary rewind with no summary and no new turn is invisible (criterion 3)
   });
 });
 
-test("stacked no-descendant boundaries cascade away (rule 3 fixpoint)", () => {
+test("stacked pure rewinds have no rows", () => {
   const sid = uuid();
   const e1 = userEntry(null, sid);
   const e2 = assistantEntry(e1.uuid, sid);
@@ -280,7 +294,7 @@ test("stacked no-descendant boundaries cascade away (rule 3 fixpoint)", () => {
     logicalParentUuid: e2.uuid,
   });
   const entries = [e1, e2, x1, x2];
-  const display = toDisplayTree(buildTree(entries, failOnInvalid), entries);
+  const display = displayTreeOf(entries);
   assert.deepEqual(
     [...display.parentMap],
     [
@@ -308,10 +322,7 @@ test("boundaries with no applicable relink stay visible in place", () => {
     logicalParentUuid: e2.uuid,
   });
   const entries = [e1, e2, wipe];
-  const { parentMap } = toDisplayTree(
-    buildTree(entries, failOnInvalid),
-    entries,
-  );
+  const { parentMap } = displayTreeOf(entries);
   assert.equal(parentMap.get(wipe.uuid), e2.uuid);
   assert.equal(parentMap.size, 3);
 
@@ -323,10 +334,7 @@ test("boundaries with no applicable relink stay visible in place", () => {
     logicalParentUuid: e2.uuid,
   });
   const corruptEntries = [e1, e2, invalid];
-  const display = toDisplayTree(
-    buildTree(corruptEntries, () => {}),
-    corruptEntries,
-  );
+  const display = displayTreeOf(corruptEntries, () => {});
   assert.equal(display.parentMap.get(invalid.uuid), e2.uuid);
 });
 
@@ -358,7 +366,7 @@ test("a duplicated boundary uuid is first-wins even when the first copy is metad
     },
   };
   const entries = [e1, e2, metadataless, validCopy];
-  const display = toDisplayTree(buildTree(entries, failOnInvalid), entries);
+  const display = displayTreeOf(entries);
   // The metadata-less first occurrence governs: B stays visible in place.
   assert.deepEqual(
     [...display.parentMap],
@@ -371,7 +379,7 @@ test("a duplicated boundary uuid is first-wins even when the first copy is metad
   assert.deepEqual(display.nearestVisibleRow({ uuid: bUuid }), { uuid: bUuid });
 });
 
-// --- rule 4: parallel-group linearization ------------------------------------
+// --- parallel-group linearization (via the context tree) ---------------------
 
 function callEntry(
   parentUuid: UUID | null,
@@ -409,7 +417,7 @@ function resultEntry(
   };
 }
 
-test("rule 4: a parallel turn linearizes in file order; outside children of results move to the tail; forks off calls stay forks", () => {
+test("a parallel turn linearizes in file order; later forks off its rows stay forks", () => {
   // The readonly-fold shape: callB chains off callA, resultB is written
   // first, the continuation parents on resultA (the last-written result).
   const sid = uuid();
@@ -431,10 +439,10 @@ test("rule 4: a parallel turn linearizes in file order; outside children of resu
   const resultB = resultEntry(callB, sid);
   const resultA = resultEntry(callA, sid);
   const u2 = userEntry(resultA.uuid, sid);
-  // A fork off the NON-tail result: displays under the group's tail so it
-  // follows the whole turn.
+  // Forks written after the group ended keep their raw parents; the
+  // loader would splice resultA back in for forkOffResult (enumerated
+  // divergence in docs/specs/context-tree.md, Edge cases).
   const forkOffResult = userEntry(resultB.uuid, sid);
-  // A fork off a call keeps its raw parent: still a fork.
   const forkOffCall = userEntry(callA.uuid, sid);
   const entries = [
     u1,
@@ -447,7 +455,7 @@ test("rule 4: a parallel turn linearizes in file order; outside children of resu
     forkOffResult,
     forkOffCall,
   ];
-  const display = toDisplayTree(buildTree(entries, failOnInvalid), entries);
+  const display = displayTreeOf(entries);
   assert.deepEqual(
     [...display.parentMap],
     [
@@ -458,13 +466,13 @@ test("rule 4: a parallel turn linearizes in file order; outside children of resu
       [resultB.uuid, callB.uuid],
       [resultA.uuid, resultB.uuid],
       [u2.uuid, resultA.uuid],
-      [forkOffResult.uuid, resultA.uuid],
+      [forkOffResult.uuid, resultB.uuid],
       [forkOffCall.uuid, callA.uuid],
     ],
   );
 });
 
-test("rule 4: an interleaved same-id turn comes out identity", () => {
+test("an interleaved same-id turn comes out identity", () => {
   // call → result → call → result, one message.id: later calls parent onto
   // already-arrived results (observed in real sessions, e.g. group gzs8Qh
   // in session 4d92f439). Chronological linearization restates the raw
@@ -477,7 +485,7 @@ test("rule 4: an interleaved same-id turn comes out identity", () => {
   const resultB = resultEntry(callB, sid);
   const u2 = userEntry(resultB.uuid, sid);
   const entries = [u1, callA, resultA, callB, resultB, u2];
-  const display = toDisplayTree(buildTree(entries, failOnInvalid), entries);
+  const display = displayTreeOf(entries);
   assert.deepEqual(
     [...display.parentMap],
     [
@@ -503,12 +511,171 @@ test("a rootless hidden chain displays no row", () => {
     logicalParentUuid: e1.uuid,
   });
   const entries = [e1, b];
-  const display = toDisplayTree(
-    buildTree(entries, () => {}),
-    entries,
-  );
+  const display = displayTreeOf(entries, () => {});
   assert.equal(
     display.nearestVisibleRow({ uuid: e1.uuid, viaBoundary: b.uuid }),
     undefined,
+  );
+});
+
+// --- context-tree placement (docs/specs/context-tree.md) ---------------------
+
+/** A linear chain of `length` turns, user/assistant alternating. */
+function linearChain(
+  sessionId: UUID,
+  length: number,
+): (SessionEntry & { uuid: UUID })[] {
+  const chain = [userEntry(null, sessionId)];
+  for (let index = 1; index < length; index++) {
+    const parent = chain[index - 1]!.uuid;
+    chain.push(
+      index % 2 === 0
+        ? userEntry(parent, sessionId)
+        : assistantEntry(parent, sessionId),
+    );
+  }
+  return chain;
+}
+
+test("rewind-and-append shows the extension as relinked rows under the branch point, no boundary row (criterion 3)", () => {
+  const sid = uuid();
+  const chain = linearChain(sid, 8);
+  const [e1, e2, e3, e4, e5, e6, e7, e8] = chain as (SessionEntry & {
+    uuid: UUID;
+  })[];
+  const b = boundaryEntry({
+    sessionId: sid,
+    uuids: [e1!.uuid, e2!.uuid, e3!.uuid, e4!.uuid, e7!.uuid, e8!.uuid],
+    anchor: "own",
+    logicalParentUuid: e4!.uuid,
+  });
+  const e9 = userEntry(e8!.uuid, sid);
+  const entries = [...chain, b, e9];
+  const display = displayTreeOf(entries);
+  const relinked = (entry: SessionEntry & { uuid: UUID }): string =>
+    `${entry.uuid}@${b.uuid}`;
+  assert.deepEqual(
+    [...display.parentMap],
+    [
+      [e1!.uuid, null],
+      [e2!.uuid, e1!.uuid],
+      [e3!.uuid, e2!.uuid],
+      [e4!.uuid, e3!.uuid],
+      [e5!.uuid, e4!.uuid],
+      [e6!.uuid, e5!.uuid],
+      [e7!.uuid, e6!.uuid],
+      [e8!.uuid, e7!.uuid],
+      [relinked(e7!), e4!.uuid],
+      [relinked(e8!), relinked(e7!)],
+      [e9.uuid, relinked(e8!)],
+    ],
+  );
+  // The hidden matched prefix and the boundary itself display as the
+  // branch point.
+  for (const entry of [e1!, e2!, e3!, e4!]) {
+    assert.deepEqual(
+      display.nearestVisibleRow({ uuid: entry.uuid, viaBoundary: b.uuid }),
+      { uuid: e4!.uuid },
+    );
+  }
+  assert.deepEqual(display.nearestVisibleRow({ uuid: b.uuid }), {
+    uuid: e4!.uuid,
+  });
+});
+
+test("an explicit list that reproduces no context is a new root with its block visible (criterion 4)", () => {
+  const sid = uuid();
+  const chain = linearChain(sid, 5);
+  const [e1, e2, e3, e4, e5] = chain as (SessionEntry & { uuid: UUID })[];
+  const b = boundaryEntry({
+    sessionId: sid,
+    uuids: [e3!.uuid, e4!.uuid, e5!.uuid],
+    anchor: "own",
+    logicalParentUuid: e5!.uuid,
+  });
+  const entries = [...chain, b];
+  const { parentMap } = displayTreeOf(entries);
+  const relinked = (entry: SessionEntry & { uuid: UUID }): string =>
+    `${entry.uuid}@${b.uuid}`;
+  assert.deepEqual(
+    [...parentMap],
+    [
+      [e1!.uuid, null],
+      [e2!.uuid, e1!.uuid],
+      [e3!.uuid, e2!.uuid],
+      [e4!.uuid, e3!.uuid],
+      [e5!.uuid, e4!.uuid],
+      [b.uuid, null],
+      [relinked(e3!), b.uuid],
+      [relinked(e4!), relinked(e3!)],
+      [relinked(e5!), relinked(e4!)],
+    ],
+  );
+});
+
+test("a summary boundary reproducing a prefix of a hidden block is a new root (criterion 5)", () => {
+  const sid = uuid();
+  const [e1, e2, e3, e4] = linearChain(sid, 4) as (SessionEntry & {
+    uuid: UUID;
+  })[];
+  const s1Uuid = uuid();
+  const b1 = boundaryEntry({
+    sessionId: sid,
+    uuids: [e3!.uuid, e4!.uuid],
+    anchor: s1Uuid,
+    logicalParentUuid: e4!.uuid,
+  });
+  const s1 = summaryEntry(b1.uuid, sid, s1Uuid);
+  const s2Uuid = uuid();
+  const b2 = boundaryEntry({
+    sessionId: sid,
+    uuids: [s1Uuid, e3!.uuid],
+    anchor: s2Uuid,
+    logicalParentUuid: e4!.uuid,
+  });
+  const s2 = summaryEntry(b2.uuid, sid, s2Uuid);
+  const entries = [e1!, e2!, e3!, e4!, b1, s1, b2, s2];
+  const { parentMap } = displayTreeOf(entries);
+  assert.equal(parentMap.get(b1.uuid), e4!.uuid);
+  assert.equal(parentMap.get(b2.uuid), null);
+  assert.equal(parentMap.get(s2Uuid), b2.uuid);
+  // B2's block is visible under its summary.
+  assert.equal(parentMap.get(`${s1Uuid}@${b2.uuid}`), s2Uuid);
+  assert.equal(parentMap.get(`${e3!.uuid}@${b2.uuid}`), `${s1Uuid}@${b2.uuid}`);
+});
+
+test("a boundary can branch off a visible relinked row (criterion 6)", () => {
+  const sid = uuid();
+  const chain = linearChain(sid, 8);
+  const [e1, e2, e3, e4, , , e7, e8] = chain as (SessionEntry & {
+    uuid: UUID;
+  })[];
+  const b = boundaryEntry({
+    sessionId: sid,
+    uuids: [e1!.uuid, e2!.uuid, e3!.uuid, e4!.uuid, e7!.uuid, e8!.uuid],
+    anchor: "own",
+    logicalParentUuid: e4!.uuid,
+  });
+  const e9 = userEntry(e8!.uuid, sid);
+  const e10 = assistantEntry(e9.uuid, sid);
+  const b2 = boundaryEntry({
+    sessionId: sid,
+    uuids: [e1!.uuid, e2!.uuid, e3!.uuid, e4!.uuid, e7!.uuid, e10.uuid],
+    anchor: "own",
+    logicalParentUuid: e10.uuid,
+  });
+  const entries = [...chain, b, e9, e10, b2];
+  const display = displayTreeOf(entries);
+  assert.equal(
+    display.parentMap.get(`${e10.uuid}@${b2.uuid}`),
+    `${e7!.uuid}@${b.uuid}`,
+  );
+  assert.equal(display.parentMap.has(b2.uuid), false);
+  assert.deepEqual(
+    display.nearestVisibleRow({ uuid: e7!.uuid, viaBoundary: b2.uuid }),
+    {
+      uuid: e7!.uuid,
+      viaBoundary: b.uuid,
+    },
   );
 });

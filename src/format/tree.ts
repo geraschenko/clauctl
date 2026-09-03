@@ -10,6 +10,7 @@
 
 import type { UUID } from "node:crypto";
 import { buildTree } from "../core/tree/build-tree.ts";
+import { toContextTree } from "../core/tree/context-tree.ts";
 import { toDisplayTree } from "../core/tree/display-tree.ts";
 import { entriesByUuid, type SessionEntry } from "../core/session/file.ts";
 import {
@@ -353,7 +354,11 @@ export function formatSessionSnapshot(
     currentLeafId =
       snapshot.leaf === null ? null : formatTreeNodeRef(snapshot.leaf);
   } else {
-    const displayTree = toDisplayTree(fullTree, snapshot.entries);
+    const displayTree = toDisplayTree(
+      fullTree,
+      toContextTree(fullTree, byUuid),
+      byUuid,
+    );
     parentMap = displayTree.parentMap;
     const leafRow =
       snapshot.leaf === null

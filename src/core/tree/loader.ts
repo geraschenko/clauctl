@@ -27,23 +27,19 @@ export interface CompactBoundary {
   preservedMessages: { anchorUuid: UUID; uuids: UUID[] };
 }
 
-/** Parse the boundary at entries[boundaryIndex]. Precondition: that entry
- *  is a uuid-bearing compact_boundary — throws otherwise (caller bug, not
- *  file corruption). Absent preservedMessages ("unset when compaction
- *  summarizes everything" per the SDK; also legacy segment-only boundaries)
- *  normalizes to the equivalent wipe `{anchorUuid: boundary, uuids: []}` —
- *  nothing pre-boundary survives either way (see Edge cases in
+/** Parse a boundary entry. Precondition: `entry` is a uuid-bearing
+ *  compact_boundary — throws otherwise (caller bug, not file corruption).
+ *  Absent preservedMessages ("unset when compaction summarizes everything"
+ *  per the SDK; also legacy segment-only boundaries) normalizes to the
+ *  equivalent wipe `{anchorUuid: boundary, uuids: []}` — nothing
+ *  pre-boundary survives either way (see Edge cases in
  *  docs/specs/session-tree.md for the divergence this creates).
- *  Present-but-malformed metadata throws:
- *  that is file corruption, not a shape any producer writes. */
-export function compactBoundaryAt(
-  entries: SessionEntry[],
-  boundaryIndex: number,
-): CompactBoundary {
-  const entry = entries[boundaryIndex];
-  if (entry?.subtype !== "compact_boundary" || entry.uuid === undefined) {
+ *  Present-but-malformed metadata throws: that is file corruption, not a
+ *  shape any producer writes. */
+export function compactBoundaryOf(entry: SessionEntry): CompactBoundary {
+  if (entry.subtype !== "compact_boundary" || entry.uuid === undefined) {
     throw new Error(
-      `compactBoundaryAt: entries[${boundaryIndex}] is not a uuid-bearing compact_boundary`,
+      `compactBoundaryOf: ${entry.uuid ?? "<no uuid>"} is not a uuid-bearing compact_boundary`,
     );
   }
   const metadata = entry.compactMetadata as
@@ -57,7 +53,7 @@ export function compactBoundaryAt(
   }
   if (!Array.isArray(preserved.uuids) || preserved.anchorUuid === undefined) {
     throw new Error(
-      `compactBoundaryAt: boundary ${entry.uuid} has malformed preservedMessages`,
+      `compactBoundaryOf: boundary ${entry.uuid} has malformed preservedMessages`,
     );
   }
   return {
@@ -70,11 +66,12 @@ export function compactBoundaryAt(
 }
 
 /** The reason this boundary's relink must not apply, or undefined when it
- *  is valid. Validation is anywhere-in-file: a preserved uuid may name an
- *  entry after the boundary (see Edge cases in
- *  docs/specs/session-tree.md). */
+ *  is valid. `precedingUuids` holds the entries written before the
+ *  boundary: a preserved uuid naming anything else is rejected (a
+ *  deliberate fail-closed divergence — the binary validates against the
+ *  whole file; see Edge cases in docs/specs/session-tree.md). */
 export function invalidRelinkReason(
-  fileUuids: ReadonlySet<UUID>,
+  precedingUuids: Pick<ReadonlySet<string>, "has">,
   boundary: CompactBoundary,
 ): string | undefined {
   const preserved = boundary.preservedMessages;
@@ -95,9 +92,9 @@ export function invalidRelinkReason(
     // wherever the relink applies.
     return "anchorUuid appears in preservedMessages.uuids";
   }
-  const unknownUuid = preserved.uuids.find((uuid) => !fileUuids.has(uuid));
+  const unknownUuid = preserved.uuids.find((uuid) => !precedingUuids.has(uuid));
   if (unknownUuid !== undefined) {
-    return `preserved uuid ${unknownUuid} names no file entry`;
+    return `preserved uuid ${unknownUuid} names no earlier entry`;
   }
   return undefined;
 }
@@ -183,7 +180,7 @@ function contentBlocks(entry: SessionEntry): ContentBlock[] {
   return Array.isArray(content) ? (content as ContentBlock[]) : [];
 }
 
-function apiMessageIdOf(entry: SessionEntry): string | undefined {
+export function apiMessageIdOf(entry: SessionEntry): string | undefined {
   return (entry.message as { id?: string } | undefined)?.id;
 }
 
@@ -202,6 +199,15 @@ export function toolCallIdsOf(entry: SessionEntry): string[] {
   return contentBlocks(entry)
     .filter((block) => block.type === "tool_use")
     .flatMap((block) => (block.id === undefined ? [] : [block.id]));
+}
+
+/** The tool_use block ids the entry's tool_result blocks answer. */
+export function toolResultIdsOf(entry: SessionEntry): string[] {
+  return contentBlocks(entry)
+    .filter((block) => block.type === "tool_result")
+    .flatMap((block) =>
+      block.tool_use_id === undefined ? [] : [block.tool_use_id],
+    );
 }
 
 /** The entry carries a tool_result block (a call's user-side child). */
@@ -412,10 +418,14 @@ export function loadedContext(
   onInvalid: OnInvalid,
 ): TreeNodeRef[] {
   const byUuid = new Map<UUID, SessionEntry>();
+  const firstIndexOf = new Map<UUID, number>();
   const lastIndexOf = new Map<UUID, number>();
   for (const [index, entry] of entries.entries()) {
     if (entry.uuid !== undefined) {
       byUuid.set(entry.uuid, entry);
+      if (!firstIndexOf.has(entry.uuid)) {
+        firstIndexOf.set(entry.uuid, index);
+      }
       lastIndexOf.set(entry.uuid, index);
     }
   }
@@ -424,7 +434,7 @@ export function loadedContext(
     (entry) => entry.subtype === "compact_boundary" && entry.uuid !== undefined,
   );
   let boundary =
-    cutIndex === -1 ? undefined : compactBoundaryAt(entries, cutIndex);
+    cutIndex === -1 ? undefined : compactBoundaryOf(entries[cutIndex]!);
   if (boundary !== undefined) {
     // The walk treats boundaries as chain ends because the CLI writes them
     // with a null parentUuid (their placement is logicalParentUuid, a
@@ -435,7 +445,12 @@ export function loadedContext(
         `boundary ${boundary.uuid} has a raw parentUuid — unexpected producer behavior; the loaded context may be wrong`,
       );
     }
-    const invalidReason = invalidRelinkReason(new Set(byUuid.keys()), boundary);
+    const invalidReason = invalidRelinkReason(
+      {
+        has: (uuid) => (firstIndexOf.get(uuid as UUID) ?? Infinity) < cutIndex,
+      },
+      boundary,
+    );
     if (invalidReason !== undefined) {
       // Deliberate divergence (see Edge cases in docs/specs/session-tree.md):
       // the binary aborts the whole transform and loads raw parents,
@@ -496,7 +511,8 @@ export function loadedContext(
       (entry.type === "user" || entry.type === "assistant")
     ) {
       // A surviving turn whose parent was cut is attached to the preserved
-      // tail. This should never happen in a well-formed session file.
+      // tail — natively, a turn answering a prompt that was queued during
+      // compaction and written just before the boundary (FINDINGS §1).
       return preservedTail;
     }
     return parent;

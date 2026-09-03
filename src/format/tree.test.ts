@@ -166,8 +166,9 @@ test("a boundary and its summary render off the active path", () => {
 
 // --- boundary linearization ----------------------------------------------------
 
-/** Summary-less from-shape boundary preserving [2] with the leaf on the
- *  relinked occurrence — the hidden-boundary shape. */
+/** Summary-less boundary preserving [1, 2] — a pure rewind to 2 — with
+ *  the leaf on the relinked occurrence: the boundary reproduces raw 2's
+ *  context, so it has no display row. */
 function hiddenBoundarySession(): SessionSnapshot {
   const boundaryUuid = uuid(3);
   return {
@@ -177,12 +178,15 @@ function hiddenBoundarySession(): SessionSnapshot {
       {
         uuid: boundaryUuid,
         parentUuid: null,
-        logicalParentUuid: uuid(1),
+        logicalParentUuid: uuid(2),
         type: "system",
         subtype: "compact_boundary",
         compactMetadata: {
           preTokens: 1000,
-          preservedMessages: { anchorUuid: boundaryUuid, uuids: [uuid(2)] },
+          preservedMessages: {
+            anchorUuid: boundaryUuid,
+            uuids: [uuid(1), uuid(2)],
+          },
         },
       },
     ],
@@ -190,9 +194,8 @@ function hiddenBoundarySession(): SessionSnapshot {
   };
 }
 
-// A summary-less boundary with no displayed descendants disappears; the
-// relinked leaf's chain ends on its representative (the raw row), and the
-// tree reads as a plain linear conversation.
+// A pure rewind has no row; the relinked leaf's chain ends on the branch
+// point (the raw row), and the tree reads as a plain linear conversation.
 test("a hidden boundary's relinked leaf ends the chain on its representative raw row", () => {
   assert.equal(
     render(hiddenBoundarySession()),
@@ -200,16 +203,16 @@ test("a hidden boundary's relinked leaf ends the chain on its representative raw
   );
 });
 
-// `raw` mode is buildTree's output verbatim: the raw reply forks off the
-// chain, the boundary and its relinked block (marked `~` before the uuid)
-// carry the active chain.
+// `raw` mode is buildTree's output verbatim: the boundary roots its
+// relinked block (marked `~` before the uuid), which carries the active
+// chain.
 test("raw mode shows the boundary block with ~ on relinked rows", () => {
   assert.equal(
     render(hiddenBoundarySession(), { filter: "raw" }),
-    "❯    00000001 Start\n" +
-      "├─╮\n" +
-      "│ ●  00000002 Reply\n" +
+    "❯  00000001 Start\n" +
+      "●  00000002 Reply\n" +
       "═  00000003 [compaction: 1k tokens]\n" +
+      "❯  ~00000001 Start\n" +
       "●  ~00000002 Reply\n" +
       `[cursor: ${uuid(2)}]\n`,
   );
@@ -330,11 +333,12 @@ test("raw mode shows the up_to block connected under its summary row", () => {
   );
 });
 
-// From-shape boundary with a summary: the display forks at the rewind
-// target; the summary's single occurrence is raw (the anchor-child rule
-// places it under the relinked tail), so no row carries `~` outside raw
-// mode (criterion 4).
-test("a from-shape summary row renders under the boundary without ~", () => {
+// From-shape boundary with a summary (a native shape; clauctl no longer
+// writes it): the list reproduces raw 2's context, so the boundary has no
+// row and the summary — whose single occurrence is raw, placed under the
+// relinked tail by the anchor-child rule — forks off the rewind target
+// with no `~`.
+test("a from-shape summary row renders under the rewind target without ~", () => {
   const boundaryUuid = uuid(6);
   const input: SessionSnapshot = {
     entries: [
@@ -371,7 +375,6 @@ test("a from-shape summary row renders under the boundary without ~", () => {
       "├─╮\n" +
       "│ ❯  00000004 Abandoned\n" +
       "│ ●  00000005 Abandoned reply\n" +
-      "═  00000006 [compaction: 4k tokens]\n" +
       "□  00000007 Recap of the abandoned tail\n" +
       "❯  00000008 New direction\n" +
       `[cursor: ${uuid(8)}]\n`,

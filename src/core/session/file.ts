@@ -24,6 +24,13 @@ export interface SessionEntry {
   [key: string]: unknown;
 }
 
+/** An entry that carries a uuid: what tree rows and byUuid values are. */
+export type UuidEntry = SessionEntry & { uuid: UUID };
+
+export function hasUuid(entry: SessionEntry): entry is UuidEntry {
+  return entry.uuid !== undefined;
+}
+
 /** getSessionMessages' runtime objects also carry `timestamp`, absent from
  *  the SDK's declared SessionMessage type; entry-derived output matches the
  *  wire shape. `tool_use_result` (the entry's camelCase `toolUseResult`) is

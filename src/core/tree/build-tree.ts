@@ -8,7 +8,7 @@ import type { UUID } from "node:crypto";
 import type { SessionEntry } from "../session/file.ts";
 import { formatTreeNodeRef, type ParentMap } from "./nodes.ts";
 import {
-  compactBoundaryAt,
+  compactBoundaryOf,
   effectiveParent,
   invalidRelinkReason,
   parentOfPreserved,
@@ -16,72 +16,85 @@ import {
   type OnInvalid,
 } from "./loader.ts";
 
-/** Every occurrence: raw entries under their parents as interpreted
- *  through the latest boundary encountered so far (effectiveParent, which
- *  yields `uuid@B` refs when the parent uuid is among that boundary's
- *  preserved uuids), plus each valid boundary's relinked block
- *  `uuids[i]@B → parentOfPreserved(i)`, materialized right after its
- *  anchor's row: at the boundary's own position when the anchor is the
- *  boundary (from-shape), right after the anchor entry's raw row when it
- *  arrives later (up_to summary), at end of file when it never arrives
- *  (its rows become roots, reported). So every row follows its parent in
- *  iteration order, which the renderers rely on. EVERY encountered boundary becomes
- *  the latest — an invalid or empty boundary contributes no rules but
- *  still ends the previous boundary's effect (last-wins).
- *  Exactly one raw occurrence per uuid-bearing entry — a duplicate occurrence
- *  key is first-wins: the repeat entry is skipped entirely — no edge
- *  overwrite, no re-emitted block, and a re-appended boundary entry does
- *  not become the latest boundary. Silent — a legal CLI file shape (the
- *  CLI re-persists dropped history; see Edge cases in
- *  docs/specs/session-tree.md). */
+/** Every occurrence — one raw row per uuid (first-wins) plus relinked
+ *  block rows — in an order where each row follows its parent: raw rows at file position with parents read
+ *  through the latest boundary (effectiveParent), each valid boundary's
+ *  relinked block right after its anchor's row, and raw rows parented on
+ *  a not-yet-materialized block row deferred behind it. Rules and edge
+ *  cases (last-wins boundaries, first-wins duplicates, dangling anchors)
+ *  in docs/specs/session-tree.md. */
 export function buildTree(
   entries: SessionEntry[],
   onInvalid: OnInvalid,
 ): ParentMap {
-  // Validation is anywhere-in-file (loader-faithful).
-  const fileUuids = new Set<UUID>();
-  for (const entry of entries) {
-    if (entry.uuid !== undefined) {
-      fileUuids.add(entry.uuid);
-    }
-  }
-
   const parentMap = new Map<string, string | null>();
+  const setParent = (key: string, parent: string | null): void => {
+    if (parent !== null && !parentMap.has(parent)) {
+      if (key.includes("@")) {
+        onInvalid(
+          `relinked occurrence ${key}: parent ${parent} names no tree occurrence — treating as root`,
+        );
+      }
+      parent = null;
+    }
+    parentMap.set(key, parent);
+  };
   /** The latest boundary encountered so far, tracked only while its relink
    *  applied (valid, non-empty): a boundary with no applicable relink ends
    *  the previous boundary's effect and contributes no rules, which this
    *  represents as undefined. */
   let latest: CompactBoundary | undefined;
   /** Relinked blocks whose anchor entry has not arrived yet, keyed by the
-   *  anchor uuid: flushed right after that raw row is set. */
+   *  anchor uuid, each with the raw rows deferred behind it: flushed in
+   *  order right after the anchor's raw row is set. */
   const pendingBlockByAnchor = new Map<UUID, [string, string][]>();
+  /** Row key (block row or raw row deferred behind one) → the anchor uuid
+   *  whose pending block holds it. */
+  const deferredAnchorOf = new Map<string, UUID>();
+  const deferBehind = (anchorUuid: UUID, row: [string, string]): void => {
+    pendingBlockByAnchor.get(anchorUuid)!.push(row);
+    deferredAnchorOf.set(row[0], anchorUuid);
+  };
+  const flushBlock = (anchorUuid: UUID): void => {
+    for (const [rowKey, rowParent] of pendingBlockByAnchor.get(anchorUuid) ??
+      []) {
+      setParent(rowKey, rowParent);
+      deferredAnchorOf.delete(rowKey);
+    }
+    pendingBlockByAnchor.delete(anchorUuid);
+  };
 
-  for (const [index, entry] of entries.entries()) {
+  for (const entry of entries) {
     if (entry.uuid === undefined) {
       continue;
     }
     const key = formatTreeNodeRef({ uuid: entry.uuid });
-    if (parentMap.has(key)) {
-      continue; // a re-persisted copy, skipped entirely (first-wins)
+    if (parentMap.has(key) || deferredAnchorOf.has(key)) {
+      continue; // a re-persisted copy of a placed or deferred row: first-wins
     }
     const parentRef = effectiveParent(latest, entry);
-    parentMap.set(
-      key,
-      parentRef === undefined ? null : formatTreeNodeRef(parentRef),
-    );
-    for (const [blockKey, blockParent] of pendingBlockByAnchor.get(
-      entry.uuid,
-    ) ?? []) {
-      parentMap.set(blockKey, blockParent);
+    const parent =
+      parentRef === undefined ? null : formatTreeNodeRef(parentRef);
+    // A boundary is never deferred: its own relink must run at its file
+    // position (it becomes the latest boundary). Its tree parent is its
+    // logicalParentUuid, which no producer points at a pending block row.
+    const parentAnchor =
+      parent === null || entry.subtype === "compact_boundary"
+        ? undefined
+        : deferredAnchorOf.get(parent);
+    if (parent !== null && parentAnchor !== undefined) {
+      deferBehind(parentAnchor, [key, parent]);
+      continue;
     }
-    pendingBlockByAnchor.delete(entry.uuid);
+    setParent(key, parent);
+    flushBlock(entry.uuid);
     if (entry.subtype !== "compact_boundary") {
       continue;
     }
 
     latest = undefined;
-    const boundary = compactBoundaryAt(entries, index);
-    const invalidReason = invalidRelinkReason(fileUuids, boundary);
+    const boundary = compactBoundaryOf(entry);
+    const invalidReason = invalidRelinkReason(parentMap, boundary);
     if (invalidReason !== undefined) {
       onInvalid(`boundary ${boundary.uuid}: relink skipped — ${invalidReason}`);
       continue;
@@ -96,36 +109,20 @@ export function buildTree(
     const anchorUuid = boundary.preservedMessages.anchorUuid;
     if (parentMap.has(anchorUuid)) {
       for (const [blockKey, blockParent] of block) {
-        parentMap.set(blockKey, blockParent);
+        setParent(blockKey, blockParent);
       }
     } else if (block.length > 0) {
-      pendingBlockByAnchor.set(anchorUuid, block);
+      pendingBlockByAnchor.set(anchorUuid, []);
+      for (const row of block) {
+        deferBehind(anchorUuid, row);
+      }
     }
     if (preservedUuids.length > 0) {
       latest = boundary;
     }
   }
-  // Blocks whose anchor never arrived: their first row dangles and roots
-  // in the pass below.
-  for (const block of pendingBlockByAnchor.values()) {
-    for (const [blockKey, blockParent] of block) {
-      parentMap.set(blockKey, blockParent);
-    }
-  }
-
-  // Parent keys that never materialized become roots. Raw rows keep the old
-  // silent root fallback (a raw parentUuid pointing at nothing); a relinked
-  // row's dangling parent (an anchor entry that never arrived) is corrupt
-  // and reported.
-  for (const [key, parent] of parentMap) {
-    if (parent !== null && !parentMap.has(parent)) {
-      parentMap.set(key, null);
-      if (key.includes("@")) {
-        onInvalid(
-          `relinked occurrence ${key}: parent ${parent} names no tree occurrence — treating as root`,
-        );
-      }
-    }
+  for (const anchorUuid of [...pendingBlockByAnchor.keys()]) {
+    flushBlock(anchorUuid);
   }
   return parentMap;
 }

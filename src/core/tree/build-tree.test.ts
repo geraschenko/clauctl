@@ -244,7 +244,7 @@ test("invalid relink: no block, boundary keeps its anchor, reported", () => {
       [b.uuid, e2.uuid],
     ],
   );
-  assert.match(invalidMessages[0]!, /names no file entry/);
+  assert.match(invalidMessages[0]!, /names no earlier entry/);
 });
 
 test("dangling up_to anchor: the block roots and is reported", () => {
@@ -262,12 +262,17 @@ test("dangling up_to anchor: the block roots and is reported", () => {
   const tree = buildTree([e1, b, e2], (message) =>
     invalidMessages.push(message),
   );
-  // The block is materialized at end of file, after every raw row.
+  // The block is materialized at end of file; e2, whose decorated parent
+  // is a pending block row, is deferred with it.
   assert.deepEqual(
-    [...tree.keys()],
-    [e1.uuid, b.uuid, e2.uuid, `${e1.uuid}@${b.uuid}`],
+    [...tree],
+    [
+      [e1.uuid, null],
+      [b.uuid, e1.uuid],
+      [`${e1.uuid}@${b.uuid}`, null],
+      [e2.uuid, `${e1.uuid}@${b.uuid}`],
+    ],
   );
-  assert.equal(tree.get(`${e1.uuid}@${b.uuid}`), null);
   assert.match(invalidMessages[0]!, /names no tree occurrence/);
 });
 

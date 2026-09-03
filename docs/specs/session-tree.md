@@ -7,6 +7,15 @@
 > rewrites the relink machinery from `docs/specs/boundary-substructure.md`.
 > Ground truth: the CLI loader's relink logic, read directly out of the
 > bundled binary (see "Ground truth" below).
+>
+> **Display rules superseded** (2026-09-03): `toDisplayTree` now derives
+> from the context tree (`docs/specs/context-tree.md`) — boundaries are
+> placed by matching their preserved list against the contexts that
+> existed before them, not by rules 1–4 below. The loader model and
+> `buildTree` sections remain current; the display examples below show
+> the pre-context-tree rendering (the from-shape example now hangs `T`
+> directly under `2` with no `X` row, and a matched no-summary boundary
+> never has a row).
 
 # SPEC
 
@@ -295,14 +304,11 @@ export interface CompactBoundary {
  *  either way (one named divergence; see Edge cases).
  *  Present-but-malformed metadata throws: file corruption, not a shape
  *  any producer writes. */
-export function compactBoundaryAt(
-  entries: SessionEntry[],
-  boundaryIndex: number,
-): CompactBoundary;
+export function compactBoundaryOf(entry: SessionEntry): CompactBoundary;
 
 /** The reason this boundary's relink must not apply — a preserved uuid
- *  naming no file entry (loader-observed; anywhere in the file, NOT just
- *  earlier — the loader validates against the complete map), a
+ *  naming no EARLIER entry (deliberate fail-closed divergence — the
+ *  loader validates against the complete file map; see Edge cases), a
  *  duplicated uuid (deliberate fail-closed divergence — the loader
  *  rewrites unchecked, p14; see Edge cases), or the anchor appearing
  *  among the preserved uuids (deliberate divergence; see Edge cases) —
@@ -390,14 +396,18 @@ calling `loadedContext`.
  *  through the latest boundary encountered so far (effectiveParent,
  *  decorated to `uuid@B` keys when the parent uuid is among that
  *  boundary's preserved uuids), plus each valid boundary's relinked block
- *  `uuids[i]@B → parentOfPreserved(i)` at the boundary's file position
- *  (block parent keys may be forward references: the up_to anchor, or a
- *  preserved uuid naming a later entry; a final pass nulls parents that
- *  never materialized). EVERY encountered boundary becomes the latest —
+ *  `uuids[i]@B → parentOfPreserved(i)` right after its anchor's row (at
+ *  end of file, rooted and reported, when the anchor never arrives).
+ *  Every row follows its parent in iteration order: a raw row whose
+ *  parent is a pending block row (or a row deferred behind one) is
+ *  deferred and flushed with that block (a queued prompt written between
+ *  a boundary and its summary); any other parent not yet materialized
+ *  makes the row a root. EVERY encountered boundary becomes the latest —
  *  an invalid or empty boundary contributes no rules but still ends the
  *  previous boundary's effect (last-wins).
  *  Exactly one raw occurrence per uuid-bearing entry — no occurrence map,
- *  no pending state, no summary special case. A duplicate occurrence key
+ *  no summary special case; the only pending state is a block awaiting
+ *  its anchor and the rows deferred behind it. A duplicate occurrence key
  *  is first-wins: the repeat entry is skipped entirely — no edge
  *  overwrite, no re-emitted block, and a re-appended boundary entry does
  *  not become the latest boundary. Silent — a legal CLI file shape (see
@@ -408,7 +418,7 @@ export function buildTree(
 ): ParentMap;
 ```
 
-`buildTree` calls `compactBoundaryAt`, `invalidRelinkReason`,
+`buildTree` calls `compactBoundaryOf`, `invalidRelinkReason`,
 `effectiveParent`, and `parentOfPreserved`; it restates no rule.
 
 **`src/core/tree/display-tree.ts`**
@@ -431,30 +441,25 @@ export class DisplayTree {
   nearestVisibleRow(ref: TreeNodeRef): TreeNodeRef | undefined;
 }
 
-/** The human view, derived from the full tree by three rules:
- *  1. each boundary row with a valid non-empty preserved list reparents
- *     onto the raw row of its last preserved uuid;
- *  2. every `@boundary` row is hidden; anything whose parent is hidden
- *     displays under its nearest visible ancestor;
- *  3. a boundary row with a valid NON-EMPTY preserved list and no
- *     visible descendants is hidden too (fixpoint, so stacked navigation
- *     boundaries cascade away).
- *  Boundaries with no applicable relink — invalid or empty-list — keep
- *  their placement and stay visible: a context wipe is a real event the
- *  user performed, and hiding it would hide history. Display-only:
- *  loadedContext and the wire protocol are untouched. */
+/** Superseded: the current signature is
+ *  toDisplayTree(fullTree, contextTree, entries) and the placement rules
+ *  are those of docs/specs/context-tree.md. The three rules this spec
+ *  introduced (boundary → raw uuids.last(); hide every @boundary row;
+ *  prune descendant-less boundaries) are recorded there under
+ *  "Why a context tree". */
 export function toDisplayTree(
   fullTree: ParentMap,
+  contextTree: ContextTree,
   entries: SessionEntry[],
 ): DisplayTree;
 ```
 
 Taking `fullTree` as input keeps the derivation explicit at call sites and
 makes the transform testable against hand-built maps. Precondition:
-`fullTree` came from `buildTree` over the same `entries` — mismatched
-inputs are unchecked. No `OnInvalid`: it re-derives boundary validity via
-`compactBoundaryAt`/`invalidRelinkReason` without reporting (diagnostics
-belong to the `buildTree` call).
+`fullTree` came from `buildTree` over the same `entries` and `contextTree`
+from `toContextTree` over both. No `OnInvalid`: it re-derives boundary
+validity via `compactBoundaryOf`/`invalidRelinkReason` without reporting
+(diagnostics belong to the `buildTree` call).
 
 **Consumers** (signatures, not implementations):
 
@@ -490,9 +495,10 @@ belong to the `buildTree` call).
 ```mermaid
 graph TD
   entries[session entries]
-  rules["compactBoundaryAt → effectiveParent / preservedParent<br>(the rules, written once)"]
+  rules["compactBoundaryOf → effectiveParent / preservedParent<br>(the rules, written once)"]
   loadedContext["loadedContext (model view: transform + walk)"]
   buildTree["buildTree (full ParentMap)"]
+  contextTree["toContextTree (ContextTree)"]
   displayTree["toDisplayTree (DisplayTree)"]
 
   entries --> rules
@@ -500,7 +506,8 @@ graph TD
   rules --> buildTree
   loadedContext --> daemon["daemon: set-context, get-messages, seed, rewind targets"]
   buildTree --> raw["raw mode; picker pick resolution"]
-  buildTree --> displayTree
+  buildTree --> contextTree
+  contextTree --> displayTree
   displayTree --> display["default tree rendering; picker rows; history path"]
 ```
 
@@ -540,8 +547,12 @@ graph TD
     probe); we reject fail-closed, which is also what keeps our rule
     order equivalent to the binary's wherever the relink applies.
 
-  Validation is against uuids anywhere in the file (loader-faithful), not
-  "earlier entries" as the old code required.
+  - _preserved uuid naming a later entry_ (or none): the binary validates
+    against the whole-file map, so a later entry would pass there; we
+    reject fail-closed. Superseded 2026-09-03: a later entry would mean
+    the file was invalid between the boundary's write and that entry's —
+    no producer does this, and requiring earlier entries lets every
+    consumer validate against the rows it has already placed.
 - **Metadata-less boundaries normalize to a wipe** at parse time, so no
   code path handles "no relink instruction". Equivalent to the binary
   except when NO boundary in the file carries `preservedMessages`: the
@@ -550,9 +561,9 @@ graph TD
   writes metadata on its boundary. Present-but-malformed metadata (uuids
   not an array, anchorUuid missing) throws instead: real corruption,
   surfaced as a banner rather than silently reinterpreted.
-- **Preserved uuid naming a LATER entry** (hand-crafted): valid per the
-  loader. `buildTree`'s block emits with forward parent keys that resolve
-  when the raw rows arrive; the final pass nulls any that never do.
+- **Preserved uuid naming a LATER entry** (hand-crafted): rejected as an
+  invalid relink (fail-closed divergence above); the binary would accept
+  it.
 - **Duplicate raw uuids in the file**: not corruption — the CLI
   re-persists dropped-from-context history immediately before a later
   /compact, with relinks materialized into raw `parentUuid` pointers
@@ -567,9 +578,9 @@ graph TD
   cyclic on the observed file shape. Skipped silently, no `onInvalid`: a
   report would fire on every fetch of a legal file. See
   `docs/specs/canonical-session-entry-stream.md` for the amendment.
-- **Up_to anchor entry never arrives** (corrupt): the block's forward
-  anchor reference dangles; the final `buildTree` pass nulls it (block
-  becomes a root fork), `onInvalid` reports it.
+- **Up_to anchor entry never arrives** (corrupt): the block is
+  materialized at end of file with its anchor reference dangling;
+  `buildTree` roots it (a root fork) and `onInvalid` reports it.
 - **Entry parenting into an earlier boundary's preserved region** after a
   later boundary exists: raw parent (only the latest boundary decorates) —
   matches the loader's last-wins, diverges from the old

@@ -169,6 +169,35 @@ probe.
   and surviving children of deleted entries repoint to the playlist tail.
   (Wire: p16 — an entry raw-parented on a cut entry appeared after the
   playlist tail; its raw ancestors were absent.)
+  - **"Pre-boundary" means FILE POSITION** (source, 2.1.258 relink `Nns`):
+    the uuid→entry map's iteration index is compared with the LAST
+    boundary's index (`idx < lastBoundaryIdx && !preserved.has(uuid)`);
+    timestamps and `logicalParentUuid` play no part. Since `Map.set` keeps
+    a re-set key's position, a re-persisted duplicate is indexed at its
+    FIRST occurrence with its LAST value (untested corner; `loadedContext`
+    uses the last occurrence's index).
+  - **The reattach is a general rule, not a corruption fallback**: after
+    the cut, every surviving user/assistant entry whose `parentUuid` is a
+    deleted uuid gets `parentUuid = uuids.last()`. Observed natively
+    (session 474b3175, entries 5267–5292): a prompt queued during
+    `/compact` was written two lines BEFORE the boundary (its timestamp is
+    260 ms AFTER the boundary's — the queued-prompt write raced the
+    boundary write) and is not on the playlist; the assistant turn that
+    answered it parents on it. Live, the assistant saw the prompt; on
+    resume it is cut and the answering turn is reattached under the
+    playlist tail: `[summary, playlist…, turn…]` — the answer without its
+    question. 305 settled prefixes of that file have this shape.
+    **2.1.195-era write race only** (live experiment on 2.1.258,
+    2026-09-07, session 231e0234 lines 2677–2958): a prompt queued during
+    `/compact` is dequeued after the boundary, summary, preserved
+    entries, `/compact` caveat/command/stdout and attachments are written,
+    and chains onto the last of them; the debriefed assistant reported the
+    live order `[summary, preserved, caveat+/compact+stdout+prompt (one
+API message), attachments]` — live, file chain, and resume walk agree.
+    A 2.1.220 variant (session 2dafe15d) writes the queued prompt AFTER
+    the boundary line with a cut parent, so the loader's reattach keeps
+    it. Neither variant is modeled by the context tree; old files show
+    them as `check-context-at` mismatches.
 
 ### 2. Leaf selection + parent walk (`uye`)
 
@@ -389,7 +418,7 @@ Append two lines to the session jsonl, then resume with `resume: sessionId`:
 
 1. A `type: "system", subtype: "compact_boundary"` entry whose
    `compactMetadata` contains `preservedMessages: {anchorUuid, uuids,
-   allUuids}` — `uuids` = the ordered playlist; `anchorUuid` = the summary's
+allUuids}` — `uuids` = the ordered playlist; `anchorUuid` = the summary's
    uuid to put the summary first ("up_to" shape) or the boundary's own uuid
    to put the kept messages first ("from" shape). Set `allUuids === uuids`
    (a downstream live-stream pass prefers `allUuids`; a mismatch is an
