@@ -400,7 +400,11 @@ function sanitizeForResume(
   return afterCallDrop.filter((ref) => !dropped.has(ref.uuid));
 }
 
-/** Our best estimate of the context the NEXT appended message will see:
+/** @deprecated Test/verification oracle only (tree/context-check.ts and
+ *  tests); product code derives context from the context tree —
+ *  `toContextTree(...).contextAt(leaf)` (tree/context-tree.ts).
+ *
+ *  Our best estimate of the context the NEXT appended message will see:
  *  the loader transform of the current file — the last boundary's relink
  *  and cut, leaf selection, then the parent walk from the leaf. A trailing
  *  boundary is honored even though the binary applies it only on the next
@@ -592,12 +596,4 @@ export function loadedContext(
     expandParallelToolGroups(chain, survivingByUuid),
     survivingByUuid,
   );
-}
-
-/** Uuid projection of loadedContext. */
-export function loadedContextUuids(
-  entries: SessionEntry[],
-  onInvalid: OnInvalid,
-): UUID[] {
-  return loadedContext(entries, onInvalid).map((ref) => ref.uuid);
 }

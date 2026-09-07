@@ -1,7 +1,8 @@
 /**
  * Checks success criterion 1 of docs/specs/context-tree.md against a real
- * session file: at every settled prefix, contextAt presents the same
- * context as loadedContext. Reports every divergence; the documented ones
+ * session file (at every settled prefix, contextAt presents the same
+ * context as loadedContext) and ContextTree.leaf at the whole file.
+ * Reports every divergence; the documented ones
  * (spec Edge cases, e.g. pre-2.1.258 queued-prompt races) are expected on
  * old files. Read-only. Usage:
  *   node scripts/check-context-at.ts <session.jsonl>...
@@ -9,7 +10,10 @@
  */
 
 import { readSessionEntries } from "../src/core/session/file.ts";
-import { contextAtMismatches } from "../src/core/tree/context-check.ts";
+import {
+  contextAtMismatches,
+  leafContextMismatch,
+} from "../src/core/tree/context-check.ts";
 
 const files = process.argv.slice(2);
 if (files.length === 0) {
@@ -28,6 +32,13 @@ for (const file of files) {
     console.log(`  prefix ${prefixLength}:`);
     console.log(`    loader:    ${expected.join(" ")}`);
     console.log(`    contextAt: ${actual.join(" ")}`);
+  }
+  const leafMismatch = leafContextMismatch(entries);
+  if (leafMismatch !== undefined) {
+    failed = true;
+    console.log("  whole-file leaf:");
+    console.log(`    loader:          ${leafMismatch.expected.join(" ")}`);
+    console.log(`    contextAt(leaf): ${leafMismatch.actual.join(" ")}`);
   }
 }
 process.exit(failed ? 1 : 0);

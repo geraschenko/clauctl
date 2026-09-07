@@ -18,24 +18,28 @@ Owned by: `src/core/session/`, `buildTree` in `src/core/tree/`.
 
 ## 2. What's presented to the assistant
 
-`loadedContext` (src/core/tree/loader.ts): the entries the assistant will see on
-its next turn. This MUST mirror the claude CLI's load pipeline (stages 1–4:
-relink + cut, leaf walk, parallel-group expansion, resume sanitization — see
-docs/specs/session-tree.md "Ground truth"), even where that pipeline is
-unintuitive — e.g. recovered parallel results are spliced after the group's last
-on-path assistant entry, not at their chronological position. Fidelity to the
-binary outranks elegance: this view exists to predict, not to please. Stage 5
-(wire normalization) reshapes API messages, not which entries are present, and
-is out of scope. set-context playlists are instructions about THIS view, and are
-validated/normalized against loader semantics before being written.
+`ContextTree` (src/core/tree/context-tree.ts) is the product's view: every
+full-tree occurrence except boundary rows, each under its context predecessor
+(parallel groups linearized, entries the loader always drops marked
+`excluded`), so `contextAt(ref)` is the context the assistant had with `ref` as
+the tip and `contextAt(leaf)` is what the next turn will see. Every product
+read of the assistant's context (`get-context`, the daemon's `leaf`, the
+AgentState seed, `/tree` picks) goes through it.
 
-`ContextTree` (src/core/tree/context-tree.ts) is the same view in tree form:
-every full-tree occurrence except boundary rows, each under its context
-predecessor (parallel groups linearized, entries the loader always drops
-marked `excluded`), so `contextAt(ref)` is the context the assistant had
-with `ref` as the tip — `loadedContext` for every prefix at once, as one
-relation. It exists so the display view can compare contexts without
-re-running the loader per boundary.
+`loadedContext` (src/core/tree/loader.ts) is the fidelity oracle behind that
+view: the entries the assistant will see on its next turn, computed the way the
+claude CLI computes them. This MUST mirror the claude CLI's load pipeline
+(stages 1–4: relink + cut, leaf walk, parallel-group expansion, resume
+sanitization — see docs/specs/session-tree.md "Ground truth"), even where that
+pipeline is unintuitive — e.g. recovered parallel results are spliced after the
+group's last on-path assistant entry, not at their chronological position.
+Fidelity to the binary outranks elegance: this view exists to predict, not to
+please. Stage 5 (wire normalization) reshapes API messages, not which entries
+are present, and is out of scope. set-context playlists are instructions about
+THIS view, and are validated/normalized against loader semantics before being
+written. The context tree is checked against it at every settled prefix
+(src/core/tree/context-check.ts, scripts/check-context-at.ts); it is not used by
+product code otherwise.
 
 ## 3. What's presented to the user
 

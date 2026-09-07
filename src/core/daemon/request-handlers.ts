@@ -7,23 +7,16 @@
  * dispatch switch, not a deep module — the leverage is that daemon.ts reads
  * as a composition root, and request semantics are testable through fake
  * deps without a real daemon. The deep request implementations live in
- * sibling modules: set-context.ts (boundary/rewind semantics) and
- * get-messages.ts (the override machinery keeping get-messages loader-true).
+ * sibling module set-context.ts (boundary/rewind semantics).
  */
 
-import {
-  getSessionMessages,
-  type Query,
-  type SDKUserMessage,
-} from "@anthropic-ai/claude-agent-sdk";
-import { treeNodeRefsEqual, type SessionSnapshot } from "../tree/nodes.ts";
-import { loadedContext } from "../tree/loader.ts";
+import type { Query, SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
+import type { SessionSnapshot } from "../tree/nodes.ts";
+import { buildTree } from "../tree/build-tree.ts";
+import { toContextTree } from "../tree/context-tree.ts";
 import { settingsSeed, type PersistedOptions } from "../options.ts";
-import { readSessionEntries, type SessionEntry } from "../session/file.ts";
-import {
-  readEntriesAfterStreamFlush,
-  waitForEntry,
-} from "../session/entry-stream.ts";
+import { entriesByUuid, type SessionEntry } from "../session/file.ts";
+import { readEntriesAfterStreamFlush } from "../session/entry-stream.ts";
 import {
   applyMutation,
   isControlMutation,
@@ -40,11 +33,6 @@ import {
   type SubscribeAttachment,
 } from "../sdk-socket.ts";
 import type { EventHub } from "./event-hub.ts";
-import {
-  startupOverride,
-  synthesizeMessages,
-  type GetMessagesOverride,
-} from "./get-messages.ts";
 import { RwGate } from "./rw-gate.ts";
 import { RESPONSE_SENT, type SdkConnection } from "./sdk-server.ts";
 import { createSetContextHandler } from "./set-context.ts";
@@ -54,13 +42,10 @@ export interface RequestHandlerDeps {
   /** The current Query — replaced by set-context, so resolved per use. */
   getQuery(): Query;
   events: EventHub;
-  /** The daemon's one startup session-file read (undefined when no session
-   *  file exists yet); also feeds the EventHub seed in daemon.ts. */
-  startupEntries?: SessionEntry[];
   /** Compact-path pushes only; ordinary messages go through
    *  events.deliverUserMessage. Replaced alongside the Query. */
   getTurnQueue(): TurnQueue;
-  /** getSessionMessages dir. */
+  /** The agent's working directory (settings cascade root). */
   cwd: string;
   /** The daemon log; the sink for corrupt-session-file diagnostics. */
   log(message: string): void;
@@ -129,34 +114,8 @@ export function createRequestHandler(
   // reconstructs it. File reads keep working.
   let queryAvailable = true;
 
-  // TDC: Is the concept of a "synthesis window" still necessary?
-  // Startup reconstruction (criterion 3): a daemon that (re)starts inside the
-  // synthesis window must keep synthesizing — the startup entries identify
-  // it.
-  let override: GetMessagesOverride | undefined = startupOverride(
-    deps.startupEntries,
-    events.agentState.leaf,
-    deps.log,
-  );
-
-  /** The get-messages override, dropped lazily once stale: the next transcript
-   * write moves leaf, closing the window it corrected for. Shared
-   * by get-messages and get-entries so both report the same context tip. */
-  const freshOverride = (): GetMessagesOverride | undefined => {
-    if (
-      override !== undefined &&
-      !treeNodeRefsEqual(override.installedAtLeaf, events.agentState.leaf)
-    ) {
-      override = undefined;
-    }
-    return override;
-  };
-
   const handleSetContext = createSetContextHandler(deps, {
     gate,
-    installOverride: (next) => {
-      override = next;
-    },
     setQueryAvailable: (available) => {
       queryAvailable = available;
     },
@@ -192,7 +151,7 @@ export function createRequestHandler(
     });
   };
 
-  // Request dispatch is deliberately concurrent (a get-messages blocked on a
+  // Request dispatch is deliberately concurrent (a get-context blocked on a
   // transcript flush must not stall the interrupt that would end the turn),
   // so the mutation branch's
   // read-modify-write of the persisted options — spanning awaits — would
@@ -264,44 +223,19 @@ export function createRequestHandler(
           releaseQuery();
         }
       }
-      case "get-messages": {
-        const release = await gate.awaitShared();
-        try {
-          // Valid before the first init because the hub is seeded (on
-          // revival, with the last recorded session).
-          const sessionId = events.agentState.sessionId;
-          if (sessionId === undefined) {
-            return [];
-          }
-          // The leaf flush gate covers BOTH response paths: getSessionMessages
-          // reads the same file, with the same lag. A relinked leaf's newest
-          // on-disk entry is its boundary, so the wait keys on
-          // viaBoundary ?? uuid; an unset leaf has nothing to wait for.
-          const filePath = deps.sessionFilePath(sessionId);
-          const leaf = events.agentState.leaf;
-          if (leaf !== undefined) {
-            await waitForEntry(filePath, leaf.viaBoundary ?? leaf.uuid);
-          }
-          const active = freshOverride();
-          if (active !== undefined) {
-            return synthesizeMessages(
-              readSessionEntries(filePath),
-              active.chain,
-            );
-          }
-          return await getSessionMessages(sessionId, { dir: deps.cwd });
-        } finally {
-          release();
-        }
-      }
+      case "get-context":
       case "get-entries": {
         const release = await gate.awaitShared();
         try {
           // Valid before the first init because the hub is seeded (on
           // revival, with the last recorded session); a truly fresh agent has
-          // no history, so an empty snapshot — matching get-messages' [].
+          // no history, so an empty snapshot/context.
           const sessionId = events.agentState.sessionId;
           if (sessionId === undefined) {
+            if (request.type === "get-context") {
+              const empty: SessionEntry[] = [];
+              return empty;
+            }
             const empty: SessionSnapshot = { entries: [], leaf: null };
             return empty;
           }
@@ -317,11 +251,18 @@ export function createRequestHandler(
               ? undefined
               : (stateLeaf.viaBoundary ?? stateLeaf.uuid),
           );
-          const snapshot: SessionSnapshot = {
-            entries,
-            leaf: loadedContext(entries, deps.log).at(-1) ?? null,
-          };
-          return snapshot;
+          const byUuid = entriesByUuid(entries);
+          const tree = toContextTree(buildTree(entries, deps.log), byUuid);
+          if (request.type === "get-entries") {
+            const snapshot: SessionSnapshot = { entries, leaf: tree.leaf };
+            return snapshot;
+          }
+          const tip = request.at ?? tree.leaf;
+          if (tip === null) {
+            const empty: SessionEntry[] = [];
+            return empty;
+          }
+          return tree.contextAt(tip).map((ref) => byUuid.get(ref.uuid)!);
         } finally {
           release();
         }

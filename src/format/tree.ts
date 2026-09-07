@@ -30,6 +30,7 @@ import {
   OTHER_ENTRY_GLYPH,
   TOOL_CALL_GLYPH,
   TOOL_RESULT_GLYPH,
+  USER_BUT_NON_HUMAN_GLYPH,
   USER_GLYPH,
 } from "../tui/glyphs.ts";
 import {
@@ -92,8 +93,64 @@ function toolResultOnly(entry: SessionEntry): boolean {
   );
 }
 
-function userWithText(entry: SessionEntry): boolean {
-  return entry.type === "user" && entry.isMeta !== true && hasText(entry);
+/** The first CLI version that writes `origin` on user entries. Entries
+ *  written earlier take the pre-origin fallback. */
+const ORIGIN_FIELD_SINCE = "2.1.190";
+
+/** A prompt the human typed. Entries whose writer (`entry.version`) knew
+ *  the field carry the CLI's verdict in `origin`; older entries go through
+ *  the pre-origin fallback (see docs/thoughts/subagent-activity.md). */
+export function isHumanPrompt(entry: SessionEntry): boolean {
+  return (
+    entry.type === "user" &&
+    (writtenBefore(entry, ORIGIN_FIELD_SINCE)
+      ? preOriginHumanPrompt(entry)
+      : isRecord(entry.origin) && entry.origin.kind === "human")
+  );
+}
+
+/** `entry.version` (dotted numeric) is older than `version`; a missing or
+ *  unparsable version counts as older. */
+function writtenBefore(entry: SessionEntry, version: string): boolean {
+  if (typeof entry.version !== "string") {
+    return true;
+  }
+  const parse = (dotted: string): number[] | undefined => {
+    const parts = dotted.split(".").map(Number);
+    return parts.every(Number.isInteger) ? parts : undefined;
+  };
+  const written = parse(entry.version);
+  const since = parse(version);
+  if (written === undefined || since === undefined) {
+    return true;
+  }
+  for (let i = 0; i < Math.max(written.length, since.length); i += 1) {
+    const a = written[i] ?? 0;
+    const b = since[i] ?? 0;
+    if (a !== b) {
+      return a < b;
+    }
+  }
+  return false;
+}
+
+// TEMPORARY — pre-2.1.190 fallback. Delete this block, ORIGIN_FIELD_SINCE
+// and writtenBefore once sessions older than 2.1.190 no longer matter.
+const PRE_ORIGIN_NON_HUMAN_PREFIXES = [
+  "<command-",
+  "<local-command-",
+  "<bash-",
+  "[Request interrupted",
+];
+/** Not isMeta, has text, text not starting with a known non-human prefix.
+ *  Callers guard `type === "user"`. */
+function preOriginHumanPrompt(entry: SessionEntry): boolean {
+  const text = extractTextContent(messageContent(entry)).trim();
+  return (
+    entry.isMeta !== true &&
+    text !== "" &&
+    !PRE_ORIGIN_NON_HUMAN_PREFIXES.some((prefix) => text.startsWith(prefix))
+  );
 }
 
 /** `isFinal` is isFinalAssistantEntry over the occurrence, computed by
@@ -111,7 +168,7 @@ export function passesFilter(
     case "all":
       return true;
     case "user-only":
-      return userWithText(entry);
+      return isHumanPrompt(entry) || entry.isCompactSummary === true;
     case "no-tools":
       // The current-leaf exemption applies to the assistant suppression
       // only (pictl parity): a tool_result leaf is still hidden.
@@ -130,7 +187,7 @@ export function passesFilter(
         return true;
       }
       if (entry.type === "user") {
-        return userWithText(entry);
+        return isHumanPrompt(entry) || entry.isCompactSummary === true;
       }
       return (
         entry.type === "assistant" &&
@@ -143,11 +200,11 @@ export function passesFilter(
     // rewindTo targets in ordinary session shapes; the daemon's file-order
     // validation remains the authority.
     case "picker":
-      if (isCurrentLeaf || entry.subtype === "compact_boundary") {
+      if (entry.subtype === "compact_boundary") {
         return true;
       }
       if (entry.type === "user") {
-        return userWithText(entry);
+        return isHumanPrompt(entry) || entry.isCompactSummary === true;
       }
       return entry.type === "assistant" && isFinal && hasText(entry);
   }
@@ -248,10 +305,10 @@ export function collectFinalAssistantIds(
 }
 
 /** Classifies the entry into the glyphs.ts vocabulary, first match wins:
- *  compact boundary, compact summary, user with text, tool_result-only
- *  user, assistant with a tool_use block, other assistant, anything else.
- *  Lives here (not in glyphs.ts) because it is entry classification,
- *  sharing hasText/toolResultOnly with passesFilter. */
+ *  compact boundary, compact summary, human prompt, tool_result-only user,
+ *  other user with text, assistant with a tool_use block, other assistant,
+ *  anything else. Lives here (not in glyphs.ts) because it is entry
+ *  classification, sharing hasText/toolResultOnly with passesFilter. */
 export function treeRowGlyph(entry: SessionEntry): string {
   if (entry.subtype === "compact_boundary") {
     return COMPACT_BOUNDARY_GLYPH;
@@ -260,11 +317,14 @@ export function treeRowGlyph(entry: SessionEntry): string {
     return COMPACT_SUMMARY_GLYPH;
   }
   if (entry.type === "user") {
-    if (hasText(entry)) {
+    if (isHumanPrompt(entry)) {
       return USER_GLYPH;
     }
     if (toolResultOnly(entry)) {
       return TOOL_RESULT_GLYPH;
+    }
+    if (hasText(entry)) {
+      return USER_BUT_NON_HUMAN_GLYPH;
     }
   }
   if (entry.type === "assistant") {

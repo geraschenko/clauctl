@@ -1,7 +1,9 @@
 /**
- * Verification of success criterion 1 in docs/specs/context-tree.md:
- * contextAt presents the same context as loadedContext at every settled
- * prefix of a session file. Shared by the unit test and scripts/check-context-at.ts.
+ * Verification of success criterion 1 in docs/specs/context-tree.md
+ * (contextAt presents the same context as loadedContext at every settled
+ * prefix of a session file) and of ContextTree.leaf at the whole file
+ * (docs/specs/get-context.md). Shared by the unit test and
+ * scripts/check-context-at.ts.
  */
 
 import type { UUID } from "node:crypto";
@@ -87,10 +89,11 @@ function presentedOrder(
   return presented;
 }
 
-/** Every settled prefix where contextAt and loadedContext present
- *  different contexts, with the number of prefixes compared. A prefix
- *  whose loaded context is empty (it ends at a wipe boundary, or holds no
- *  user/assistant entry yet) has no tip to query and is not counted. */
+/** Every settled prefix where contextAt at the loader's tip presents a
+ *  different context than loadedContext, with the number of prefixes
+ *  compared. A prefix whose loaded context is empty (it ends at a wipe
+ *  boundary, or holds no user/assistant entry yet) has no tip to query and
+ *  is not counted. */
 export function contextAtMismatches(entries: SessionEntry[]): {
   checked: number;
   mismatches: ContextMismatch[];
@@ -115,14 +118,61 @@ export function contextAtMismatches(entries: SessionEntry[]): {
     const actual = contextTree
       .contextAt(parseTreeNodeRef(tip))
       .map(formatTreeNodeRef);
-    const expectedPresented = presentedOrder(expected, byUuid);
-    const actualPresented = presentedOrder(actual, byUuid);
-    if (
-      actualPresented.length !== expectedPresented.length ||
-      actualPresented.some((id, index) => id !== expectedPresented[index])
-    ) {
+    if (!presentsAlike(actual, expected, byUuid)) {
       mismatches.push({ prefixLength, expected, actual });
     }
   }
   return { checked, mismatches };
+}
+
+/** The whole file's `contextAt(leaf)` against loadedContext, as the
+ *  {expected, actual} pair when they present different contexts. The
+ *  loader climbs from the last entry to the nearest user/assistant before
+ *  its context starts, so the leaf's trailing run of system/attachment
+ *  entries (which the next turn will parent on) is climbed the same way.
+ *  Whole-file only: the leaf is a property of one materialization walk,
+ *  so checking it per settled prefix would rebuild the tree per prefix.
+ *  Once the tree is built incrementally (the tail -f model) the leaf
+ *  should be checked at every prefix, against the mitmproxy-captured
+ *  request as ground truth rather than the loader model. */
+export function leafContextMismatch(
+  entries: SessionEntry[],
+): Pick<ContextMismatch, "expected" | "actual"> | undefined {
+  const byUuid = entriesByUuid(entries);
+  const contextTree = toContextTree(
+    buildTree(entries, () => {}),
+    byUuid,
+  );
+  let loaderTip =
+    contextTree.leaf === null ? null : formatTreeNodeRef(contextTree.leaf);
+  while (loaderTip !== null) {
+    const type = byUuid.get(parseTreeNodeRef(loaderTip).uuid)?.type;
+    if (type === "user" || type === "assistant") {
+      break;
+    }
+    loaderTip = contextTree.parentMap.get(loaderTip) ?? null;
+  }
+  const actual =
+    loaderTip === null
+      ? []
+      : contextTree
+          .contextAt(parseTreeNodeRef(loaderTip))
+          .map(formatTreeNodeRef);
+  const expected = loadedContext(entries, () => {}).map(formatTreeNodeRef);
+  return presentsAlike(actual, expected, byUuid)
+    ? undefined
+    : { expected, actual };
+}
+
+function presentsAlike(
+  actual: string[],
+  expected: string[],
+  byUuid: ReadonlyMap<UUID, SessionEntry>,
+): boolean {
+  const expectedPresented = presentedOrder(expected, byUuid);
+  const actualPresented = presentedOrder(actual, byUuid);
+  return (
+    actualPresented.length === expectedPresented.length &&
+    actualPresented.every((id, index) => id === expectedPresented[index])
+  );
 }

@@ -2,11 +2,13 @@ import assert from "node:assert/strict";
 import type { UUID } from "node:crypto";
 import { test } from "node:test";
 import { buildTree } from "../core/tree/build-tree.ts";
+import { toContextTree } from "../core/tree/context-tree.ts";
 import type { SessionSnapshot } from "../core/tree/nodes.ts";
-import { loadedContext } from "../core/tree/loader.ts";
 import { entriesByUuid, type SessionEntry } from "../core/session/file.ts";
 import {
   formatSessionSnapshot,
+  isHumanPrompt,
+  passesFilter,
   treeLines,
   type TreeFormatOptions,
 } from "./tree.ts";
@@ -16,7 +18,10 @@ import {
 const uuid = (n: number): UUID =>
   `${String(n).padStart(8, "0")}-0000-4000-8000-000000000000` as UUID;
 
-function userEntry(
+/** A user entry with text that the CLI did not attribute to the human
+ *  (command echo, isMeta expansion, task notification): origin-era writer,
+ *  no `origin`. */
+function nonHumanUserEntry(
   entryUuid: UUID,
   text: string,
   parentUuid: UUID | null = null,
@@ -25,7 +30,20 @@ function userEntry(
     uuid: entryUuid,
     parentUuid,
     type: "user",
+    version: "2.1.258",
     message: { role: "user", content: text },
+  };
+}
+
+/** A prompt the human typed, as an origin-era CLI records it. */
+function userEntry(
+  entryUuid: UUID,
+  text: string,
+  parentUuid: UUID | null = null,
+): SessionEntry {
+  return {
+    ...nonHumanUserEntry(entryUuid, text, parentUuid),
+    origin: { kind: "human" },
   };
 }
 
@@ -254,7 +272,10 @@ test("a compacted session renders linear with the chain ending on the summary", 
   const entries = [start, reply, boundary, summary];
   const input: SessionSnapshot = {
     entries,
-    leaf: loadedContext(entries, failOnInvalid).at(-1) ?? null,
+    leaf: toContextTree(
+      buildTree(entries, failOnInvalid),
+      entriesByUuid(entries),
+    ).leaf,
   };
   assert.equal(
     render(input, { filter: "all" }),
@@ -486,7 +507,7 @@ test("all shows every node, with the tool call and result glyphs", () => {
 test("conversation hides isMeta user entries", () => {
   const input: SessionSnapshot = {
     entries: [
-      { ...userEntry(uuid(1), "meta text"), isMeta: true },
+      { ...nonHumanUserEntry(uuid(1), "meta text"), isMeta: true },
       userEntry(uuid(2), "real text", uuid(1)),
     ],
     leaf: { uuid: uuid(2) },
@@ -495,6 +516,130 @@ test("conversation hides isMeta user entries", () => {
     render(input),
     "❯  00000002 real text\n" + `[cursor: ${uuid(2)}]\n`,
   );
+});
+
+/** A 2.1.258 session as the CLI writes a `/compact` invocation: the command
+ *  echo and its stdout are user entries with text and no `origin`; the
+ *  summary is admitted by isCompactSummary. */
+function commandEchoSession(): SessionSnapshot {
+  return {
+    entries: [
+      userEntry(uuid(1), "Start"),
+      assistantEntry(uuid(2), "Reply", uuid(1)),
+      nonHumanUserEntry(
+        uuid(3),
+        "<command-name>/compact</command-name>",
+        uuid(2),
+      ),
+      nonHumanUserEntry(
+        uuid(4),
+        "<local-command-stdout>Compacted</local-command-stdout>",
+        uuid(3),
+      ),
+      {
+        ...nonHumanUserEntry(uuid(5), "recap", uuid(4)),
+        isCompactSummary: true,
+      },
+      userEntry(uuid(6), "Continue", uuid(5)),
+      assistantEntry(uuid(7), "Sure", uuid(6)),
+    ],
+    leaf: { uuid: uuid(7) },
+  };
+}
+
+test("command echoes draw ◌ under all and vanish under conversation and user-only", () => {
+  assert.equal(
+    render(commandEchoSession(), { filter: "all" }),
+    "❯  00000001 Start\n" +
+      "●  00000002 Reply\n" +
+      "◌  00000003 <command-name>/compact</command-name>\n" +
+      "◌  00000004 <local-command-stdout>Compacted</local-command-stdout>\n" +
+      "□  00000005 recap\n" +
+      "❯  00000006 Continue\n" +
+      "●  00000007 Sure\n" +
+      `[cursor: ${uuid(7)}]\n`,
+  );
+  assert.equal(
+    render(commandEchoSession()),
+    "❯  00000001 Start\n" +
+      "●  00000002 Reply\n" +
+      "□  00000005 recap\n" +
+      "❯  00000006 Continue\n" +
+      "●  00000007 Sure\n" +
+      `[cursor: ${uuid(7)}]\n`,
+  );
+  assert.equal(
+    render(commandEchoSession(), { filter: "user-only" }),
+    "❯  00000001 Start\n" +
+      "□  00000005 recap\n" +
+      "❯  00000006 Continue\n" +
+      `[cursor: ${uuid(7)}]\n`,
+  );
+});
+
+// --- isHumanPrompt ----------------------------------------------------------------
+
+test("isHumanPrompt on origin-era entries is the CLI's origin verdict", () => {
+  assert.ok(isHumanPrompt(userEntry(uuid(1), "typed")));
+  assert.ok(
+    isHumanPrompt(
+      userEntry(
+        uuid(1),
+        "<command-message>spec</command-message><command-args>x</command-args>",
+      ),
+    ),
+  );
+  for (const entry of [
+    nonHumanUserEntry(uuid(1), "<command-name>/compact</command-name>"),
+    nonHumanUserEntry(
+      uuid(1),
+      "<local-command-stdout>Compacted</local-command-stdout>",
+    ),
+    nonHumanUserEntry(uuid(1), "[Request interrupted by user]"),
+    nonHumanUserEntry(uuid(1), "plain text without origin"),
+    { ...nonHumanUserEntry(uuid(1), "meta text"), isMeta: true },
+    { ...nonHumanUserEntry(uuid(1), "recap"), isCompactSummary: true },
+    {
+      ...nonHumanUserEntry(uuid(1), "done"),
+      origin: { kind: "task-notification" },
+    },
+    { ...nonHumanUserEntry(uuid(1), "done"), origin: { kind: "robot" } },
+    { ...nonHumanUserEntry(uuid(1), "done"), origin: "human" },
+    { ...assistantEntry(uuid(1), "reply"), origin: { kind: "human" } },
+    {
+      ...nonHumanUserEntry(uuid(1), ""),
+      message: {
+        role: "user",
+        content: [{ type: "tool_result", tool_use_id: "t1", content: "ok" }],
+      },
+    },
+  ]) {
+    assert.ok(!isHumanPrompt(entry), JSON.stringify(entry));
+  }
+});
+
+// TEMPORARY with the fallback (tree.ts PRE_ORIGIN_NON_HUMAN_PREFIXES).
+test("isHumanPrompt before 2.1.190 falls back to isMeta and the echo prefixes", () => {
+  const old = (text: string, version?: string): SessionEntry => ({
+    ...nonHumanUserEntry(uuid(1), text),
+    ...(version === undefined ? { version: undefined } : { version }),
+  });
+  assert.ok(isHumanPrompt(old("typed", "2.1.126")));
+  assert.ok(isHumanPrompt(old("typed")));
+  assert.ok(isHumanPrompt(old("typed", "unversioned")));
+  // Numeric, element-wise comparison: 2.1.9 precedes 2.1.190.
+  assert.ok(isHumanPrompt(old("typed", "2.1.9")));
+  assert.ok(!isHumanPrompt(old("typed", "2.1.190")));
+  for (const text of [
+    "<command-name>/compact</command-name>",
+    "<local-command-stdout>Compacted</local-command-stdout>",
+    "<bash-input>ls</bash-input>",
+    "<bash-stdout>a b</bash-stdout>",
+    "[Request interrupted by user]",
+  ]) {
+    assert.ok(!isHumanPrompt(old(text, "2.1.126")), text);
+  }
+  assert.ok(!isHumanPrompt({ ...old("meta", "2.1.126"), isMeta: true }));
 });
 
 // --- glyphs and summaries ----------------------------------------------------------
@@ -511,6 +656,14 @@ function summaryOf(entry: SessionEntry): string {
 
 test("summary: user text, compact summary, tool results", () => {
   assert.equal(summaryOf(userEntry(uuid(1), "hi\nthere")), "❯  hi there");
+  assert.equal(
+    summaryOf({ ...nonHumanUserEntry(uuid(1), "meta text"), isMeta: true }),
+    "◌  meta text",
+  );
+  assert.equal(
+    summaryOf(nonHumanUserEntry(uuid(1), "<command-name>/x</command-name>")),
+    "◌  <command-name>/x</command-name>",
+  );
   assert.equal(
     summaryOf({ ...userEntry(uuid(1), "recap"), isCompactSummary: true }),
     "□  recap",
@@ -626,7 +779,7 @@ test("a duplicated raw uuid renders once, silently (first-wins)", () => {
 
 // --- picker filter -----------------------------------------------------------
 
-test("picker keeps user text, final assistants with text, boundaries, and the leaf", () => {
+test("picker keeps human prompts, final assistants with text, boundaries and summaries", () => {
   const thinking: SessionEntry = {
     uuid: uuid(2),
     parentUuid: uuid(1),
@@ -662,18 +815,45 @@ test("picker keeps user text, final assistants with text, boundaries, and the le
     type: "system",
     subtype: "compact_boundary",
   };
+  const summary: SessionEntry = {
+    ...nonHumanUserEntry(uuid(6), "recap", uuid(5)),
+    isCompactSummary: true,
+  };
+  const echo = nonHumanUserEntry(
+    uuid(7),
+    "<command-name>/x</command-name>",
+    uuid(6),
+  );
   const input: SessionSnapshot = {
-    entries: [userEntry(uuid(1), "ask"), thinking, final, toolResult, boundary],
+    entries: [
+      userEntry(uuid(1), "ask"),
+      thinking,
+      final,
+      toolResult,
+      boundary,
+      summary,
+      echo,
+    ],
     leaf: { uuid: uuid(4) },
   };
-  const output = render(input, { filter: "picker" });
-  // The non-final same-message.id assistant is hidden; the tool_result-only
-  // user survives only through the current-leaf exemption.
-  assert.ok(!output.includes("00000002"));
-  assert.ok(output.includes("00000001"));
-  assert.ok(output.includes("00000003"));
-  assert.ok(output.includes("00000004"));
-  assert.ok(output.includes("00000005"));
+  const rows = render(input, { filter: "picker" }).split("\n").slice(0, -2);
+  const shown = (n: number): boolean =>
+    rows.some((row) => row.includes(`0000000${n}`));
+  // The non-final same-message.id assistant, the tool_result-only user
+  // (even as the leaf) and the command echo are hidden.
+  assert.deepEqual([1, 2, 3, 4, 5, 6, 7].filter(shown), [1, 3, 5, 6]);
+});
+
+test("picker has no current-leaf exemption", () => {
+  const systemLeaf: SessionEntry = {
+    uuid: uuid(1),
+    type: "system",
+    subtype: "turn_duration",
+  };
+  assert.ok(!passesFilter(systemLeaf, true, false, "picker"));
+  assert.ok(
+    !passesFilter(nonHumanUserEntry(uuid(1), "echo"), true, false, "picker"),
+  );
 });
 
 // --- treeLines (the /tree rendering) ----------------------------------------------

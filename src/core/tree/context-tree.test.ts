@@ -9,7 +9,7 @@ import { randomUUID, type UUID } from "node:crypto";
 import { test } from "node:test";
 import { entriesByUuid, type SessionEntry } from "../session/file.ts";
 import { buildTree } from "./build-tree.ts";
-import { contextAtMismatches } from "./context-check.ts";
+import { contextAtMismatches, leafContextMismatch } from "./context-check.ts";
 import { matchPreservedList, toContextTree } from "./context-tree.ts";
 import { loadedContext } from "./loader.ts";
 import { formatTreeNodeRef } from "./nodes.ts";
@@ -166,6 +166,7 @@ function assertContextAtMatchesLoader(entries: SessionEntry[]): void {
   const { checked, mismatches } = contextAtMismatches(entries);
   assert.ok(checked > 0);
   assert.deepEqual(mismatches, []);
+  assert.equal(leafContextMismatch(entries), undefined);
 }
 
 /** Two turns, an up_to compaction of [3,4] with summary S, two more turns,
@@ -314,6 +315,64 @@ test("criterion 1 divergences on corrupt files, enumerated", () => {
   assert.deepEqual(
     loadedContext(wiped, () => {}).map((ref) => ref.uuid),
     [e3.uuid],
+  );
+});
+
+// --- leaf --------------------------------------------------------------------
+
+function leafOf(
+  entries: SessionEntry[],
+): ReturnType<typeof toContextTree>["leaf"] {
+  return toContextTree(
+    buildTree(entries, () => {}),
+    entriesByUuid(entries),
+  ).leaf;
+}
+
+test("leaf: a bare wipe is null; up_to lands on the last preserved relinked row; from-shape on the summary", () => {
+  const sid = uuid();
+  const e1 = userEntry(null, sid);
+  const e2 = assistantEntry(e1.uuid, sid);
+  const wipe = boundaryEntry({ sessionId: sid, uuids: [], anchor: "own" });
+  assert.equal(leafOf([e1, e2, wipe]), null);
+
+  const sUuid = uuid();
+  const upTo = boundaryEntry({
+    sessionId: sid,
+    uuids: [e1.uuid, e2.uuid],
+    anchor: sUuid,
+    logicalParentUuid: e2.uuid,
+  });
+  const s = summaryEntry(upTo.uuid, sid, sUuid);
+  assert.deepEqual(leafOf([e1, e2, upTo, s]), {
+    uuid: e2.uuid,
+    viaBoundary: upTo.uuid,
+  });
+
+  const from = boundaryEntry({
+    sessionId: sid,
+    uuids: [e1.uuid, e2.uuid],
+    anchor: "own",
+    logicalParentUuid: e2.uuid,
+  });
+  const t = summaryEntry(from.uuid, sid);
+  assert.deepEqual(leafOf([e1, e2, from, t]), { uuid: t.uuid });
+});
+
+test("leaf: a trailing system entry is the leaf, and its context is the whole chain", () => {
+  const sid = uuid();
+  const e1 = userEntry(null, sid);
+  const e2 = assistantEntry(e1.uuid, sid);
+  const d2 = systemEntry(e2.uuid, sid);
+  const entries = [e1, e2, d2];
+  const contextTree = toContextTree(
+    buildTree(entries, () => {}),
+    entriesByUuid(entries),
+  );
+  assert.deepEqual(contextTree.leaf, { uuid: d2.uuid });
+  assert.deepEqual(
+    contextTree.contextAt(contextTree.leaf!).map((ref) => ref.uuid),
+    [e1.uuid, e2.uuid, d2.uuid],
   );
 });
 

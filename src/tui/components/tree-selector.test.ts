@@ -16,13 +16,24 @@ const failOnInvalid = (message: string): never => {
   throw new Error(`unexpected onInvalid: ${message}`);
 };
 
-function userEntry(n: number, text: string, parent?: number): SessionEntry {
+/** A user entry with text that the CLI did not attribute to the human:
+ *  origin-era writer, no `origin`. */
+function nonHumanUserEntry(
+  n: number,
+  text: string,
+  parent?: number,
+): SessionEntry {
   return {
     type: "user",
     uuid: uuid(n),
     parentUuid: parent === undefined ? null : uuid(parent),
+    version: "2.1.258",
     message: { role: "user", content: text },
   };
+}
+
+function userEntry(n: number, text: string, parent?: number): SessionEntry {
+  return { ...nonHumanUserEntry(n, text, parent), origin: { kind: "human" } };
 }
 
 function assistantEntry(
@@ -95,74 +106,97 @@ const DISPLAY_TREE = toDisplayTree(
 );
 const LEAF: TreeNodeRef = { uuid: uuid(3), viaBoundary: BOUNDARY };
 
+function resolveIn(entries: SessionEntry[], pick: TreeNodeRef): unknown {
+  const byUuid = entriesByUuid(entries);
+  return resolveTreePick(
+    toContextTree(buildTree(entries, failOnInvalid), byUuid),
+    byUuid,
+    pick,
+  );
+}
+
 function resolve(pick: TreeNodeRef): unknown {
-  return resolveTreePick(PARENT_MAP, ENTRIES, ENTRY_OF, pick, failOnInvalid);
+  return resolveIn(ENTRIES, pick);
 }
 
 test("resolveTreePick: assistant pick rewinds to itself", () => {
-  assert.deepEqual(resolve({ uuid: uuid(4) }), {
-    kind: "rewind",
-    rewindTo: { uuid: uuid(4) },
-  });
+  assert.deepEqual(resolve({ uuid: uuid(4) }), { rewindTo: { uuid: uuid(4) } });
 });
 
-test("resolveTreePick: user pick rewinds to its assistant with editorText", () => {
+test("resolveTreePick: user pick rewinds to its context parent with editorText", () => {
   assert.deepEqual(resolve({ uuid: uuid(3) }), {
-    kind: "rewind",
     rewindTo: { uuid: uuid(2) },
     editorText: "second question",
   });
 });
 
-test("resolveTreePick: a viaBoundary user pick's ancestor keeps its occurrence", () => {
+test("resolveTreePick: a viaBoundary user pick's parent keeps its occurrence", () => {
   assert.deepEqual(resolve({ uuid: uuid(3), viaBoundary: BOUNDARY }), {
-    kind: "rewind",
     rewindTo: { uuid: uuid(2), viaBoundary: BOUNDARY },
     editorText: "second question",
   });
 });
 
-// Success criterion 3: a post-compaction user row is raw in the display
-// tree, but its full-tree ancestry runs through the relinked chain — the
-// resolved ancestor keeps its viaBoundary occurrence, so editing the
-// message stays inside the compacted context.
+// A post-compaction user row is raw in the display tree, but its
+// context-tree parent is the relinked leaf — the rewind stays inside the
+// compacted context.
 test("resolveTreePick: post-compaction user pick keeps the compacted context", () => {
   const entries = [...ENTRIES, userEntry(7, "after compaction", 3)];
-  const action = resolveTreePick(
-    buildTree(entries, failOnInvalid),
-    entries,
-    entriesByUuid(entries),
-    { uuid: uuid(7) },
-    failOnInvalid,
-  );
-  assert.deepEqual(action, {
-    kind: "rewind",
-    rewindTo: { uuid: uuid(2), viaBoundary: BOUNDARY },
+  assert.deepEqual(resolveIn(entries, { uuid: uuid(7) }), {
+    rewindTo: { uuid: uuid(3), viaBoundary: BOUNDARY },
     editorText: "after compaction",
   });
 });
 
-test("resolveTreePick: boundary pick undoes the boundary, no editorText", () => {
-  assert.deepEqual(resolve({ uuid: uuid(5) }), {
-    kind: "rewind",
-    rewindTo: { uuid: uuid(4) },
+// A prompt's context parent need not be an assistant: the state before
+// the prompt is whatever it was parented on. Only real prompts step back;
+// system entries, isMeta prompts and tool results rewind to themselves.
+test("resolveTreePick: only a human prompt rewinds to its parent", () => {
+  const entries: SessionEntry[] = [
+    userEntry(1, "hello"),
+    assistantEntry(2, "reply", 1),
+    {
+      type: "system",
+      subtype: "turn_duration",
+      uuid: uuid(3),
+      parentUuid: uuid(2),
+    },
+    userEntry(4, "next", 3),
+    { ...nonHumanUserEntry(5, "skill expansion", 4), isMeta: true },
+    {
+      type: "user",
+      uuid: uuid(6),
+      parentUuid: uuid(5),
+      message: {
+        role: "user",
+        content: [{ type: "tool_result", tool_use_id: "t1", content: "ok" }],
+      },
+    },
+    nonHumanUserEntry(7, "<command-name>/compact</command-name>", 6),
+  ];
+  assert.deepEqual(resolveIn(entries, { uuid: uuid(4) }), {
+    rewindTo: { uuid: uuid(3) },
+    editorText: "next",
   });
+  for (const n of [3, 5, 6, 7]) {
+    assert.deepEqual(resolveIn(entries, { uuid: uuid(n) }), {
+      rewindTo: { uuid: uuid(n) },
+    });
+  }
 });
 
-// A summary pick keeps the compaction in effect: setChain with the
-// fresh-compaction context — the summary plus the preserved chain, in
-// installed order (up_to: summary first).
-test("resolveTreePick: summary pick re-installs the fresh-compaction context", () => {
-  assert.deepEqual(resolve({ uuid: uuid(6) }), {
-    kind: "setChain",
-    uuids: [uuid(6), uuid(2), uuid(3)],
-  });
+// Summary and boundary picks keep the compaction in effect: the state
+// right after it — for up_to, the last preserved relinked row (the summary
+// precedes the preserved rows in context).
+test("resolveTreePick: summary and boundary picks rewind to the up_to compaction tip", () => {
+  const tip = { rewindTo: { uuid: uuid(3), viaBoundary: BOUNDARY } };
+  assert.deepEqual(resolve({ uuid: uuid(6) }), tip);
+  assert.deepEqual(resolve({ uuid: uuid(5) }), tip);
 });
 
-// A from-shape summary's single occurrence is raw (the anchor-child rule
-// places it under the relinked tail) — the preserved chain precedes the
-// summary in the installed order.
-test("resolveTreePick: from-shape summary pick re-installs preserved chain then summary", () => {
+// From shape: the summary is raw under the relinked tail, so it is the
+// tip; the post-compaction turn (5) is dropped.
+test("resolveTreePick: from-shape summary and boundary picks rewind to the summary", () => {
   const entries = [
     userEntry(1, "hello"),
     assistantEntry(2, "reply", 1),
@@ -170,85 +204,49 @@ test("resolveTreePick: from-shape summary pick re-installs preserved chain then 
     summaryEntry(4, "recap", 3),
     userEntry(5, "after compaction", 4),
   ];
-  const action = resolveTreePick(
-    buildTree(entries, failOnInvalid),
-    entries,
-    entriesByUuid(entries),
-    { uuid: uuid(4) },
-    failOnInvalid,
-  );
-  // The post-compaction turn (5) is dropped: the pick returns to the state
-  // right after the compaction.
-  assert.deepEqual(action, {
-    kind: "setChain",
-    uuids: [uuid(1), uuid(2), uuid(4)],
+  const tip = { rewindTo: { uuid: uuid(4) } };
+  assert.deepEqual(resolveIn(entries, { uuid: uuid(4) }), tip);
+  assert.deepEqual(resolveIn(entries, { uuid: uuid(3) }), tip);
+});
+
+test("resolveTreePick: no-summary rewind boundary pick rewinds to its last preserved row", () => {
+  const entries = [
+    userEntry(1, "hello"),
+    assistantEntry(2, "reply", 1),
+    userEntry(3, "more", 2),
+    assistantEntry(4, "reply two", 3),
+    boundaryEntry(5, { uuids: [1, 2], anchor: 5, logicalParent: 2 }),
+  ];
+  assert.deepEqual(resolveIn(entries, { uuid: uuid(5) }), {
+    rewindTo: { uuid: uuid(2), viaBoundary: uuid(5) },
   });
 });
 
-test("resolveTreePick: no assistant ancestor is a newRoot pick", () => {
+test("resolveTreePick: wipe boundary pick is the empty context", () => {
+  const entries = [
+    userEntry(1, "hello"),
+    assistantEntry(2, "reply", 1),
+    boundaryEntry(3, { uuids: [], anchor: 3, logicalParent: 2 }),
+  ];
+  assert.deepEqual(resolveIn(entries, { uuid: uuid(3) }), { rewindTo: null });
+});
+
+test("resolveTreePick: root user pick is the empty context with editorText", () => {
   assert.deepEqual(resolve({ uuid: uuid(1) }), {
-    kind: "newRoot",
+    rewindTo: null,
     editorText: "hello world",
   });
 });
 
-// The pre-boundary context tip can itself be a relinked occurrence of an
-// older boundary — the undo resolves it via the pre-boundary loaded
-// context, not raw ancestors of logicalParentUuid.
-test("resolveTreePick: boundary undo lands on an older boundary's relinked tip", () => {
-  const entries = [
-    userEntry(1, "hello"),
-    assistantEntry(2, "reply", 1),
-    boundaryEntry(3, { uuids: [2], anchor: 4, logicalParent: 1 }),
-    summaryEntry(4, "first summary", 3),
-    boundaryEntry(5, { uuids: [2], anchor: 4, logicalParent: 2 }),
-  ];
-  const action = resolveTreePick(
-    buildTree(entries, failOnInvalid),
-    entries,
-    entriesByUuid(entries),
-    { uuid: uuid(5) },
-    failOnInvalid,
-  );
-  assert.deepEqual(action, {
-    kind: "rewind",
-    rewindTo: { uuid: uuid(2), viaBoundary: uuid(3) },
-  });
-});
-
-test("resolveTreePick: boundary undo with no pre-boundary assistant is newRoot without editorText", () => {
-  const entries = [
-    userEntry(1, "hello"),
-    boundaryEntry(2, { uuids: [1], anchor: 3, logicalParent: 1 }),
-    summaryEntry(3, "summary", 2),
-  ];
-  const action = resolveTreePick(
-    buildTree(entries, failOnInvalid),
-    entries,
-    entriesByUuid(entries),
-    { uuid: uuid(2) },
-    failOnInvalid,
-  );
-  assert.deepEqual(action, { kind: "newRoot" });
-});
-
 // A summary whose parent is not a boundary (corrupt or hand-crafted file)
-// falls back to ordinary user-row pick semantics.
+// is an ordinary user prompt.
 test("resolveTreePick: malformed summary pick uses user-row semantics", () => {
   const entries = [
     userEntry(1, "hello"),
     assistantEntry(2, "reply", 1),
     { ...userEntry(3, "orphan summary", 2), isCompactSummary: true },
   ];
-  const action = resolveTreePick(
-    buildTree(entries, failOnInvalid),
-    entries,
-    entriesByUuid(entries),
-    { uuid: uuid(3) },
-    failOnInvalid,
-  );
-  assert.deepEqual(action, {
-    kind: "rewind",
+  assert.deepEqual(resolveIn(entries, { uuid: uuid(3) }), {
     rewindTo: { uuid: uuid(2) },
     editorText: "orphan summary",
   });

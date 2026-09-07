@@ -41,7 +41,7 @@ import { readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { buildTree } from "../core/tree/build-tree.ts";
-import { toContextTree } from "../core/tree/context-tree.ts";
+import { toContextTree, type ContextTree } from "../core/tree/context-tree.ts";
 import { toDisplayTree } from "../core/tree/display-tree.ts";
 import {
   entriesByUuid,
@@ -50,7 +50,6 @@ import {
 } from "../core/session/file.ts";
 import {
   pathToLeaf,
-  type ParentMap,
   type SessionSnapshot,
   type TreeNodeRef,
 } from "../core/tree/nodes.ts";
@@ -1041,21 +1040,16 @@ class InteractiveMode {
         const fullTree = buildTree(snapshot.entries, (message) =>
           this.addBanner(message),
         );
-        // The rows come from the display tree; picks resolve on the FULL
-        // tree (a picked row's context path — e.g. the nearest assistant
-        // ancestor of a post-compaction user row — runs through relinked
-        // occurrences the display tree hides).
-        const displayTree = toDisplayTree(
-          fullTree,
-          toContextTree(fullTree, byUuid),
-          byUuid,
-        );
+        // The rows come from the display tree; picks resolve on the context
+        // tree (a picked row's parent — e.g. of a post-compaction user row —
+        // is a relinked occurrence the display tree hides).
+        const contextTree = toContextTree(fullTree, byUuid);
+        const displayTree = toDisplayTree(fullTree, contextTree, byUuid);
         const selector = new TreeSelectorComponent(
           snapshot.leaf,
           displayTree,
           byUuid,
-          (pick) =>
-            this.confirmTreePick(fullTree, snapshot.entries, byUuid, pick),
+          (pick) => this.confirmTreePick(contextTree, byUuid, pick),
           () => this.closeTreeSelector(),
         );
         this.treeSelectorPending = false;
@@ -1073,8 +1067,7 @@ class InteractiveMode {
 
   /** The selector stays dumb; the busy gate and the request live here. */
   private confirmTreePick(
-    fullTree: ParentMap,
-    entries: SessionEntry[],
+    contextTree: ContextTree,
     byUuid: ReadonlyMap<UUID, SessionEntry>,
     pick: TreeNodeRef,
   ): void {
@@ -1085,21 +1078,17 @@ class InteractiveMode {
       this.ui.requestRender();
       return;
     }
-    const action = resolveTreePick(fullTree, entries, byUuid, pick, (message) =>
-      this.addBanner(message),
-    );
+    const action = resolveTreePick(contextTree, byUuid, pick);
     this.closeTreeSelector();
     const request =
-      action.kind === "rewind"
-        ? { type: "set-context" as const, rewindTo: action.rewindTo }
-        : action.kind === "setChain"
-          ? { type: "set-context" as const, uuids: action.uuids }
-          : { type: "set-context" as const, uuids: [] };
+      action.rewindTo === null
+        ? { type: "set-context" as const, uuids: [] }
+        : { type: "set-context" as const, rewindTo: action.rewindTo };
     // The redraw follows from the contextChanged event; only the pick's
     // editorText is applied here (only the initiating TUI prefills).
     void this.client.request(request).then(
       () => {
-        if (action.kind !== "setChain" && action.editorText !== undefined) {
+        if (action.editorText !== undefined) {
           this.editor.setText(action.editorText);
         }
         this.ui.requestRender();

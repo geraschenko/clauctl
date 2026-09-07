@@ -203,6 +203,25 @@ function assertUuid(value: unknown, label: string): UUID {
   return value as UUID;
 }
 
+/** A {uuid, viaBoundary?} record from untrusted JSON; throws naming
+ *  `label` on any other shape. */
+export function parseWireTreeNodeRef(
+  value: unknown,
+  label: string,
+): TreeNodeRef {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new Error(`${label} must be a {uuid, viaBoundary?} object`);
+  }
+  // Fields stay unknown so assertUuid is the only way to a UUID.
+  const ref = value as { uuid?: unknown; viaBoundary?: unknown };
+  return {
+    uuid: assertUuid(ref.uuid, `${label}.uuid`),
+    ...(ref.viaBoundary !== undefined && {
+      viaBoundary: assertUuid(ref.viaBoundary, `${label}.viaBoundary`),
+    }),
+  };
+}
+
 /** The socket casts untrusted JSON, so the one destructive command is parsed
  *  explicitly before any teardown. Throws with a descriptive message on:
  *  both or neither of uuids/rewindTo, non-array or non-uuid-string uuids or
@@ -226,25 +245,9 @@ export function parseSetContextRequest(
         "set-context: rewindTo is mutually exclusive with uuids/summaryText",
       );
     }
-    if (
-      typeof rewindTo !== "object" ||
-      rewindTo === null ||
-      Array.isArray(rewindTo)
-    ) {
-      throw new Error(
-        "set-context: rewindTo must be a {uuid, viaBoundary?} object",
-      );
-    }
-    // Fields stay unknown so assertUuid is the only way to a UUID.
-    const ref = rewindTo as { uuid?: unknown; viaBoundary?: unknown };
     return {
       type: "set-context",
-      rewindTo: {
-        uuid: assertUuid(ref.uuid, "rewindTo.uuid"),
-        ...(ref.viaBoundary !== undefined && {
-          viaBoundary: assertUuid(ref.viaBoundary, "rewindTo.viaBoundary"),
-        }),
-      },
+      rewindTo: parseWireTreeNodeRef(rewindTo, "set-context: rewindTo"),
       ...(append !== undefined && { append: parseUuidList(append, "append") }),
     };
   }
@@ -280,10 +283,11 @@ export type SdkRequest =
   // No history replay — a subscriber starts at "now" and folds from there
   // (agent-state.ts).
   | { type: "subscribe"; attachment?: SubscribeAttachment }
-  // Response data is SessionMessage[] — the transcript segment since the last
-  // compaction, verbatim from getSessionMessages. Reads the transcript file,
-  // not the Query, so it is not an SdkControlRead.
-  | { type: "get-messages" }
+  // Response data: SessionEntry[] — the assistant context at `at` (an
+  // occurrence of the context tree), or at the current leaf when absent;
+  // `[]` with no session or a null leaf. Derived from the transcript file
+  // via the context tree, not from the Query, so it is not an SdkControlRead.
+  | { type: "get-context"; at?: TreeNodeRef }
   // Response data: SessionSnapshot — every jsonl line of the current
   // session, verbatim, plus the current-leaf occurrence. Clients build the
   // tree locally (build-tree.ts); a nested wire representation would overflow

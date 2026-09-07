@@ -91,7 +91,7 @@ sees. This spec adds three RPC commands to the daemon socket and matching
    forest only; a follow-up spec pins down the substructure.
 3. `clauctl set-context <uuids...>` on an idle daemon: appends the boundary
    (+ summary when `--summary` given), restarts the `Query` resuming the same
-   session id, and afterwards `get-messages` returns exactly the new effective
+   session id, and afterwards `get-context` returns exactly the new effective
    context (summary if any + the listed messages — modulo the documented
    whole-API-message granularity: `getSessionMessages` includes same-message
    sibling entries; see FINDINGS.md P8). The next turn's user entry
@@ -105,7 +105,9 @@ sees. This spec adds three RPC commands to the daemon socket and matching
    but NOT that inference-time normalization (no file-reading oracle can:
    `getSessionMessages` reads the same file). Authoring-rule compliance is
    the caller's responsibility.
-   Mechanism note (discovered at implementation time): `getSessionMessages`
+   Mechanism note (discovered at implementation time; SUPERSEDED by
+   docs/specs/get-context.md, which derives the context from the session
+   file through the context tree with no daemon state): `getSessionMessages`
    alone does NOT deliver this — its chain selection picks the user/assistant
    leaf with the largest file index across all dangling leaves, so for any
    uuid list whose tip predates another leaf in file order (branch switch,

@@ -5,6 +5,8 @@
 > `docs/specs/boundary-display-linearization.md` (whose user-facing goals
 > carry over, but whose mechanism was built on a guessed loader model) and
 > rewrites the relink machinery from `docs/specs/boundary-substructure.md`.
+> `loadedContextUuids`, `get-messages.ts`, and the loader-based tree-selector
+> picks below are superseded by `docs/specs/get-context.md` (2026-09-07).
 > Ground truth: the CLI loader's relink logic, read directly out of the
 > bundled binary (see "Ground truth" below).
 >

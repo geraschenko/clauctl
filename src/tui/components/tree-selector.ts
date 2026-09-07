@@ -13,17 +13,16 @@ import {
   matchesKey,
   type Focusable,
 } from "@earendil-works/pi-tui";
+import type { ContextTree } from "../../core/tree/context-tree.ts";
 import type { DisplayTree } from "../../core/tree/display-tree.ts";
 import {
-  loadedContext,
-  loadedContextUuids,
-  type OnInvalid,
+  compactBoundaryOf,
+  type CompactBoundary,
 } from "../../core/tree/loader.ts";
 import type { SessionEntry } from "../../core/session/file.ts";
 import {
   formatTreeNodeRef,
   parseTreeNodeRef,
-  pathToLeaf,
   type ParentMap,
   type TreeNodeRef,
 } from "../../core/tree/nodes.ts";
@@ -33,6 +32,7 @@ import { extractTextContent } from "../../format/generated/text.ts";
 import {
   collectFinalAssistantIds,
   collectToolNames,
+  isHumanPrompt,
   passesFilter,
   treeLines,
 } from "../../format/tree.ts";
@@ -40,113 +40,99 @@ import { theme } from "../theme.ts";
 
 const MAX_VISIBLE_LINES = 15;
 
-export type TreePickAction =
-  | { kind: "rewind"; rewindTo: TreeNodeRef; editorText?: string }
-  | { kind: "setChain"; uuids: UUID[] }
-  | { kind: "newRoot"; editorText?: string };
+/** A pick is always a rewind: `rewindTo` names the occurrence whose
+ *  context becomes the session's (null: the empty context); `editorText`
+ *  prefills the editor. */
+export interface TreePick {
+  rewindTo: TreeNodeRef | null;
+  editorText?: string;
+}
 
-/** The fresh-compaction context a summary pick re-installs: the loader's
- *  view of the file truncated just after the summary — the summary plus
- *  its boundary's preserved chain, before any post-compaction turns.
- *  Undefined when the summary is not on that chain (corrupt or
- *  hand-crafted file). */
-function summaryChainUuids(
-  summary: SessionEntry,
-  entries: SessionEntry[],
-  onInvalid: OnInvalid,
-): UUID[] | undefined {
-  // NOTE: For an "up_to" summary, the summary appears in the assistant's
-  // context _before_ the preserved uuids. However, it's presented to the user
-  // as appearing _after_ the preserved uuids. So if the user picks the summary,
-  // their expectation is that the perserved uuids remain in context.
-  const summaryIndex = entries.findIndex(
-    (entry) => entry.uuid === summary.uuid,
+/** The state right after `boundary` took effect — the last row of its
+ *  block: up_to (anchor = summary) prefers the last preserved relinked row
+ *  over the summary, the other shapes the summary over the last preserved
+ *  row; null when neither is a context-tree occurrence (a wipe, or a
+ *  rejected relink without a summary). */
+function compactionTip(
+  contextTree: ContextTree,
+  boundary: CompactBoundary,
+  summaryUuid: UUID | undefined,
+): TreeNodeRef | null {
+  const lastPreserved = boundary.preservedMessages.uuids.at(-1);
+  const preservedTip: TreeNodeRef[] =
+    lastPreserved === undefined
+      ? []
+      : [{ uuid: lastPreserved, viaBoundary: boundary.uuid }];
+  const summaryTip: TreeNodeRef[] =
+    summaryUuid === undefined ? [] : [{ uuid: summaryUuid }];
+  const anchorIsSummary =
+    boundary.preservedMessages.anchorUuid !== boundary.uuid;
+  const candidates = anchorIsSummary
+    ? [...preservedTip, ...summaryTip]
+    : [...summaryTip, ...preservedTip];
+  return (
+    candidates.find((tip) =>
+      contextTree.parentMap.has(formatTreeNodeRef(tip)),
+    ) ?? null
   );
-  const chain = loadedContextUuids(
-    entries.slice(0, summaryIndex + 1),
-    onInvalid,
-  );
-  return chain.includes(summary.uuid!) ? chain : undefined;
 }
 
 /**
- * Assistant pick → itself; user pick → nearest assistant ancestor on the
- * FULL tree + editorText = the user text (so editing a post-compaction
- * message stays inside the compacted context); boundary pick → "undo the
- * boundary": rewind to the last assistant ref of the pre-boundary loaded
- * context (the true pre-boundary context tip, correct even when that tip
- * is a relinked occurrence of an older boundary), no editorText; summary
- * pick → the compaction stays in effect with the summary as-is: setChain
- * with the fresh-compaction context (the summary plus its boundary's
- * preserved chain; the summary is a user entry the daemon cannot rewind
- * to, so its old entry rides along as a preserved uuid of a fresh
- * boundary), no editorText; no assistant found → newRoot (sent as
- * {uuids: []}). The
- * ancestor is not re-resolved to the final entry of its API message: the
- * nearest assistant ancestor on a path is final by construction except in
- * exotic interrupt shapes, where normalization completes or rejects the
- * list. An empty user text (reachable via the
- * current-leaf filter exemption) omits editorText. A malformed summary
- * (parent not a boundary, or off its boundary's chain — corrupt or
- * hand-crafted file) falls back to ordinary user-row pick semantics.
+ * What a picked row asks for, in context-tree terms.
+ *  * Summary or boundary → the compaction stays in effect: its `compactionTip`
+ *  * A human prompt (`isHumanPrompt`) → the state just before it, its
+ *    context-tree parent (null at a root), with the prompt's text as
+ *    editorText so it can be edited and re-sent
+ *  * Anything else (assistant, non-human user entry, tool result, system or
+ *    attachment entry) → itself, no editorText
+ *
+ * NOTE: For an "up_to" summary, the summary appears in the assistant's
+ * context _before_ the preserved uuids. However, it's presented to the user
+ * as appearing _after_ the preserved uuids. So if the user picks the
+ * summary, their expectation is that the preserved uuids remain in context.
  */
 export function resolveTreePick(
-  fullTree: ParentMap,
-  entries: SessionEntry[],
+  contextTree: ContextTree,
   byUuid: ReadonlyMap<UUID, SessionEntry>,
   pick: TreeNodeRef,
-  onInvalid: OnInvalid,
-): TreePickAction {
-  const pickedEntry = byUuid.get(pick.uuid);
-  if (pickedEntry?.subtype === "compact_boundary") {
-    const boundaryIndex = entries.findIndex(
-      (entry) => entry.uuid === pickedEntry.uuid,
+): TreePick {
+  const picked = byUuid.get(pick.uuid);
+  if (picked?.subtype === "compact_boundary") {
+    const summary = [...byUuid.values()].find(
+      (entry) =>
+        entry.isCompactSummary === true && entry.parentUuid === pick.uuid,
     );
-    const rewindTo = loadedContext(
-      entries.slice(0, boundaryIndex),
-      onInvalid,
-    ).findLast((ref) => byUuid.get(ref.uuid)?.type === "assistant");
-    return rewindTo === undefined
-      ? { kind: "newRoot" }
-      : { kind: "rewind", rewindTo };
+    return {
+      rewindTo: compactionTip(
+        contextTree,
+        compactBoundaryOf(picked),
+        summary?.uuid,
+      ),
+    };
   }
-  if (
-    pickedEntry?.isCompactSummary === true &&
-    pickedEntry.parentUuid != null &&
-    byUuid.get(pickedEntry.parentUuid)?.subtype === "compact_boundary"
-  ) {
-    // Not the user-row semantics below: a user pick rewinds to the previous
-    // assistant and prefills the editor, but a summary is a user entry only
-    // from Claude's perspective — backing up past it would undo the
-    // compaction, which is not what picking the summary means.
-    const chain = summaryChainUuids(pickedEntry, entries, onInvalid);
-    if (chain !== undefined) {
-      return { kind: "setChain", uuids: chain };
-    }
-  }
-  const path = pathToLeaf(fullTree, byUuid, pick);
-  const entryAt = (index: number): SessionEntry | undefined => {
-    const ref = path.at(index);
-    return ref === undefined ? undefined : byUuid.get(ref.uuid);
-  };
-  const picked = entryAt(-1);
-  if (picked?.type === "assistant") {
-    return { kind: "rewind", rewindTo: pick };
-  }
-  const pickedContent =
-    picked?.type === "user" &&
-    typeof picked.message === "object" &&
-    picked.message !== null
-      ? (picked.message as { content?: unknown }).content
+  const boundary =
+    picked?.isCompactSummary === true && picked.parentUuid != null
+      ? byUuid.get(picked.parentUuid)
       : undefined;
-  const editorText = extractTextContent(pickedContent);
-  const editorTextField = editorText === "" ? {} : { editorText };
-  for (let index = path.length - 2; index >= 0; index -= 1) {
-    if (entryAt(index)?.type === "assistant") {
-      return { kind: "rewind", rewindTo: path[index]!, ...editorTextField };
-    }
+  if (boundary?.subtype === "compact_boundary") {
+    return {
+      rewindTo: compactionTip(
+        contextTree,
+        compactBoundaryOf(boundary),
+        pick.uuid,
+      ),
+    };
   }
-  return { kind: "newRoot", ...editorTextField };
+  if (picked === undefined || !isHumanPrompt(picked)) {
+    return { rewindTo: pick };
+  }
+  const parent = contextTree.parentMap.get(formatTreeNodeRef(pick)) ?? null;
+  return {
+    rewindTo: parent === null ? null : parseTreeNodeRef(parent),
+    editorText: extractTextContent(
+      (picked.message as { content?: unknown }).content,
+    ),
+  };
 }
 
 /** Printable input (no C0/C1 control characters) appends to the search. */

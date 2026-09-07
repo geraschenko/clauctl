@@ -17,4 +17,8 @@ export const TOOL_RESULT_GLYPH = "⤷";
 /** Tree-only. */
 export const COMPACT_BOUNDARY_GLYPH = "═";
 export const COMPACT_SUMMARY_GLYPH = "□";
+/** A user entry that is not a human prompt: isMeta expansions, command
+ *  and shell echoes, interrupt markers, task notifications. In the
+ *  assistant's context, not typed by the user. */
+export const USER_BUT_NON_HUMAN_GLYPH = "◌";
 export const OTHER_ENTRY_GLYPH = "·";

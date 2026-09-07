@@ -214,11 +214,10 @@ async function daemon(this: CommandContext, flags: DaemonFlags): Promise<void> {
   // Observable state (agent-state.ts) is folded by the hub; it is separate
   // from the persisted record — nothing here writes back to agent.json.
   //
-  // One startup session-file read serves both the AgentState seed below and
-  // the request handler's override reconstruction (startupEntries).
+  // The AgentState seed below reads the session file once at startup.
   // resumeSessionId covers both startup shapes: revival (the last recorded
   // session) and a fresh `spawn -- --resume` (the wrapped session, which is
-  // in no record yet). Seeding it is what lets get-messages serve the
+  // in no record yet). Seeding it is what lets get-context serve the
   // resumed transcript before the first turn — the streaming Query only
   // initializes (and announces a session) once a prompt is sent.
   const seedSessionId = resumeSessionId;
@@ -361,7 +360,6 @@ async function daemon(this: CommandContext, flags: DaemonFlags): Promise<void> {
     createRequestHandler({
       getQuery: () => claudeQuery,
       events,
-      startupEntries,
       getTurnQueue: () => turnQueue,
       cwd: record.cwd,
       log,

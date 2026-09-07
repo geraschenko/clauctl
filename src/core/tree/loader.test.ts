@@ -13,9 +13,14 @@ import {
   effectiveParent,
   invalidRelinkReason,
   loadedContext,
-  loadedContextUuids,
   parentOfPreserved,
+  type OnInvalid,
 } from "./loader.ts";
+
+const loadedContextUuids = (
+  entries: SessionEntry[],
+  onInvalid: OnInvalid,
+): UUID[] => loadedContext(entries, onInvalid).map((ref) => ref.uuid);
 
 const uuid = (): UUID => randomUUID();
 

@@ -36,8 +36,8 @@ import {
   type SdkSocketClient,
   type SetContextRequest,
 } from "./sdk-socket.ts";
+import type { SessionEntry } from "./session/file.ts";
 import {
-  parseTreeNodeRef,
   resolveTreeNodeRef,
   type SessionSnapshot,
   type TreeNodeRef,
@@ -110,17 +110,21 @@ async function sessionEntryUuids(
   );
 }
 
-/** Like bareRequestCommand, but the response is a list printed as JSONL. */
-function jsonlRequestCommand(brief: string, request: SdkRequest) {
-  return commandOneTarget({
-    docs: { brief },
-    func: async function (this: CommandContext): Promise<void> {
-      const data = await requestData(this, request);
-      for (const record of data as unknown[]) {
-        this.process.stdout.write(`${JSON.stringify(record)}\n`);
-      }
-    },
-  });
+/** `text` as a node ref (`<uuid>` or `<uuid>@<boundary-uuid>`, unique
+ *  prefixes resolved against `sessionUuids`); a UsageError names `flagName`
+ *  on any failure. */
+function resolveNodeRefText(
+  text: string,
+  flagName: string,
+  sessionUuids: ReadonlySet<UUID>,
+): TreeNodeRef {
+  try {
+    return resolveTreeNodeRef(text, sessionUuids);
+  } catch (error) {
+    throw new UsageError(
+      `${flagName}: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
 }
 
 /** A target-taking subcommand whose request needs no arguments. */
@@ -469,7 +473,7 @@ async function setContext(
       buildRequest(
         flags.rewindTo === undefined
           ? undefined
-          : parseTreeNodeRef(flags.rewindTo),
+          : resolveNodeRefText(flags.rewindTo, "--rewind-to", new Set()),
         uuids,
       ),
     );
@@ -480,7 +484,7 @@ async function setContext(
     const request = buildRequest(
       flags.rewindTo === undefined
         ? undefined
-        : resolveTreeNodeRef(flags.rewindTo, sessionUuids),
+        : resolveNodeRefText(flags.rewindTo, "--rewind-to", sessionUuids),
       uuids.map((uuid) =>
         UUID_PATTERN.test(uuid) ? uuid : resolveUuidPrefix(uuid, sessionUuids),
       ),
@@ -490,6 +494,40 @@ async function setContext(
 }
 
 // --- reads with arguments ------------------------------------------------------
+
+const getContextFlags = {
+  at: stringFlag(
+    "Context at this tree node instead of the current leaf — <uuid> or <uuid>@<boundary-uuid> for an occurrence inside that boundary's context (unique prefixes accepted)",
+    "node-ref",
+  ),
+};
+
+type GetContextFlags = InferFlags<typeof getContextFlags>;
+
+async function getContext(
+  this: CommandContext,
+  flags: GetContextFlags,
+): Promise<void> {
+  await withClient(this, async (client) => {
+    const at =
+      flags.at === undefined
+        ? undefined
+        : resolveNodeRefText(
+            flags.at,
+            "--at",
+            flags.at.split("@").every((half) => UUID_PATTERN.test(half))
+              ? new Set()
+              : await sessionEntryUuids(client),
+          );
+    const entries = (await client.request({
+      type: "get-context",
+      ...(at !== undefined && { at }),
+    })) as SessionEntry[];
+    for (const entry of entries) {
+      this.process.stdout.write(`${JSON.stringify(entry)}\n`);
+    }
+  });
+}
 
 const getContextUsageFlags = {
   detail: enumFlag(
@@ -763,10 +801,14 @@ export const sdkRoutes = {
   ),
   // JSONL rather than a pretty-printed array: one record per line, the shape
   // `format messages` consumes.
-  "get-messages": jsonlRequestCommand(
-    "print the transcript since the last compaction as JSONL",
-    { type: "get-messages" },
-  ),
+  "get-context": commandOneTarget<GetContextFlags>({
+    docs: {
+      brief:
+        "print the assistant's context (session entries, JSONL) at the current leaf or at --at",
+    },
+    parameters: { flags: getContextFlags },
+    func: getContext,
+  }),
   "get-entries": bareRequestCommand(
     "print the session snapshot (every jsonl entry, verbatim, plus the current leaf) as one JSON document",
     { type: "get-entries" },

@@ -1,18 +1,19 @@
 /**
  * File-derived AgentState seed values (daemon startup), recovered from the
- * session transcript via the loader model (tree/loader.ts).
+ * session transcript via the context tree (tree/context-tree.ts).
  */
 
-import type { UUID } from "node:crypto";
 import type {
   NonNullableUsage,
   PermissionMode,
   SDKAssistantMessage,
 } from "@anthropic-ai/claude-agent-sdk";
 import { toNonNullableUsage } from "../agent-state.ts";
-import type { SessionEntry } from "./file.ts";
+import { entriesByUuid, type SessionEntry } from "./file.ts";
 import type { TreeNodeRef } from "../tree/nodes.ts";
-import { loadedContext, type OnInvalid } from "../tree/loader.ts";
+import { buildTree } from "../tree/build-tree.ts";
+import { toContextTree } from "../tree/context-tree.ts";
+import type { OnInvalid } from "../tree/loader.ts";
 
 /** File-derived AgentState seed values (daemon startup). */
 export interface SessionFileSeed {
@@ -26,8 +27,8 @@ export interface SessionFileSeed {
 /**
  * AgentState values recoverable from the session file, for seeding a daemon
  * that starts with history on disk. lastUsage and model come from the last
- * non-sidechain assistant entry ON the loaded context (a rewound-away
- * branch's usage does not describe the context a resume would load, and a
+ * non-sidechain assistant entry ON the context at the tree's leaf (a
+ * rewound-away branch's usage does not describe the context a resume would load, and a
  * sidechain assistant's usage describes the subagent's context — the live
  * fold skips those too); claudeCodeVersion from the
  * last version stamp and permissionMode from the last permission-mode entry,
@@ -42,13 +43,9 @@ export function seedFromEntries(
   entries: SessionEntry[],
   onInvalid: OnInvalid,
 ): SessionFileSeed {
-  const byUuid = new Map<UUID, SessionEntry>();
-  for (const entry of entries) {
-    if (entry.uuid !== undefined) {
-      byUuid.set(entry.uuid, entry);
-    }
-  }
-  const contextRefs = loadedContext(entries, onInvalid);
+  const byUuid = entriesByUuid(entries);
+  const tree = toContextTree(buildTree(entries, onInvalid), byUuid);
+  const contextRefs = tree.leaf === null ? [] : tree.contextAt(tree.leaf);
   const contextEntries = contextRefs
     .map((ref) => byUuid.get(ref.uuid))
     .filter((entry) => entry !== undefined);

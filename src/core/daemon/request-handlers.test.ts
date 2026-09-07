@@ -10,14 +10,13 @@ import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import {
-  getSessionMessages,
-  type Query,
-  type SDKMessage,
-  type SDKUserMessage,
+import type {
+  Query,
+  SDKMessage,
+  SDKUserMessage,
 } from "@anthropic-ai/claude-agent-sdk";
 import { INITIAL_AGENT_STATE } from "../agent-state.ts";
-import type { SessionSnapshot } from "../tree/nodes.ts";
+import type { SessionSnapshot, TreeNodeRef } from "../tree/nodes.ts";
 import type { PersistedOptions } from "../options.ts";
 import {
   readSessionEntries,
@@ -30,7 +29,6 @@ import type {
   SubscribeAttachment,
 } from "../sdk-socket.ts";
 import { EventHub } from "./event-hub.ts";
-import { startupOverride } from "./get-messages.ts";
 import {
   createRequestHandler,
   type RequestHandlerDeps,
@@ -39,10 +37,6 @@ import { RESPONSE_SENT, type SdkConnection } from "./sdk-server.ts";
 import type { TurnQueue } from "./turn-queue.ts";
 
 const uuid = (): UUID => randomUUID();
-
-const failOnInvalid = (message: string): never => {
-  throw new Error(`unexpected onInvalid: ${message}`);
-};
 
 // --- entry builders ------------------------------------------------------------
 
@@ -146,8 +140,8 @@ interface FixtureOptions {
   withSession?: boolean;
   teardownQuery?: () => Promise<void>;
   restartQuery?: () => Promise<void>;
-  /** Written to the session file BEFORE the handler is created, so startup
-   *  reconstruction sees them. */
+  /** Written to the session file BEFORE the handler is created: history a
+   *  (re)started daemon finds on disk. */
   initialEntries?: (sessionId: UUID) => SessionEntry[];
 }
 
@@ -158,8 +152,8 @@ function fixture(options: FixtureOptions = {}): Fixture {
   const sessionId = uuid();
   const cwd = "/work/fixture";
   const configDir = mkdtempSync(join(tmpdir(), "clauctl-rh-"));
-  // getSessionMessages resolves the transcript through CLAUDE_CONFIG_DIR at
-  // call time; tests in one file run sequentially, so this does not race.
+  // Settings resolution reads CLAUDE_CONFIG_DIR at call time; tests in one
+  // file run sequentially, so this does not race.
   process.env.CLAUDE_CONFIG_DIR = configDir;
   const file = sessionFilePath(configDir, cwd, sessionId);
   mkdirSync(join(configDir, "projects", "-work-fixture"), { recursive: true });
@@ -227,13 +221,23 @@ function fixture(options: FixtureOptions = {}): Fixture {
     },
   };
   if (options.initialEntries !== undefined) {
-    const entries = options.initialEntries(sessionId);
-    f.writeEntries(entries);
-    // Mirrors daemon.ts: the startup read feeds the handler as a dep.
-    deps.startupEntries = entries;
+    f.writeEntries(options.initialEntries(sessionId));
   }
   const handler = createRequestHandler(deps);
   return f;
+}
+
+/** Uuids of the get-context response (at the leaf, or at `at`). */
+async function contextUuids(
+  f: Fixture,
+  at?: TreeNodeRef,
+): Promise<(UUID | undefined)[]> {
+  const entries = (await f.handle({
+    type: "get-context",
+    ...(at !== undefined && { at }),
+    id: "g",
+  })) as SessionEntry[];
+  return entries.map((entry) => entry.uuid);
 }
 
 function userMessage(): SDKUserMessage {
@@ -387,9 +391,9 @@ test("an unknown request type (e.g. legacy wait-idle) is rejected, not acknowled
   );
 });
 
-test("get-messages with no session returns [] without touching the transcript", async () => {
+test("get-context with no session returns [] without touching the transcript", async () => {
   const f = fixture({ withSession: false });
-  assert.deepEqual(await f.handle({ type: "get-messages", id: "g1" }), []);
+  assert.deepEqual(await f.handle({ type: "get-context", id: "g1" }), []);
 });
 
 test("interrupt returns the SDK queue-survival receipt and emits its event", async () => {
@@ -626,18 +630,13 @@ test("boundary mode appends boundary+summary, restarts, broadcasts", async () =>
     f.emitted.map((event) => event.kind),
     ["contextChanged"],
   );
-  // The effective context (also what get-messages now returns): summary
-  // first, then the preserved uuids.
-  const messages = (await f.handle({
-    type: "get-messages",
-    id: "g1",
-  })) as Array<{
-    uuid: string;
-  }>;
-  assert.deepEqual(
-    messages.map((message) => message.uuid),
-    [result.summaryUuid, u2.uuid, a2.uuid],
-  );
+  // The effective context (what get-context returns): summary first, then
+  // the preserved uuids.
+  assert.deepEqual(await contextUuids(f), [
+    result.summaryUuid,
+    u2.uuid,
+    a2.uuid,
+  ]);
 });
 
 test("boundary mode without summary uses the boundary's own uuid as anchor", async () => {
@@ -655,16 +654,7 @@ test("boundary mode without summary uses the boundary's own uuid as anchor", asy
     preservedMessages: { anchorUuid: UUID };
   };
   assert.equal(metadata.preservedMessages.anchorUuid, result.boundaryUuid);
-  const messages = (await f.handle({
-    type: "get-messages",
-    id: "g1",
-  })) as Array<{
-    uuid: string;
-  }>;
-  assert.deepEqual(
-    messages.map((message) => message.uuid),
-    [u2.uuid, a2.uuid],
-  );
+  assert.deepEqual(await contextUuids(f), [u2.uuid, a2.uuid]);
 });
 
 test("boundary mode completes a split tool pair and reports what it added", async () => {
@@ -710,13 +700,7 @@ test("boundary mode completes a split tool pair and reports what it added", asyn
     call.uuid,
     result.uuid,
   ]);
-  const messages = (await f.handle({ type: "get-messages", id: "g1" })) as {
-    uuid: string;
-  }[];
-  assert.deepEqual(
-    messages.map((message) => message.uuid),
-    [u1.uuid, call.uuid, result.uuid],
-  );
+  assert.deepEqual(await contextUuids(f), [u1.uuid, call.uuid, result.uuid]);
 });
 
 // --- set-context rewind mode ---------------------------------------------------
@@ -747,16 +731,7 @@ test("rewind on the active chain appends a no-summary boundary listing the conte
     f.emitted.map((event) => event.kind),
     ["contextChanged"],
   );
-  const messages = (await f.handle({
-    type: "get-messages",
-    id: "g1",
-  })) as Array<{
-    uuid: string;
-  }>;
-  assert.deepEqual(
-    messages.map((message) => message.uuid),
-    [u1.uuid, a1.uuid],
-  );
+  assert.deepEqual(await contextUuids(f), [u1.uuid, a1.uuid]);
   const snapshot = (await f.handle({
     type: "get-entries",
     id: "t1",
@@ -796,13 +771,12 @@ test("rewind with appended uuids lists the context at the target followed by the
   ]);
   // The whole list is a context-tree path ending at a2a.
   assert.equal(boundary.logicalParentUuid, a2a.uuid);
-  const messages = (await f.handle({ type: "get-messages", id: "g1" })) as {
-    uuid: string;
-  }[];
-  assert.deepEqual(
-    messages.map((message) => message.uuid),
-    [u1.uuid, a1.uuid, u2a.uuid, a2a.uuid],
-  );
+  assert.deepEqual(await contextUuids(f), [
+    u1.uuid,
+    a1.uuid,
+    u2a.uuid,
+    a2a.uuid,
+  ]);
 });
 
 // The context at an assistant includes the turn_duration rows the loader
@@ -920,15 +894,12 @@ test("boundaries written after a rewind take structural logicalParentUuids", asy
   assert.equal(lastBoundary().logicalParentUuid, null);
 });
 
-// Pins a characterized SDK divergence (see the verification comment in
-// set-context.ts): getSessionMessages reports the WRONG chain for a boundary
-// whose preserved-uuids tip predates another dangling leaf in file order,
-// even though the CLI loader honors the boundary (FINDINGS.md P9 a/b,
-// wire-verified).
-// get-messages papers over it with the synthesize override (asserted here
-// too). If an SDK upgrade fixes this, the raw assertion fails and the
-// override becomes unnecessary.
-test("KNOWN DIVERGENCE: raw getSessionMessages ignores a branch-switch boundary; get-messages synthesizes the loader chain", async () => {
+// --- get-context ---------------------------------------------------------------
+
+// The context is read from the file through the context tree, so a
+// branch-switch rewind (whose boundary the SDK's own getSessionMessages
+// misreads — FINDINGS.md P9 a/b) is served correctly with no daemon state.
+test("get-context after a branch-switch rewind lists the rewound branch", async () => {
   const f = fixture();
   const sid = f.sessionId;
   const u1 = userEntry(null, sid);
@@ -943,28 +914,15 @@ test("KNOWN DIVERGENCE: raw getSessionMessages ignores a branch-switch boundary;
     rewindTo: { uuid: a2a.uuid },
     id: "c1",
   });
-
-  const raw = await getSessionMessages(sid, { dir: "/work/fixture" });
-  assert.deepEqual(
-    raw.map((message) => message.uuid),
-    // Wrong: the tip u2b/a2b predates nothing, so W6 picks it over the
-    // preserved-uuids tip a2a.
-    [u1.uuid, a1.uuid, u2b.uuid, a2b.uuid],
-  );
-  const messages = (await f.handle({
-    type: "get-messages",
-    id: "g1",
-  })) as Array<{
-    uuid: string;
-  }>;
-  assert.deepEqual(
-    messages.map((message) => message.uuid),
-    // The loader (and the next turn's context) uses [u1, a1, u2a, a2a].
-    [u1.uuid, a1.uuid, u2a.uuid, a2a.uuid],
-  );
+  assert.deepEqual(await contextUuids(f), [
+    u1.uuid,
+    a1.uuid,
+    u2a.uuid,
+    a2a.uuid,
+  ]);
 });
 
-test("the synthesis window closes when the next transcript write lands", async () => {
+test("get-context follows the next transcript write past a boundary", async () => {
   const f = fixture();
   const { u2, a2 } = linearSession(f);
   await f.handle({ type: "set-context", uuids: [u2.uuid, a2.uuid], id: "c1" });
@@ -977,21 +935,12 @@ test("the synthesis window closes when the next transcript write lands", async (
     message: { role: "user", content: "post-boundary turn" },
     parent_tool_use_id: null,
   } as SDKMessage);
-  const messages = (await f.handle({
-    type: "get-messages",
-    id: "g1",
-  })) as Array<{
-    uuid: string;
-  }>;
-  // Passthrough again (a stale synthesize chain would omit u3), and
-  // getSessionMessages now agrees with the loader.
-  assert.deepEqual(
-    messages.map((message) => message.uuid),
-    [u2.uuid, a2.uuid, u3.uuid],
-  );
+  assert.deepEqual(await contextUuids(f), [u2.uuid, a2.uuid, u3.uuid]);
 });
 
-test("startup inside the synthesis window reconstructs the synthesize override", async () => {
+// Restart independence: a daemon that starts on a file already holding a
+// boundary serves the same context as the daemon that wrote it.
+test("get-context after a restart honors a boundary preserving an older prefix", async () => {
   let entries!: ReturnType<typeof linearSession>;
   const f = fixture({
     initialEntries: (sid) => {
@@ -1013,49 +962,10 @@ test("startup inside the synthesis window reconstructs the synthesize override",
       ];
     },
   });
-  const messages = (await f.handle({
-    type: "get-messages",
-    id: "g1",
-  })) as Array<{
-    uuid: string;
-  }>;
-  // The loader honors the preserved uuids [u1, a1]; raw getSessionMessages would
-  // report [u1, a1, u2, a2] (a2 is the latest dangling leaf).
-  assert.deepEqual(
-    messages.map((message) => message.uuid),
-    [entries.u1.uuid, entries.a1.uuid],
-  );
+  assert.deepEqual(await contextUuids(f), [entries.u1.uuid, entries.a1.uuid]);
 });
 
-// On a boundary preserving the file's tail the raw SDK picks the RIGHT chain
-// even inside the window, so its output is the ground truth for the
-// synthesized shape
-// (message payloads, session_id, parent_tool_use_id, timestamp — compared on
-// the wire, i.e. after JSON serialization).
-test("synthesized get-messages matches raw getSessionMessages field-for-field", async () => {
-  const f = fixture();
-  const sid = f.sessionId;
-  const stamp = { timestamp: "2026-07-15T00:00:00.000Z" };
-  const u1 = { ...userEntry(null, sid), ...stamp };
-  const a1 = { ...assistantEntry(u1.uuid, sid), ...stamp };
-  const u2 = { ...userEntry(a1.uuid, sid), ...stamp };
-  const a2 = { ...assistantEntry(u2.uuid, sid), ...stamp };
-  f.writeEntries([u1, a1, u2, a2]);
-  await f.handle({
-    type: "set-context",
-    uuids: [u2.uuid, a2.uuid],
-    summaryText: "the summary",
-    id: "c1",
-  });
-  const synthesized = await f.handle({ type: "get-messages", id: "g1" });
-  const raw = await getSessionMessages(sid, { dir: "/work/fixture" });
-  assert.deepEqual(
-    JSON.parse(JSON.stringify(synthesized)),
-    JSON.parse(JSON.stringify(raw)),
-  );
-});
-
-test("startup after the window closed passes get-messages through", async () => {
+test("get-context after a restart includes turns written after the boundary", async () => {
   let chain!: UUID[];
   const f = fixture({
     initialEntries: (sid) => {
@@ -1071,16 +981,87 @@ test("startup after the window closed passes get-messages through", async () => 
       return [u1, a1, boundary, u2];
     },
   });
-  const messages = (await f.handle({
-    type: "get-messages",
-    id: "g1",
-  })) as Array<{
-    uuid: string;
-  }>;
+  assert.deepEqual(await contextUuids(f), chain);
+});
+
+test("get-context default equals the context at the get-entries leaf", async () => {
+  const f = fixture();
+  const { u1, a1 } = linearSession(f);
+  await f.handle({
+    type: "set-context",
+    rewindTo: { uuid: a1.uuid },
+    id: "c1",
+  });
+  const snapshot = (await f.handle({
+    type: "get-entries",
+    id: "t1",
+  })) as SessionSnapshot;
+  assert.notEqual(snapshot.leaf, null);
+  assert.deepEqual(await contextUuids(f), [u1.uuid, a1.uuid]);
+  assert.deepEqual(await contextUuids(f, snapshot.leaf!), [u1.uuid, a1.uuid]);
+});
+
+test("get-context --at serves a raw occurrence and a relinked one", async () => {
+  const f = fixture();
+  const { u1, a1, u2, a2 } = linearSession(f);
+  const boundary = boundaryEntry({
+    sessionId: f.sessionId,
+    uuids: [u1.uuid, a1.uuid],
+    anchor: "own",
+  });
+  f.writeEntries([u1, a1, u2, a2, boundary]);
+  assert.deepEqual(await contextUuids(f, { uuid: a2.uuid }), [
+    u1.uuid,
+    a1.uuid,
+    u2.uuid,
+    a2.uuid,
+  ]);
   assert.deepEqual(
-    messages.map((message) => message.uuid),
-    chain,
+    await contextUuids(f, { uuid: a1.uuid, viaBoundary: boundary.uuid }),
+    [u1.uuid, a1.uuid],
   );
+});
+
+test("get-context --at rejects an occurrence absent from the context tree", async () => {
+  const f = fixture();
+  const { a1 } = linearSession(f);
+  await assert.rejects(
+    f.handle({
+      type: "get-context",
+      at: { uuid: a1.uuid, viaBoundary: uuid() },
+      id: "g1",
+    }),
+    /not a context-tree occurrence/,
+  );
+  await assert.rejects(
+    f.handle({ type: "get-context", at: { uuid: uuid() }, id: "g2" }),
+    /not a context-tree occurrence/,
+  );
+});
+
+// Every entry on the context path is returned verbatim, including the
+// kinds the stream fold ignores (isMeta prompts, system entries).
+test("get-context returns isMeta and system entries verbatim", async () => {
+  const f = fixture();
+  const sid = f.sessionId;
+  const u1 = userEntry(null, sid);
+  const a1 = assistantEntry(u1.uuid, sid);
+  const duration: SessionEntry & { uuid: UUID } = {
+    uuid: uuid(),
+    parentUuid: a1.uuid,
+    type: "system",
+    subtype: "turn_duration",
+    sessionId: sid,
+    durationMs: 1234,
+  };
+  const meta = { ...userEntry(duration.uuid, sid, "<meta>"), isMeta: true };
+  f.writeEntries([u1, a1, duration, meta]);
+  assert.deepEqual(await f.handle({ type: "get-context", id: "g1" }), [
+    u1,
+    a1,
+    duration,
+    meta,
+  ]);
 });
 
 // Re-persisted copies (a legal file shape; see cli-history-repersistence
@@ -1103,27 +1084,6 @@ test("rewind in a file with re-persisted copies lists the first occurrences' con
   };
   assert.deepEqual(metadata.preservedMessages.uuids, [u1.uuid, a1.uuid]);
   assert.deepEqual(f.restarts, [f.sessionId]);
-});
-
-// P10 (see file comment): after an empty-uuids wipe the first real prompt
-// parents onto the boundary itself, so parentage alone cannot distinguish
-// it from a summary — only the isCompactSummary child leaves the window
-// open.
-test("an empty-uuids wipe's first real turn closes the synthesis window (P10; see file comment)", () => {
-  const sid = uuid();
-  const u1 = userEntry(null, sid);
-  const a1 = assistantEntry(u1.uuid, sid);
-  const wipe = boundaryEntry({ sessionId: sid, uuids: [], anchor: "own" });
-  const withSummary = [u1, a1, wipe, summaryEntry(wipe.uuid, sid)];
-  assert.notEqual(
-    startupOverride(withSummary, undefined, failOnInvalid),
-    undefined,
-  );
-  const firstPrompt = userEntry(wipe.uuid, sid, "first post-wipe prompt");
-  assert.equal(
-    startupOverride([u1, a1, wipe, firstPrompt], undefined, failOnInvalid),
-    undefined,
-  );
 });
 
 test("rewind to a member of a boundary's preserved uuids resurrects the summarized region", async () => {
@@ -1323,16 +1283,7 @@ test("a later boundary listing the full chain restores the rewound-away tail", a
     uuids: [u1.uuid, a1.uuid, u2.uuid, a2.uuid],
     id: "c2",
   });
-  const messages = (await f.handle({
-    type: "get-messages",
-    id: "g1",
-  })) as Array<{
-    uuid: string;
-  }>;
-  assert.deepEqual(
-    messages.map((message) => message.uuid),
-    [u1.uuid, a1.uuid, u2.uuid, a2.uuid],
-  );
+  assert.deepEqual(await contextUuids(f), [u1.uuid, a1.uuid, u2.uuid, a2.uuid]);
 });
 
 // The contextChanged.leaf invariant: the event carries exactly the leaf a
@@ -1550,6 +1501,6 @@ test("empty-uuids set-context appends a keep-nothing boundary; contextChanged ca
     id: "g1",
   })) as SessionSnapshot;
   assert.equal(snapshot.leaf, null);
-  // The synthesize override serves the (empty) chain.
-  assert.deepEqual(await f.handle({ type: "get-messages", id: "g2" }), []);
+  // A null leaf has no context.
+  assert.deepEqual(await contextUuids(f), []);
 });

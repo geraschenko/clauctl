@@ -18,7 +18,6 @@ import {
   isThinkingOnlyEntry,
   isToolCallEntry,
   isToolResultEntry,
-  loadedContext,
   toolCallIdsOf,
   toolGroupMaps,
 } from "../tree/loader.ts";
@@ -34,7 +33,6 @@ import {
   type SessionEntry,
 } from "../session/file.ts";
 import { readEntriesAfterStreamFlush } from "../session/entry-stream.ts";
-import type { GetMessagesOverride } from "./get-messages.ts";
 import type { RequestHandlerDeps } from "./request-handlers.ts";
 import type { RwGate } from "./rw-gate.ts";
 
@@ -202,13 +200,11 @@ export function normalizePreservedUuids(
 }
 
 /** The daemon state set-context shares with the rest of request handling:
- *  the reader/writer gate it takes exclusively, and the two slots it writes
- *  (the get-messages override, and query availability after restart
- *  failures). The concurrent-set-context policy flag stays at the dispatch
+ *  the reader/writer gate it takes exclusively, and the slot it writes
+ *  (query availability after restart failures). The concurrent-set-context policy flag stays at the dispatch
  *  site — it wraps this handler, not the other way around. */
 export interface SetContextShared {
   gate: RwGate;
-  installOverride(override: GetMessagesOverride): void;
   setQueryAvailable(available: boolean): void;
 }
 
@@ -305,18 +301,13 @@ export function createSetContextHandler(
       appendSessionEntries(filePath, built.entries);
       fileMutated = true;
 
-      // The append is durable, so the override and contextChanged leaf come
-      // from a re-read of the file (its loader view) and are installed
-      // before the restart, which may fail.
-      const effectiveRefs = loadedContext(
-        readSessionEntries(filePath),
-        deps.log,
-      );
-      changedLeaf = effectiveRefs.at(-1) ?? null;
-      shared.installOverride({
-        chain: effectiveRefs.map((ref) => ref.uuid),
-        installedAtLeaf: changedLeaf ?? undefined,
-      });
+      // The append is durable, so the contextChanged leaf comes from a
+      // re-read of the file, before the restart, which may fail.
+      const appended = readSessionEntries(filePath);
+      changedLeaf = toContextTree(
+        buildTree(appended, deps.log),
+        entriesByUuid(appended),
+      ).leaf;
       try {
         await deps.restartQuery(sessionId);
       } catch (error) {

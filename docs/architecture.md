@@ -81,7 +81,7 @@ The request surface has three layers:
   in-process (`close`, `streamInput`, `reinitialize`). Mutations that change
   persistable state also update the persisted options, so the respawn recipe
   stays current.
-- **conversation operations** — `prompt`, `interrupt`, `get-messages`,
+- **conversation operations** — `prompt`, `interrupt`, `get-context`,
   `get-entries`, `set-context`. These need daemon-side logic beyond the Claude
   Agent SDK (queueing, session-file access, context surgery).
 
@@ -93,11 +93,11 @@ events a client needs to maintain an accurate `AgentState` — the queue events
 [`claude-agent-sdk.md`](claude-agent-sdk.md) for why the SDK stream alone is
 not enough.
 
-`set-context` is the one request that rewrites history: it either appends a
-compact-boundary entry to the session file, or restarts the SDK session at an
-earlier leaf without writing the file (in which case the daemon keeps
-`get-messages` consistent with the trimmed view until the conversation moves
-on). This [blog post](https://geraschenko.com/blog/claude-context) details how
+`set-context` is the one request that rewrites history: it appends a
+compact-boundary entry to the session file and restarts the SDK session on it.
+`get-context` derives the assistant's context from the session file through the
+context tree (`docs/session-views.md`), so it needs no daemon state to agree
+with what the next turn will see. This [blog post](https://geraschenko.com/blog/claude-context) details how
 `set-context` works.
 
 The working definition of this protocol is

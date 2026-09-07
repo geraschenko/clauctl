@@ -29,15 +29,24 @@ export class ContextTree {
    *  thinking-only assistants whose API message group has no other
    *  surviving member. Matching skips them on both sides. */
   readonly excluded: ReadonlySet<UUID>;
+  /** Where the next turn attaches: the last row of the walk that is not a
+   *  boundary row, boundary rows resetting it — so a bare wipe yields null,
+   *  an up_to compaction its last preserved relinked row, a from-shape
+   *  compaction its summary, and any later entry itself (system and
+   *  attachment entries included: the CLI parents turns on them).
+   *  `contextAt(leaf)` is the context the next turn will see. */
+  readonly leaf: TreeNodeRef | null;
   private readonly relinkedOccurrencesOf: ReadonlyMap<UUID, string[]>;
 
   constructor(
     parentMap: ParentMap,
     excluded: ReadonlySet<UUID>,
+    leaf: TreeNodeRef | null,
     relinkedOccurrencesOf: ReadonlyMap<UUID, string[]>,
   ) {
     this.parentMap = parentMap;
     this.excluded = excluded;
+    this.leaf = leaf;
     this.relinkedOccurrencesOf = relinkedOccurrencesOf;
   }
 
@@ -104,6 +113,7 @@ export function toContextTree(
   const parentMap = new Map<string, string | null>();
   const relinkedOccurrencesOf = new Map<UUID, string[]>();
   const excluded = new Set<UUID>();
+  let leaf: TreeNodeRef | null = null;
   let group: ToolGroup | undefined;
 
   for (const [id, fullParent] of fullTree) {
@@ -129,6 +139,7 @@ export function toContextTree(
       }
     }
     if (entry.subtype === "compact_boundary") {
+      leaf = null;
       continue;
     }
     if (
@@ -144,11 +155,12 @@ export function toContextTree(
       throw new Error(`toContextTree: ${id} precedes its parent ${parent}`);
     }
     parentMap.set(id, parent);
+    leaf = ref;
   }
   for (const uuid of group?.excludedAtEnd() ?? []) {
     excluded.add(uuid);
   }
-  return new ContextTree(parentMap, excluded, relinkedOccurrencesOf);
+  return new ContextTree(parentMap, excluded, leaf, relinkedOccurrencesOf);
 }
 
 export interface PreservedListMatch {

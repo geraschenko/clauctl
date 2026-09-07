@@ -38,3 +38,22 @@ Alternatively, the TUI can maintain its own rolling trees (using the same core
 code) and the TUI could use `get-entries --since` to compute the delta since the
 last time it updated. I'm not sure if this is better or worse than the daemon
 serving the tree deltas directly.
+
+## Two streams, one leaf (2026-09-07)
+
+Once the daemon `tail -f`s the session file it holds two streams that are
+not synchronized: the SDK stream (what `agentState` folds today, including
+`agentState.leaf` = the last user/assistant message the stream reported)
+and the file stream (every entry, including `turn_duration`, attachments,
+isMeta prompts — which is why `seed.ts` exists: it bridges the file into
+the stream-shaped state at startup, under the stream's eligibility
+filter). That is the point to decide how the two interleave and whether
+`agentState.leaf` can simply become `ContextTree.leaf` (the last row of
+any kind; docs/specs/get-context.md) instead of a stream-derived value
+with its own filter. Until then the seed keeps mirroring the fold.
+
+This is also where we would decide what file entries should be emitted as
+SdkEvents. It seems reasonable that at least _some_ entries should produce
+SdkEvents, e.g. the uuid of a user message is otherwise unobservable. Right now,
+if there are consumers of the sdk stream, they read the session file through
+entryToSessionMessage in src/core/session/file.ts. The ideal we should aim for is that sdk stream consumers behave the same regardless of whether the stream is being "reconstructed" from the file or played live.
