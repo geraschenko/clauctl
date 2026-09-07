@@ -102,8 +102,8 @@ export const OPTION_BUCKETS = {
   // stop them individually (docs/thoughts/subagent-activity.md). Stays unset
   // (fail-closed: interrupt kills all background tasks) until then.
   perTaskStopAffordance: "invariant",
-  // Stays unset: it validates that a resumeSessionAt truncation drops exactly
-  // one turn, which /tree's multi-prompt rewinds would violate.
+  // Stays unset: it validates resumeSessionAt truncations, which clauctl
+  // never issues (rewinds write boundaries).
   resumeDropsTurn: "invariant",
 
   // Bucket 4 — respawn: session identity, set by clauctl per (re)spawn.

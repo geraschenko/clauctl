@@ -11,7 +11,6 @@
  * get-messages.ts (the override machinery keeping get-messages loader-true).
  */
 
-import type { UUID } from "node:crypto";
 import {
   getSessionMessages,
   type Query,
@@ -75,7 +74,7 @@ export interface RequestHandlerDeps {
   teardownQuery(): Promise<void>;
   /** Builds a fresh TurnQueue + Query resuming the session and rewires the
    *  daemon's reader loop onto it. */
-  restartQuery(resumeSessionId: string, resumeSessionAt?: UUID): Promise<void>;
+  restartQuery(resumeSessionId: string): Promise<void>;
   /** Register a live attacher; returns the deregister, wired to connection
    *  close. Implemented by daemon.ts (record write + audit). */
   registerAttachment(info: SubscribeAttachment): () => void;
@@ -130,11 +129,10 @@ export function createRequestHandler(
   // reconstructs it. File reads keep working.
   let queryAvailable = true;
 
+  // TDC: Is the concept of a "synthesis window" still necessary?
   // Startup reconstruction (criterion 3): a daemon that (re)starts inside the
   // synthesis window must keep synthesizing — the startup entries identify
-  // it. Only synthesize is reconstructible; a no-write rewind is not durable
-  // until the next turn (criterion 8): the file carries no record of it, so
-  // if the daemon exits first, a later resume sees the un-rewound chain.
+  // it.
   let override: GetMessagesOverride | undefined = startupOverride(
     deps.startupEntries,
     events.agentState.leaf,
@@ -156,7 +154,6 @@ export function createRequestHandler(
 
   const handleSetContext = createSetContextHandler(deps, {
     gate,
-    freshOverride,
     installOverride: (next) => {
       override = next;
     },
@@ -286,20 +283,13 @@ export function createRequestHandler(
             await waitForEntry(filePath, leaf.viaBoundary ?? leaf.uuid);
           }
           const active = freshOverride();
-          if (active?.kind === "synthesize") {
+          if (active !== undefined) {
             return synthesizeMessages(
               readSessionEntries(filePath),
               active.chain,
             );
           }
-          const messages = await getSessionMessages(sessionId, {
-            dir: deps.cwd,
-          });
-          return active === undefined
-            ? messages
-            : messages.filter(
-                (message) => !active.droppedUuids.has(message.uuid),
-              );
+          return await getSessionMessages(sessionId, { dir: deps.cwd });
         } finally {
           release();
         }
@@ -327,20 +317,9 @@ export function createRequestHandler(
               ? undefined
               : (stateLeaf.viaBoundary ?? stateLeaf.uuid),
           );
-          // The snapshot leaf is the effective-context tip, minus a live
-          // filterTail override's dropped uuids (a no-write rewind moves the
-          // leaf to the rewind target; the synthesize variant needs nothing —
-          // the re-read file already reflects the appended boundary).
-          const active = freshOverride();
-          const chain =
-            active?.kind === "filterTail"
-              ? loadedContext(entries, deps.log).filter(
-                  (ref) => !active.droppedUuids.has(ref.uuid),
-                )
-              : loadedContext(entries, deps.log);
           const snapshot: SessionSnapshot = {
             entries,
-            leaf: chain.at(-1) ?? null,
+            leaf: loadedContext(entries, deps.log).at(-1) ?? null,
           };
           return snapshot;
         } finally {

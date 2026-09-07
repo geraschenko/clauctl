@@ -47,14 +47,12 @@ export type TreePickAction =
 
 /** The fresh-compaction context a summary pick re-installs: the loader's
  *  view of the file truncated just after the summary — the summary plus
- *  its boundary's preserved chain, before any post-compaction turns —
- *  filtered to user/assistant uuids (system entries carry no context).
+ *  its boundary's preserved chain, before any post-compaction turns.
  *  Undefined when the summary is not on that chain (corrupt or
  *  hand-crafted file). */
 function summaryChainUuids(
   summary: SessionEntry,
   entries: SessionEntry[],
-  byUuid: ReadonlyMap<UUID, SessionEntry>,
   onInvalid: OnInvalid,
 ): UUID[] | undefined {
   // NOTE: For an "up_to" summary, the summary appears in the assistant's
@@ -68,13 +66,7 @@ function summaryChainUuids(
     entries.slice(0, summaryIndex + 1),
     onInvalid,
   );
-  if (!chain.includes(summary.uuid!)) {
-    return undefined;
-  }
-  return chain.filter((uuid) => {
-    const type = byUuid.get(uuid)?.type;
-    return type === "user" || type === "assistant";
-  });
+  return chain.includes(summary.uuid!) ? chain : undefined;
 }
 
 /**
@@ -92,8 +84,8 @@ function summaryChainUuids(
  * {uuids: []}). The
  * ancestor is not re-resolved to the final entry of its API message: the
  * nearest assistant ancestor on a path is final by construction except in
- * exotic interrupt shapes, which the daemon's final-entry validation
- * rejects with a clear error. An empty user text (reachable via the
+ * exotic interrupt shapes, where normalization completes or rejects the
+ * list. An empty user text (reachable via the
  * current-leaf filter exemption) omits editorText. A malformed summary
  * (parent not a boundary, or off its boundary's chain — corrupt or
  * hand-crafted file) falls back to ordinary user-row pick semantics.
@@ -123,7 +115,11 @@ export function resolveTreePick(
     pickedEntry.parentUuid != null &&
     byUuid.get(pickedEntry.parentUuid)?.subtype === "compact_boundary"
   ) {
-    const chain = summaryChainUuids(pickedEntry, entries, byUuid, onInvalid);
+    // Not the user-row semantics below: a user pick rewinds to the previous
+    // assistant and prefills the editor, but a summary is a user entry only
+    // from Claude's perspective — backing up past it would undo the
+    // compaction, which is not what picking the summary means.
+    const chain = summaryChainUuids(pickedEntry, entries, onInvalid);
     if (chain !== undefined) {
       return { kind: "setChain", uuids: chain };
     }

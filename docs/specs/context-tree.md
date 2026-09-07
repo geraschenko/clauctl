@@ -68,8 +68,8 @@ Two things are wanted:
    after `[S1,3,4]`) is a new root, not a child of `S1`.
 6. A boundary can branch off a visible relinked row: after
    `[1,2,3,4,7,8]` (from 3), `[1,2,3,4,7,10]` displays `~10` under `7@B`.
-7. `set-context --rewind-to X a b` writes the same boundary and verifies
-   the same context as `set-context <ctx(X) uuids…> a b`. Every rewind
+7. `set-context --rewind-to X a b` writes the same boundary as
+   `set-context <ctx(X) uuids…> a b`. Every rewind
    writes a boundary: the no-write `resumeSessionAt` path and the
    `filterTail` override are gone.
 8. The `--anchor` flag, the `anchor` wire field, and the user/assistant
@@ -372,22 +372,25 @@ summary uuid when a summary is written, else the boundary uuid.
 
 ### Phase C — `src/core/daemon/set-context.ts`
 
-`handleRewind(rewindTo, append, context)` — rewind is sugar for an
-explicit list, so it reduces to the uuids path:
+The handler has one path. It builds `toContextTree(buildTree(entries))`
+per request, takes the requested list (`uuids`, or
+`contextAt(rewindTo) ++ append` — any context-tree occurrence is a valid
+target, `X@B` included; an absent one throws from `contextAt`), then
+`normalizePreservedUuids` (rejection throws), `buildBoundaryEntries` with
+`logicalParentUuid` = the bare uuid of `matchPreservedList`'s branch point
+over the normalized list (materialized = `contextTree.parentMap`,
+hidden = ∅; null when nothing matches — a new root), append, restart,
+`added` reported. `summaryText` is accepted only with `uuids`.
 
-- desired = context at X (as today: `loadedContextUuids` of the prefix
-  through X, or the installed-chain prefix for `X@B`) `++ append`;
-- then exactly the uuids path: `normalizePreservedUuids` (rejection throws),
-  `buildBoundaryEntries`, append, restart, `restartAndVerify(normalized)`,
-  `added` reported. The `messageUuids` user/assistant filter is deleted.
-- The no-write `resumeSessionAt` path is deleted with everything that
-  exists only for it: the truncation test against the active chain, the
-  `filterTail` kind of `GetMessagesOverride` (the `synthesize` kind and
-  `installedAtLeaf` stay — they serve the boundary path),
-  `logicalTipOverride` (derived only from a `filterTail` override), and
-  `restartQuery`'s `resumeSessionAt` argument. The
-  daemon leaf after a rewind is the file truth (`P.last@B`), as for any
-  boundary.
+Deleted with the no-write path: the rewind target checks (assistant, final
+entry of its API message — `resumeSessionAt` requirements; normalization
+now covers split API messages), the active-chain truncation test, the
+`messageUuids` user/assistant filter, the post-restart verification of the
+loader's view against the normalized list (a normalize↔loader consistency
+check that belongs in tests), the `filterTail` kind of
+`GetMessagesOverride` (now the single shape `{ chain, installedAtLeaf }`),
+`logicalTipOverride`, and `restartQuery`'s `resumeSessionAt` argument. The
+daemon leaf after a rewind is the file truth (`X@B`), as for any boundary.
 
 ### Phase C — `src/tui/components/tree-selector.ts`
 
@@ -413,10 +416,10 @@ then hidden-row reattachment as today) → phase A's
 `treeLines`/`renderDagLines`.
 
 Phase C (`set-context --rewind-to X a b`): CLI resolves prefixes → wire
-`{ rewindTo, append }` → daemon `handleRewind`: context at X `++ append` →
-`normalizePreservedUuids` →
-`buildBoundaryEntries` (up_to iff summary, never here) → append to file →
-restart → `restartAndVerify(normalized)`. The written boundary then
+`{ rewindTo, append }` → daemon: `buildTree` → `toContextTree` →
+`contextAt(X) ++ append` → `normalizePreservedUuids` →
+`matchPreservedList` (logicalParentUuid) → `buildBoundaryEntries` (no
+summary) → append to file → restart. The written boundary then
 displays through phase B as a pure rewind (`append` empty) or
 rewind-and-append.
 
@@ -658,15 +661,16 @@ gaps caused by that filter.
 
 ## Phase C
 
-- [ ] wire: `append`, `anchor` removed; `parseSetContextRequest`
-- [ ] CLI: `--anchor` removed, positional uuids with `--rewind-to`,
+- [x] wire: `append`, `anchor` removed; `parseSetContextRequest`
+- [x] CLI: `--anchor` removed, positional uuids with `--rewind-to`,
       exclusivity
-- [ ] `file.ts`: `buildBoundaryEntries` without `anchor`
-- [ ] `set-context.ts`: `handleRewind` with `append` + normalize; filter
-      removed; no-write path + `filterTail` override + `logicalTipOverride` + resume-at restart argument deleted
-- [ ] test: tail-rewind boundary followed by native `/compact`
-- [ ] `tree-selector.ts`: filter removed
-- [ ] tests and docs (session-tree-and-set-context.md, README usage)
+- [x] `file.ts`: `buildBoundaryEntries` without `anchor`
+- [x] `set-context.ts`: `rewindPlaylist` + normalize, `logicalParentOf`
+      on every boundary; filter removed; no-write path + `filterTail`
+      override + `logicalTipOverride` + resume-at restart argument deleted
+- [x] test: tail-rewind boundary followed by native `/compact`
+- [x] `tree-selector.ts`: filter removed
+- [x] tests and docs (session-tree-and-set-context.md, README usage)
 
 ## 2026-09-03
 
@@ -1060,3 +1064,47 @@ existing children); `--anchor` and the user/assistant playlist filter go
 away. Later: tier (b) intercepting oracle, `tests/sdk/` guard, remove
 the AGENTS.md one-pass bullet once the rolling builder lands, and the
 `--filter all --raw` CLI change Anton wants for `format tree`.
+
+## 2026-09-07 — phase C implemented (uncommitted; one commit)
+
+Per Anton's plan approval. `set-context --rewind-to X [uuids…]` is sugar
+for the explicit list `contextAt(X) ++ uuids`; the no-write
+`resumeSessionAt` path, the `filterTail` override, `logicalTipOverride`,
+`freshOverride`, `--anchor`, and `restartQuery`'s second argument are
+deleted; every boundary we write gets a structural `logicalParentUuid`
+(bare uuid of `matchPreservedList`'s branch point). Files: sdk-socket.ts, sdk-commands.ts,
+session/file.ts, daemon/set-context.ts, daemon/get-messages.ts,
+daemon/request-handlers.ts, daemon/daemon.ts, tui/components/tree-selector.ts,
+tree/nodes.ts + options.ts comments; tests in request-handlers.test.ts
+(no-write tests → boundary-writing tests; new: rewind-and-append,
+`turn_duration` on the rewound context, structural parents after a rewind
+including the no-match → null case, viaBoundary errors), display-tree.test.ts
+(native `/compact` after a tail-rewind boundary), file.test.ts (from-shape
+test deleted), sdk-socket.test.ts (`append` parsing). Docs: this spec's
+Phase C sections; session-tree-and-set-context.md superseded passages
+marked; README usage. Presubmit green, 617/617.
+
+### Implementation-Time Decisions
+
+- `logicalParentUuid` matching uses `hidden = ∅`: the daemon builds no
+  display tree, so a branch point the display would hide is still the
+  structural parent. It is recorded as a bare uuid because the field is the
+  CLI's uuid-typed format; the display tree re-derives the exact occurrence
+  (`6@B` when the list branches off a relinked row) from the list.
+- The empty-list wipe now gets `logicalParentUuid: null` (previously the
+  active tip): nothing matches, so it is a new root — consistent with the
+  spec's criterion 4 and the display tree's own placement.
+- `X@B` validation is `contextAt`'s: a bad `viaBoundary` or a uuid not in
+  that boundary's block throws "is not a context-tree occurrence"; the
+  bespoke "does not name a compact_boundary" / "not on the context chain"
+  errors are gone with the installed-chain computation.
+- `GetMessagesOverride` collapsed to `{ chain, installedAtLeaf }` (no
+  `kind`): only the synthesize variant remains.
+- `restartQuery(resumeSessionId)` is single-argument; `options.ts` keeps
+  `resumeSessionAt: "respawn"` — it is a `keyof Options` bucket entry, not
+  a use.
+- Review round 70ab34e: the rewind target checks (assistant, final entry
+  of its API message) and the post-restart verification were deleted
+  (rationale in Type design); `rewindPlaylist`/`logicalParentOf` inlined.
+- The daemon builds `buildTree` → `toContextTree` per set-context request;
+  a rolling `tail -f` builder is the follow-up spec Anton described.

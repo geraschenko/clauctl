@@ -182,10 +182,7 @@ async function daemon(this: CommandContext, flags: DaemonFlags): Promise<void> {
   // CLI; while the former passes, this merge stays.
   const settings = await settingsSeed(record.persistedOptions, record.cwd);
 
-  const buildOptions = (
-    resume: string | undefined,
-    resumeSessionAt?: string,
-  ): Options => ({
+  const buildOptions = (resume: string | undefined): Options => ({
     ...record.persistedOptions,
     ...(record.persistedOptions.permissionMode === undefined &&
       settings.permissionMode !== undefined && {
@@ -195,7 +192,6 @@ async function daemon(this: CommandContext, flags: DaemonFlags): Promise<void> {
     cwd: record.cwd,
     env: childEnv(record.persistedOptions.env, agentId),
     ...(resume !== undefined && { resume }),
-    ...(resumeSessionAt !== undefined && { resumeSessionAt }),
   });
 
   // The Query and its TurnQueue are replaced by set-context (restartQuery
@@ -346,14 +342,11 @@ async function daemon(this: CommandContext, flags: DaemonFlags): Promise<void> {
   // reader error → daemonStreamDone rejection → daemon exit, the same path
   // as any other stream death; the handler's query-unavailable state covers
   // only the synchronous case, and revival reconstructs the rest.
-  const restartQuery = async (
-    resumeSessionId: string,
-    resumeSessionAt?: string,
-  ): Promise<void> => {
+  const restartQuery = async (resumeSessionId: string): Promise<void> => {
     turnQueue = new TurnQueue();
     claudeQuery = query({
       prompt: turnQueue,
-      options: buildOptions(resumeSessionId, resumeSessionAt),
+      options: buildOptions(resumeSessionId),
     });
     readerDone = runReader(claudeQuery);
     watchReader(readerDone);

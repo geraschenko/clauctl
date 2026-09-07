@@ -310,6 +310,52 @@ test("stacked pure rewinds have no rows", () => {
   });
 });
 
+// Boundaries stack: a native /compact after a tail-rewind boundary lists a
+// suffix of the rewound context, so its ═ hangs under the rewound tip.
+test("a native /compact after a tail-rewind boundary hangs under the rewound tip", () => {
+  const sid = uuid();
+  const e1 = userEntry(null, sid);
+  const e2 = assistantEntry(e1.uuid, sid);
+  const e3 = userEntry(e2.uuid, sid);
+  const e4 = assistantEntry(e3.uuid, sid);
+  const x = boundaryEntry({
+    sessionId: sid,
+    uuids: [e1.uuid, e2.uuid],
+    anchor: "own",
+    logicalParentUuid: e2.uuid,
+  });
+  const summaryUuid = uuid();
+  const c = boundaryEntry({
+    sessionId: sid,
+    uuids: [e2.uuid],
+    anchor: summaryUuid,
+    logicalParentUuid: e2.uuid,
+  });
+  const s = summaryEntry(c.uuid, sid, summaryUuid);
+  const e5 = userEntry(e2.uuid, sid);
+  const display = displayTreeOf([e1, e2, e3, e4, x, c, s, e5]);
+  assert.deepEqual(
+    [...display.parentMap],
+    [
+      [e1.uuid, null],
+      [e2.uuid, e1.uuid],
+      [e3.uuid, e2.uuid],
+      [e4.uuid, e3.uuid],
+      [c.uuid, e2.uuid],
+      [summaryUuid, c.uuid],
+      [e5.uuid, summaryUuid],
+    ],
+  );
+  assert.deepEqual(
+    display.nearestVisibleRow({ uuid: e2.uuid, viaBoundary: x.uuid }),
+    { uuid: e2.uuid },
+  );
+  assert.deepEqual(
+    display.nearestVisibleRow({ uuid: e2.uuid, viaBoundary: c.uuid }),
+    { uuid: summaryUuid },
+  );
+});
+
 test("boundaries with no applicable relink stay visible in place", () => {
   const sid = uuid();
   const e1 = userEntry(null, sid);

@@ -7,6 +7,15 @@
 > daemon). `get-entries` now returns a `SessionSnapshot` (`{entries, leaf}`)
 > and clients build a flat parent-relation `ParentMap` locally. `set-context`,
 > the boundary mechanics, and `get-messages` are unchanged.
+>
+> **Rewind mode superseded** by [context-tree.md](context-tree.md) phase C:
+> `--rewind-to X [uuids…]` now always appends a no-summary boundary listing
+> the context at `X` (a context-tree occurrence, `X` or `X@B`) plus the
+> positional uuids. Everything below about the no-write `resumeSessionAt`
+> path, the superseded-tail `filterTail` override and its durability caveat,
+> `--anchor`, and `restartQuery`'s `resumeSessionAt` argument describes
+> deleted code; the design passages are marked in place, the derisk history
+> and Implementation-Time Decisions stay as the record of that design.
 
 # SPEC
 
@@ -31,6 +40,7 @@ sees. This spec adds three RPC commands to the daemon socket and matching
   is a semantic, not a mechanism: it
   uses the SDK's `resumeSessionAt` when that suffices and falls back to
   appending a no-summary boundary when it doesn't (see Concrete examples).
+  _(Superseded, phase C: always the boundary; see header note.)_
 
 `get-messages` (already shipped) remains the "effective context" read.
 
@@ -138,8 +148,9 @@ sees. This spec adds three RPC commands to the daemon socket and matching
    what the loader would produce for the file truncated just after the
    target.) So rewinding to a post-compaction message keeps its summary;
    rewinding to a member of a boundary's preserved uuids follows raw
-   ancestry — the summarized region comes back. When the desired chain is a
-   truncation of the current active chain, nothing is written to disk
+   ancestry — the summarized region comes back. _(The rest of this
+   criterion is superseded, phase C: see header note.)_ When the desired
+   chain is a truncation of the current active chain, nothing is written to disk
    (`resumeSessionAt`) and the daemon records the superseded tail (the uuids
    of the active-chain entries after the target); `get-messages` filters
    those out of its output.
@@ -167,6 +178,7 @@ clauctl set-context <chain of branch B uuids...>
 clauctl set-context <recent tail uuids...> --summary "Earlier we set up the build; the failing test is X."
 
 # Keep prefix, summarize the discarded suffix (from-shape)
+# (superseded, phase C: --anchor is gone; use set-context then prompt --no-query)
 clauctl set-context <prefix uuids...> --summary "Then we explored Y (abandoned)." --anchor boundary
 
 # Rewind within the active chain: no summary, no file mutation
@@ -218,7 +230,8 @@ and seals the summarized region there (P9 c), while our semantics never
 cross a boundary that the target predates. (`upToMessageId` is a
 `forkSession()` param minting a
 NEW session id with fresh uuids — wrong tool for a daemon that keeps one
-session.) So the handler computes the desired chain itself and dispatches:
+session.) So the handler computes the desired chain itself and dispatches
+_(superseded, phase C: no dispatch — always the boundary; see header note)_:
 
 - Desired chain == current active chain truncated at the target →
   `resumeSessionAt`, no file mutation (P2 d), plus the pending-rewind
@@ -390,6 +403,8 @@ export function buildTree(entries: SessionEntry[]): SessionTree;
 
 ```ts
 // src/core/daemon.ts — internal restructuring (no exported API change)
+// (Superseded in part, phase C: rewind mode always appends a boundary; the
+// resumeSessionAt restart argument and the filterTail override are gone.)
 // `claudeQuery` becomes reassignable; construction is extracted so set-context
 // can rebuild it:
 //   let claudeQuery: Query = startQuery(resumeSessionId?)
@@ -458,6 +473,8 @@ export function buildTree(entries: SessionEntry[]): SessionTree;
 
 ```ts
 // src/core/sdk-commands.ts — CLI wiring
+// (Superseded in part, phase C: no --anchor; positional uuids may accompany
+// --rewind-to.)
 // get-entries, get-tree: bareRequestCommand.
 // set-context: parameterized command; positional uuids, --summary <text>,
 // --anchor <summary|boundary>, or --rewind-to <uuid> (mutually exclusive with

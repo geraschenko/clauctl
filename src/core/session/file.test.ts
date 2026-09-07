@@ -117,7 +117,6 @@ test("buildBoundaryEntries with summary, anchor summary (up_to shape)", () => {
     cwd: "/work",
     uuids,
     summaryText: "the summary",
-    anchor: "summary",
     logicalParentUuid: leaf,
     version: "2.2.7",
     preTokens: 12345,
@@ -151,32 +150,11 @@ test("buildBoundaryEntries with summary, anchor summary (up_to shape)", () => {
   assert.deepEqual(summary.message, { role: "user", content: "the summary" });
 });
 
-test("buildBoundaryEntries with summary, anchor boundary (from shape)", () => {
-  const { entries, result } = buildBoundaryEntries({
-    sessionId: uuid(),
-    cwd: "/work",
-    uuids: [uuid()],
-    summaryText: "kept prefix",
-    anchor: "boundary",
-    logicalParentUuid: null,
-    version: undefined,
-    preTokens: 0,
-  });
-  const boundary = entries[0]!;
-  const metadata = boundary.compactMetadata as {
-    preservedMessages: { anchorUuid: UUID };
-  };
-  assert.equal(metadata.preservedMessages.anchorUuid, result.boundaryUuid);
-  assert.equal(entries.length, 2);
-  assert.notEqual(result.summaryUuid, undefined);
-});
-
 test("buildBoundaryEntries without summary writes only the boundary", () => {
   const { entries, result } = buildBoundaryEntries({
     sessionId: uuid(),
     cwd: "/work",
     uuids: [uuid()],
-    anchor: "boundary",
     logicalParentUuid: null,
     version: undefined,
     preTokens: 0,
@@ -200,7 +178,6 @@ test("appendSessionEntries round-trips through readSessionEntries", () => {
     cwd: "/work",
     uuids: [existing.uuid],
     summaryText: "s",
-    anchor: "summary",
     logicalParentUuid: existing.uuid,
     version: undefined,
     preTokens: 0,

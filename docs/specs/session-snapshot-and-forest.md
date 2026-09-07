@@ -3,6 +3,12 @@
 Supersedes the `get-tree` portions of
 [session-tree-and-set-context.md](session-tree-and-set-context.md).
 
+> Since [context-tree.md](context-tree.md) phase C there is no `filterTail`
+> override and no no-write rewind: every rewind appends a boundary, and
+> `leaf` is simply the `loadedContext` tip of the file. The mentions below
+> describe the earlier design; the dead-branch visibility argument still
+> holds, since the file keeps abandoned tails either way.
+
 # SPEC
 
 ## Problem

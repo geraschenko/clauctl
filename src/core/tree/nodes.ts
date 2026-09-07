@@ -39,9 +39,8 @@ export interface TreeNodeRef {
  *  and are visible in `entries` only. */
 export interface SessionSnapshot {
   entries: SessionEntry[];
-  /** The current-leaf occurrence — where the next turn attaches. The tip of
-   *  the current effective context, daemon-computed (loadedContext minus a
-   *  live filterTail override). Null when the session has no chain
+  /** The current-leaf occurrence — where the next turn attaches: the tip
+   *  of loadedContext over the file. Null when the session has no chain
    *  entries. */
   leaf: TreeNodeRef | null;
 }

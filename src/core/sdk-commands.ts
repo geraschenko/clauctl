@@ -368,13 +368,12 @@ async function seedReadState(
 // --- set-context ----------------------------------------------------------------
 
 const setContextFlags = {
-  summary: stringFlag("Summary text written as the compact summary", "text"),
-  anchor: enumFlag(
-    "Context order: summary first (up_to, default) or uuids first (from)",
-    ["summary", "boundary"] as const,
+  summary: stringFlag(
+    "Summary text written as the compact summary (context reads summary first, then uuids)",
+    "text",
   ),
   rewindTo: stringFlag(
-    "Rewind to this tree node — <uuid> or <uuid>@<boundary-uuid> for an occurrence inside that boundary's context (unique prefixes accepted; mutually exclusive with uuids)",
+    "Rewind to this tree node — <uuid> or <uuid>@<boundary-uuid> for an occurrence inside that boundary's context (unique prefixes accepted); positional uuids are appended after its context",
     "node-ref",
   ),
   empty: booleanFlag("Reset the context to empty (keep no messages)"),
@@ -393,24 +392,16 @@ async function setContext(
   // after connecting, on the same connection as the request.
   if (
     flags.rewindTo !== undefined &&
-    (uuids.length > 0 ||
-      flags.summary !== undefined ||
-      flags.anchor !== undefined ||
-      flags.empty)
+    (flags.summary !== undefined || flags.empty)
   ) {
     throw new UsageError(
-      "--rewind-to is mutually exclusive with uuids/--summary/--anchor/--empty",
+      "--rewind-to is mutually exclusive with --summary/--empty",
     );
   }
-  if (
-    flags.empty &&
-    (uuids.length > 0 ||
-      flags.summary !== undefined ||
-      flags.anchor !== undefined)
-  ) {
+  if (flags.empty && (uuids.length > 0 || flags.summary !== undefined)) {
     // Summary-only context is already expressible via --summary alone.
     throw new UsageError(
-      "--empty is mutually exclusive with uuids/--summary/--anchor/--rewind-to",
+      "--empty is mutually exclusive with uuids/--summary/--rewind-to",
     );
   }
   if (
@@ -451,13 +442,15 @@ async function setContext(
     try {
       return parseSetContextRequest(
         rewindTo !== undefined
-          ? { rewindTo }
+          ? {
+              rewindTo,
+              ...(fullUuids.length > 0 && { append: [...fullUuids] }),
+            }
           : {
               uuids: flags.empty ? [] : [...fullUuids],
               ...(flags.summary !== undefined && {
                 summaryText: flags.summary,
               }),
-              ...(flags.anchor !== undefined && { anchor: flags.anchor }),
             },
       );
     } catch (error) {
@@ -786,7 +779,7 @@ export const sdkRoutes = {
     parameters: {
       flags: setContextFlags,
       positional: restArgs(
-        "Message uuids to keep, in order (unique prefixes accepted)",
+        "Message uuids to keep, in order (unique prefixes accepted); with --rewind-to, appended after the target's context",
         "uuid",
       ),
     },

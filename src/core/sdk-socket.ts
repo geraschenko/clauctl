@@ -164,39 +164,35 @@ export type SdkControlRead =
       maxBytes?: number;
       encoding?: "utf-8" | "base64";
     };
-
-/** Exactly one of `uuids` / `rewindTo` selects the mode. */
+/** Exactly one of `uuids` / `rewindTo`. */
 export type SetContextRequest =
-  // Boundary mode: append a compact_boundary (+ optional summary) to the
-  // session jsonl and restart the Query so the listed messages become the
-  // effective context.
+  // Append a compact_boundary (+ optional summary) to the session jsonl and
+  // restart the Query so the listed messages become the effective context.
   | {
       type: "set-context";
       /** Ordered; becomes compactMetadata.preservedMessages.uuids (and allUuids). */
       uuids: UUID[];
-      /** Omitted → no summary entry is written and anchor is forced to "boundary". */
+      /** Omitted → no summary entry is written. Present → up_to shape:
+       *  summary first, then uuids. */
       summaryText?: string;
-      /** "summary" (default): summary first, then uuids (up_to shape).
-       *  "boundary": uuids first, then summary (from shape). */
-      anchor?: "summary" | "boundary";
     }
-  // Rewind mode: the target is a tree-node occurrence whose entry is the
-  // final transcript entry of an assistant API message. viaBoundary absent:
-  // context = what it was when that message first appeared (the loader's
-  // view of the file truncated just after the target). viaBoundary present
-  // (a pick inside that boundary's relinked context): context = the prefix,
-  // ending at uuid, of the chain that boundary installed. Uses
-  // resumeSessionAt when the desired chain truncates the active chain, a
-  // no-summary boundary otherwise.
-  | { type: "set-context"; rewindTo: TreeNodeRef };
+  // Syntactic sugar for uuids = (the assistant context at rewindTo, followed by
+  // `append`).
+  | {
+      type: "set-context";
+      rewindTo: TreeNodeRef;
+      /** Appended after the context at rewindTo; the whole list then goes
+       *  through normalizePreservedUuids. */
+      append?: UUID[];
+    };
 
-/** Response data for set-context. boundaryUuid absent when a rewind needed no
- *  boundary; summaryUuid absent whenever no summary entry was written. */
+/** Response data for set-context. summaryUuid absent whenever no summary
+ *  entry was written. */
 export interface SetContextResult {
-  boundaryUuid?: UUID;
+  boundaryUuid: UUID;
   summaryUuid?: UUID;
-  /** Uuids normalization inserted into the preserved list (uuids mode only;
-   *  omitted when nothing was added). */
+  /** Uuids normalization inserted into the preserved list (omitted when
+   *  nothing was added). */
   added?: UUID[];
 }
 
@@ -209,23 +205,25 @@ function assertUuid(value: unknown, label: string): UUID {
 
 /** The socket casts untrusted JSON, so the one destructive command is parsed
  *  explicitly before any teardown. Throws with a descriptive message on:
- *  both or neither of uuids/rewindTo, non-array or non-uuid-string uuids,
- *  a rewindTo that is not a {uuid, viaBoundary?} record of uuids, unknown
- *  anchor, non-string or empty summaryText. An empty uuids array passes —
- *  an explicit empty list on the wire is a deliberate context reset; the
- *  fat-finger guard lives in the CLI (--empty). */
+ *  both or neither of uuids/rewindTo, non-array or non-uuid-string uuids or
+ *  append, a rewindTo that is not a {uuid, viaBoundary?} record of uuids,
+ *  append without rewindTo, non-string or empty summaryText. An empty uuids
+ *  array passes — an explicit empty list on the wire is a deliberate
+ *  context reset; the fat-finger guard lives in the CLI (--empty). */
 export function parseSetContextRequest(
   raw: Record<string, unknown>,
 ): SetContextRequest {
-  const { uuids, rewindTo, summaryText, anchor } = raw;
+  const { uuids, rewindTo, summaryText, append } = raw;
+  const parseUuidList = (value: unknown, label: string): UUID[] => {
+    if (!Array.isArray(value)) {
+      throw new Error(`set-context: ${label} must be an array`);
+    }
+    return value.map((uuid) => assertUuid(uuid, `${label} entry`));
+  };
   if (rewindTo !== undefined) {
-    if (
-      uuids !== undefined ||
-      summaryText !== undefined ||
-      anchor !== undefined
-    ) {
+    if (uuids !== undefined || summaryText !== undefined) {
       throw new Error(
-        "set-context: rewindTo is mutually exclusive with uuids/summaryText/anchor",
+        "set-context: rewindTo is mutually exclusive with uuids/summaryText",
       );
     }
     if (
@@ -237,6 +235,7 @@ export function parseSetContextRequest(
         "set-context: rewindTo must be a {uuid, viaBoundary?} object",
       );
     }
+    // Fields stay unknown so assertUuid is the only way to a UUID.
     const ref = rewindTo as { uuid?: unknown; viaBoundary?: unknown };
     return {
       type: "set-context",
@@ -246,30 +245,25 @@ export function parseSetContextRequest(
           viaBoundary: assertUuid(ref.viaBoundary, "rewindTo.viaBoundary"),
         }),
       },
+      ...(append !== undefined && { append: parseUuidList(append, "append") }),
     };
   }
   if (uuids === undefined) {
     throw new Error("set-context: exactly one of uuids/rewindTo is required");
   }
-  if (!Array.isArray(uuids)) {
-    throw new Error("set-context: uuids must be an array");
+  if (append !== undefined) {
+    throw new Error("set-context: append requires rewindTo");
   }
-  const parsedUuids = uuids.map((uuid) => assertUuid(uuid, "uuids entry"));
+  const parsedUuids = parseUuidList(uuids, "uuids");
   if (summaryText !== undefined) {
     if (typeof summaryText !== "string" || summaryText === "") {
       throw new Error("set-context: summaryText must be a non-empty string");
     }
   }
-  if (anchor !== undefined && anchor !== "summary" && anchor !== "boundary") {
-    throw new Error(
-      `set-context: anchor must be "summary" or "boundary", got ${JSON.stringify(anchor)}`,
-    );
-  }
   return {
     type: "set-context",
     uuids: parsedUuids,
     ...(summaryText !== undefined && { summaryText }),
-    ...(anchor !== undefined && { anchor }),
   };
 }
 

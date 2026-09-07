@@ -23,9 +23,8 @@ test("parseSetContextRequest accepts boundary mode with all fields", () => {
       id: "r1",
       uuids,
       summaryText: "s",
-      anchor: "boundary",
     }),
-    { type: "set-context", uuids, summaryText: "s", anchor: "boundary" },
+    { type: "set-context", uuids, summaryText: "s" },
   );
 });
 
@@ -102,8 +101,14 @@ test("parseSetContextRequest rejects malformed fields", () => {
     /non-empty string/,
   );
   assert.throws(
-    () => parseSetContextRequest({ uuids: [randomUUID()], anchor: "middle" }),
-    /anchor/,
+    () =>
+      parseSetContextRequest({ uuids: [randomUUID()], append: [randomUUID()] }),
+    /append requires rewindTo/,
+  );
+  assert.throws(
+    () =>
+      parseSetContextRequest({ rewindTo: { uuid: randomUUID() }, append: "x" }),
+    /append must be an array/,
   );
   assert.throws(
     () =>

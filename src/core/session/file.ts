@@ -177,8 +177,9 @@ export function buildBoundaryEntries(params: {
   sessionId: UUID;
   cwd: string;
   uuids: UUID[];
+  /** Written as the up_to summary: the boundary's anchor, so the context
+   *  reads summary first, then uuids. */
   summaryText?: string;
-  anchor: "summary" | "boundary";
   /** Recorded as the boundary's logicalParentUuid (tree anchoring). */
   logicalParentUuid: UUID | null;
   /** The version stamp; when the daemon has not observed the CLI's version,
@@ -215,7 +216,7 @@ export function buildBoundaryEntries(params: {
       trigger: "manual",
       preTokens: params.preTokens,
       preservedMessages: {
-        anchorUuid: params.anchor === "summary" ? summaryUuid : boundaryUuid,
+        anchorUuid: summaryUuid ?? boundaryUuid,
         uuids: params.uuids,
         allUuids: params.uuids,
       },

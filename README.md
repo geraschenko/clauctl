@@ -114,10 +114,11 @@ clauctl prompt "Say hello. Keep it short"
 clauctl set-permission-mode dontAsk
 clauctl get-context-usage
 
-# Rewind the agent to any earlier assistant message: the context becomes what it
-# was when that message first appeared.
+# Set the context to any list of existing entries, with `--rewind-to X` being
+# syntactic sugar for "everything that was in context when X was the final
+# entry".
 # Use `clauctl get-entries | clauctl format entries` to find a uuid.
-clauctl set-context --rewind-to <uuid>
+clauctl set-context [--rewind-to <uuid>] [<uuid>...]
 ```
 
 Rewinding is also interactive: in an attached TUI, `/tree` draws the session

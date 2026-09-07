@@ -18,38 +18,32 @@ import {
 } from "../session/file.ts";
 import type { TreeNodeRef } from "../tree/nodes.ts";
 
+// TDC: can we simplify this comment (and maybe the type)? What exactly is the function of installedAtLeaf? Doesn't it always have to match `chain.last()`? If so, we can drop that field. The text is confusing to me ... "so the override stays fresh", "slot is dropped"? I thing the comment and type have some vestigial complexity.
 /**
- * One override slot for get-messages, replaced by each successful
- * set-context:
- * - filterTail (no-write rewind): the session file still contains the
- *   superseded tail of the active chain; subtract those uuids from
- *   getSessionMessages output.
- * - synthesize (durable boundary append): getSessionMessages picks its tip as
- *   the latest user/assistant leaf in file order, so it reports the wrong
- *   chain for any boundary whose preserved-uuids tip predates another
- *   dangling leaf (spec criterion 3 mechanism note); serve the chain straight
- *   from the session file instead.
- * Both variants are pinned to the leaf occurrence they were installed at —
- * the POST-change leaf, the same value the contextChanged event carries, so
- * the override stays fresh once the event folds. The next transcript write
- * closes the synthesis window (getSessionMessages agrees with the loader
- * again) and makes the tail filter inert, so the slot is dropped lazily when
- * `leaf` moves. Every transcript write moves `leaf`:
- * the CLI echoes each appended user/assistant entry on the stream with its
- * transcript uuid, including host-pushed input — the same echo that clears
- * deliveredMessages (agent-state.ts fold).
+ * One override slot for get-messages, installed by each successful
+ * set-context (a durable boundary append): getSessionMessages picks its tip
+ * as the latest user/assistant leaf in file order, so it reports the wrong
+ * chain when the file ends in a boundary. Pinned to the leaf occurrence it was
+ * installed at — the POST-change leaf, the same value the contextChanged
+ * event carries, so the override stays fresh once the event folds. The next
+ * transcript write closes the synthesis window (getSessionMessages agrees
+ * with the loader again), so the slot is dropped lazily when `leaf` moves.
+ * Every transcript write moves `leaf`: the CLI echoes each appended
+ * user/assistant entry on the stream with its transcript uuid, including
+ * host-pushed input — the same echo that clears deliveredMessages
+ * (agent-state.ts fold).
  */
-export type GetMessagesOverride = (
-  | { kind: "filterTail"; droppedUuids: Set<string> }
-  | { kind: "synthesize"; chain: UUID[] }
-) & { installedAtLeaf: TreeNodeRef | undefined };
+export interface GetMessagesOverride {
+  chain: UUID[];
+  installedAtLeaf: TreeNodeRef | undefined;
+}
 
+// TDC: from this point down, do we still need this stuff? The context tree should replace all this, and instead of calling the SDK's getSessionMessages (which we think does not accurately represent what the assistant will see on the next call), we should *always* answer `get-messages` using the context tree. This also means that we can add `get-messages --at`. I know we put this in the non-goals of the spec, but I think it's best we implement this immediately, because otherwise this leftover complexity using the old way will confuse future developers. Maybe this is worth starting a new spec for, as it would completely remove the GetMessagesOverride type (this whole file).
 /**
  * The synthesis window: the file's last boundary has no post-boundary
  * user/assistant entries besides its own summary. Returns the chain to
  * synthesize while the window is open, undefined otherwise. Being purely
- * file-derived, this also reconstructs the window at daemon startup — unlike
- * a no-write rewind, which the file carries no record of (criterion 8).
+ * file-derived, this also reconstructs the window at daemon startup.
  */
 function synthesizeWindowChain(
   entries: SessionEntry[],
@@ -118,5 +112,5 @@ export function startupOverride(
   if (chain === undefined) {
     return undefined;
   }
-  return { kind: "synthesize", chain, installedAtLeaf };
+  return { chain, installedAtLeaf };
 }
