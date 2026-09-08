@@ -46,6 +46,7 @@ import { sessionFilePath } from "../session/file.ts";
 import { type CommandContext } from "../generated/targets.ts";
 import { AnomalyRecorder } from "./anomaly-bundle.ts";
 import { EventHub } from "./event-hub.ts";
+import { PermissionBroker, permissionRequestOf } from "./permission-broker.ts";
 import { createRequestHandler } from "./request-handlers.ts";
 import { RwGate } from "./rw-gate.ts";
 import { startProtocolServer } from "./protocol-server.ts";
@@ -189,32 +190,13 @@ async function daemon(this: CommandContext, flags: DaemonFlags): Promise<void> {
   // first turn; a resume continues the named one. Either way the seed's
   // querySessionId is known at construction.
   const seedSessionId = (resumeSessionId ?? randomUUID()) as UUID;
-  const buildOptions = (resume: string | undefined): Options => ({
-    ...record.persistedOptions,
-    ...(record.persistedOptions.permissionMode === undefined &&
-      settings.permissionMode !== undefined && {
-        permissionMode: settings.permissionMode,
-      }),
-    ...invariantOptions(),
-    cwd: record.cwd,
-    env: childEnv(record.persistedOptions.env, agentId),
-    ...(resume !== undefined ? { resume } : { sessionId: seedSessionId }),
-  });
 
   // The Query and its TurnQueue are replaced by set-context (restartQuery
   // below), so both are mutable slots; closures over them always see the
-  // current instance.
+  // current instance. Constructed after the hub: the Query's canUseTool
+  // publishes through the broker, which publishes through the hub.
   let turnQueue = new TurnQueue();
-  let claudeQuery: Query = query({
-    prompt: turnQueue,
-    options: buildOptions(resumeSessionId),
-  });
-
-  await writeAgentRecord(record);
-  // Unconditional delete after the first successful agent.json write: on
-  // initial spawn this is the handoff cleanup, and on revival it removes a
-  // stale file left by a daemon that died between the write and the delete.
-  await rm(spawnOptionsPath(agentDir), { force: true });
+  let claudeQuery: Query;
 
   // daemon.log (stdout) carries only exceptional events;
   // the full event stream is observed via socket subscribers.
@@ -263,6 +245,34 @@ async function daemon(this: CommandContext, flags: DaemonFlags): Promise<void> {
     log,
   });
   trackedLog.start(seedSessionId);
+
+  const permissionBroker = new PermissionBroker(events);
+  const buildOptions = (resume: string | undefined): Options => ({
+    ...record.persistedOptions,
+    ...(record.persistedOptions.permissionMode === undefined &&
+      settings.permissionMode !== undefined && {
+        permissionMode: settings.permissionMode,
+      }),
+    ...invariantOptions(),
+    cwd: record.cwd,
+    env: childEnv(record.persistedOptions.env, agentId),
+    ...(resume !== undefined ? { resume } : { sessionId: seedSessionId }),
+    canUseTool: (toolName, input, options) =>
+      permissionBroker.request(
+        permissionRequestOf(toolName, input, options),
+        options.signal,
+      ),
+  });
+  claudeQuery = query({
+    prompt: turnQueue,
+    options: buildOptions(resumeSessionId),
+  });
+
+  await writeAgentRecord(record);
+  // Unconditional delete after the first successful agent.json write: on
+  // initial spawn this is the handoff cleanup, and on revival it removes a
+  // stale file left by a daemon that died between the write and the delete.
+  await rm(spawnOptionsPath(agentDir), { force: true });
 
   // --- stream reader ---------------------------------------------------------
   // What remains of the reader is record bookkeeping plus a trivial loop, and
@@ -339,6 +349,9 @@ async function daemon(this: CommandContext, flags: DaemonFlags): Promise<void> {
 
   const teardownQuery = async (): Promise<void> => {
     tearingDown = true;
+    // Unreachable while an ask is pending (set-context requires quiescence);
+    // kept so a stream waiting on an ask can never deadlock teardown.
+    permissionBroker.cancelAll();
     turnQueue.close();
     // The stream ends once the child is gone (the SDK's cleanup awaits child
     // exit); an errored stream still means the old child is done.
@@ -383,6 +396,7 @@ async function daemon(this: CommandContext, flags: DaemonFlags): Promise<void> {
       teardownQuery,
       restartQuery,
       gate,
+      permissionBroker,
       trackedLog,
       registerAttachment: (info) => {
         const attachment: AttachmentInfo = {
@@ -432,6 +446,9 @@ async function daemon(this: CommandContext, flags: DaemonFlags): Promise<void> {
       // which precedes the socket close (delivery is best-effort — see
       // AgentEvent).
       const release = await gate.awaitExclusive();
+      // Every pending ask's cancellation precedes the farewell, so no
+      // permission event follows `shutdown`.
+      permissionBroker.cancelAll();
       try {
         trackedLog.drainVisibleBytes();
       } catch (error) {

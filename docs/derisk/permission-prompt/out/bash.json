@@ -1,0 +1,85 @@
+{
+  "scenario": "bash",
+  "versions": {
+    "sdk": "0.3.258"
+  },
+  "cwd": "/tmp/clauctl-permprobe-cwd-Vd4mfC",
+  "asks": [],
+  "denials": [],
+  "messages": [
+    {
+      "type": "system",
+      "subtype": "init"
+    },
+    {
+      "type": "system",
+      "subtype": "thinking_tokens"
+    },
+    {
+      "type": "system",
+      "subtype": "thinking_tokens"
+    },
+    {
+      "type": "system",
+      "subtype": "thinking_tokens"
+    },
+    {
+      "type": "system",
+      "subtype": "thinking_tokens"
+    },
+    {
+      "type": "assistant"
+    },
+    {
+      "type": "assistant"
+    },
+    {
+      "type": "rate_limit_event"
+    },
+    {
+      "type": "user"
+    },
+    {
+      "type": "system",
+      "subtype": "thinking_tokens"
+    },
+    {
+      "type": "system",
+      "subtype": "thinking_tokens"
+    },
+    {
+      "type": "system",
+      "subtype": "thinking_tokens"
+    },
+    {
+      "type": "system",
+      "subtype": "thinking_tokens"
+    },
+    {
+      "type": "system",
+      "subtype": "thinking_tokens"
+    },
+    {
+      "type": "system",
+      "subtype": "thinking_tokens"
+    },
+    {
+      "type": "system",
+      "subtype": "thinking_tokens"
+    },
+    {
+      "type": "assistant"
+    },
+    {
+      "type": "assistant"
+    },
+    {
+      "type": "result",
+      "subtype": "success"
+    }
+  ],
+  "result": {
+    "subtype": "success",
+    "permission_denials": []
+  }
+}

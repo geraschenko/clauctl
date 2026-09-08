@@ -14,14 +14,7 @@ export async function connectWithRetry(
   let delay = 50;
   while (true) {
     try {
-      const client = await ProtocolClient.connect(socketPath);
-      // CLI consumers all connect through here; the TUI connects directly
-      // and banners the warning instead (stderr would land under its
-      // alternate screen).
-      if (client.versionWarning !== undefined) {
-        process.stderr.write(`clauctl: warning: ${client.versionWarning}\n`);
-      }
-      return client;
+      return await ProtocolClient.connect(socketPath);
     } catch (error) {
       const code = (error as NodeJS.ErrnoException).code;
       const retryable = code === "ENOENT" || code === "ECONNREFUSED";

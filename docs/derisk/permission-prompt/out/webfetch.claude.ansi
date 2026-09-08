@@ -1,0 +1,50 @@
+[38;5;174m ▐[48;5;16m▛███▛█[39m[49m   [1mClaude[0m [1mCode[0m [38;5;246mv2.1.258[39m
+[38;5;174m▝▜[48;5;16m█████[49m█▀[39m  [38;5;246mHaiku[39m [38;5;246m4.5[39m [38;5;246m·[39m [38;5;246mClaude[39m [38;5;246mMax[39m
+[38;5;174m [39m [38;5;174m▝▝[39m [38;5;174m▝▝[39m    [38;5;246m~/.cache/clauctl-permprobe/workdir/webfetch[39m
+
+
+[38;5;239m[48;5;237m❯ [38;5;231mUse the WebFetch tool to fetch https://example.com and tell me its title.[39m
+
+[38;5;246m[49m●[39m [1mFetch[0m(https://example.com)
+
+[38;5;153m────────────────────────────────────────────────────────────────────────────────────────────────────
+[39m [1m[38;5;153mFetch[0m
+
+   url: https://example.com/
+   prompt: What is the title of this page?
+   [38;5;246mClaude[39m [38;5;246mwants[39m [38;5;246mto[39m [38;5;246mfetch[39m [38;5;246mcontent[39m [38;5;246mfrom[39m [38;5;246mexample.com[39m
+
+ Do you want to allow Claude to fetch this content?
+ [38;5;153m❯[39m [38;5;246m1.[39m [38;5;153mYes[39m
+   [38;5;246m2.[39m Yes, and don't ask again for [1mexample.com[0m
+   [38;5;246m3.[39m No, and tell Claude what to do differently [1m(esc)[0m
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

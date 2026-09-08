@@ -11,14 +11,17 @@
  *   queued, this fires at the *first* result (waiting out the queue is
  *   `idle`).
  * - idle: `isIdle` — activity is idle and no querying messages are queued
- *   (the common condition, so it gets the short name).
+ *   (the common condition, so it gets the short name). A task's pending
+ *   permission ask does not affect it: the CLI would run a prompt.
+ * - quiescent: `isQuiescent` — idle and no live task (subagent, background
+ *   shell); what a Query restart requires.
  * - no-activity:<secs>: no AgentEvent of any kind for N seconds, regardless of
  *   activity state; catches turns stalled on human-facing UI, which `idle`
  *   never reports. N may be fractional (e.g. `no-activity:0.5`). Enforced by
  *   the stream driver's quiet timer, never by an event.
  */
 
-import { isIdle } from "./agent-state/index.ts";
+import { isIdle, isQuiescent } from "./agent-state/index.ts";
 import type { AgentState, AgentEvent } from "./protocol/index.ts";
 import { makeUntilCheckers } from "./generated/until-engine.ts";
 
@@ -30,7 +33,7 @@ export const {
   untilMetByEvent,
   untilQuietMs,
 } = makeUntilCheckers<AgentEvent, AgentState>({
-  stateConditions: { idle: isIdle },
+  stateConditions: { idle: isIdle, quiescent: isQuiescent },
   isTurnEnd: (event) =>
     event.kind === "sdkMessage" && event.message.type === "result",
 });

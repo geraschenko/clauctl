@@ -1,0 +1,158 @@
+{
+  "scenario": "askuser",
+  "versions": {
+    "sdk": "0.3.258"
+  },
+  "cwd": "/tmp/clauctl-permprobe-cwd-GRVkP1",
+  "asks": [
+    {
+      "toolName": "AskUserQuestion",
+      "input": {
+        "questions": [
+          {
+            "question": "Do you prefer cats or dogs?",
+            "header": "Pet Preference",
+            "options": [
+              {
+                "label": "Cats",
+                "description": "I prefer feline companions"
+              },
+              {
+                "label": "Dogs",
+                "description": "I prefer canine companions"
+              },
+              {
+                "label": "Both equally",
+                "description": "I like both cats and dogs the same"
+              }
+            ],
+            "multiSelect": false
+          }
+        ]
+      },
+      "options": {
+        "displayName": "AskUserQuestion",
+        "toolUseID": "toolu_01G8q4W9Wvxmtbi9wHuCaawz",
+        "requestId": "646605eb-47ae-4ab5-9e5c-f28ba399042b"
+      },
+      "signalAborted": false
+    }
+  ],
+  "denials": [],
+  "messages": [
+    {
+      "type": "system",
+      "subtype": "init"
+    },
+    {
+      "type": "system",
+      "subtype": "thinking_tokens"
+    },
+    {
+      "type": "system",
+      "subtype": "thinking_tokens"
+    },
+    {
+      "type": "system",
+      "subtype": "thinking_tokens"
+    },
+    {
+      "type": "system",
+      "subtype": "thinking_tokens"
+    },
+    {
+      "type": "system",
+      "subtype": "thinking_tokens"
+    },
+    {
+      "type": "system",
+      "subtype": "thinking_tokens"
+    },
+    {
+      "type": "system",
+      "subtype": "thinking_tokens"
+    },
+    {
+      "type": "assistant"
+    },
+    {
+      "type": "assistant"
+    },
+    {
+      "type": "user"
+    },
+    {
+      "type": "rate_limit_event"
+    },
+    {
+      "type": "system",
+      "subtype": "thinking_tokens"
+    },
+    {
+      "type": "system",
+      "subtype": "thinking_tokens"
+    },
+    {
+      "type": "system",
+      "subtype": "thinking_tokens"
+    },
+    {
+      "type": "system",
+      "subtype": "thinking_tokens"
+    },
+    {
+      "type": "system",
+      "subtype": "thinking_tokens"
+    },
+    {
+      "type": "system",
+      "subtype": "thinking_tokens"
+    },
+    {
+      "type": "system",
+      "subtype": "thinking_tokens"
+    },
+    {
+      "type": "assistant"
+    },
+    {
+      "type": "assistant"
+    },
+    {
+      "type": "result",
+      "subtype": "success"
+    }
+  ],
+  "result": {
+    "subtype": "success",
+    "permission_denials": [
+      {
+        "tool_name": "AskUserQuestion",
+        "tool_use_id": "toolu_01G8q4W9Wvxmtbi9wHuCaawz",
+        "tool_input": {
+          "questions": [
+            {
+              "question": "Do you prefer cats or dogs?",
+              "header": "Pet Preference",
+              "options": [
+                {
+                  "label": "Cats",
+                  "description": "I prefer feline companions"
+                },
+                {
+                  "label": "Dogs",
+                  "description": "I prefer canine companions"
+                },
+                {
+                  "label": "Both equally",
+                  "description": "I like both cats and dogs the same"
+                }
+              ],
+              "multiSelect": false
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

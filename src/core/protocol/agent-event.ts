@@ -7,6 +7,7 @@ import type {
 import { queuedCommandSourceUuid, type SessionEntry } from "../session/file.ts";
 import type { TreeNodeRef } from "../tree/nodes.ts";
 import type { SdkControlApplied } from "./messages.ts";
+import type { PermissionRequest, PermissionResolution } from "./permission.ts";
 import type { MergeStream } from "./session-state.ts";
 import type { TrackerAnomaly } from "./tracker-anomaly.ts";
 
@@ -127,6 +128,20 @@ export type AgentEvent =
       anomaly: TrackerAnomaly;
       bundlePath: string;
     }
+  // A permission ask and its answer: daemon bookkeeping on `query`, where
+  // the ask sits at a definite point among the SDK frames (after the
+  // tool_use that raised it, before its tool_result). Hub-stamped, and
+  // excluded from the session stream unconditionally: the session file
+  // never records an ask. `permissionResolved` is transient — a
+  // subscriber attaching later sees only the ask's absence from the
+  // snapshot.
+  | { kind: "permissionRequested"; uuid: UUID; request: PermissionRequest }
+  | {
+      kind: "permissionResolved";
+      uuid: UUID;
+      toolUseId: string;
+      resolution: PermissionResolution;
+    }
   // Emitted by the daemon before any teardown, so subscribers can distinguish
   // a deliberate shutdown (archive → SIGTERM, stream end) from a crash (socket
   // close with no announcement). Delivery is best-effort: process exit races
@@ -171,6 +186,8 @@ export function eventNodes(event: AgentEvent): readonly [UUID, ...UUID[]] {
     case "contextChanged":
     case "scanComplete":
     case "trackerAnomaly":
+    case "permissionRequested":
+    case "permissionResolved":
     case "shutdown":
       return [event.uuid];
   }

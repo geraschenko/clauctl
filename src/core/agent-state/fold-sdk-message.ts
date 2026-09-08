@@ -6,6 +6,7 @@ import { withObservedPermissionMode } from "./observed-permission-mode.ts";
 import { withQueryEvidence } from "./query-message.ts";
 import { queryingCount } from "./selectors.ts";
 import { withSession } from "./with-session.ts";
+import { withTask, withoutTask } from "./with-permission.ts";
 import { withAnomalies } from "./tracker-anomaly.ts";
 
 /** After the observation: the message's evidence, then what it says
@@ -60,6 +61,44 @@ export function foldSdkMessage(
       stateWithEvidence,
       message.permissionMode,
     );
+  }
+  if (message.type === "system" && message.subtype === "task_started") {
+    // Ambient tasks (watchers, housekeeping) are not activity: never live.
+    if (message.ambient === true) return stateWithEvidence;
+    return withTask(stateWithEvidence, {
+      taskId: message.task_id,
+      ...(message.tool_use_id !== undefined && {
+        toolUseId: message.tool_use_id,
+      }),
+      description: message.description,
+      ...(message.task_type !== undefined && { taskType: message.task_type }),
+      ...(message.subagent_type !== undefined && {
+        subagentType: message.subagent_type,
+      }),
+      background: message.is_backgrounded === true,
+      status: "running",
+      pendingPermissions: [],
+    });
+  }
+  if (message.type === "system" && message.subtype === "task_updated") {
+    const task = stateWithEvidence.tasks.find(
+      (live) => live.taskId === message.task_id,
+    );
+    const { status, description, is_backgrounded } = message.patch;
+    if (task === undefined) return stateWithEvidence;
+    if (status === "completed" || status === "failed" || status === "killed") {
+      return withoutTask(stateWithEvidence, message.task_id);
+    }
+    return withTask(stateWithEvidence, {
+      ...task,
+      ...(status === "paused" && { status: "paused" }),
+      ...(status === "running" && { status: "running" }),
+      ...(description !== undefined && { description }),
+      ...(is_backgrounded !== undefined && { background: is_backgrounded }),
+    });
+  }
+  if (message.type === "system" && message.subtype === "task_notification") {
+    return withoutTask(stateWithEvidence, message.task_id);
   }
   if (message.type === "assistant") {
     // Top-level assistant output confirms the turn started. Compacting is

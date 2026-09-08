@@ -3,7 +3,10 @@ export { entryViewFor } from "./entry-view-for.ts";
 export {
   collapsedOutputSummary,
   READ_ONLY_TOOLS,
+  stringArg,
   type ToolHeader,
+  type ToolInputMap,
+  type ToolName,
   type ToolView,
   type ToolViewContext,
   toolViewFor,

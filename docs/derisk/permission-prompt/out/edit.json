@@ -1,0 +1,311 @@
+{
+  "scenario": "edit",
+  "versions": {
+    "sdk": "0.3.258"
+  },
+  "cwd": "/tmp/clauctl-permprobe-cwd-BMLV4W",
+  "asks": [
+    {
+      "toolName": "Edit",
+      "input": {
+        "file_path": "/tmp/clauctl-permprobe-cwd-BMLV4W/a.txt",
+        "old_string": "hello",
+        "new_string": "goodbye",
+        "replace_all": false
+      },
+      "options": {
+        "suggestions": [
+          {
+            "type": "setMode",
+            "mode": "acceptEdits",
+            "destination": "session"
+          }
+        ],
+        "displayName": "Edit",
+        "description": "a.txt",
+        "toolUseID": "toolu_019Aq7z6wsScKxHXGBkbWASZ",
+        "requestId": "50d4112c-bfd6-4849-91e3-83cf43a312b6"
+      },
+      "signalAborted": false
+    }
+  ],
+  "denials": [],
+  "messages": [
+    {
+      "type": "system",
+      "subtype": "init"
+    },
+    {
+      "type": "system",
+      "subtype": "thinking_tokens"
+    },
+    {
+      "type": "system",
+      "subtype": "thinking_tokens"
+    },
+    {
+      "type": "system",
+      "subtype": "thinking_tokens"
+    },
+    {
+      "type": "system",
+      "subtype": "thinking_tokens"
+    },
+    {
+      "type": "system",
+      "subtype": "thinking_tokens"
+    },
+    {
+      "type": "assistant"
+    },
+    {
+      "type": "assistant"
+    },
+    {
+      "type": "assistant"
+    },
+    {
+      "type": "user"
+    },
+    {
+      "type": "rate_limit_event"
+    },
+    {
+      "type": "system",
+      "subtype": "thinking_tokens"
+    },
+    {
+      "type": "system",
+      "subtype": "thinking_tokens"
+    },
+    {
+      "type": "system",
+      "subtype": "thinking_tokens"
+    },
+    {
+      "type": "system",
+      "subtype": "thinking_tokens"
+    },
+    {
+      "type": "system",
+      "subtype": "thinking_tokens"
+    },
+    {
+      "type": "assistant"
+    },
+    {
+      "type": "assistant"
+    },
+    {
+      "type": "assistant"
+    },
+    {
+      "type": "user"
+    },
+    {
+      "type": "system",
+      "subtype": "thinking_tokens"
+    },
+    {
+      "type": "system",
+      "subtype": "thinking_tokens"
+    },
+    {
+      "type": "system",
+      "subtype": "thinking_tokens"
+    },
+    {
+      "type": "system",
+      "subtype": "thinking_tokens"
+    },
+    {
+      "type": "system",
+      "subtype": "thinking_tokens"
+    },
+    {
+      "type": "system",
+      "subtype": "thinking_tokens"
+    },
+    {
+      "type": "system",
+      "subtype": "thinking_tokens"
+    },
+    {
+      "type": "system",
+      "subtype": "thinking_tokens"
+    },
+    {
+      "type": "system",
+      "subtype": "thinking_tokens"
+    },
+    {
+      "type": "system",
+      "subtype": "thinking_tokens"
+    },
+    {
+      "type": "system",
+      "subtype": "thinking_tokens"
+    },
+    {
+      "type": "system",
+      "subtype": "thinking_tokens"
+    },
+    {
+      "type": "system",
+      "subtype": "thinking_tokens"
+    },
+    {
+      "type": "system",
+      "subtype": "thinking_tokens"
+    },
+    {
+      "type": "system",
+      "subtype": "thinking_tokens"
+    },
+    {
+      "type": "system",
+      "subtype": "thinking_tokens"
+    },
+    {
+      "type": "system",
+      "subtype": "thinking_tokens"
+    },
+    {
+      "type": "system",
+      "subtype": "thinking_tokens"
+    },
+    {
+      "type": "system",
+      "subtype": "thinking_tokens"
+    },
+    {
+      "type": "system",
+      "subtype": "thinking_tokens"
+    },
+    {
+      "type": "system",
+      "subtype": "thinking_tokens"
+    },
+    {
+      "type": "system",
+      "subtype": "thinking_tokens"
+    },
+    {
+      "type": "system",
+      "subtype": "thinking_tokens"
+    },
+    {
+      "type": "system",
+      "subtype": "thinking_tokens"
+    },
+    {
+      "type": "system",
+      "subtype": "thinking_tokens"
+    },
+    {
+      "type": "system",
+      "subtype": "thinking_tokens"
+    },
+    {
+      "type": "system",
+      "subtype": "thinking_tokens"
+    },
+    {
+      "type": "system",
+      "subtype": "thinking_tokens"
+    },
+    {
+      "type": "system",
+      "subtype": "thinking_tokens"
+    },
+    {
+      "type": "system",
+      "subtype": "thinking_tokens"
+    },
+    {
+      "type": "system",
+      "subtype": "thinking_tokens"
+    },
+    {
+      "type": "system",
+      "subtype": "thinking_tokens"
+    },
+    {
+      "type": "system",
+      "subtype": "thinking_tokens"
+    },
+    {
+      "type": "system",
+      "subtype": "thinking_tokens"
+    },
+    {
+      "type": "system",
+      "subtype": "thinking_tokens"
+    },
+    {
+      "type": "system",
+      "subtype": "thinking_tokens"
+    },
+    {
+      "type": "system",
+      "subtype": "thinking_tokens"
+    },
+    {
+      "type": "system",
+      "subtype": "thinking_tokens"
+    },
+    {
+      "type": "system",
+      "subtype": "thinking_tokens"
+    },
+    {
+      "type": "system",
+      "subtype": "thinking_tokens"
+    },
+    {
+      "type": "system",
+      "subtype": "thinking_tokens"
+    },
+    {
+      "type": "system",
+      "subtype": "thinking_tokens"
+    },
+    {
+      "type": "system",
+      "subtype": "thinking_tokens"
+    },
+    {
+      "type": "system",
+      "subtype": "thinking_tokens"
+    },
+    {
+      "type": "system",
+      "subtype": "thinking_tokens"
+    },
+    {
+      "type": "assistant"
+    },
+    {
+      "type": "assistant"
+    },
+    {
+      "type": "result",
+      "subtype": "success"
+    }
+  ],
+  "result": {
+    "subtype": "success",
+    "permission_denials": [
+      {
+        "tool_name": "Edit",
+        "tool_use_id": "toolu_019Aq7z6wsScKxHXGBkbWASZ",
+        "tool_input": {
+          "file_path": "/tmp/clauctl-permprobe-cwd-BMLV4W/a.txt",
+          "old_string": "hello",
+          "new_string": "goodbye",
+          "replace_all": false
+        }
+      }
+    ]
+  }
+}

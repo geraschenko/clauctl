@@ -87,7 +87,7 @@ test("subscribe seeds the client fold and delivers (event, post-fold state) pair
   }
 });
 
-test("hello version mismatch is exposed as versionWarning, match is not", async () => {
+test("hello version mismatch rejects connect, match connects", async () => {
   const socketPath = join(dir, "hello-version.sock");
   const server = createServer((socket) => {
     socket.write(
@@ -96,9 +96,10 @@ test("hello version mismatch is exposed as versionWarning, match is not", async 
   });
   await new Promise<void>((resolve) => server.listen(socketPath, resolve));
   try {
-    const client = await ProtocolClient.connect(socketPath);
-    assert.match(client.versionWarning ?? "", /version 999, expected/);
-    client.close();
+    await assert.rejects(
+      ProtocolClient.connect(socketPath),
+      /version 999, expected/,
+    );
   } finally {
     server.close();
   }
@@ -107,7 +108,6 @@ test("hello version mismatch is exposed as versionWarning, match is not", async 
   const matched = startProtocolServer(matchedPath, () => Promise.resolve("ok"));
   try {
     const client = await ProtocolClient.connect(matchedPath);
-    assert.equal(client.versionWarning, undefined);
     client.close();
   } finally {
     matched.close();

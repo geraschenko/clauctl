@@ -78,3 +78,65 @@ SDK messages (routed by `parent_tool_use_id`) feeding its query stream
 and a separate file follower over `subagents/agent-<id>.jsonl` feeding
 its file stream — the same merge shape as the main session, not a filter
 over the main file.
+
+## Facts and hypotheses from the permission-prompt derisk (2026-09-29)
+
+Source: docs/derisk/permission-prompt/probe-bg-subagent.mjs, FINDINGS.md
+"Background-subagent ask", and a subagent file it produced.
+
+- **Identity is `agentId`, not a session id.** Every entry of
+  `<project>/<sessionId>/subagents/agent-<agentId>.jsonl` carries the
+  _main_ session's `sessionId`, plus `agentId`, `isSidechain: true`,
+  `parentAgentId: null` (depth 1). Subagent SDK frames also carry the
+  main `session_id`. `agentId` equals `system/task_started.task_id`, and
+  the frames' `parent_tool_use_id` equals `task_started.tool_use_id`; a
+  `canUseTool` ask from a subagent carries `agentID` = the same id. So
+  routing is exact, keyed by task, and a subagent cannot live in
+  `AgentState.sessions` (UUID-keyed, routed by `session_id`).
+- **Lifecycle** is the task lifecycle: `task_started` (description,
+  `subagent_type`, `is_backgrounded`, `spawn_depth`, `task_type`
+  `local_agent`; also `local_bash`, `mcp_task`, `local_workflow`, and
+  `ambient` tasks sdk.d.ts says to exclude from activity indicators) →
+  `task_updated` patches (`status`, `is_backgrounded`) →
+  `task_notification` (`completed | failed | stopped`). Foreground
+  subagents emit the same messages. After a background task finishes the
+  CLI runs an unprompted `init → turn → result` delivering the
+  notification; a prompt pushed while a background subagent is running
+  (or blocked on an ask) runs immediately as a turn — the main loop is
+  not blocked. `AgentState.tasks: TaskState[]` (permission-prompt spec)
+  is the task map this note builds on; the per-task `SessionState` is
+  the field to add there.
+- **Hypothesis: steering a subagent.** The CLI TUI can send a prompt to
+  a running subagent; sdk.d.ts exposes no `Query` method for it, but the
+  input `SDKUserMessage` shape has `parent_tool_use_id: string | null`.
+  Probe: push a user message with `parent_tool_use_id = <the Task
+  tool_use id>` while the subagent runs and check whether it lands in
+  the subagent's file (`agent-<id>.jsonl`) rather than the main one.
+- **`forwardSubagentText`** (`Options`, documented default false): only
+  tool_use/tool_result blocks of subagents are forwarded otherwise. The
+  probe saw subagent thinking/text frames without setting it, so either
+  the default moved or the daemon's invariant options cover it — verify
+  before relying on the query side for a nested transcript.
+
+### Tricky implementation bits for a per-task SessionState
+
+1. **Follower per task.** `TrackedSessionLog` owns one follower and one
+   file switch (`sessionFilePath(sessionId: UUID)`); a task needs its own
+   follower over `subagents/agent-<id>.jsonl`, started at `task_started`
+   (the file may not exist yet — same "seed file absent" handling as the
+   main session) and closed after `task_notification`.
+2. **Routing on the wire and in the fold.** `sessionEntry`,
+   `sessionFileChanged`, `scanComplete`, `sdkMessage` resolve their
+   session by `session_id` in `observeEvent`; task-scoped events need a
+   `taskId` discriminator, and the fold, `eventNodes`/`excludedFromOther`,
+   settlement selectors and anomaly bundles a second lookup path
+   (`tasks[i].session` instead of `sessions[id]`).
+3. **Classification of sidechain files.** The subagent file is mostly
+   `attachment` entries (16 of 20 lines in the probe's file); whether
+   `excludedFromQuery`/`excludedFromSession` hold for sidechain files is
+   unverified — a wrong table produces an anomaly bundle per subagent.
+   Derisk with the compact-boundary-style file survey before coding.
+4. **Settlement.** `settled()`/`whenSettled` and set-context's quiet
+   wait must either include task files or exclude them deliberately;
+   set-context restarts the Query, which kills every task, so quiescence
+   (no live tasks) is the guard — `isQuiescent` in the permission spec.

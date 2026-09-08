@@ -33,6 +33,10 @@ import type { UUID } from "node:crypto";
 import type { AgentEvent, AgentState } from "../protocol/index.ts";
 import { foldSdkMessage } from "./fold-sdk-message.ts";
 import {
+  withPermissionRequested,
+  withPermissionResolved,
+} from "./with-permission.ts";
+import {
   foldSessionEntry,
   withScanExclusionEnded,
 } from "./fold-session-entry.ts";
@@ -57,6 +61,8 @@ export function initialAgentState(): AgentState {
     observedPermissionModes: [],
     queuedMessages: [],
     sessions: {},
+    tasks: [],
+    pendingPermissions: [],
   };
 }
 
@@ -136,6 +142,13 @@ function foldEvent(state: AgentState, event: AgentEvent): AgentState {
       return observeEvent(state, event);
     case "controlApplied":
       return observeEvent(withControlApplied(state, event), event);
+    case "permissionRequested":
+      return withPermissionRequested(observeEvent(state, event), event.request);
+    case "permissionResolved":
+      return withPermissionResolved(
+        observeEvent(state, event),
+        event.toolUseId,
+      );
     case "sdkMessage":
       return foldSdkMessage(
         observeEvent(withPendingLeaf(state, event), event),

@@ -1,0 +1,312 @@
+{
+  "scenario": "subagent-bg-kill",
+  "versions": {
+    "sdk": "0.3.280"
+  },
+  "cwd": "/tmp/clauctl-permprobe-cwd-Mas6HG",
+  "timeline": [
+    {
+      "t": 139,
+      "what": "message",
+      "type": "system",
+      "subtype": "init"
+    },
+    {
+      "t": 1021,
+      "what": "message",
+      "type": "system",
+      "subtype": "thinking_tokens"
+    },
+    {
+      "t": 1815,
+      "what": "message",
+      "type": "system",
+      "subtype": "thinking_tokens"
+    },
+    {
+      "t": 1817,
+      "what": "message",
+      "type": "assistant",
+      "parent_tool_use_id": null,
+      "blocks": ["thinking"]
+    },
+    {
+      "t": 2423,
+      "what": "message",
+      "type": "assistant",
+      "parent_tool_use_id": null,
+      "blocks": ["tool_use:Agent"]
+    },
+    {
+      "t": 2430,
+      "what": "message",
+      "type": "system",
+      "subtype": "background_tasks_changed"
+    },
+    {
+      "t": 2432,
+      "what": "message",
+      "type": "system",
+      "subtype": "task_started",
+      "payload": {
+        "type": "system",
+        "subtype": "task_started",
+        "task_id": "ad7c4e25064ee2614",
+        "tool_use_id": "toolu_01BbqwyYkrHH4ij9s5tb1uCw",
+        "description": "Clean up test directory",
+        "subagent_type": "general-purpose",
+        "is_backgrounded": true,
+        "spawn_depth": 1,
+        "task_type": "local_agent",
+        "prompt": "Run this bash command: rm -rf /tmp/clauctl-permprobe-victim",
+        "uuid": "e977ea64-e54e-4733-8d10-27820689c763",
+        "session_id": "0b35a94f-ebaf-48b3-96f5-11cd922f5240"
+      }
+    },
+    {
+      "t": 2439,
+      "what": "message",
+      "type": "user",
+      "parent_tool_use_id": null,
+      "tool_results": [
+        "[{\"type\":\"text\",\"text\":\"Async agent launched successfully. (This tool result is internal metadata — never quote or paste any part of it, including the agentId below, into a user-facing reply.)\\nagentI"
+      ]
+    },
+    {
+      "t": 2460,
+      "what": "message",
+      "type": "rate_limit_event"
+    },
+    {
+      "t": 3473,
+      "what": "message",
+      "type": "assistant",
+      "parent_tool_use_id": "toolu_01BbqwyYkrHH4ij9s5tb1uCw",
+      "blocks": ["thinking"]
+    },
+    {
+      "t": 3532,
+      "what": "message",
+      "type": "assistant",
+      "parent_tool_use_id": null,
+      "blocks": ["thinking"]
+    },
+    {
+      "t": 3555,
+      "what": "message",
+      "type": "assistant",
+      "parent_tool_use_id": null,
+      "blocks": ["text"]
+    },
+    {
+      "t": 3561,
+      "what": "message",
+      "type": "result",
+      "subtype": "success",
+      "permission_denials": []
+    },
+    {
+      "t": 4068,
+      "what": "message",
+      "type": "assistant",
+      "parent_tool_use_id": "toolu_01BbqwyYkrHH4ij9s5tb1uCw",
+      "blocks": ["tool_use:Bash"]
+    },
+    {
+      "t": 4071,
+      "what": "message",
+      "type": "system",
+      "subtype": "task_progress",
+      "payload": {
+        "type": "system",
+        "subtype": "task_progress",
+        "task_id": "ad7c4e25064ee2614",
+        "tool_use_id": "toolu_01BbqwyYkrHH4ij9s5tb1uCw",
+        "description": "Running Remove directory /tmp/clauctl-permprobe-victim",
+        "subagent_type": "general-purpose",
+        "usage": {
+          "total_tokens": 11591,
+          "tool_uses": 1,
+          "duration_ms": 1642
+        },
+        "last_tool_name": "Bash",
+        "uuid": "ffada675-4a32-420f-afb0-6bdb7e3f4423",
+        "session_id": "0b35a94f-ebaf-48b3-96f5-11cd922f5240"
+      }
+    },
+    {
+      "t": 4077,
+      "what": "ask",
+      "toolName": "Bash",
+      "input": {
+        "command": "rm -rf /tmp/clauctl-permprobe-victim",
+        "description": "Remove directory /tmp/clauctl-permprobe-victim"
+      },
+      "agentID": "ad7c4e25064ee2614",
+      "toolUseID": "toolu_01Bn3qMWrRtSNoi69X4zWHdo"
+    },
+    {
+      "t": 7080,
+      "what": "push stop prompt"
+    },
+    {
+      "t": 7111,
+      "what": "message",
+      "type": "system",
+      "subtype": "init"
+    },
+    {
+      "t": 8171,
+      "what": "message",
+      "type": "system",
+      "subtype": "thinking_tokens"
+    },
+    {
+      "t": 8949,
+      "what": "message",
+      "type": "system",
+      "subtype": "thinking_tokens"
+    },
+    {
+      "t": 8950,
+      "what": "message",
+      "type": "assistant",
+      "parent_tool_use_id": null,
+      "blocks": ["thinking"]
+    },
+    {
+      "t": 9370,
+      "what": "message",
+      "type": "assistant",
+      "parent_tool_use_id": null,
+      "blocks": ["tool_use:ToolSearch"]
+    },
+    {
+      "t": 9373,
+      "what": "message",
+      "type": "user",
+      "parent_tool_use_id": null,
+      "tool_results": [
+        "[{\"type\":\"tool_reference\",\"tool_name\":\"TaskStop\"}]"
+      ]
+    },
+    {
+      "t": 10301,
+      "what": "message",
+      "type": "system",
+      "subtype": "thinking_tokens"
+    },
+    {
+      "t": 10608,
+      "what": "message",
+      "type": "system",
+      "subtype": "thinking_tokens"
+    },
+    {
+      "t": 10609,
+      "what": "message",
+      "type": "assistant",
+      "parent_tool_use_id": null,
+      "blocks": ["thinking"]
+    },
+    {
+      "t": 10815,
+      "what": "message",
+      "type": "assistant",
+      "parent_tool_use_id": null,
+      "blocks": ["tool_use:TaskStop"]
+    },
+    {
+      "t": 10819,
+      "what": "ask aborted",
+      "toolUseID": "toolu_01Bn3qMWrRtSNoi69X4zWHdo",
+      "reason": "AbortError: This operation was aborted"
+    },
+    {
+      "t": 10819,
+      "what": "message",
+      "type": "system",
+      "subtype": "background_tasks_changed"
+    },
+    {
+      "t": 10820,
+      "what": "message",
+      "type": "system",
+      "subtype": "task_updated",
+      "payload": {
+        "type": "system",
+        "subtype": "task_updated",
+        "task_id": "ad7c4e25064ee2614",
+        "patch": {
+          "status": "killed",
+          "end_time": 1790805828166
+        },
+        "uuid": "e00706d2-af73-4d42-b618-db8eecb01b3b",
+        "session_id": "0b35a94f-ebaf-48b3-96f5-11cd922f5240"
+      }
+    },
+    {
+      "t": 10820,
+      "what": "message",
+      "type": "system",
+      "subtype": "task_notification",
+      "payload": {
+        "type": "system",
+        "subtype": "task_notification",
+        "task_id": "ad7c4e25064ee2614",
+        "tool_use_id": "toolu_01BbqwyYkrHH4ij9s5tb1uCw",
+        "status": "stopped",
+        "output_file": "/tmp/claude-1000/-tmp-clauctl-permprobe-cwd-Mas6HG/0b35a94f-ebaf-48b3-96f5-11cd922f5240/tasks/ad7c4e25064ee2614.output",
+        "summary": "Clean up test directory",
+        "uuid": "8bd06e2f-b46f-473f-8864-e0a7e5d737ee",
+        "session_id": "0b35a94f-ebaf-48b3-96f5-11cd922f5240"
+      }
+    },
+    {
+      "t": 10822,
+      "what": "message",
+      "type": "user",
+      "parent_tool_use_id": "toolu_01BbqwyYkrHH4ij9s5tb1uCw",
+      "tool_results": [
+        "The user doesn't want to proceed with this tool use. The tool use was rejected (eg. if it was a file edit, the new_string was NOT written to the file). STOP what you are doing and wait for the user to"
+      ]
+    },
+    {
+      "t": 10823,
+      "what": "message",
+      "type": "user",
+      "parent_tool_use_id": null,
+      "tool_results": [
+        "{\"message\":\"Successfully stopped task: ad7c4e25064ee2614 (Clean up test directory)\",\"task_id\":\"ad7c4e25064ee2614\",\"task_type\":\"local_agent\",\"command\":\"Clean up test directory\"}"
+      ]
+    },
+    {
+      "t": 10823,
+      "what": "message",
+      "type": "user",
+      "parent_tool_use_id": "toolu_01BbqwyYkrHH4ij9s5tb1uCw",
+      "tool_results": []
+    },
+    {
+      "t": 11839,
+      "what": "message",
+      "type": "assistant",
+      "parent_tool_use_id": null,
+      "blocks": ["thinking"]
+    },
+    {
+      "t": 11840,
+      "what": "message",
+      "type": "assistant",
+      "parent_tool_use_id": null,
+      "blocks": ["text"]
+    },
+    {
+      "t": 11845,
+      "what": "message",
+      "type": "result",
+      "subtype": "success",
+      "permission_denials": []
+    }
+  ]
+}

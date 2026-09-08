@@ -86,6 +86,8 @@ export function excludedFromOther(
     case "scanComplete":
     case "contextChanged":
     case "trackerAnomaly":
+    case "permissionRequested":
+    case "permissionResolved":
     case "shutdown":
       return true;
     case "userMessageDequeued":
@@ -154,6 +156,8 @@ export function eventClass(event: AgentEvent): string {
     case "sessionFileChanged":
     case "scanComplete":
     case "trackerAnomaly":
+    case "permissionRequested":
+    case "permissionResolved":
     case "shutdown":
       return event.kind;
   }
@@ -181,6 +185,8 @@ export function eventStream(event: AgentEvent): MergeStream {
     case "sdkMessage":
     case "querySessionChanged":
     case "sessionAppended":
+    case "permissionRequested":
+    case "permissionResolved":
     case "shutdown":
       return "query";
   }

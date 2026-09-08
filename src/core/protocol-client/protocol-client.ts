@@ -45,17 +45,6 @@ export class ProtocolClient {
   // advanced by nextAgentState per event line. undefined until subscribed.
   private foldedState: AgentState | undefined;
   private subscribeRequestId: string | undefined;
-  // Set by connect() from the hello record; private so only the static
-  // factory writes it.
-  private helloVersionWarning: string | undefined;
-
-  /** Set when the daemon announced a different protocol version — its build
-   *  differs from this client's, so request/response shapes may not line up.
-   *  The consumer decides how to surface it (stderr for CLI commands, a
-   *  transcript banner for the TUI). */
-  get versionWarning(): string | undefined {
-    return this.helloVersionWarning;
-  }
 
   private constructor(socket: Socket) {
     this.socket = socket;
@@ -75,7 +64,8 @@ export class ProtocolClient {
     });
   }
 
-  /** Connect and consume the hello record; rejects on a non-clauctl socket. */
+  /** Connect and consume the hello record; rejects on a non-clauctl socket
+   *  or a daemon speaking another protocol version. */
   static async connect(socketPath: string): Promise<ProtocolClient> {
     const socket = await new Promise<Socket>((resolve, reject) => {
       const s = connect(socketPath);
@@ -107,13 +97,12 @@ export class ProtocolClient {
         if (line.trim() !== "") {
           if (!helloSeen) {
             helloSeen = true;
-            const hello = validateHello(line);
-            if (hello.error) {
-              socket.destroy();
-              rejectHello(hello.error);
-            } else {
-              client.helloVersionWarning = hello.versionWarning;
+            const helloError = validateHello(line);
+            if (helloError === undefined) {
               resolveHello();
+            } else {
+              socket.destroy();
+              rejectHello(helloError);
             }
           } else {
             client.dispatchLine(line);
@@ -264,10 +253,10 @@ export class ProtocolClient {
   }
 }
 
-function validateHello(line: string): {
-  error?: Error;
-  versionWarning?: string;
-} {
+/** The error that makes connect() reject; undefined for a matching hello.
+ *  A version mismatch is fatal: the daemon and client builds differ, so
+ *  request and snapshot shapes may not line up. */
+function validateHello(line: string): Error | undefined {
   try {
     const hello = JSON.parse(line) as {
       type?: string;
@@ -275,21 +264,17 @@ function validateHello(line: string): {
       version?: number;
     };
     if (hello.type !== "hello" || hello.protocol !== PROTOCOL_NAME) {
-      return {
-        error: new Error(
-          `not a clauctl agent socket (got ${line.slice(0, 100)})`,
-        ),
-      };
+      return new Error(
+        `not a clauctl agent socket (got ${line.slice(0, 100)})`,
+      );
     }
     if (hello.version !== PROTOCOL_VERSION) {
-      return {
-        versionWarning: `clauctl protocol version ${hello.version}, expected ${PROTOCOL_VERSION} — daemon and client builds differ`,
-      };
+      return new Error(
+        `clauctl protocol version ${hello.version}, expected ${PROTOCOL_VERSION} — daemon and client builds differ; revive or re-spawn the agent`,
+      );
     }
-    return {};
+    return undefined;
   } catch {
-    return {
-      error: new Error("first record on agent socket was not valid JSON"),
-    };
+    return new Error("first record on agent socket was not valid JSON");
   }
 }

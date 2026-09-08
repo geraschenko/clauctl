@@ -11,6 +11,7 @@ import {
   Container,
   getKeybindings,
   matchesKey,
+  truncateToWidth,
   type Focusable,
 } from "@earendil-works/pi-tui";
 import type { ContextTree } from "../../core/tree/context-tree.ts";
@@ -352,9 +353,13 @@ export class TreeSelectorComponent extends Container implements Focusable {
     const confirmKey = keybindings.getKeys("tui.select.confirm")[0] ?? "enter";
     const cancelKey = keybindings.getKeys("tui.select.cancel")[0] ?? "escape";
     lines.push(
-      theme.fg(
-        "accent",
-        `pick a tree entry (${confirmKey} to rewind, ${cancelKey} to cancel)`,
+      truncateToWidth(
+        theme.fg(
+          "accent",
+          `pick a tree entry (${confirmKey} to rewind, ${cancelKey} to cancel)`,
+        ),
+        width,
+        "…",
       ),
     );
     if (this.lines.length === 0) {
@@ -374,10 +379,18 @@ export class TreeSelectorComponent extends Container implements Focusable {
       }
     }
     if (this.searchQuery !== "") {
-      lines.push(theme.fg("dim", `search: ${this.searchQuery}`));
+      lines.push(
+        truncateToWidth(
+          theme.fg("dim", `search: ${this.searchQuery}`),
+          width,
+          "…",
+        ),
+      );
     }
     if (this.warning !== undefined) {
-      lines.push(theme.fg("warning", this.warning));
+      lines.push(
+        truncateToWidth(theme.fg("warning", this.warning), width, "…"),
+      );
     }
     return lines;
   }

@@ -299,3 +299,88 @@ test("sdkMessage events flow through the shared message renderer; a uuid-less me
   ]);
   assert.equal(output, `[event ${uuidN(11)}]\n== assistant ==\nhi\n`);
 });
+
+test("snapshot lists live tasks and pending asks, main before task, with the task suffix", () => {
+  const request = {
+    toolUseId: "toolu_main",
+    toolName: "Bash",
+    input: { command: "ls -la", description: "list" },
+    suggestions: [],
+  };
+  const output = format([
+    snapshotRecord({
+      activity: "working",
+      pendingPermissions: [request],
+      tasks: [
+        {
+          taskId: "t1",
+          description: "explore repo",
+          background: true,
+          status: "running",
+          pendingPermissions: [
+            {
+              ...request,
+              toolUseId: "toolu_task",
+              toolName: "Read",
+              input: { file_path: "/x" },
+            },
+          ],
+        },
+      ],
+    }),
+  ]);
+  assert.equal(
+    output,
+    [
+      "[snapshot: working]",
+      "[task t1: explore repo]",
+      "[pending permission toolu_main: Bash command: ls -la]",
+      "[pending permission toolu_task: Read file_path: /x (task t1)]",
+      "",
+    ].join("\n"),
+  );
+});
+
+test("permission events render one-liners with the resolution summarised", () => {
+  const request = {
+    toolUseId: "toolu_1",
+    toolName: "ExitPlanMode",
+    input: {},
+    suggestions: [],
+  };
+  const output = format([
+    event({ kind: "permissionRequested", uuid: uuidN(20), request }),
+    event({
+      kind: "permissionResolved",
+      uuid: uuidN(21),
+      toolUseId: "toolu_1",
+      resolution: {
+        behavior: "allow",
+        updatedPermissions: [
+          { type: "setMode", mode: "acceptEdits", destination: "session" },
+        ],
+      },
+    }),
+    event({
+      kind: "permissionResolved",
+      uuid: uuidN(22),
+      toolUseId: "toolu_1",
+      resolution: { behavior: "deny", message: "no" },
+    }),
+    event({
+      kind: "permissionResolved",
+      uuid: uuidN(23),
+      toolUseId: "toolu_1",
+      resolution: { behavior: "cancelled" },
+    }),
+  ]);
+  assert.equal(
+    output,
+    [
+      `[event ${uuidN(20)}]\n[permission requested toolu_1: ExitPlanMode {}]`,
+      `[event ${uuidN(21)}]\n[permission resolved toolu_1: allow + 1 permission updates]`,
+      `[event ${uuidN(22)}]\n[permission resolved toolu_1: deny: no]`,
+      `[event ${uuidN(23)}]\n[permission resolved toolu_1: cancelled]\n`,
+    ].join("\n\n"),
+  );
+});

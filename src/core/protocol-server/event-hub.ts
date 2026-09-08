@@ -161,6 +161,8 @@ export class EventHub {
             | "sessionFileChanged"
             | "scanComplete"
             | "sessionAppended"
+            | "permissionRequested"
+            | "permissionResolved"
             | "trackerAnomaly";
         }
       >
@@ -184,6 +186,8 @@ export class EventHub {
       case "shutdown":
       case "contextChanged":
       case "scanComplete":
+      case "permissionRequested":
+      case "permissionResolved":
         this.applyEvent({ ...event, uuid: randomUUID() });
         return;
       case "trackerAnomaly":

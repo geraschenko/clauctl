@@ -5,7 +5,12 @@ import type {
 } from "@anthropic-ai/claude-agent-sdk";
 import { pending } from "../stream-merge.ts";
 import type { TreeNodeRef } from "../tree/nodes.ts";
-import type { AgentState, SessionState } from "../protocol/index.ts";
+import type {
+  AgentState,
+  PermissionRequest,
+  SessionState,
+  TaskState,
+} from "../protocol/index.ts";
 
 export const querySession = (state: AgentState): SessionState | undefined =>
   state.querySessionId === undefined
@@ -78,3 +83,23 @@ export function queryingCount(state: AgentState): number {
  */
 export const isIdle = (state: AgentState): boolean =>
   state.activity === "idle" && queryingCount(state) === 0;
+
+/** Nothing running anywhere: the main loop idle and no live task. What a
+ *  Query restart (set-context) requires. */
+export const isQuiescent = (state: AgentState): boolean =>
+  isIdle(state) && state.tasks.length === 0;
+
+/** An ask with the task it belongs to; `task` absent for the main agent. */
+export interface PendingAsk {
+  readonly task?: TaskState;
+  readonly request: PermissionRequest;
+}
+
+/** Every pending ask, main agent first then tasks in order — what the
+ *  TUI dialog and the snapshot line iterate. */
+export const allPendingAsks = (state: AgentState): readonly PendingAsk[] => [
+  ...state.pendingPermissions.map((request) => ({ request })),
+  ...state.tasks.flatMap((task) =>
+    task.pendingPermissions.map((request) => ({ task, request })),
+  ),
+];

@@ -15,9 +15,12 @@ export {
 } from "./classification.ts";
 export { observedSessions } from "./observe-event/index.ts";
 export {
+  allPendingAsks,
   describeSession,
   isIdle,
+  isQuiescent,
   lastUsage,
+  type PendingAsk,
   leaf,
   querySession,
   SETTLE_TIMEOUT_MS,

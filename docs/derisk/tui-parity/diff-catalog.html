@@ -31,6 +31,7 @@
   .code256 { color: #afd7ff; } .codetc { color: #8abeb7; background: #343541; }
   .blue { color: #81a2be; } .grey { color: #666; } .u { text-decoration: underline; }
   .dim { color: #8a8a8a; }
+  table { border-collapse: collapse; font-size: .85rem; } td, th { border: 1px solid #333; padding: .3rem .5rem; vertical-align: top; }
 </style>
 </head>
 <body>
@@ -478,6 +479,388 @@ reading raw diffs: claude collapses so much that its scrollback covers a longer
 time span than clauctl's under the same tmux history limit, so long-session diffs
 (078b1e79: 2711 lines) are inflated by misaligned history windows, not just by
 rendering differences.</p>
+
+<h2>Group F — permission dialogs (claude 2.1.280, 2026-09-30)</h2>
+<p class="note">One pane pair per <code>capture-dialogs.ts</code> scenario, cropped to the
+dialog (from the rule above it). Row ids in the table below refer to the Group F
+table in diff-catalog.md; the ask payload behind each clauctl dialog is in
+<code>scripts/tui-parity/out/&lt;scenario&gt;.dialog.ask.json</code>.</p>
+<h3>dialog: bash-outside <span class="badge differ">bash-title: description in the title (decided; done)</span> <span class="badge match">blank-lines + body-indent: match (done)</span> <span class="badge differ">spinner: hidden while blocked (decided; done)</span></h3>
+<div class="pair">
+<div class="pane"><div class="label">claude</div><pre>
+────────────────────────────────────────────────────────────────────────────────────────────────────
+ Bash command
+
+   rm -rf /tmp/clauctl-tui-parity-victim
+   Delete directory /tmp/clauctl-tui-parity-victim and all its contents
+
+ Do you want to proceed?
+ ❯ 1. Yes
+   2. Yes, and always allow access to /tmp/clauctl-tui-parity-victim from this project
+   3. No
+
+ Esc to cancel · Tab to amend
+</pre><div class="src">bash-outside.dialog.claude.txt</div></div>
+<div class="pane"><div class="label">clauctl</div><pre>
+────────────────────────────────────────────────────────────────────────────────────────────────────
+ Bash: Remove directory and all its contents
+
+   rm -rf /tmp/clauctl-tui-parity-victim
+
+ Do you want to proceed?
+ ❯ 1. Yes
+   2. Yes, and always allow access to /tmp/clauctl-tui-parity-victim from this project
+   3. No
+
+ Esc to cancel · Tab to amend
+</pre><div class="src">bash-outside.dialog.clauctl.txt</div></div>
+</div>
+<h3>dialog: bash-incwd <span class="badge differ">bash-title: description in the title (decided; done)</span> <span class="badge match">blank-lines + body-indent: match (done)</span> <span class="badge differ">spinner: hidden while blocked (decided; done)</span></h3>
+<div class="pair">
+<div class="pane"><div class="label">claude</div><pre>
+────────────────────────────────────────────────────────────────────────────────────────────────────
+ Bash command
+
+   touch created.txt
+   Create an empty file named created.txt
+
+ Do you want to proceed?
+ ❯ 1. Yes
+   2. Yes, and always allow access to
+      ~/.cache/clauctl-tui-parity/workdir/dialog-bash-incwd from this project
+   3. No
+
+ Esc to cancel · Tab to amend
+</pre><div class="src">bash-incwd.dialog.claude.txt</div></div>
+<div class="pane"><div class="label">clauctl</div><pre>
+────────────────────────────────────────────────────────────────────────────────────────────────────
+ Bash: Create an empty file named created.txt
+
+   touch created.txt
+
+ Do you want to proceed?
+ ❯ 1. Yes
+   2. Yes, and always allow access to
+      ~/.cache/clauctl-tui-parity/workdir/dialog-bash-incwd from this project
+   3. No
+
+ Esc to cancel · Tab to amend
+</pre><div class="src">bash-incwd.dialog.clauctl.txt</div></div>
+</div>
+<h3>dialog: bash-plain <span class="badge differ">bash-title: description in the title (decided; done)</span> <span class="badge skip">bash-plain: deferred (decided)</span> <span class="badge differ">reason: never shown (decided)</span> <span class="badge match">blank-lines + body-indent: match (done)</span> <span class="badge differ">spinner: hidden while blocked (decided; done)</span></h3>
+<div class="pair">
+<div class="pane"><div class="label">claude</div><pre>
+────────────────────────────────────────────────────────────────────────────────────────────────────
+ Bash command
+
+   curl -sI https://example.com
+   Fetch HTTP headers from example.com
+
+ This command requires approval
+
+ Do you want to proceed?
+ ❯ 1. Yes
+   2. Yes, and don’t ask again for: curl *
+   3. No
+
+ Esc to cancel · Tab to amend
+</pre><div class="src">bash-plain.dialog.claude.txt</div></div>
+<div class="pane"><div class="label">clauctl</div><pre>
+────────────────────────────────────────────────────────────────────────────────────────────────────
+ Bash: Fetch HTTP headers from example.com and display the status line
+
+   curl -sI https://example.com
+
+ Do you want to proceed?
+ ❯ 1. Yes
+   2. Yes, and don&#x27;t ask again for curl -sI https://example.com in
+      ~/.cache/clauctl-tui-parity/workdir/dialog-bash-plain
+   3. No
+
+ Esc to cancel · Tab to amend
+</pre><div class="src">bash-plain.dialog.clauctl.txt</div></div>
+</div>
+<h3>dialog: ask-rule <span class="badge match">ask-rule: numbering settled; rule line n/a</span> <span class="badge match">blank-lines + body-indent: match (done)</span> <span class="badge differ">spinner: hidden while blocked (decided; done)</span></h3>
+<div class="pair">
+<div class="pane"><div class="label">claude</div><pre>
+────────────────────────────────────────────────────────────────────────────────────────────────────
+ Bash command
+
+   echo parity-ask-rule
+   Echo the string parity-ask-rule
+
+ │ Permission rule Bash(echo parity-ask-rule) requires confirmation for this command.
+ /permissions to update rules
+
+ Do you want to proceed?
+ ❯ 1. Yes
+   2. No
+
+ Esc to cancel · Tab to amend
+</pre><div class="src">ask-rule.dialog.claude.txt</div></div>
+<div class="pane"><div class="label">clauctl</div><pre>
+────────────────────────────────────────────────────────────────────────────────────────────────────
+ Bash: Echo the string &quot;parity-ask-rule&quot;
+
+   echo parity-ask-rule
+
+ Do you want to proceed?
+ ❯ 1. Yes
+   2. No
+
+ Esc to cancel · Tab to amend
+</pre><div class="src">ask-rule.dialog.clauctl.txt</div></div>
+</div>
+<h3>dialog: edit <span class="badge differ">edit-body: differ (decided, spec)</span> <span class="badge differ">row-wrap: differ (lossless)</span> <span class="badge match">shift-tab: match</span> <span class="badge match">blank-lines + body-indent: match (done)</span> <span class="badge differ">spinner: hidden while blocked (decided; done)</span></h3>
+<div class="pair">
+<div class="pane"><div class="label">claude</div><pre>
+────────────────────────────────────────────────────────────────────────────────────────────────────
+ Edit file
+ a.txt
+╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+ 1 -hello world
+ 1 +goodbye world
+╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+ Do you want to make this edit to a.txt?
+ ❯ 1. Yes
+   2. Yes, and switch to accept edits (auto-approve file edits and common file commands) for this
+      session (shift+tab)
+   3. No
+
+ Esc to cancel · Tab to amend
+</pre><div class="src">edit.dialog.claude.txt</div></div>
+<div class="pane"><div class="label">clauctl</div><pre>
+────────────────────────────────────────────────────────────────────────────────────────────────────
+ Edit file
+
+   a.txt
+╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+   -hello world
+   +goodbye world
+╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+
+ Do you want to make this edit to a.txt?
+ ❯ 1. Yes
+   2. Yes, and switch to accept edits (auto-approve file edits and common file commands) for this
+      session (shift+tab)
+   3. No
+
+ Esc to cancel · Tab to amend
+</pre><div class="src">edit.dialog.clauctl.txt</div></div>
+</div>
+<h3>dialog: write <span class="badge differ">row-wrap: differ (lossless)</span> <span class="badge match">shift-tab: match</span> <span class="badge match">blank-lines + body-indent: match (done)</span> <span class="badge differ">spinner: hidden while blocked (decided; done)</span></h3>
+<div class="pair">
+<div class="pane"><div class="label">claude</div><pre>
+────────────────────────────────────────────────────────────────────────────────────────────────────
+ Create file
+ b.txt
+╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+  1 hi
+╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+ Do you want to create b.txt?
+ ❯ 1. Yes
+   2. Yes, and switch to accept edits (auto-approve file edits and common file commands) for this
+      session (shift+tab)
+   3. No
+
+ Esc to cancel · Tab to amend
+</pre><div class="src">write.dialog.claude.txt</div></div>
+<div class="pane"><div class="label">clauctl</div><pre>
+────────────────────────────────────────────────────────────────────────────────────────────────────
+ Create file
+
+   b.txt
+╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+   1 hi
+╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+
+ Do you want to create b.txt?
+ ❯ 1. Yes
+   2. Yes, and switch to accept edits (auto-approve file edits and common file commands) for this
+      session (shift+tab)
+   3. No
+
+ Esc to cancel · Tab to amend
+</pre><div class="src">write.dialog.clauctl.txt</div></div>
+</div>
+<h3>dialog: read-outside <span class="badge differ">reason: never shown (decided)</span> <span class="badge match">blank-lines + body-indent: match (done)</span> <span class="badge differ">spinner: hidden while blocked (decided; done)</span></h3>
+<div class="pair">
+<div class="pane"><div class="label">claude</div><pre>
+────────────────────────────────────────────────────────────────────────────────────────────────────
+ Read file
+
+  Read(/tmp/clauctl-tui-parity-outside/secret.txt)
+
+ Do you want to proceed?
+ ❯ 1. Yes
+   2. Yes, allow reading from /tmp/clauctl-tui-parity-outside during this session
+   3. No
+
+ Esc to cancel · Tab to amend
+</pre><div class="src">read-outside.dialog.claude.txt</div></div>
+<div class="pane"><div class="label">clauctl</div><pre>
+────────────────────────────────────────────────────────────────────────────────────────────────────
+ Read file
+
+   Read(/tmp/clauctl-tui-parity-outside/secret.txt)
+
+ Do you want to proceed?
+ ❯ 1. Yes
+   2. Yes, allow reading from /tmp/clauctl-tui-parity-outside during this session
+   3. No
+
+ Esc to cancel · Tab to amend
+</pre><div class="src">read-outside.dialog.clauctl.txt</div></div>
+</div>
+<h3>dialog: webfetch <span class="badge differ">webfetch-title: url in the title (decided; done)</span> <span class="badge differ">webfetch: differ (decided, spec)</span> <span class="badge match">blank-lines + body-indent: match (done)</span> <span class="badge differ">spinner: hidden while blocked (decided; done)</span></h3>
+<div class="pair">
+<div class="pane"><div class="label">claude</div><pre>
+────────────────────────────────────────────────────────────────────────────────────────────────────
+ Fetch
+
+   url: https://example.com/
+   prompt: What is the title of this page?
+   Claude wants to fetch content from example.com
+
+ Do you want to allow Claude to fetch this content?
+ ❯ 1. Yes
+   2. Yes, and don&#x27;t ask again for example.com
+   3. No, and tell Claude what to do differently (esc)
+</pre><div class="src">webfetch.dialog.claude.txt</div></div>
+<div class="pane"><div class="label">clauctl</div><pre>
+────────────────────────────────────────────────────────────────────────────────────────────────────
+ Fetch: https://example.com
+
+   prompt: What is the title of this page?
+   Claude wants to fetch content from example.com
+
+ Do you want to allow Claude to fetch this content?
+ ❯ 1. Yes
+   2. Yes, and don&#x27;t ask again for example.com
+   3. No
+
+ Esc to cancel · Tab to amend
+</pre><div class="src">webfetch.dialog.clauctl.txt</div></div>
+</div>
+<h3>dialog: mcp <span class="badge differ">mcp: differ (server name/description not on the wire)</span> <span class="badge match">mcp-row2: match modulo display name</span> <span class="badge differ">row-wrap: differ (lossless)</span> <span class="badge match">blank-lines + body-indent: match (done)</span> <span class="badge differ">spinner: hidden while blocked (decided; done)</span></h3>
+<div class="pair">
+<div class="pane"><div class="label">claude</div><pre>
+────────────────────────────────────────────────────────────────────────────────────────────────────
+ Tool use · from the general-purpose agent
+
+   probe — Greet Tool: (MCP)
+
+   name: &quot;Anton&quot;
+
+   About the probe — Greet Tool:
+   │ Greets a person by name
+
+ Do you want to proceed?
+ ❯ 1. Yes
+   2. Yes, and don&#x27;t ask again for probe — Greet commands in ~/.cache/clauctl-tui-parity/…
+   3. No
+
+ Esc to cancel · Tab to amend
+</pre><div class="src">mcp.dialog.claude.txt</div></div>
+<div class="pane"><div class="label">clauctl</div><pre>
+────────────────────────────────────────────────────────────────────────────────────────────────────
+ Greet
+
+   mcp__probe__greet
+   name: &quot;Anton&quot;
+
+ Do you want to proceed?
+ ❯ 1. Yes
+   2. Yes, and don&#x27;t ask again for mcp__probe__greet in
+      ~/.cache/clauctl-tui-parity/workdir/dialog-mcp
+   3. No
+
+ Esc to cancel · Tab to amend
+</pre><div class="src">mcp.dialog.clauctl.txt</div></div>
+</div>
+<h3>dialog: plan <span class="badge differ">plan-body: markdown, no collapse (decided; done)</span> <span class="badge differ">plan-edit: ctrl+g replicated (decided; done)</span> <span class="badge differ">plan-hints: shift+tab feedback not replicated (decided)</span> <span class="badge match">blank-lines + body-indent: match (done)</span> <span class="badge differ">spinner: hidden while blocked (decided; done)</span></h3>
+<div class="pair">
+<div class="pane"><div class="label">claude</div><pre>
+────────────────────────────────────────────────────────────────────────────────────────────────────
+ Ready to code?
+
+ Here is Claude&#x27;s plan:
+╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+ Plan: Create c.txt
+
+ Create a new file named c.txt in the working directory.
+╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+
+────────────────────────────────────────────────────────────────────────────────────────────────────
+ Claude has written up a plan and is ready to execute. Would you like to proceed?
+
+ ❯ 1. Yes, auto-accept edits
+   2. Yes, manually approve edits
+   3. Tell Claude what to change
+      shift+tab to approve with this feedback
+
+ ctrl+g to edit in Vim ·
+ ~/.cache/clauctl-tui-parity/config/plans/make-a-one-line-plan-hazy-cocke.md
+</pre><div class="src">plan.dialog.claude.txt</div></div>
+<div class="pane"><div class="label">clauctl</div><pre>
+────────────────────────────────────────────────────────────────────────────────────────────────────
+ Ready to code?
+
+   Here is Claude&#x27;s plan:
+╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+   Plan: Create c.txt
+
+   Create a new file named c.txt in the working directory.
+╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+
+ Claude has written up a plan and is ready to execute. Would you like to proceed?
+ ❯ 1. Yes, auto-accept edits
+   2. Yes, manually approve edits
+   3. Tell Claude what to change
+
+ Esc to cancel · ctrl+g to edit the plan
+</pre><div class="src">plan.dialog.clauctl.txt</div></div>
+</div>
+<h3>dialog: askuser <span class="badge skip">claude only — docs/follow-ups/permission-cli.md</span></h3>
+<div class="pair">
+<div class="pane"><div class="label">claude</div><pre>
+────────────────────────────────────────────────────────────────────────────────────────────────────
+ ☐ Pet preference
+
+Do you prefer cats or dogs?
+
+❯ 1. Cats
+     I prefer cats
+  2. Dogs
+     I prefer dogs
+  3. Type something.
+────────────────────────────────────────────────────────────────────────────────────────────────────
+  4. Chat about this
+
+Enter to select · ↑/↓ to navigate · Esc to cancel
+</pre><div class="src">askuser.dialog.claude.txt</div></div>
+<div class="pane"><div class="label">clauctl</div><pre>
+<span class="om">(absent — claude-only scenario)</span>
+</pre></div>
+</div>
+<h3>Group F row index</h3>
+<table><tr><th>id</th><th>claude</th><th>clauctl</th><th>proposed</th></tr>
+<tr><td>dialog-blank-lines</td><td>blank line after the title, after the body, and after the rows (before the hint)</td><td>none</td><td>match</td></tr>
+<tr><td>dialog-body-indent</td><td>body indented 3 (numbered Write/Edit content: 2 + right-aligned number)</td><td>1</td><td>match</td></tr>
+<tr><td>dialog-row-wrap</td><td>long row labels truncated with `…` at width (mcp) or wrapped under the label (edit/write)</td><td>wrapped under the label</td><td>differ (wrap is lossless)</td></tr>
+<tr><td>dialog-shift-tab</td><td>accept-edits label ends `for this session (shift+tab)` (edit, write)</td><td>no `(shift+tab)`</td><td>differ (decided in addf9b0?)</td></tr>
+<tr><td>dialog-bash-plain</td><td>`Yes, and don’t ask again for: curl *` — claude&#x27;s own prefix heuristic; the ask&#x27;s suggestion is `addRules Bash &quot;curl -sI https://example.com&quot;`</td><td>`Yes, and don&#x27;t ask again for curl -sI https://example.com in &lt;cwd&gt;` (wrapped)</td><td>open: `for: &lt;ruleContent&gt;`?</td></tr>
+<tr><td>dialog-mcp</td><td>title `Tool use · from the general-purpose agent`; body `probe — Greet Tool: (MCP)`, args, `About the probe — Greet Tool:` + description quote</td><td>title `Greet` (displayName); body `mcp__probe__greet`, args</td><td>differ (server name/description not on the wire)</td></tr>
+<tr><td>dialog-mcp-row2</td><td>`Yes, and don&#x27;t ask again for probe — Greet commands in &lt;cwd&gt;` (truncated `…`)</td><td>`Yes, and don&#x27;t ask again for mcp__probe__greet in &lt;cwd&gt;`</td><td>match modulo the display name</td></tr>
+<tr><td>dialog-ask-rule</td><td>rows `1. Yes` / `2. No` (consecutive); body adds `│ Permission rule Bash(…) requires confirmation …` + `/permissions to update rules`</td><td>rows identical; no rule line</td><td>numbering settled; rule line n/a (not on the wire; `decisionReason` is empty)</td></tr>
+<tr><td>dialog-reason</td><td>Bash: `This command requires approval` as a body line (= `decisionReason`); Read outside cwd: reason NOT shown though `decisionReason` is set</td><td>never shown</td><td>open: show `decisionReason` for Bash only?</td></tr>
+<tr><td>dialog-edit-body</td><td>file-anchored numbered diff `1 -hello world` / `1 +goodbye world`</td><td>`-hello` / `+goodbye` (replacement strings)</td><td>differ (decided, spec)</td></tr>
+<tr><td>dialog-webfetch</td><td>row 3 `No, and tell Claude what to do differently (esc)`, no hint line; url shown normalized `https://example.com/`</td><td>`No` + `Esc to cancel · Tab to amend`; url as given</td><td>differ (decided, spec)</td></tr>
+<tr><td>dialog-plan-body</td><td>plan markdown rendered (heading without `#`), collapsed to a few lines above the `╌` rule</td><td>raw markdown, full plan</td><td>open: render markdown; collapse?</td></tr>
+<tr><td>dialog-plan-hints</td><td>`shift+tab to approve with this feedback`, `ctrl+g to edit in Vim · &lt;plans/…md&gt;`</td><td>none</td><td>differ (decided, spec)</td></tr>
+<tr><td>dialog-spinner</td><td>no activity indicator while the ask is up</td><td>` · working` spinner line above the rule; the `─` rule sometimes rendered as a second spinner line in regular mode</td><td>open: hide while blocked; investigate the rule/spinner overdraw</td></tr>
+<tr><td>dialog-read/write/bash-outside/incwd rows</td><td>—</td><td>identical labels</td><td>ok</td></tr>
+</table>
 
 </body>
 </html>

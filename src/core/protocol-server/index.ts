@@ -6,3 +6,4 @@
 
 export { internalRoutes } from "./daemon.ts";
 export { RESPONSE_SENT, startProtocolServer } from "./protocol-server.ts";
+export { permissionRequestOf } from "./permission-broker.ts";

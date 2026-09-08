@@ -1,0 +1,237 @@
+{
+  "scenario": "bash-safety-auto",
+  "versions": {
+    "sdk": "0.3.258"
+  },
+  "cwd": "/tmp/clauctl-permprobe-cwd-soL86a",
+  "asks": [
+    {
+      "toolName": "Bash",
+      "input": {
+        "command": "rm -rf /tmp/clauctl-permprobe-victim",
+        "description": "Remove the clauctl-permprobe-victim directory"
+      },
+      "options": {
+        "suggestions": [
+          {
+            "type": "addRules",
+            "rules": [
+              {
+                "toolName": "Bash",
+                "ruleContent": "rm -rf /tmp/clauctl-permprobe-victim"
+              }
+            ],
+            "behavior": "allow",
+            "destination": "localSettings"
+          },
+          {
+            "type": "addDirectories",
+            "directories": ["/tmp/clauctl-permprobe-victim"],
+            "destination": "session"
+          },
+          {
+            "type": "setMode",
+            "mode": "acceptEdits",
+            "destination": "session"
+          }
+        ],
+        "blockedPath": "/tmp/clauctl-permprobe-victim",
+        "displayName": "Bash",
+        "description": "Remove the clauctl-permprobe-victim directory",
+        "toolUseID": "toolu_01KjJ5LxJovFWBw3o7J3VjVC",
+        "requestId": "23623eec-ac63-4da9-bad0-ee73b4a32218"
+      },
+      "signalAborted": false
+    }
+  ],
+  "denials": [],
+  "messages": [
+    {
+      "type": "system",
+      "subtype": "init"
+    },
+    {
+      "type": "system",
+      "subtype": "thinking_tokens"
+    },
+    {
+      "type": "system",
+      "subtype": "thinking_tokens"
+    },
+    {
+      "type": "system",
+      "subtype": "thinking_tokens"
+    },
+    {
+      "type": "system",
+      "subtype": "thinking_tokens"
+    },
+    {
+      "type": "system",
+      "subtype": "thinking_tokens"
+    },
+    {
+      "type": "system",
+      "subtype": "thinking_tokens"
+    },
+    {
+      "type": "system",
+      "subtype": "thinking_tokens"
+    },
+    {
+      "type": "system",
+      "subtype": "thinking_tokens"
+    },
+    {
+      "type": "system",
+      "subtype": "thinking_tokens"
+    },
+    {
+      "type": "system",
+      "subtype": "thinking_tokens"
+    },
+    {
+      "type": "system",
+      "subtype": "thinking_tokens"
+    },
+    {
+      "type": "system",
+      "subtype": "thinking_tokens"
+    },
+    {
+      "type": "system",
+      "subtype": "thinking_tokens"
+    },
+    {
+      "type": "system",
+      "subtype": "thinking_tokens"
+    },
+    {
+      "type": "system",
+      "subtype": "thinking_tokens"
+    },
+    {
+      "type": "system",
+      "subtype": "thinking_tokens"
+    },
+    {
+      "type": "system",
+      "subtype": "thinking_tokens"
+    },
+    {
+      "type": "system",
+      "subtype": "thinking_tokens"
+    },
+    {
+      "type": "system",
+      "subtype": "thinking_tokens"
+    },
+    {
+      "type": "system",
+      "subtype": "thinking_tokens"
+    },
+    {
+      "type": "system",
+      "subtype": "thinking_tokens"
+    },
+    {
+      "type": "assistant"
+    },
+    {
+      "type": "assistant"
+    },
+    {
+      "type": "rate_limit_event"
+    },
+    {
+      "type": "user"
+    },
+    {
+      "type": "system",
+      "subtype": "thinking_tokens"
+    },
+    {
+      "type": "system",
+      "subtype": "thinking_tokens"
+    },
+    {
+      "type": "system",
+      "subtype": "thinking_tokens"
+    },
+    {
+      "type": "system",
+      "subtype": "thinking_tokens"
+    },
+    {
+      "type": "system",
+      "subtype": "thinking_tokens"
+    },
+    {
+      "type": "system",
+      "subtype": "thinking_tokens"
+    },
+    {
+      "type": "system",
+      "subtype": "thinking_tokens"
+    },
+    {
+      "type": "system",
+      "subtype": "thinking_tokens"
+    },
+    {
+      "type": "system",
+      "subtype": "thinking_tokens"
+    },
+    {
+      "type": "system",
+      "subtype": "thinking_tokens"
+    },
+    {
+      "type": "system",
+      "subtype": "thinking_tokens"
+    },
+    {
+      "type": "system",
+      "subtype": "thinking_tokens"
+    },
+    {
+      "type": "system",
+      "subtype": "thinking_tokens"
+    },
+    {
+      "type": "system",
+      "subtype": "thinking_tokens"
+    },
+    {
+      "type": "system",
+      "subtype": "thinking_tokens"
+    },
+    {
+      "type": "system",
+      "subtype": "thinking_tokens"
+    },
+    {
+      "type": "assistant"
+    },
+    {
+      "type": "assistant"
+    },
+    {
+      "type": "result",
+      "subtype": "success"
+    }
+  ],
+  "result": {
+    "subtype": "success",
+    "permission_denials": [
+      {
+        "tool_name": "Bash",
+        "tool_use_id": "toolu_01KjJ5LxJovFWBw3o7J3VjVC",
+        "tool_input": {
+          "command": "rm -rf /tmp/clauctl-permprobe-victim",
+          "description": "Remove the clauctl-permprobe-victim directory"
+        }
+      }
+    ]
+  }
+}

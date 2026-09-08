@@ -12,7 +12,7 @@
 
 import type { UUID } from "node:crypto";
 import type { Query, SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
-import { settled } from "../agent-state/index.ts";
+import { isIdle, settled } from "../agent-state/index.ts";
 import { settingsSeed, type PersistedOptions } from "../options.ts";
 import type { SessionEntry } from "../session/file.ts";
 import {
@@ -36,6 +36,10 @@ import {
   type SubscribeAttachment,
 } from "../protocol/index.ts";
 import type { EventHub } from "./event-hub.ts";
+import {
+  validatePermissionResult,
+  type PermissionBroker,
+} from "./permission-broker.ts";
 import type { RwGate } from "./rw-gate.ts";
 import { RESPONSE_SENT, type ProtocolConnection } from "./protocol-server.ts";
 import { createSetContextHandler, type SetContextDeps } from "./set-context.ts";
@@ -58,6 +62,9 @@ export interface RequestHandlerDeps extends SetContextDeps {
   /** The request gate, shared with the tracked log's switch worker and the
    *  shutdown drain (daemon.ts owns it). */
   gate: RwGate;
+  /** Pending permission asks (daemon.ts owns it; the Query's canUseTool
+   *  feeds it). */
+  permissionBroker: PermissionBroker;
 }
 
 /**
@@ -199,7 +206,7 @@ export function createRequestHandler(
           const trimmed = typeof content === "string" ? content.trim() : "";
           if (trimmed === "/compact" || trimmed.startsWith("/compact ")) {
             // Compaction is only valid while Idle; never queued behind turns.
-            if (events.agentState.activity !== "idle") {
+            if (!isIdle(events.agentState)) {
               throw new Error("/compact requires an idle assistant");
             }
             const message: SDKUserMessage = {
@@ -250,6 +257,18 @@ export function createRequestHandler(
         } finally {
           releaseQuery();
         }
+      }
+      // Not Query-bound: the broker settles a promise the SDK holds, and a
+      // teardown cancels every ask itself, so no gate is taken.
+      case "permission-response": {
+        if (typeof request.toolUseId !== "string") {
+          throw new Error("permission-response: toolUseId must be a string");
+        }
+        deps.permissionBroker.respond(
+          request.toolUseId,
+          validatePermissionResult(request.decision),
+        );
+        return undefined;
       }
       case "get-context":
       case "get-entries": {

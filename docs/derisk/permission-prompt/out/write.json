@@ -1,0 +1,136 @@
+{
+  "scenario": "write",
+  "versions": {
+    "sdk": "0.3.258"
+  },
+  "cwd": "/tmp/clauctl-permprobe-cwd-nCzVGf",
+  "asks": [
+    {
+      "toolName": "Write",
+      "input": {
+        "file_path": "/tmp/clauctl-permprobe-cwd-nCzVGf/b.txt",
+        "content": "hi"
+      },
+      "options": {
+        "suggestions": [
+          {
+            "type": "setMode",
+            "mode": "acceptEdits",
+            "destination": "session"
+          }
+        ],
+        "displayName": "Write",
+        "description": "b.txt",
+        "toolUseID": "toolu_015pj45MimM4VVswjUmvzkFn",
+        "requestId": "1a26ea91-ea7e-4265-a3b1-9ef9b7f06dc5"
+      },
+      "signalAborted": false
+    }
+  ],
+  "denials": [],
+  "messages": [
+    {
+      "type": "system",
+      "subtype": "init"
+    },
+    {
+      "type": "system",
+      "subtype": "thinking_tokens"
+    },
+    {
+      "type": "system",
+      "subtype": "thinking_tokens"
+    },
+    {
+      "type": "system",
+      "subtype": "thinking_tokens"
+    },
+    {
+      "type": "system",
+      "subtype": "thinking_tokens"
+    },
+    {
+      "type": "system",
+      "subtype": "thinking_tokens"
+    },
+    {
+      "type": "system",
+      "subtype": "thinking_tokens"
+    },
+    {
+      "type": "system",
+      "subtype": "thinking_tokens"
+    },
+    {
+      "type": "system",
+      "subtype": "thinking_tokens"
+    },
+    {
+      "type": "assistant"
+    },
+    {
+      "type": "assistant"
+    },
+    {
+      "type": "rate_limit_event"
+    },
+    {
+      "type": "user"
+    },
+    {
+      "type": "system",
+      "subtype": "thinking_tokens"
+    },
+    {
+      "type": "system",
+      "subtype": "thinking_tokens"
+    },
+    {
+      "type": "system",
+      "subtype": "thinking_tokens"
+    },
+    {
+      "type": "system",
+      "subtype": "thinking_tokens"
+    },
+    {
+      "type": "system",
+      "subtype": "thinking_tokens"
+    },
+    {
+      "type": "system",
+      "subtype": "thinking_tokens"
+    },
+    {
+      "type": "system",
+      "subtype": "thinking_tokens"
+    },
+    {
+      "type": "system",
+      "subtype": "thinking_tokens"
+    },
+    {
+      "type": "assistant"
+    },
+    {
+      "type": "assistant"
+    },
+    {
+      "type": "result",
+      "subtype": "success"
+    }
+  ],
+  "result": {
+    "subtype": "success",
+    "permission_denials": [
+      {
+        "tool_name": "Write",
+        "tool_use_id": "toolu_015pj45MimM4VVswjUmvzkFn",
+        "tool_input": {
+          "file_path": "/tmp/clauctl-permprobe-cwd-nCzVGf/b.txt",
+          "content": "hi"
+        }
+      }
+    ]
+  }
+}

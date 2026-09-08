@@ -5,7 +5,7 @@
 > flow); design revised 2026-09-18 after reviewer pass 3 (full entries on
 > the wire, per-session models, resolution-driven retirement). Deferred
 > items: docs/follow-ups/session-tracker-follow-ups.md,
-> docs/follow-ups/interactive-mode-test-harness.md,
+> docs/follow-ups/old/interactive-mode-test-harness.md,
 > docs/follow-ups/large-sessions.md.
 > Follow-up to docs/specs/session-tracker.md (phase 4 introduced the
 > rebuild on live `contextChanged`) and

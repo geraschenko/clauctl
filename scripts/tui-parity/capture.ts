@@ -61,12 +61,12 @@ export const workdirBase = join(
   "workdir",
 );
 
-const clauctlMain = join(repoRoot, "src", "core", "main.ts");
+export const clauctlMain = join(repoRoot, "src", "main.ts");
 
 /** Dedicated tmux server so the harness never disturbs the user's sessions. */
 const TMUX_SOCKET = "clauctl-tui-parity";
 const PANE_ROWS = 50;
-const CAPTURE_COLS = 100;
+export const CAPTURE_COLS = 100;
 const SETTLE_POLLS = 3;
 const SETTLE_TIMEOUT_MS = 90_000;
 
@@ -174,7 +174,7 @@ export async function ensureClaudeConfigDir(): Promise<void> {
  * between captures can be clobbered by the previous scenario's exiting
  * claude — the first process to load the config must already see them all.
  */
-async function ensureWorkdirsTrusted(cwds: string[]): Promise<void> {
+export async function ensureWorkdirsTrusted(cwds: string[]): Promise<void> {
   const configPath = join(claudeConfigDir, ".claude.json");
   const config = JSON.parse(await readFile(configPath, "utf8")) as {
     projects?: Record<string, Record<string, unknown>>;
@@ -204,7 +204,7 @@ async function ensureWorkdirsTrusted(cwds: string[]): Promise<void> {
  */
 const clauctlDir = "/tmp/clauctl-tui-parity";
 const clauctlConfigDir = join(clauctlDir, "config");
-const clauctlEnv = {
+export const clauctlEnv = {
   CLAUCTL_DIR: clauctlDir,
   CLAUCTL_CONFIG_DIR: clauctlConfigDir,
   ...claudeEnv,
@@ -216,7 +216,7 @@ const clauctlEnv = {
  * claude's main-buffer document; the fullscreen default would capture an
  * alternate-screen viewport instead.
  */
-async function ensureClauctlConfigDir(): Promise<void> {
+export async function ensureClauctlConfigDir(): Promise<void> {
   await mkdir(clauctlConfigDir, { recursive: true });
   await writeFile(
     join(clauctlConfigDir, "settings.json"),
@@ -237,6 +237,16 @@ function shQuote(word: string): string {
   return `'${word.replaceAll("'", `'\\''`)}'`;
 }
 
+/** How a capture decides the pane is done, and what to do with it after. */
+export interface CaptureSettle {
+  /** Stability only counts once one of these is on screen (a dialog's
+   *  question); without markers, the first stable screen is the capture. */
+  markers?: string[];
+  /** tmux key names sent after the capture, before the pane is killed
+   *  (a dialog's Escape: nothing is ever approved). */
+  keysAfter?: string[];
+}
+
 /**
  * Launches the target in a fresh tmux session `cols` wide, polls
  * `capture-pane -S -` (full scrollback — pane height is an internal
@@ -251,6 +261,7 @@ function shQuote(word: string): string {
 export async function captureInTmux(
   target: CaptureTarget,
   cols: number,
+  settle: CaptureSettle = {},
 ): Promise<{ plain: string; ansi: string }> {
   const session = `cap-${randomUUID().slice(0, 8)}`;
   const envArgs = Object.entries(target.env ?? {}).flatMap(([key, value]) => [
@@ -276,6 +287,7 @@ export async function captureInTmux(
     // instead of tearing down the session mid-poll.
     await tmux("set-option", "-t", session, "remain-on-exit", "on");
     let last: string | undefined;
+    let changedLines = "";
     let stable = 0;
     let delayMs = 300;
     let dialogsDismissed = 0;
@@ -283,7 +295,7 @@ export async function captureInTmux(
     while (stable < SETTLE_POLLS) {
       if (Date.now() > deadline) {
         throw new Error(
-          `pane did not settle within ${SETTLE_TIMEOUT_MS}ms; last capture:\n${last}`,
+          `pane did not settle within ${SETTLE_TIMEOUT_MS}ms; last capture:\n${last}\nlines changed since the poll before:\n${changedLines}`,
         );
       }
       await delay(delayMs);
@@ -291,7 +303,22 @@ export async function captureInTmux(
       const current = normalize(
         await tmux("capture-pane", "-p", "-t", session, "-S", "-"),
       );
-      stable = current === last ? stable + 1 : 0;
+      if (current.includes("\nPane is dead (status ")) {
+        throw new Error(`pane's command exited:\n${current}`);
+      }
+      const markerSeen =
+        settle.markers === undefined ||
+        settle.markers.some((marker) => current.includes(marker));
+      stable = markerSeen && current === last ? stable + 1 : 0;
+      if (current !== last && last !== undefined) {
+        const before = last.split("\n");
+        changedLines = current
+          .split("\n")
+          .flatMap((line, index) =>
+            line === before[index] ? [] : [`-${before[index] ?? ""}\n+${line}`],
+          )
+          .join("\n");
+      }
       last = current;
       // First-open dialogs (folder trust, external CLAUDE.md imports) settle
       // like any screen; accept the default and keep polling. Trust answers
@@ -330,6 +357,9 @@ export async function captureInTmux(
       "-S",
       "-",
     );
+    for (const key of settle.keysAfter ?? []) {
+      await tmux("send-keys", "-t", session, key);
+    }
     return { plain, ansi };
   } finally {
     await tmux("kill-session", "-t", session).catch(() => {});
@@ -346,6 +376,11 @@ export function normalize(capture: string): string {
   return (
     capture
       .replaceAll(/[⠁⠂⠄⡀⢀⠠⠐⠈⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏✢✳✶✻✽]/gu, "·")
+      // A running collapsed tool group ("Reading 1 file… (ctrl+o to
+      // expand)") pulses its bullet on and off; pin the on phase.
+      // Only the running form carries the "…"; completed groups ("Read 1
+      // file (ctrl+o to expand)") drop it and keep their bullet.
+      .replaceAll(/^ {2}(?=\S.*… \(ctrl\+o to expand\)$)/gmu, "● ")
       // Auth-state-dependent chrome from account-level (claude.ai) MCP
       // connectors; comes and goes with login/token state.
       .replaceAll(/^.*⚠ \d+ MCP servers? need authentication.*\n/gmu, "")
@@ -501,7 +536,7 @@ function renderDirect(subject: CaptureSubject): {
  * --label drops the default mtime headers so diff files are byte-identical
  * across runs.
  */
-async function diffFiles(fileA: string, fileB: string): Promise<string> {
+export async function diffFiles(fileA: string, fileB: string): Promise<string> {
   try {
     await execFileAsync("diff", [
       "-u",

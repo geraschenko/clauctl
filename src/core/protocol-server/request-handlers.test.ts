@@ -33,6 +33,7 @@ import {
 } from "../session/file.ts";
 import { AnomalyRecorder } from "./anomaly-bundle.ts";
 import { EventHub } from "./event-hub.ts";
+import { PermissionBroker } from "./permission-broker.ts";
 import {
   createRequestHandler,
   type RequestHandlerDeps,
@@ -140,6 +141,7 @@ interface Fixture {
   deregisteredAttachments: SubscribeAttachment[];
   sessionId: UUID;
   file: string;
+  permissionBroker: PermissionBroker;
   /** The history a (re)started daemon finds on disk: writes the file and
    *  starts tracking it (scanned, so excluded from query matching). Once
    *  per fixture. */
@@ -221,6 +223,7 @@ function fixture(t: TestContext, options: FixtureOptions = {}): Fixture {
     deregisteredAttachments: [],
     sessionId,
     file,
+    permissionBroker: new PermissionBroker(events),
     writeEntries: (entries) => {
       assert.equal(started, false, "writeEntries is the pre-start history");
       started = true;
@@ -258,6 +261,7 @@ function fixture(t: TestContext, options: FixtureOptions = {}): Fixture {
       await options.restartQuery?.();
     },
     trackedLog,
+    permissionBroker: f.permissionBroker,
     registerAttachment: (info) => {
       f.registeredAttachments.push(info);
       return () => f.deregisteredAttachments.push(info);
@@ -326,6 +330,56 @@ test("/compact while idle pushes directly and emits compactSent", async (t) => {
     ["compactSent"], // no queued/dequeued pair
   );
   assert.equal(f.events.agentState.activity, "compacting");
+});
+
+test("permission-response settles the pending ask; a non-pending id or malformed decision is rejected", async (t) => {
+  const f = fixture(t);
+  const request = {
+    toolUseId: "toolu_1",
+    toolName: "Bash",
+    input: { command: "ls" },
+    suggestions: [],
+  };
+  const decided = f.permissionBroker.request(
+    request,
+    new AbortController().signal,
+  );
+  assert.equal(f.events.agentState.pendingPermissions.length, 1);
+  await assert.rejects(
+    f.handle({
+      type: "permission-response",
+      toolUseId: "toolu_1",
+      // Untyped on the wire: the handler validates before the SDK sees it.
+      decision: {
+        behavior: "allow",
+        updatedPermissions: [{ type: "setMode" } as never],
+      },
+      id: "p0",
+    }),
+    /updatedPermissions\[0\]\.destination/,
+  );
+  assert.equal(f.events.agentState.pendingPermissions.length, 1);
+  await f.handle({
+    type: "permission-response",
+    toolUseId: "toolu_1",
+    decision: { behavior: "deny", message: "no" },
+    id: "p1",
+  });
+  assert.deepEqual(await decided, { behavior: "deny", message: "no" });
+  assert.deepEqual(f.events.agentState.pendingPermissions, []);
+  assert.deepEqual(
+    f.emitted.map((event) => event.kind),
+    ["permissionRequested", "permissionResolved"],
+  );
+  await assert.rejects(
+    f.handle({
+      type: "permission-response",
+      toolUseId: "toolu_1",
+      decision: { behavior: "deny", message: "again" },
+      id: "p2",
+    }),
+    /permission not pending/,
+  );
 });
 
 test("/compact is rejected when not idle", async (t) => {
@@ -711,7 +765,7 @@ test("set-context rejects while busy, before any teardown", async (t) => {
   f.appendEntries([{ ...userEntry(a2.uuid, f.sessionId), uuid: promptUuid }]);
   await assert.rejects(
     f.handle({ type: "set-context", uuids: [uuid()], id: "c1" }),
-    /requires an idle assistant/,
+    /requires a quiescent assistant/,
   );
   assert.equal(f.teardowns, 0);
 });
@@ -723,7 +777,7 @@ test("set-context waits at the settled gate for a dequeued prompt's entry, then 
   assert.equal(settled(f.events.agentState), false);
   const request = f.handle({ type: "set-context", uuids: [uuid()], id: "c1" });
   f.appendEntries([{ ...userEntry(a2.uuid, f.sessionId), uuid: promptUuid }]);
-  await assert.rejects(request, /requires an idle assistant/);
+  await assert.rejects(request, /requires a quiescent assistant/);
   assert.equal(f.teardowns, 0);
 });
 

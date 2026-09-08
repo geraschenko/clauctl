@@ -151,10 +151,9 @@ export function invariantOptions(): Pick<
     persistSession: true,
     includePartialMessages: true,
     includeHookEvents: true,
-    // No canUseTool is supplied, so a prompt could never be answered anyway;
-    // declaring it lets the CLI deny with a message telling the model the
-    // session has no approval surface. Mode, rules and hooks still decide.
-    permissionPrompts: "none",
+    // The daemon answers asks through canUseTool (permission broker); mode,
+    // rules and hooks still decide first, and only a residual ask prompts.
+    permissionPrompts: "host",
     // The augmented stream is the full observable record (DECISION-6): the
     // TUI renders subagent activity nested under its Task/Agent tool, which
     // only exists on the stream when subagent text is forwarded.

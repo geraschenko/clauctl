@@ -10,28 +10,57 @@
 
 import type { UUID } from "node:crypto";
 import {
+  allPendingAsks,
   anomalyReport,
   classOf,
   joinedPrompt,
+  type PendingAsk,
 } from "../core/agent-state/index.ts";
 import {
   type AgentState,
   type AgentEvent,
   eventUuid,
+  type PermissionResolution,
 } from "../core/protocol/index.ts";
 import { compactionMetadata } from "../core/session/file.ts";
 import { userText } from "./sdk-render.ts";
 import {
   annotation,
   formatSdkMessage,
+  formatToolArguments,
   newFormatState,
   type FormatState,
 } from "./sdk-message.ts";
 import type { MessageFormatOptions, TailRecord } from "./types.ts";
 
+/** `<toolUseId>: <tool summary>` (+ ` (task <taskId>)` for a task's ask);
+ *  the summary is the tail's own `[tool:…]` argument form. */
+function askDetail(ask: PendingAsk, options: MessageFormatOptions): string {
+  const { request, task } = ask;
+  const args = formatToolArguments(request.input, options.maxToolArgChars);
+  const summary =
+    args === "" ? request.toolName : `${request.toolName} ${args}`;
+  const suffix = task === undefined ? "" : ` (task ${task.taskId})`;
+  return `${request.toolUseId}: ${summary}${suffix}`;
+}
+
+function resolutionText(resolution: PermissionResolution): string {
+  switch (resolution.behavior) {
+    case "allow": {
+      const updates = resolution.updatedPermissions?.length ?? 0;
+      return updates === 0 ? "allow" : `allow + ${updates} permission updates`;
+    }
+    case "deny":
+      return `deny: ${resolution.message}`;
+    case "cancelled":
+      return "cancelled";
+  }
+}
+
 function agentStateChunk(
   agentState: AgentState,
   formatState: FormatState,
+  options: MessageFormatOptions,
 ): string {
   const parts: string[] = [agentState.activity];
   if (agentState.model !== undefined) {
@@ -50,6 +79,12 @@ function agentStateChunk(
   for (const { uuid, message } of agentState.queuedMessages) {
     formatState.queuedMessages.set(uuid, message);
     lines.push(annotation(`queued ${uuid}: ${userText(message)}`));
+  }
+  for (const task of agentState.tasks) {
+    lines.push(annotation(`task ${task.taskId}: ${task.description}`));
+  }
+  for (const ask of allPendingAsks(agentState)) {
+    lines.push(`[pending permission ${askDetail(ask, options)}]`);
   }
   return lines.join("\n");
 }
@@ -166,6 +201,17 @@ function eventBodyChunks(
       return [annotation(`appended: ${event.message.uuid ?? "?"}`)];
     case "trackerAnomaly":
       return [annotation(anomalyReport(event.anomaly, event.bundlePath))];
+    // The ask's task, when any, is not on the event; the formatter keeps no
+    // task map, so a task ask prints its `(task …)` suffix only in the
+    // snapshot line.
+    case "permissionRequested":
+      return [
+        `[permission requested ${askDetail({ request: event.request }, options)}]`,
+      ];
+    case "permissionResolved":
+      return [
+        `[permission resolved ${event.toolUseId}: ${resolutionText(event.resolution)}]`,
+      ];
     case "sdkMessage": {
       const chunk = formatSdkMessage(event.message, formatState, options);
       return chunk === undefined || chunk === "" ? [] : [chunk];
@@ -188,7 +234,7 @@ export class EventFormatter {
   push(record: TailRecord): string {
     const chunks =
       "snapshot" in record
-        ? [agentStateChunk(record.snapshot, this.formatState)]
+        ? [agentStateChunk(record.snapshot, this.formatState, this.options)]
         : eventChunks(record.event, this.formatState, this.options);
     let output = "";
     for (const chunk of chunks) {

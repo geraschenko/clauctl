@@ -58,7 +58,7 @@ test("buildFullscreenLayout: scroll region wraps the transcript, dock keeps toda
     chatContainer: new Container(),
     statusContainer: new Container(),
     pendingMessages: new Text(""),
-    editor: new Text(""),
+    inputSlot: new Container(),
     hintText: new Text(""),
     footer: new Text(""),
   };
@@ -78,7 +78,7 @@ test("buildFullscreenLayout: scroll region wraps the transcript, dock keeps toda
   assert.deepEqual(dock.children, [
     parts.statusContainer,
     parts.pendingMessages,
-    parts.editor,
+    parts.inputSlot,
     parts.hintText,
     parts.footer,
   ]);

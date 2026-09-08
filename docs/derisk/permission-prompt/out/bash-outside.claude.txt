@@ -1,0 +1,50 @@
+ ▐▛███▛█   Claude Code v2.1.258
+▝▜██████▀  Haiku 4.5 · Claude Max
+  ▝▝ ▝▝    ~/.cache/clauctl-permprobe/workdir/bash-outside
+
+  Updated to latest. Got 62 features, 379 bugfixes, and 211 other changes.
+  code.claude.com/docs/en/changelog for details
+
+
+❯ Use the Bash tool to run rm -rf /tmp/clauctl-permprobe-victim.
+
+● Bash(rm -rf /tmp/clauctl-permprobe-victim)
+  ⎿  Waiting…
+
+────────────────────────────────────────────────────────────────────────────────────────────────────
+ Bash command
+
+   rm -rf /tmp/clauctl-permprobe-victim
+   Remove test directory
+
+ Do you want to proceed?
+ ❯ 1. Yes
+   2. Yes, and always allow access to /tmp/clauctl-permprobe-victim from this project
+   3. No
+
+ Esc to cancel · Tab to amend
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

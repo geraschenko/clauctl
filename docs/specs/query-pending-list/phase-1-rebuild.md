@@ -245,4 +245,4 @@ Each step ends with `npm run check` and the affected tests green.
 - [x] Anton commits the review rounds
 - [x] Phase 1.5 spec: trees fed at resolution, two-part transcript —
       `query-pending-list/phase-1.5-render-at-resolution.md`
-- Deferred (`InteractiveMode` harness): docs/follow-ups/interactive-mode-test-harness.md
+- Deferred (`InteractiveMode` harness): docs/follow-ups/old/interactive-mode-test-harness.md

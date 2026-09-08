@@ -1,0 +1,50 @@
+ ▐▛███▛█   Claude Code v2.1.258
+▝▜██████▀  Haiku 4.5 · Claude Max
+  ▝▝ ▝▝    ~/.cache/clauctl-permprobe/workdir/askuser
+
+
+❯ Use the AskUserQuestion tool to ask me whether I prefer cats or dogs.
+────────────────────────────────────────────────────────────────────────────────────────────────────
+ ☐ Preference
+
+Do you prefer cats or dogs?
+
+❯ 1. Cats
+     I prefer felines as pets
+  2. Dogs
+     I prefer canines as pets
+  3. Both equally
+     I like them the same
+  4. Neither
+     I don't prefer either
+  5. Type something.
+────────────────────────────────────────────────────────────────────────────────────────────────────
+  6. Chat about this
+
+Enter to select · ↑/↓ to navigate · Esc to cancel
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

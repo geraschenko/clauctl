@@ -1,0 +1,50 @@
+[38;5;174m ▐[48;5;16m▛███▛█[39m[49m   [1mClaude[0m [1mCode[0m [38;5;246mv2.1.258[39m
+[38;5;174m▝▜[48;5;16m█████[49m█▀[39m  [38;5;246mHaiku[39m [38;5;246m4.5[39m [38;5;246m·[39m [38;5;246mClaude[39m [38;5;246mMax[39m
+[38;5;174m [39m [38;5;174m▝▝[39m [38;5;174m▝▝[39m    [38;5;246m~/.cache/clauctl-permprobe/workdir/read-outside[39m
+
+
+[38;5;239m[48;5;237m❯ [38;5;231mUse the Read tool to read /tmp/clauctl-permprobe-outside/secret.txt.[39m
+
+[38;5;246m[49m●[39m Reading [1m1[0m file… [38;5;246m(ctrl+o to expand)[39m
+[38;5;246m  ⎿  /tmp/clauctl-permprobe-outside/secret.txt[39m
+
+[38;5;153m────────────────────────────────────────────────────────────────────────────────────────────────────
+[39m [1m[38;5;153mRead file[0m
+
+  Read(]8;id=tczmsh;file:///tmp/clauctl-permprobe-outside/secret.txt\/tmp/clauctl-permprobe-outside/secret.txt]8;;\)
+
+ Do you want to proceed?
+ [38;5;153m❯[39m [38;5;246m1.[39m [38;5;153mYes[39m
+   [38;5;246m2.[39m Yes, allow reading from [1m/tmp/clauctl-permprobe-outside[0m during this session
+   [38;5;246m3.[39m No
+
+ [38;5;246mEsc[39m [38;5;246mto[39m [38;5;246mcancel[39m [38;5;246m·[39m [38;5;246mTab[39m [38;5;246mto[39m [38;5;246mamend[39m
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -39,6 +39,8 @@ export function observedSessions(
     case "sessionEntry":
     case "scanComplete":
     case "sessionAppended":
+    case "permissionRequested":
+    case "permissionResolved":
     case "trackerAnomaly": {
       const sessionId =
         eventStream(event) === "query"

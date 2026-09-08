@@ -13,7 +13,17 @@ export {
   sdkMessageOf,
   type Unstamped,
 } from "./agent-event.ts";
-export { type AgentActivity, type AgentState } from "./agent-state.ts";
+export {
+  type AgentActivity,
+  type AgentState,
+  type TaskState,
+} from "./agent-state.ts";
+export {
+  isNotPendingError,
+  NOT_PENDING_ERROR,
+  type PermissionRequest,
+  type PermissionResolution,
+} from "./permission.ts";
 export {
   ENTRY_PAYLOADS,
   type EntryPayload,

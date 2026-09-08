@@ -1,0 +1,173 @@
+{
+  "scenario": "plan",
+  "versions": {
+    "sdk": "0.3.258"
+  },
+  "cwd": "/tmp/clauctl-permprobe-cwd-wU7UsP",
+  "asks": [
+    {
+      "toolName": "ExitPlanMode",
+      "input": {
+        "plan": "# Plan: Create c.txt\n\nCreate a file named `c.txt` in the current working directory using the Write tool.\n",
+        "planFilePath": "/tmp/clauctl-cbi-derisk/permprobe-plan/plans/make-a-one-line-plan-tidy-clock.md"
+      },
+      "options": {
+        "displayName": "ExitPlanMode",
+        "toolUseID": "toolu_01HBmxvHkWog7iw9dfa2NroW",
+        "requestId": "e2c588f7-9d18-45ed-b655-2733a98a1da0"
+      },
+      "signalAborted": false
+    }
+  ],
+  "denials": [],
+  "messages": [
+    {
+      "type": "system",
+      "subtype": "init"
+    },
+    {
+      "type": "system",
+      "subtype": "thinking_tokens"
+    },
+    {
+      "type": "system",
+      "subtype": "thinking_tokens"
+    },
+    {
+      "type": "system",
+      "subtype": "thinking_tokens"
+    },
+    {
+      "type": "system",
+      "subtype": "thinking_tokens"
+    },
+    {
+      "type": "system",
+      "subtype": "thinking_tokens"
+    },
+    {
+      "type": "system",
+      "subtype": "thinking_tokens"
+    },
+    {
+      "type": "system",
+      "subtype": "thinking_tokens"
+    },
+    {
+      "type": "system",
+      "subtype": "thinking_tokens"
+    },
+    {
+      "type": "system",
+      "subtype": "thinking_tokens"
+    },
+    {
+      "type": "assistant"
+    },
+    {
+      "type": "assistant"
+    },
+    {
+      "type": "rate_limit_event"
+    },
+    {
+      "type": "user"
+    },
+    {
+      "type": "system",
+      "subtype": "thinking_tokens"
+    },
+    {
+      "type": "system",
+      "subtype": "thinking_tokens"
+    },
+    {
+      "type": "system",
+      "subtype": "thinking_tokens"
+    },
+    {
+      "type": "system",
+      "subtype": "thinking_tokens"
+    },
+    {
+      "type": "assistant"
+    },
+    {
+      "type": "assistant"
+    },
+    {
+      "type": "user"
+    },
+    {
+      "type": "system",
+      "subtype": "thinking_tokens"
+    },
+    {
+      "type": "system",
+      "subtype": "thinking_tokens"
+    },
+    {
+      "type": "system",
+      "subtype": "thinking_tokens"
+    },
+    {
+      "type": "system",
+      "subtype": "thinking_tokens"
+    },
+    {
+      "type": "system",
+      "subtype": "thinking_tokens"
+    },
+    {
+      "type": "system",
+      "subtype": "thinking_tokens"
+    },
+    {
+      "type": "system",
+      "subtype": "thinking_tokens"
+    },
+    {
+      "type": "system",
+      "subtype": "thinking_tokens"
+    },
+    {
+      "type": "system",
+      "subtype": "thinking_tokens"
+    },
+    {
+      "type": "system",
+      "subtype": "thinking_tokens"
+    },
+    {
+      "type": "system",
+      "subtype": "thinking_tokens"
+    },
+    {
+      "type": "assistant"
+    },
+    {
+      "type": "assistant"
+    },
+    {
+      "type": "user"
+    },
+    {
+      "type": "result",
+      "subtype": "error_max_turns"
+    }
+  ],
+  "result": {
+    "subtype": "error_max_turns",
+    "permission_denials": [
+      {
+        "tool_name": "ExitPlanMode",
+        "tool_use_id": "toolu_01HBmxvHkWog7iw9dfa2NroW",
+        "tool_input": {
+          "plan": "# Plan: Create c.txt\n\nCreate a file named `c.txt` in the current working directory using the Write tool.\n",
+          "planFilePath": "/tmp/clauctl-cbi-derisk/permprobe-plan/plans/make-a-one-line-plan-tidy-clock.md"
+        }
+      }
+    ]
+  },
+  "error": "Error: Claude Code returned an error result: Reached maximum number of turns (3)"
+}

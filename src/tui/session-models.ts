@@ -133,6 +133,8 @@ export class SessionModels {
       case "scanComplete":
       case "sessionAppended":
       case "trackerAnomaly":
+      case "permissionRequested":
+      case "permissionResolved":
       case "shutdown":
         this.recordObserved(event, state);
     }
@@ -231,6 +233,8 @@ export class SessionModels {
       case "scanComplete":
       case "sessionAppended":
       case "trackerAnomaly":
+      case "permissionRequested":
+      case "permissionResolved":
       case "shutdown":
         break;
     }

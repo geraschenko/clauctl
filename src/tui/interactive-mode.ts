@@ -33,12 +33,23 @@ import type {
   PermissionMode,
   SDKControlInitializeResponse,
 } from "@anthropic-ai/claude-agent-sdk";
-import { anomalyReport, isIdle } from "../core/agent-state/index.ts";
+import type { PermissionResult } from "@anthropic-ai/claude-agent-sdk";
+import {
+  allPendingAsks,
+  anomalyReport,
+  isIdle,
+} from "../core/agent-state/index.ts";
+import { ANSI_STYLE } from "../format/style.ts";
+import { PermissionPromptComponent } from "./components/permission-prompt.ts";
+import { FitWidth } from "./components/fit-width.ts";
+import { permissionDialog, PLAIN_DENY_MESSAGE } from "./permission-dialog.ts";
 import type {
   AgentState,
   AgentEvent,
   GetEntriesResponse,
+  PermissionResolution,
 } from "../core/protocol/index.ts";
+import { isNotPendingError } from "../core/protocol/index.ts";
 import { randomUUID, type UUID } from "node:crypto";
 import { readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -158,9 +169,6 @@ export async function runInteractive(
   const startupWarnings = keybindingWarnings.map(
     (warning) => `keybindings: ${warning}`,
   );
-  if (client.versionWarning !== undefined) {
-    startupWarnings.push(client.versionWarning);
-  }
   const settingsRead = readSettings(settingsPath());
   startupWarnings.push(
     ...settingsRead.warnings.map((warning) => `settings: ${warning}`),
@@ -248,7 +256,8 @@ export interface TuiParts {
   chatContainer: Container;
   statusContainer: Container;
   pendingMessages: Component;
-  editor: Component;
+  /** Holds the editor, or the permission prompt while an ask is pending. */
+  inputSlot: Container;
   hintText: Component;
   footer: Component;
 }
@@ -260,11 +269,31 @@ export interface TuiParts {
  * fullscreen dock VStack consumes the entries, the regular-mode flat mount
  * consumes just the components.
  */
+/** Transcript banner for a `permissionResolved`, so a TUI that did not
+ *  answer still sees what happened (decided divergence: claude shows
+ *  nothing beyond the tool result). */
+function resolutionBanner(resolution: PermissionResolution): string {
+  switch (resolution.behavior) {
+    case "allow": {
+      const updates = resolution.updatedPermissions?.length ?? 0;
+      return updates === 0
+        ? "permission allowed"
+        : `permission allowed (+${updates} updates)`;
+    }
+    case "deny":
+      return resolution.message === PLAIN_DENY_MESSAGE
+        ? "permission denied"
+        : `permission denied: ${resolution.message}`;
+    case "cancelled":
+      return "permission cancelled";
+  }
+}
+
 function dockEntries(parts: TuiParts): StackEntry[] {
   return [
     { component: parts.statusContainer, shrink: 1, minSize: 0 },
     { component: parts.pendingMessages, shrink: 1, minSize: 0 },
-    { component: parts.editor, shrink: 1, minSize: 3 },
+    { component: parts.inputSlot, shrink: 1, minSize: 3 },
     { component: parts.hintText, shrink: 1, minSize: 0 },
     { component: parts.footer, shrink: 1, minSize: 1 },
   ];
@@ -324,13 +353,14 @@ function mountParts(ui: TUI, parts: TuiParts): void {
     ui.setLayoutRoot(buildFullscreenLayout(parts).layoutRoot);
     return;
   }
-  ui.addChild(parts.chatContainer);
+  // Regular mode is where an over-wide line crashes the screen (fit-width.ts).
+  ui.addChild(new FitWidth(parts.chatContainer));
   for (const { component } of dockEntries(parts)) {
-    ui.addChild(component);
+    ui.addChild(new FitWidth(component));
   }
 }
 
-class InteractiveMode {
+export class InteractiveMode {
   readonly done: Promise<InteractiveOutcome>;
   private finish!: (outcome: InteractiveOutcome) => void;
 
@@ -355,6 +385,14 @@ class InteractiveMode {
   private readonly hintText = new Text("", 1, 0);
   private readonly loader: Loader;
   private readonly editor: Editor;
+  private readonly inputSlot = new Container();
+  private permissionPrompt?: PermissionPromptComponent;
+  /** The ask the mounted prompt shows; a different head replaces it. */
+  private promptedToolUseId?: string;
+  /** Plans edited via ctrl+g, by ask: a task's plan ask can lose the head
+   *  to a newer main-agent ask and regain it later, edit intact. Cleared
+   *  when no ask is pending. */
+  private readonly planEdits = new Map<string, string>();
   /** Git-branch data for the footer. The daemon always seeds cwd, so this
    *  is only undefined for a (theoretical) unseeded subscribe response —
    *  the footer then simply never shows a branch. */
@@ -435,16 +473,20 @@ class InteractiveMode {
     }
     this.footer = new FooterComponent(this.footerData);
 
+    this.inputSlot.addChild(this.editor);
     mountParts(ui, {
       chatContainer: this.chatContainer,
       statusContainer: this.statusContainer,
       pendingMessages: this.pendingMessages,
-      editor: this.editor,
+      inputSlot: this.inputSlot,
       hintText: this.hintText,
       footer: this.footer,
     });
     ui.setFocus(this.editor);
     ui.addInputListener((data) => this.handleGlobalKey(data));
+    // An agent already blocked at attach shows its dialog before the
+    // history replay fills the transcript.
+    this.syncPermissionPrompt(seedState);
 
     // The seed state fills the pending area (the footer reads it via
     // syncActivity below); the transcript fills asynchronously via
@@ -646,6 +688,10 @@ class InteractiveMode {
    *  event, including the ones released after attach. */
   private applyState(event: AgentEvent, state: AgentState): void {
     this.agentState = state;
+    this.syncPermissionPrompt(state);
+    if (event.kind === "permissionResolved") {
+      this.addBanner(resolutionBanner(event.resolution));
+    }
     if (event.kind === "sessionFileChanged") {
       this.scanning = true;
     } else if (event.kind === "scanComplete") {
@@ -955,6 +1001,27 @@ class InteractiveMode {
     }
   }
 
+  /** ctrl+g on the ExitPlanMode dialog: edit claude's plan file in place;
+   *  exit 0 remounts the dialog showing the edited plan, which approval
+   *  then sends as `updatedInput`. */
+  private async openPlanEditor(
+    toolUseId: string,
+    planFilePath: string,
+  ): Promise<void> {
+    const editorCommand = externalEditorCommand();
+    if (editorCommand === undefined) {
+      this.addBanner("set $EDITOR to edit the plan", "warning");
+      this.ui.requestRender();
+      return;
+    }
+    if (await editFileInExternalEditor(this.ui, editorCommand, planFilePath)) {
+      this.planEdits.set(toolUseId, readFileSync(planFilePath, "utf8"));
+      this.promptedToolUseId = undefined;
+      this.syncPermissionPrompt(this.agentState);
+    }
+    this.ui.requestRender();
+  }
+
   private sendSetModel(model: string): void {
     // No optimistic footer update: it follows from the controlApplied event.
     void this.client
@@ -973,6 +1040,7 @@ class InteractiveMode {
     void this.client.request({ type: "supported-models" }).then(
       (data) => {
         this.modelSelectorPending = false;
+        if (this.permissionPrompt !== undefined) return;
         const selector = new ModelSelectorComponent(
           data as ModelInfo[],
           (model) => {
@@ -992,6 +1060,75 @@ class InteractiveMode {
         this.ui.requestRender();
       },
     );
+  }
+
+  /** Mounts the dialog for the head of `allPendingAsks(state)` in place of
+   *  the editor, replaces it when the head changes, and restores the editor
+   *  (its text intact — the instance is never recreated) when none is
+   *  pending. Opening closes any selector: the dialog is modal. */
+  private syncPermissionPrompt(state: AgentState): void {
+    const asks = allPendingAsks(state);
+    const head = asks[0];
+    if (head === undefined) {
+      this.planEdits.clear();
+      if (this.permissionPrompt !== undefined) {
+        this.inputSlot.removeChild(this.permissionPrompt);
+        this.inputSlot.addChild(this.editor);
+        this.permissionPrompt = undefined;
+        this.promptedToolUseId = undefined;
+        this.ui.setFocus(this.editor);
+      }
+      return;
+    }
+    if (head.request.toolUseId === this.promptedToolUseId) {
+      if (this.permissionPrompt !== undefined) {
+        this.permissionPrompt.pendingCount = asks.length;
+      }
+      return;
+    }
+    const dialog = permissionDialog(
+      head.request,
+      { cwd: state.cwd, style: ANSI_STYLE },
+      this.planEdits.get(head.request.toolUseId),
+    );
+    const prompt = new PermissionPromptComponent(
+      head.task === undefined
+        ? dialog
+        : {
+            ...dialog,
+            title: `${dialog.title} — task: ${head.task.description}`,
+          },
+      asks.length,
+      (decision) =>
+        this.sendPermissionResponse(head.request.toolUseId, decision),
+    );
+    this.closeModelSelector();
+    this.closeEffortSelector();
+    this.closeTreeSelector();
+    this.inputSlot.removeChild(this.permissionPrompt ?? this.editor);
+    this.inputSlot.addChild(prompt);
+    this.permissionPrompt = prompt;
+    this.promptedToolUseId = head.request.toolUseId;
+    this.ui.setFocus(prompt);
+  }
+
+  /** A not-pending rejection is a lost race (another client answered, or
+   *  the ask was cancelled) whose resolution event already explains it. */
+  private sendPermissionResponse(
+    toolUseId: string,
+    decision: PermissionResult,
+  ): void {
+    void this.client
+      .request({ type: "permission-response", toolUseId, decision })
+      .catch((error: unknown) => {
+        if (!isNotPendingError(error)) {
+          this.addBanner(
+            `permission response failed: ${String(error)}`,
+            "error",
+          );
+          this.ui.requestRender();
+        }
+      });
   }
 
   private closeModelSelector(): void {
@@ -1020,6 +1157,7 @@ class InteractiveMode {
     void this.client.request({ type: "supported-models" }).then(
       (data) => {
         this.effortSelectorPending = false;
+        if (this.permissionPrompt !== undefined) return;
         const models = data as ModelInfo[];
         // agentState.model holds a set-model request value or the SDK init
         // message's resolved id, depending on history — so match both.
@@ -1197,15 +1335,25 @@ class InteractiveMode {
       this.modelSelector !== undefined ||
       this.treeSelector !== undefined ||
       this.effortSelector !== undefined;
+    // A pending ask is interruptible even with the main loop idle (a
+    // background task's ask): the CLI aborts the ask and kills the task.
     if (
       this.keybindings.matches(data, "app.interrupt") &&
-      !isIdle(this.agentState) &&
+      (!isIdle(this.agentState) ||
+        allPendingAsks(this.agentState).length > 0) &&
       !selectorOpen
     ) {
       void this.client.request({ type: "interrupt" }).catch(() => {});
       return { consume: true };
     }
-    if (this.keybindings.matches(data, "app.permissionMode.cycle")) {
+    // The permission dialog is modal: interrupt, detach and tools.expand
+    // still work; mode cycling, the external editor and clear act on the
+    // editor it has replaced.
+    const promptOpen = this.permissionPrompt !== undefined;
+    if (
+      this.keybindings.matches(data, "app.permissionMode.cycle") &&
+      !promptOpen
+    ) {
       this.cyclePermissionMode();
       return { consume: true };
     }
@@ -1226,13 +1374,29 @@ class InteractiveMode {
       this.keybindings.matches(data, "app.editor.external") &&
       !selectorOpen
     ) {
-      void this.openExternalPromptEditor().catch((error: unknown) => {
+      const planFilePath = this.permissionPrompt?.dialog.planFilePath;
+      const toolUseId = this.promptedToolUseId;
+      if (
+        promptOpen &&
+        (planFilePath === undefined || toolUseId === undefined)
+      ) {
+        return undefined;
+      }
+      void (
+        planFilePath === undefined || toolUseId === undefined
+          ? this.openExternalPromptEditor()
+          : this.openPlanEditor(toolUseId, planFilePath)
+      ).catch((error: unknown) => {
         this.addBanner(`external editor failed: ${String(error)}`, "error");
         this.ui.requestRender();
       });
       return { consume: true };
     }
-    if (this.keybindings.matches(data, "app.clear") && !selectorOpen) {
+    if (
+      this.keybindings.matches(data, "app.clear") &&
+      !selectorOpen &&
+      !promptOpen
+    ) {
       // Cleared text stays reachable via up/down history (unlike pi, which
       // discards it).
       const clearedText = this.editor.getText();
@@ -1295,7 +1459,11 @@ class InteractiveMode {
     if (this.agentState.cwd !== undefined) {
       this.footerData?.setCwd(this.agentState.cwd);
     }
-    if (this.agentState.activity === "idle") {
+    // A blocked agent shows the dialog, not a spinner (claude shows none).
+    if (
+      this.agentState.activity === "idle" ||
+      allPendingAsks(this.agentState).length > 0
+    ) {
       this.loader.stop();
       this.statusContainer.removeChild(this.loader);
     } else if (!this.statusContainer.children.includes(this.loader)) {

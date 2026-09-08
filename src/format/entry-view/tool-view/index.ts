@@ -6,3 +6,5 @@ export {
   type ToolViewContext,
 } from "./tool-view.ts";
 export { toolViewFor } from "./tool-view-for.ts";
+export { stringArg } from "./args.ts";
+export { type ToolInputMap, type ToolName } from "./generated.ts";

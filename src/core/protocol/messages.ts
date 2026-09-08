@@ -13,6 +13,7 @@ import type {
   EffortLevel,
   McpServerConfig,
   PermissionMode,
+  PermissionResult,
   Settings,
 } from "@anthropic-ai/claude-agent-sdk";
 import type { SessionEntry } from "../session/file.ts";
@@ -322,6 +323,16 @@ export type ProtocolRequest =
       shouldQuery?: false;
     }
   | { type: "interrupt" }
+  // Response data: none. The socket client is trusted (it has whatever a
+  // TUI or SDK user has, including persisting arbitrary rules), so the
+  // decision is the raw SDK shape; the handler validates it structurally
+  // before it reaches the SDK. Fails with error text NOT_PENDING_ERROR
+  // when the ask is not pending (resolved, cancelled, or unknown).
+  | {
+      type: "permission-response";
+      toolUseId: string;
+      decision: PermissionResult;
+    }
   // Response data is the daemon's current AgentState; every event emitted
   // after it follows as an AgentEventRecord line until the connection closes.
   // No history replay — a subscriber starts at "now" and folds from there

@@ -13,7 +13,14 @@ import {
 import { excludedFromQuery, eventStream } from "./classification.ts";
 import { initialAgentState, nextAgentState } from "./next-agent-state.ts";
 import { observedSessions } from "./observe-event/index.ts";
-import { isIdle, leaf, querySession, settled } from "./selectors.ts";
+import {
+  allPendingAsks,
+  isIdle,
+  isQuiescent,
+  leaf,
+  querySession,
+  settled,
+} from "./selectors.ts";
 import { freshSessionState } from "./session-state.ts";
 import type { SessionEntry } from "../session/file.ts";
 import { hasPending, pending } from "../stream-merge.ts";
@@ -457,6 +464,143 @@ test("invariant: idle implies no querying entries across a busy scenario", () =>
   }
   assert.equal(state.activity, "idle");
   assert.deepEqual(state.queuedMessages, []);
+});
+
+// --- tasks and permission asks -----------------------------------------------
+
+function permissionRequested(toolUseId: string, agentId?: string): AgentEvent {
+  return {
+    kind: "permissionRequested",
+    uuid: stamp(),
+    request: {
+      toolUseId,
+      toolName: "Bash",
+      input: { command: "ls" },
+      suggestions: [],
+      ...(agentId !== undefined && { agentId }),
+    },
+  };
+}
+
+const permissionResolved = (toolUseId: string): AgentEvent => ({
+  kind: "permissionResolved",
+  uuid: stamp(),
+  toolUseId,
+  resolution: { behavior: "cancelled" },
+});
+
+const taskStarted = (
+  taskId: string,
+  fields: Record<string, unknown> = {},
+): AgentEvent =>
+  sdkMessage("system", {
+    subtype: "task_started",
+    task_id: taskId,
+    description: `task ${taskId}`,
+    uuid: undefined,
+    ...fields,
+  });
+
+const taskUpdated = (
+  taskId: string,
+  patch: Record<string, unknown>,
+): AgentEvent =>
+  sdkMessage("system", {
+    subtype: "task_updated",
+    task_id: taskId,
+    patch,
+    uuid: undefined,
+  });
+
+test("task lifecycle: started → live, paused/backgrounded merge, terminal status removes", () => {
+  const started = run([
+    taskStarted("t1", { is_backgrounded: true, subagent_type: "Explore" }),
+  ]);
+  assert.deepEqual(started.tasks, [
+    {
+      taskId: "t1",
+      description: "task t1",
+      subagentType: "Explore",
+      background: true,
+      status: "running",
+      pendingPermissions: [],
+    },
+  ]);
+  assert.equal(isIdle(started), true);
+  assert.equal(isQuiescent(started), false);
+  const paused = run([taskUpdated("t1", { status: "paused" })], started);
+  assert.equal(paused.tasks[0]!.status, "paused");
+  const ended = run([taskUpdated("t1", { status: "completed" })], paused);
+  assert.deepEqual(ended.tasks, []);
+  assert.equal(isQuiescent(ended), true);
+  // An ambient task (no tool use) and an update for an unknown task are noise.
+  assert.deepEqual(run([taskStarted("amb", { ambient: true })]).tasks, []);
+  assert.deepEqual(
+    run([taskUpdated("ghost", { status: "running" })]).tasks,
+    [],
+  );
+});
+
+test("task_notification ends a task and drops its asks", () => {
+  const state = run([
+    taskStarted("t1"),
+    permissionRequested("toolu_1", "t1"),
+    sdkMessage("system", {
+      subtype: "task_notification",
+      task_id: "t1",
+      status: "completed",
+      uuid: undefined,
+    }),
+  ]);
+  assert.deepEqual(state.tasks, []);
+  assert.deepEqual(allPendingAsks(state), []);
+});
+
+test("asks route to their task or the main list; allPendingAsks lists main first", () => {
+  const state = run([
+    taskStarted("t1"),
+    permissionRequested("toolu_task", "t1"),
+    permissionRequested("toolu_main"),
+  ]);
+  assert.deepEqual(
+    state.pendingPermissions.map((request) => request.toolUseId),
+    ["toolu_main"],
+  );
+  assert.deepEqual(
+    state.tasks[0]!.pendingPermissions.map((request) => request.toolUseId),
+    ["toolu_task"],
+  );
+  assert.deepEqual(
+    allPendingAsks(state).map((ask) => [
+      ask.request.toolUseId,
+      ask.task?.taskId,
+    ]),
+    [
+      ["toolu_main", undefined],
+      ["toolu_task", "t1"],
+    ],
+  );
+  assert.equal(state.anomaly, undefined);
+  const resolved = run(
+    [permissionResolved("toolu_task"), permissionResolved("toolu_main")],
+    state,
+  );
+  assert.deepEqual(allPendingAsks(resolved), []);
+  assert.equal(resolved.tasks.length, 1);
+  // Resolving an unknown id only observes the event's node.
+  const unknown = run([permissionResolved("toolu_none")], resolved);
+  assert.equal(unknown.pendingPermissions, resolved.pendingPermissions);
+  assert.equal(unknown.tasks, resolved.tasks);
+});
+
+test("an ask naming a task that is not live lands on main with a classification anomaly", () => {
+  const state = run([permissionRequested("toolu_x", "nope")]);
+  assert.deepEqual(
+    state.pendingPermissions.map((request) => request.toolUseId),
+    ["toolu_x"],
+  );
+  assert.equal(state.anomaly?.kind, "classification");
+  assert.match(state.anomaly!.detail, /toolu_x names task nope/);
 });
 
 // --- session / model / permission-mode observation ---------------------------
@@ -1206,6 +1350,22 @@ test("every event kind is observed under eventUuid on eventStream in every obser
       kind: "malformed-line",
       detail: "bytes 1-2",
     }),
+    permissionRequested: {
+      kind: "permissionRequested",
+      uuid: stamp(),
+      request: {
+        toolUseId: "toolu_1",
+        toolName: "Bash",
+        input: { command: "ls" },
+        suggestions: [],
+      },
+    },
+    permissionResolved: {
+      kind: "permissionResolved",
+      uuid: stamp(),
+      toolUseId: "toolu_1",
+      resolution: { behavior: "cancelled" },
+    },
     shutdown: { kind: "shutdown", uuid: stamp(), reason: "test" },
   };
   for (const [kind, event] of Object.entries(fixtures)) {

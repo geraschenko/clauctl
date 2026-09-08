@@ -9,7 +9,7 @@ import { access } from "node:fs/promises";
 export class UsageError extends Error {}
 
 export function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 export function oneOf<T extends string>(

@@ -138,6 +138,11 @@ export class FooterComponent implements Component {
       );
       rightParts.push(`${formatTokens(tokens)} (${percent}%)`);
     }
+    if (this.state.tasks.length > 0) {
+      rightParts.push(
+        `${this.state.tasks.length} subagent${this.state.tasks.length === 1 ? "" : "s"}`,
+      );
+    }
     rightParts.push(this.state.model ?? "unset model");
     if (this.state.effortLevel !== undefined) {
       rightParts.push(this.state.effortLevel);
