@@ -1,0 +1,106 @@
+{
+  "versions": {
+    "sdk": "0.3.258"
+  },
+  "sessionId": "2d079709-a576-4374-98a8-a980942c642a",
+  "compactResult": "success",
+  "compactSystemMsgs": [
+    "status",
+    "status",
+    "init",
+    "compact_boundary"
+  ],
+  "boundaryAndSummaryEntries": [
+    {
+      "parentUuid": null,
+      "logicalParentUuid": "1ecaa47f-0aca-4b63-9d77-d698252b6ee0",
+      "isSidechain": false,
+      "type": "system",
+      "subtype": "compact_boundary",
+      "content": "Conversation compacted",
+      "isMeta": false,
+      "timestamp": "2026-09-11T18:50:27.515Z",
+      "uuid": "21910c04-b2dd-41cb-bde2-9a3407fb4d74",
+      "level": "info",
+      "compactMetadata": {
+        "trigger": "manual",
+        "preTokens": 46192,
+        "durationMs": 17992,
+        "preservedSegment": {
+          "headUuid": "8d9391db-639d-44eb-97e5-fec1f0918a44",
+          "anchorUuid": "2dbea3bb-f000-42eb-9073-7f013a5a7b00",
+          "tailUuid": "1ecaa47f-0aca-4b63-9d77-d698252b6ee0"
+        },
+        "preservedMessages": {
+          "anchorUuid": "2dbea3bb-f000-42eb-9073-7f013a5a7b00",
+          "uuids": [
+            "8d9391db-639d-44eb-97e5-fec1f0918a44",
+            "1ecaa47f-0aca-4b63-9d77-d698252b6ee0"
+          ],
+          "allUuids": [
+            "8d9391db-639d-44eb-97e5-fec1f0918a44",
+            "1ecaa47f-0aca-4b63-9d77-d698252b6ee0"
+          ]
+        },
+        "postTokens": 1348,
+        "cumulativeDroppedTokens": 44844
+      },
+      "userType": "external",
+      "entrypoint": "sdk-ts",
+      "cwd": "/tmp/clauctl-cbi-derisk/p0b-native-compact-cwd",
+      "sessionId": "2d079709-a576-4374-98a8-a980942c642a",
+      "version": "2.1.258",
+      "gitBranch": "HEAD",
+      "slug": "spicy-spinning-coral"
+    },
+    {
+      "parentUuid": "21910c04-b2dd-41cb-bde2-9a3407fb4d74",
+      "isSidechain": false,
+      "promptId": "0b2342e9-6272-4569-b95c-3b3bdd62f4a8",
+      "type": "user",
+      "message": {
+        "role": "user",
+        "content": "This session is being continued from a previous conversation that ran out of context. The summary below covers the earlier portion of the conversation.\n\nSummary:\n1. Primary Request and Intent:\n   - NONCE-U1: Read fact.txt file and identify the \"magic word\" contained within\n   - NONCE-U2: Calculate and answer \"What is 2+2?\" with only the numeric result\n   - NONCE-U3: The primary request to name a primary color is overridden by the CRITICAL directive, which instead requests a detailed summary of the entire conversation in a specific 9-section format without using any tools\n\n2. Key Technical Concepts:\n   - File system operations and path resolution\n   - Error message interpretation to determine working directory\n   - Instruction prioritization and override handling\n   - Conversation analysis and summarization\n\n3. Files and Code Sections:\n   - fact.txt (located at /tmp/clauctl-cbi-derisk/p0b-native-compact-cwd/fact.txt)\n     - Single-line file containing: \"The magic word is XYLOPHONE-77431.\"\n     - Purpose: Test file requiring user to locate and read it to extract the magic word\n\n4. Errors and fixes:\n   - Error: Initial read attempt used path /fact.txt which did not exist\n   - Fix: Interpreted the error message to identify current working directory as /tmp/clauctl-cbi-derisk/p0b-native-compact-cwd/ and re-attempted read with full path\n\n5. Problem Solving:\n   - Successfully resolved file path issue through error message interpretation\n   - Correctly executed arithmetic calculation\n   - Recognized and prioritized explicit override instruction in NONCE-U3\n\n6. All user messages:\n   - \"Read the file fact.txt and tell me the magic word. (tag: NONCE-U1)\"\n   - \"What is 2+2? Answer with just the number. (tag: NONCE-U2)\"\n   - \"Name any primary color, one word. (tag: NONCE-U3) CRITICAL: Respond with TEXT ONLY. Do NOT call any tools. [Detailed instructions for creating conversation summary with 9-section format]\"\n\n7. Pending Tasks:\n   - None remaining. The current summary task represents the final request in this conversation.\n\n8. Current Work:\n   - Generating a detailed summary of the conversation following the 9-section format specified in the CRITICAL directive, with emphasis on analyzing user requests, technical details, and conversation flow\n\n9. Optional Next Step:\n   - No next steps. The task of providing this summary completes the explicit requests from the user.\n\nIf you need specific details from before compaction (like exact code snippets, error messages, or content you generated), read the full transcript at: /tmp/clauctl-cbi-derisk/p0b-native-compact/projects/-tmp-clauctl-cbi-derisk-p0b-native-compact-cwd/2d079709-a576-4374-98a8-a980942c642a.jsonl\nContinue the conversation from where it left off without asking the user any further questions. Resume directly — do not acknowledge the summary, do not recap what was happening, do not preface with \"I'll continue\" or similar. Pick up the last task as if the break never happened."
+      },
+      "isVisibleInTranscriptOnly": true,
+      "isCompactSummary": true,
+      "uuid": "2dbea3bb-f000-42eb-9073-7f013a5a7b00",
+      "timestamp": "2026-09-11T18:50:27.514Z",
+      "userType": "external",
+      "entrypoint": "sdk-ts",
+      "cwd": "/tmp/clauctl-cbi-derisk/p0b-native-compact-cwd",
+      "sessionId": "2d079709-a576-4374-98a8-a980942c642a",
+      "version": "2.1.258",
+      "gitBranch": "HEAD",
+      "slug": "spicy-spinning-coral"
+    }
+  ],
+  "dirDiff": {
+    "added": [],
+    "removed": [],
+    "changed": [
+      "projects/-tmp-clauctl-cbi-derisk-p0b-native-compact-cwd/2d079709-a576-4374-98a8-a980942c642a.jsonl"
+    ]
+  },
+  "requestCounts": {
+    "total": 7,
+    "preCompact": 5,
+    "duringCompact": 1
+  },
+  "compactRequestShapes": [
+    {
+      "model": "claude-haiku-4-5-20251001",
+      "system": "[{\"type\":\"text\",\"text\":\"x-anthropic-billing-header: cc_version=2.1.258.32e; cc_entrypoint=sdk-ts;\"},{\"type\":\"text\",\"text\":\"You are a Claude agent, built on Anthropic's Claude Agent SDK.\",\"cache_control\":{\"type\":\"ephemeral\"}}]",
+      "nMessages": 9,
+      "lastMessagePreview": "{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"<system-reminder>\\n<total_tokens>15000000 tokens left</total_tokens>\\n</system-reminder>\\n\"},{\"type\":\"text\",\"text\":\"Name any primary color, one word. (tag: NONCE-U3)\\n\"},{\"type\":\"text\",\"text\":\"CRITICAL: Respond with TEXT ONLY. Do NOT call any tools.\\n\\n- Do NOT use Read, Bash, Grep, Glob, Edit, Write, or ANY other tool.\\n- You already have all the c"
+    }
+  ],
+  "probeContext": {
+    "nMessages": 4,
+    "hasU1": true,
+    "hasU2": true,
+    "hasU3": true,
+    "hasMagicWord": true,
+    "firstMessagePreview": "{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"<system-reminder>\\nAs you answer the user's questions, you can use the following context:\\n# userEmail\\nThe user's email address is geraschenko@gmail.com. Use it only to identify the user, such as for authorship, attribution, or filtering their own work. Never send it to an unrelated service, such as in a request header, URL, or payload, unless the user explicitly asks.\\n# currentDate\\nToday's date is 2026-09-11.\\n\\n      IMPORTANT: this context may or may not be relevant to your tasks. You should not respond to this context unless it is highly "
+  }
+}

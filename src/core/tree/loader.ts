@@ -12,7 +12,11 @@
 
 import type { UUID } from "node:crypto";
 import type { SessionEntry } from "../session/file.ts";
-import { formatTreeNodeRef, type TreeNodeRef } from "./nodes.ts";
+import {
+  formatTreeNodeRef,
+  type TreeNodeRef,
+  type TreeNodeStr,
+} from "./nodes.ts";
 
 /** Sink for corrupt-session-file diagnostics (an invalid relink, a
  *  parentUuid cycle). Required so ignoring them is a visible choice at the
@@ -71,7 +75,7 @@ export function compactBoundaryOf(entry: SessionEntry): CompactBoundary {
  *  deliberate fail-closed divergence — the binary validates against the
  *  whole file; see Edge cases in docs/specs/session-tree.md). */
 export function invalidRelinkReason(
-  precedingUuids: Pick<ReadonlySet<string>, "has">,
+  precedingUuids: Pick<ReadonlySet<TreeNodeStr>, "has">,
   boundary: CompactBoundary,
 ): string | undefined {
   const preserved = boundary.preservedMessages;

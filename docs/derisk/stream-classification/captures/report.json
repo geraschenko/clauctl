@@ -1,0 +1,62 @@
+{
+  "sdk": "0.3.258",
+  "sessionId": "42a85bcd-fc5b-46ee-ba69-39fa6be66287",
+  "tally": {
+    "query system/init": {
+      "query-only": 5
+    },
+    "query system/status": {
+      "query-only": 6
+    },
+    "query stream_event/-": {
+      "query-only": 105
+    },
+    "query system/thinking_tokens": {
+      "query-only": 63
+    },
+    "query assistant/-": {
+      "shared-with assistant/-": 8,
+      "shared-with system/local_command": 1
+    },
+    "query rate_limit_event/-": {
+      "query-only": 1
+    },
+    "query user/-": {
+      "shared-with user/-": 3
+    },
+    "query result/success": {
+      "query-only": 5
+    },
+    "query system/compact_boundary": {
+      "shared-with system/compact_boundary": 1
+    },
+    "session queue-operation/-": {
+      "no-uuid": 10
+    },
+    "session user/-": {
+      "session-only": 7,
+      "shared-with user/-": 3
+    },
+    "session attachment/-": {
+      "session-only": 14
+    },
+    "session atis-latch/-": {
+      "no-uuid": 2
+    },
+    "session assistant/-": {
+      "shared-with assistant/-": 8
+    },
+    "session system/stop_hook_summary": {
+      "session-only": 2
+    },
+    "session system/local_command": {
+      "shared-with assistant/-": 1
+    },
+    "session last-prompt/-": {
+      "no-uuid": 2
+    },
+    "session system/compact_boundary": {
+      "shared-with system/compact_boundary": 1
+    }
+  }
+}

@@ -1,0 +1,62 @@
+[
+  {
+    "type": "system",
+    "subtype": "init",
+    "session_id": "774f2263-791d-4126-9958-4ccb74c69233"
+  },
+  {
+    "type": "assistant",
+    "session_id": "774f2263-791d-4126-9958-4ccb74c69233",
+    "text": "OK"
+  },
+  {
+    "type": "result",
+    "subtype": "success",
+    "session_id": "774f2263-791d-4126-9958-4ccb74c69233",
+    "result_text": "OK"
+  },
+  {
+    "event": "RESULT_BOUNDARY",
+    "after_step": 1
+  },
+  {
+    "type": "system",
+    "subtype": "init",
+    "session_id": "774f2263-791d-4126-9958-4ccb74c69233"
+  },
+  {
+    "type": "assistant",
+    "session_id": "774f2263-791d-4126-9958-4ccb74c69233",
+    "text": "bananas"
+  },
+  {
+    "type": "result",
+    "subtype": "success",
+    "session_id": "774f2263-791d-4126-9958-4ccb74c69233",
+    "result_text": "bananas"
+  },
+  {
+    "event": "RESULT_BOUNDARY",
+    "after_step": 2
+  },
+  {
+    "type": "system",
+    "subtype": "init",
+    "session_id": "774f2263-791d-4126-9958-4ccb74c69233"
+  },
+  {
+    "type": "assistant",
+    "session_id": "774f2263-791d-4126-9958-4ccb74c69233",
+    "text": "BANANAS"
+  },
+  {
+    "type": "result",
+    "subtype": "success",
+    "session_id": "774f2263-791d-4126-9958-4ccb74c69233",
+    "result_text": "BANANAS"
+  },
+  {
+    "event": "RESULT_BOUNDARY",
+    "after_step": 3
+  }
+]

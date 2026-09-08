@@ -1,4 +1,11 @@
-import { query } from "/home/anton/git/geraschenko/clauctl/node_modules/@anthropic-ai/claude-agent-sdk/sdk.mjs";
+import { query } from "../../../node_modules/@anthropic-ai/claude-agent-sdk/sdk.mjs";
+import { fileURLToPath } from "node:url";
+import { dirname } from "node:path";
+import { assertVersions, makeConfigDir, baseEnv } from "../../../tests/sdk/harness.ts";
+
+assertVersions();
+
+const HERE = dirname(fileURLToPath(import.meta.url));
 
 // Command to test passed as argv[2]: "/clear" or "/new"
 const SLASH = process.argv[2] || "/clear";
@@ -39,9 +46,9 @@ const input = {
 const q = query({
   prompt: input,
   options: {
-    pathToClaudeCodeExecutable: "/home/anton/.local/bin/claude",
-    // keep it cheap & deterministic
-    permissionMode: "bypassPermissions",
+    // Text-only turns: no tool ever needs approval.
+    permissionMode: "dontAsk",
+    env: baseEnv(makeConfigDir(`clear-vs-session-${LABEL}`)),
   },
 });
 
@@ -118,5 +125,5 @@ try {
 rec({ event: "GENERATOR_ENDED", timedOut });
 
 import { writeFileSync } from "fs";
-writeFileSync(`/tmp/clauctl-derisk/out-${LABEL}.json`, JSON.stringify(log, null, 2));
+writeFileSync(`${HERE}/captures/out-${LABEL}.json`, JSON.stringify(log, null, 2));
 console.log(JSON.stringify(log, null, 2));

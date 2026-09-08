@@ -7,7 +7,7 @@ import { fileURLToPath } from "url";
 
 const CAPTURES = join(dirname(fileURLToPath(import.meta.url)), "captures");
 const label = process.argv[2];
-const file = process.argv[3] || readdirSync(CAPTURES).find((f) => f.startsWith(`${label}-session-`));
+const file = process.argv[3] || `${label}-session.jsonl`;
 const L = readFileSync(join(CAPTURES, file), "utf8").trim().split("\n").map((l) => JSON.parse(l));
 
 const MARK = /\bword (ALPHA|BRAVO|CHARLIE|ZULU)\b/g;

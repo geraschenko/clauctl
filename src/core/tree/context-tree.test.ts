@@ -8,9 +8,13 @@ import assert from "node:assert/strict";
 import { randomUUID, type UUID } from "node:crypto";
 import { test } from "node:test";
 import { entriesByUuid, type SessionEntry } from "../session/file.ts";
-import { buildTree } from "./build-tree.ts";
+import { buildTree, SessionTreeBuilder } from "./build-tree.ts";
 import { contextAtMismatches, leafContextMismatch } from "./context-check.ts";
-import { matchPreservedList, toContextTree } from "./context-tree.ts";
+import {
+  ContextTreeBuilder,
+  matchPreservedList,
+  toContextTree,
+} from "./context-tree.ts";
 import { loadedContext } from "./loader.ts";
 import { formatTreeNodeRef } from "./nodes.ts";
 
@@ -660,4 +664,48 @@ test("excluded entries are skipped on both sides", () => {
     ),
     { branchPoint: e4.uuid, remainderFrom: 4 },
   );
+});
+
+// --- rolling builder ----------------------------------------------------------
+
+test("lastAssistantOn: the last non-excluded, non-sidechain assistant on the context; push after finish throws", () => {
+  const sid = uuid();
+  const usage = { input_tokens: 10, output_tokens: 2 };
+  const e1 = userEntry(null, sid);
+  const a1: SessionEntry & { uuid: UUID } = {
+    ...assistantEntry(e1.uuid, sid),
+    message: {
+      role: "assistant",
+      id: "msg_a1",
+      content: [],
+      usage,
+      model: "m1",
+    },
+  };
+  const side: SessionEntry & { uuid: UUID } = {
+    ...assistantEntry(a1.uuid, sid),
+    isSidechain: true,
+    message: { role: "assistant", id: "msg_side", content: [], model: "m2" },
+  };
+  // A dead call (no result ever): excluded once its group ends.
+  const dead = callEntry(side.uuid, sid, "msg_dead", "call_dead", "t1");
+  const e2 = userEntry(dead.uuid, sid);
+  const entries = [e1, a1, side, dead, e2];
+  const byUuid = entriesByUuid(entries);
+  const session = new SessionTreeBuilder(() => {});
+  const context = new ContextTreeBuilder(session, byUuid);
+  session.pushAll(entries);
+  context.push();
+  assert.deepEqual(context.lastAssistantOn({ uuid: e2.uuid }), {
+    usage: {
+      input_tokens: 10,
+      output_tokens: 2,
+      cache_creation_input_tokens: 0,
+      cache_read_input_tokens: 0,
+    },
+    model: "m1",
+  });
+  assert.equal(context.lastAssistantOn({ uuid: e1.uuid }), undefined);
+  context.finish();
+  assert.throws(() => context.push(), /push after finish/);
 });

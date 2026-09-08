@@ -11,7 +11,8 @@
 // Usage: node exp.mjs <scenarioLabel>
 // Artifacts land in ./captures/: <label>-events.json and <label>-session-<sid>.jsonl
 
-import { query } from "/home/anton/git/geraschenko/clauctl/node_modules/@anthropic-ai/claude-agent-sdk/sdk.mjs";
+import { query } from "../../../node_modules/@anthropic-ai/claude-agent-sdk/sdk.mjs";
+import { assertVersions, makeConfigDir, baseEnv } from "../../../tests/sdk/harness.ts";
 import {
   writeFileSync,
   copyFileSync,
@@ -24,10 +25,9 @@ import { fileURLToPath } from "url";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const CAPTURES = join(HERE, "captures");
-const CONFIG_DIR = "/tmp/clauctl-echo-exp/claude-config";
+assertVersions();
+const CONFIG_DIR = makeConfigDir("echoed-message-placement");
 const WORK_DIR = "/tmp/clauctl-echo-exp/work";
-const SDK_CLAUDE =
-  "/home/anton/git/geraschenko/clauctl/node_modules/@anthropic-ai/claude-agent-sdk-linux-x64/claude";
 
 mkdirSync(CAPTURES, { recursive: true });
 mkdirSync(WORK_DIR, { recursive: true });
@@ -323,9 +323,11 @@ const seenSessionIds = new Set();
 const q = query({
   prompt: input,
   options: {
-    pathToClaudeCodeExecutable: SDK_CLAUDE,
     cwd: WORK_DIR,
-    permissionMode: "bypassPermissions",
+    // The busy turn's Bash calls must actually run; "auto" approves them
+    // without a prompt (never bypassPermissions; docs/derisk/AGENTS.md).
+    permissionMode: "auto",
+    env: baseEnv(CONFIG_DIR),
     includePartialMessages: true,
     model: "sonnet",
   },
@@ -479,22 +481,20 @@ rec({ event: "GENERATOR_ENDED", timedOut, session_ids: [...seenSessionIds] });
 
 writeFileSync(join(CAPTURES, `${label}-events.json`), JSON.stringify(log, null, 2));
 
-// Copy every session JSONL we touched out of the isolated config dir.
+// Copy every session JSONL we touched out of the isolated config dir, under
+// stable names (<label>-session.jsonl, then -2, -3 … in first-seen order) so
+// a rerun overwrites the previous capture instead of adding a file.
 const projectsRoot = join(CONFIG_DIR, "projects");
 const copied = [];
-if (existsSync(projectsRoot)) {
-  for (const proj of readdirSync(projectsRoot)) {
-    const projDir = join(projectsRoot, proj);
-    let files;
-    try { files = readdirSync(projDir); } catch { continue; }
-    for (const f of files) {
-      const sid = f.replace(/\.jsonl$/, "");
-      if (f.endsWith(".jsonl") && seenSessionIds.has(sid)) {
-        copyFileSync(join(projDir, f), join(CAPTURES, `${label}-session-${sid}.jsonl`));
-        copied.push(f);
-      }
-    }
-  }
-}
+const projectDirs = existsSync(projectsRoot)
+  ? readdirSync(projectsRoot).map((proj) => join(projectsRoot, proj))
+  : [];
+[...seenSessionIds].forEach((sid, index) => {
+  const source = projectDirs.map((dir) => join(dir, `${sid}.jsonl`)).find(existsSync);
+  if (!source) return;
+  const target = `${label}-session${index === 0 ? "" : `-${index + 1}`}.jsonl`;
+  copyFileSync(source, join(CAPTURES, target));
+  copied.push(target);
+});
 
 console.log(`scenario=${label} results=${resultsSeen} sessions=${[...seenSessionIds].join(",")} copied=${copied.join(",")}`);

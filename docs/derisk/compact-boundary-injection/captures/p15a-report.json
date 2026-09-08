@@ -1,0 +1,43 @@
+{
+  "sdkVersion": "0.3.258",
+  "resultSubtype": "success",
+  "error": null,
+  "stderr": null,
+  "nRequestMessages": 3,
+  "requestMessages": [
+    "user: [{\"type\":\"text\",\"text\":\"<system-reminder>\\nAs you answer the user's questions, you can use the following context:\\n# userEmail\\nThe user's e",
+    "assistant: [{\"type\":\"text\",\"text\":\"Noted. P15-MID-REPLY\"}]",
+    "user: [{\"type\":\"text\",\"text\":\"<system-reminder>\\nAvailable agent types for the Agent tool:\\n- claude: Catch-all for any task that doesn't fit a mo"
+  ],
+  "verdicts": {
+    "abort-untouched": {
+      "matches": true,
+      "mismatches": []
+    },
+    "sequential-all": {
+      "matches": false,
+      "mismatches": [
+        "missing: NONCE-U2",
+        "missing: \"text\":\"4\""
+      ]
+    },
+    "wipe": {
+      "matches": false,
+      "mismatches": [
+        "unexpectedly present: SYNTH-P15-S1",
+        "unexpectedly present: NONCE-P15-MID",
+        "unexpectedly present: P15-MID-REPLY"
+      ]
+    }
+  },
+  "matching": [
+    "abort-untouched"
+  ],
+  "gsm": {
+    "u2": true,
+    "four": true,
+    "s1": true,
+    "mid": true
+  },
+  "violations": []
+}

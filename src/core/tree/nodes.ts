@@ -8,10 +8,10 @@
 
 import type { UUID } from "node:crypto";
 import type { SessionEntry } from "../session/file.ts";
-import type { ParentMap } from "./parent-map.ts";
+import type { ParentMap, TreeNodeStr } from "./parent-map.ts";
 import { isUuidPrefix, resolveUuidPrefix, UUID_PATTERN } from "../uuid.ts";
 
-export type { ParentMap };
+export type { ParentMap, TreeNodeStr };
 
 /** Identifies one tree occurrence: a raw node (viaBoundary absent) or a
  *  boundary-substructure relinked node (viaBoundary = the boundary's
@@ -22,16 +22,14 @@ export interface TreeNodeRef {
 }
 
 /** The tree as its parent relation: child occurrence id → parent occurrence
- *  id (null = root). Both sides are formatTreeNodeRef output — Map keys need
- *  strings because JS Maps compare objects by reference (refs are produced
- *  independently: fold, wire, parse), and the value matches so edges stay in
- *  one id space and the map composes with itself (`id = map.get(id)` walks
- *  up). Iteration order = materialization order: raw entries at file
- *  position, relinked occurrences at their boundary's file position.
- *  Deliberately flat: a nested node type nests one JSON level per entry on a
+ *  id (null = root). Both sides are TreeNodeStr so edges stay in one id
+ *  space and the map composes with itself (`id = map.get(id)` walks up).
+ *  Iteration order = materialization order: raw entries at file position,
+ *  relinked occurrences at their boundary's file position. Deliberately
+ *  flat: a nested node type nests one JSON level per entry on a
  *  mostly-linear session, and JSON.stringify overflows the call stack near
- *  depth ~5000. ParentMap is defined in parent-map.ts and re-exported
- *  above so tree consumers need only this module. */
+ *  depth ~5000. ParentMap and TreeNodeStr are defined in parent-map.ts and
+ *  re-exported above so tree consumers need only this module. */
 
 /** get-entries response: every file entry verbatim, plus the daemon-computed
  *  context tip resolved to its occurrence in these entries. Entries lacking
@@ -46,14 +44,14 @@ export interface SessionSnapshot {
 }
 
 /** "<uuid>" or "<uuid>@<viaBoundary>" ("@" cannot appear in a uuid). */
-export function formatTreeNodeRef(ref: TreeNodeRef): string {
+export function formatTreeNodeRef(ref: TreeNodeRef): TreeNodeStr {
   return ref.viaBoundary === undefined
     ? ref.uuid
     : `${ref.uuid}@${ref.viaBoundary}`;
 }
 
 /** Inverse of formatTreeNodeRef; throws on malformed input. */
-export function parseTreeNodeRef(text: string): TreeNodeRef {
+export function parseTreeNodeRef(text: TreeNodeStr): TreeNodeRef {
   const [uuid, viaBoundary, ...rest] = text.split("@");
   if (
     rest.length > 0 ||
@@ -130,8 +128,8 @@ export function pathToLeaf(
     return [];
   }
   const path: TreeNodeRef[] = [];
-  const seen = new Set<string>();
-  let current: string | null = formatTreeNodeRef(leaf);
+  const seen = new Set<TreeNodeStr>();
+  let current: TreeNodeStr | null = formatTreeNodeRef(leaf);
   while (current !== null) {
     if (seen.has(current)) {
       throw new Error(`pathToLeaf revisited ${current} — parent cycle`);
@@ -139,7 +137,7 @@ export function pathToLeaf(
     seen.add(current);
     // A recorded parent always names a tree occurrence (buildTree falls
     // back to root otherwise), so mid-walk absence is corruption.
-    const parent: string | null | undefined = parentMap.get(current);
+    const parent: TreeNodeStr | null | undefined = parentMap.get(current);
     if (parent === undefined) {
       throw new Error(`pathToLeaf: parent ${current} names no tree occurrence`);
     }
@@ -162,8 +160,8 @@ function apiMessageIdOf(entry: SessionEntry | undefined): string | undefined {
  *  (shares message.id) — the entry is a valid rewindTo target. False for
  *  non-assistant entries. */
 export function isFinalAssistantEntry(
-  id: string,
-  children: ReadonlyMap<string | null, readonly string[]>,
+  id: TreeNodeStr,
+  children: ReadonlyMap<TreeNodeStr | null, readonly TreeNodeStr[]>,
   byUuid: ReadonlyMap<UUID, SessionEntry>,
 ): boolean {
   const entry = byUuid.get(parseTreeNodeRef(id).uuid);

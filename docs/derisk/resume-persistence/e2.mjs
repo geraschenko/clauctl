@@ -10,8 +10,10 @@
 // Signals (reviewer-approved):
 //   - override: does the echo tool trigger a permission prompt? We instrument
 //     `canUseTool` — it fires only when a prompt is required. Under
-//     bypassPermissions with no override, echo auto-allows (no canUseTool). With
-//     the override → 'default', echo must prompt (canUseTool fires).
+//     permissionMode "auto" with no override, the classifier decides and echo
+//     runs without consulting canUseTool. With the override → 'default', echo
+//     must prompt (canUseTool fires). (bypassPermissions is prohibited;
+//     docs/derisk/AGENTS.md.)
 //   - disable: mcpServerStatus() status === 'disabled' AND the echo tool absent
 //     from init.tools (model-independent).
 //
@@ -85,7 +87,7 @@ function resetDisabledMcp() {
 
 const spawnOpts = (extra) => ({
   model: MODEL,
-  permissionMode: "bypassPermissions",   // auto-allows, so an override to 'default' is observable
+  permissionMode: "auto",   // classifier-allows, so an override to 'default' is observable
   mcpServers: { [SERVER]: everythingServer },
   env: baseEnv(),
   ...extra,
@@ -94,12 +96,12 @@ const spawnOpts = (extra) => ({
 // ---------------------------------------------------------------- override --
 async function runOverride() {
   resetDisabledMcp();   // clear any persisted disable so echo is actually available
-  rec({ exp: "override", phase: "A", note: "bypassPermissions baseline, then override→default" });
+  rec({ exp: "override", phase: "A", note: "auto baseline, then override→default" });
   const rA = permRecorder();
   const a = makeSession(spawnOpts({ canUseTool: rA.canUseTool }));
 
   await a.send("Reply with exactly: OK");
-  // Baseline: under bypassPermissions, echo should auto-allow (canUseTool silent).
+  // Baseline: under "auto", echo should run without a prompt (canUseTool silent).
   const base = await forceEcho(a, rA.asked);
   rec({ exp: "override", phase: "A", step: "baseline_bypass", ...base });
 
@@ -129,7 +131,7 @@ async function runOverride() {
   //  - resume echo must be called (else we can't observe the permission path)
   let verdict;
   if (!base.called || !tight.called || !onResume.called) verdict = "INCONCLUSIVE — echo not invoked";
-  else if (base.promptedForEcho) verdict = "INVALID — bypass baseline prompted (unexpected)";
+  else if (base.promptedForEcho) verdict = "INVALID — auto baseline prompted (unexpected)";
   else if (!tight.promptedForEcho) verdict = "INVALID — override did not take effect in-process";
   else verdict = onResume.promptedForEcho ? "resume RESTORES override" : "resume DROPS override";
   rec({ exp: "override", phase: "RESULT", base, tight, onResume, verdict });
@@ -152,7 +154,7 @@ async function runDisable() {
   rec({ exp: "disable", phase: "A", step: "before_toggle", ...(await observeServer(a)) });
 
   await a.q.toggleMcpServer(SERVER, false);
-  await a.send(CALL_ECHO);   // fresh turn/init so tool availability reflects the toggle
+  await a.send("Reply with exactly: OK2");   // fresh turn/init so tool availability reflects the toggle
   const afterToggle = await observeServer(a);
   rec({ exp: "disable", phase: "A", step: "after_toggle_off", ...afterToggle });
 

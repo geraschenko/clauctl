@@ -1,0 +1,34 @@
+{
+  "sdkVersion": "0.3.258",
+  "resultSubtype": "success",
+  "error": null,
+  "stderr": null,
+  "nRequestMessages": 5,
+  "requestMessages": [
+    "user: [{\"type\":\"text\",\"text\":\"<system-reminder>\\nAs you answer the user's questions, you can use the following context:\\n# userEmail\\nThe user's e",
+    "assistant: [{\"type\":\"tool_use\",\"id\":\"toolu_synthMIX00000000000001\",\"name\":\"Bash\",\"input\":{\"command\":\"echo MIX-CMD\"}}]",
+    "user: [{\"type\":\"tool_result\",\"tool_use_id\":\"toolu_synthMIX00000000000001\",\"content\":\"MIX-CMD-RESULT\"}]",
+    "assistant: [{\"type\":\"text\",\"text\":\"Ran it. MIX-DONE-TEXT\"}]",
+    "user: [{\"type\":\"text\",\"text\":\"<system-reminder>\\nAvailable agent types for the Agent tool:\\n- claude: Catch-all for any task that doesn't fit a mo"
+  ],
+  "verdicts": {
+    "cut-before-expansion": {
+      "matches": true,
+      "mismatches": []
+    },
+    "expansion-recovers": {
+      "matches": false,
+      "mismatches": [
+        "missing: MIX-TEXT-MARKER"
+      ]
+    }
+  },
+  "matching": [
+    "cut-before-expansion"
+  ],
+  "gsm": {
+    "includesExcludedSibling": true,
+    "nMessages": 6
+  },
+  "violations": []
+}

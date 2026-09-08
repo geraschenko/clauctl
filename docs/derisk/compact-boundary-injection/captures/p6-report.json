@@ -1,0 +1,68 @@
+{
+  "versions": {
+    "sdk": "0.3.258"
+  },
+  "model": "claude-sonnet-4-6",
+  "control": {
+    "name": "control",
+    "error": null,
+    "resultSubtype": "success",
+    "resultText": "The magic word was **XYLOPHONE-77431** and the color you picked was **Red**.",
+    "stderr": null,
+    "apiStatuses": [
+      200
+    ],
+    "probe": {
+      "model": "claude-sonnet-4-6",
+      "nMessages": 11,
+      "thinkingBlocks": 0,
+      "allSigned": false
+    },
+    "firstNewUserParent": "254029a1",
+    "expect": {
+      "note": "plain resume under sonnet; does the CLI forward haiku-signed thinking?"
+    }
+  },
+  "withThinking": {
+    "name": "with-thinking",
+    "error": null,
+    "resultSubtype": "success",
+    "resultText": "I don't know the magic word — the fact.txt read was summarized as \"(details omitted)\" in my context, so I can't recall its contents. The color you picked was **Red**.",
+    "stderr": null,
+    "apiStatuses": [
+      200
+    ],
+    "probe": {
+      "model": "claude-sonnet-4-6",
+      "nMessages": 5,
+      "thinkingBlocks": 0,
+      "allSigned": false
+    },
+    "firstNewUserParent": "254029a1",
+    "expect": {
+      "parent": "254029a1",
+      "note": "preserved haiku thinking under sonnet"
+    }
+  },
+  "noThinking": {
+    "name": "no-thinking",
+    "error": null,
+    "resultSubtype": "success",
+    "resultText": "I don't have access to the contents of fact.txt — the earlier read was summarized as \"details omitted\" in my context — so I can't tell you the magic word. The color you picked was **red**.",
+    "stderr": null,
+    "apiStatuses": [
+      200
+    ],
+    "probe": {
+      "model": "claude-sonnet-4-6",
+      "nMessages": 5,
+      "thinkingBlocks": 0,
+      "allSigned": false
+    },
+    "firstNewUserParent": "254029a1",
+    "expect": {
+      "parent": "254029a1",
+      "note": "thinking entries omitted from the playlist"
+    }
+  }
+}

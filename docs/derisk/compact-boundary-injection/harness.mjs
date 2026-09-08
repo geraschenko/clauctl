@@ -50,8 +50,9 @@ export function makeSession(options) {
       };
     },
   };
-  const pushMsg = (text) => {
-    const m = { type: "user", message: { role: "user", content: text }, parent_tool_use_id: null };
+  // `extra` merges into the SDKUserMessage (e.g. a caller-chosen `uuid`).
+  const pushMsg = (text, extra = {}) => {
+    const m = { type: "user", message: { role: "user", content: text }, parent_tool_use_id: null, ...extra };
     if (resolveNext) { const r = resolveNext; resolveNext = null; r({ value: m, done: false }); }
     else pending.push(m);
   };
@@ -73,9 +74,9 @@ export function makeSession(options) {
     }
   })().catch((e) => { loopErr = e; });
 
-  const send = (text) => new Promise((res, rej) => {
+  const send = (text, extra = {}) => new Promise((res, rej) => {
     resolveResult = res;
-    pushMsg(text);
+    pushMsg(text, extra);
     loop.then(() => { if (loopErr) rej(loopErr); });
   });
   // Graceful teardown: endInput() ends the prompt stream (CLI sees stdin EOF and
@@ -83,7 +84,7 @@ export function makeSession(options) {
   // cleanup awaits the child's exit before that. close() is the forceful variant.
   const endInput = () => { closed = true; if (resolveNext) { const r = resolveNext; resolveNext = null; r({ value: undefined, done: true }); } };
   const close = () => { endInput(); q.close(); };
-  return { q, send, inits, close, endInput, done: loop, lastInit: () => inits[inits.length - 1] };
+  return { q, send, pushMsg, inits, close, endInput, done: loop, lastInit: () => inits[inits.length - 1] };
 }
 
 export const readJsonl = (file) =>

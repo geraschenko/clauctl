@@ -8,14 +8,20 @@
 
 import type { UUID } from "node:crypto";
 import type { SessionEntry } from "../session/file.ts";
+import { finishedTreeView, type FullTreeView } from "./build-tree.ts";
 import {
   formatTreeNodeRef,
   parseTreeNodeRef,
   type ParentMap,
   type TreeNodeRef,
+  type TreeNodeStr,
 } from "./nodes.ts";
 import { compactBoundaryOf, invalidRelinkReason } from "./loader.ts";
-import { matchPreservedList, type ContextTree } from "./context-tree.ts";
+import {
+  matchPreservedList,
+  type ContextTree,
+  type ContextTreeBuilder,
+} from "./context-tree.ts";
 
 export class DisplayTree {
   /** Visible rows only. */
@@ -23,9 +29,12 @@ export class DisplayTree {
   /** Hidden occurrence id → its nearest visible ancestor row, or null
    *  when the hidden chain is rootless (anchor-less or dangling-anchor
    *  blocks — hand-crafted/corrupt shapes). */
-  private readonly visibleRowOf: Map<string, string | null>;
+  private readonly visibleRowOf: ReadonlyMap<TreeNodeStr, TreeNodeStr | null>;
 
-  constructor(parentMap: ParentMap, visibleRowOf: Map<string, string | null>) {
+  constructor(
+    parentMap: ParentMap,
+    visibleRowOf: ReadonlyMap<TreeNodeStr, TreeNodeStr | null>,
+  ) {
     this.parentMap = parentMap;
     this.visibleRowOf = visibleRowOf;
   }
@@ -44,115 +53,157 @@ export class DisplayTree {
   }
 }
 
-/** The display tree of a full tree and its context tree, both built from
- *  the same entries as byUuid — mismatches throw where detected. Display
- *  rules in docs/specs/context-tree.md; loadedContext and the wire protocol
- *  are untouched. */
-export function toDisplayTree(
-  fullTree: ParentMap,
-  contextTree: ContextTree,
-  byUuid: ReadonlyMap<UUID, SessionEntry>,
-): DisplayTree {
+/** The display tree of a full tree and its context tree as they grow,
+ *  both over the same entries as byUuid — mismatches throw where detected.
+ *  Display rules in docs/specs/context-tree.md. A row's visibility is
+ *  final by its own push (a boundary hides only itself and its own block
+ *  rows, which the full tree materializes after it), so each row's
+ *  visible ancestor is settled as it arrives. */
+export class DisplayTreeBuilder {
+  private readonly fullTree: FullTreeView;
+  private readonly contextTree: Pick<ContextTreeBuilder, "tree">;
+  private readonly byUuid: ReadonlyMap<UUID, SessionEntry>;
   /** The display relation over every occurrence, hidden rows included. */
-  const displayParent = new Map<string, string | null>();
-  const hidden = new Set<string>();
+  private readonly displayParent = new Map<TreeNodeStr, TreeNodeStr | null>();
+  private readonly hidden = new Set<TreeNodeStr>();
   /** Where a row whose full-tree parent is a boundary row goes: the
    *  boundary row itself, or the branch point of a matched no-summary
    *  boundary (which has no row). */
-  const blockParentOfBoundary = new Map<string, string>();
-  for (const [id, fullParent] of fullTree) {
-    const entry = byUuid.get(parseTreeNodeRef(id).uuid);
-    if (entry === undefined) {
-      throw new Error(`toDisplayTree: ${id} names no entry`);
+  private readonly blockParentOfBoundary = new Map<TreeNodeStr, TreeNodeStr>();
+  private readonly nearestVisibleAncestorCache = new Map<
+    TreeNodeStr,
+    TreeNodeStr | null
+  >();
+  private readonly parentMap = new Map<TreeNodeStr, TreeNodeStr | null>();
+  private readonly visibleRowOf = new Map<TreeNodeStr, TreeNodeStr | null>();
+  readonly tree: DisplayTree;
+  /** Index into fullTree.nodes of the next node to place. */
+  private cursor = 0;
+
+  constructor(
+    fullTree: FullTreeView,
+    contextTree: Pick<ContextTreeBuilder, "tree">,
+    byUuid: ReadonlyMap<UUID, SessionEntry>,
+  ) {
+    this.fullTree = fullTree;
+    this.contextTree = contextTree;
+    this.byUuid = byUuid;
+    this.tree = new DisplayTree(this.parentMap, this.visibleRowOf);
+  }
+
+  /** Consume the full-tree nodes materialized since the last push. */
+  push(): void {
+    const nodes = this.fullTree.nodes;
+    for (; this.cursor < nodes.length; this.cursor++) {
+      const id = nodes[this.cursor]!;
+      this.place(id);
+      if (this.hidden.has(id)) {
+        this.visibleRowOf.set(id, this.nearestVisibleAncestor(id));
+      } else {
+        this.parentMap.set(id, this.nearestVisibleAncestor(id));
+      }
     }
+  }
+
+  private place(id: TreeNodeStr): void {
+    const fullParent = this.fullTree.parentMap.get(id) ?? null;
+    const entry = this.byUuid.get(parseTreeNodeRef(id).uuid);
+    if (entry === undefined) {
+      throw new Error(`DisplayTreeBuilder: ${id} names no entry`);
+    }
+    const contextTree = this.contextTree.tree;
     if (entry.subtype !== "compact_boundary") {
       const contextParent = contextTree.parentMap.get(id);
       if (contextParent === undefined) {
         throw new Error(
-          `toDisplayTree: ${id} is not a context-tree occurrence`,
+          `DisplayTreeBuilder: ${id} is not a context-tree occurrence`,
         );
       }
-      displayParent.set(
+      this.displayParent.set(
         id,
         contextParent ??
-          (fullParent !== null && blockParentOfBoundary.has(fullParent)
-            ? blockParentOfBoundary.get(fullParent)!
+          (fullParent !== null && this.blockParentOfBoundary.has(fullParent)
+            ? this.blockParentOfBoundary.get(fullParent)!
             : null),
       );
-      continue;
+      return;
     }
     const boundary = compactBoundaryOf(entry);
     const preservedUuids = boundary.preservedMessages.uuids;
     if (
       preservedUuids.length === 0 ||
-      invalidRelinkReason(displayParent, boundary) !== undefined
+      invalidRelinkReason(this.displayParent, boundary) !== undefined
     ) {
-      displayParent.set(id, fullParent);
-      blockParentOfBoundary.set(id, id);
-      continue;
+      this.displayParent.set(id, fullParent);
+      this.blockParentOfBoundary.set(id, id);
+      return;
     }
     const anchorIsSummary = boundary.preservedMessages.anchorUuid !== id;
     const match = matchPreservedList(
       contextTree,
       preservedUuids,
       anchorIsSummary,
-      displayParent,
-      hidden,
+      this.displayParent,
+      this.hidden,
     );
     if (match === undefined) {
-      displayParent.set(id, null);
-      blockParentOfBoundary.set(id, id);
-      continue;
+      this.displayParent.set(id, null);
+      this.blockParentOfBoundary.set(id, id);
+      return;
     }
     for (const preservedUuid of preservedUuids.slice(0, match.remainderFrom)) {
-      hidden.add(
+      this.hidden.add(
         formatTreeNodeRef({ uuid: preservedUuid, viaBoundary: boundary.uuid }),
       );
     }
-    displayParent.set(id, match.branchPoint);
+    this.displayParent.set(id, match.branchPoint);
     if (anchorIsSummary) {
-      blockParentOfBoundary.set(id, id);
+      this.blockParentOfBoundary.set(id, id);
     } else {
-      hidden.add(id);
-      blockParentOfBoundary.set(id, match.branchPoint);
+      this.hidden.add(id);
+      this.blockParentOfBoundary.set(id, match.branchPoint);
     }
   }
 
   /** Nearest visible strict ancestor; null when the hidden chain is
    *  rootless. Memoized with path compression, so the transform stays
    *  O(occurrences) over long hidden blocks. */
-  const nearestVisibleAncestorCache = new Map<string, string | null>();
-  const nearestVisibleAncestor = (id: string): string | null => {
-    const walked: string[] = [];
-    let current = displayParent.get(id) ?? null;
-    let answer: string | null = null;
+  private nearestVisibleAncestor(id: TreeNodeStr): TreeNodeStr | null {
+    const walked: TreeNodeStr[] = [];
+    let current = this.displayParent.get(id) ?? null;
+    let answer: TreeNodeStr | null = null;
     while (current !== null) {
-      if (!hidden.has(current)) {
+      if (!this.hidden.has(current)) {
         answer = current;
         break;
       }
-      const memo = nearestVisibleAncestorCache.get(current);
+      const memo = this.nearestVisibleAncestorCache.get(current);
       if (memo !== undefined) {
         answer = memo;
         break;
       }
       walked.push(current);
-      current = displayParent.get(current) ?? null;
+      current = this.displayParent.get(current) ?? null;
     }
     for (const node of walked) {
-      nearestVisibleAncestorCache.set(node, answer);
+      this.nearestVisibleAncestorCache.set(node, answer);
     }
     return answer;
-  };
-
-  const parentMap = new Map<string, string | null>();
-  const visibleRowOf = new Map<string, string | null>();
-  for (const id of displayParent.keys()) {
-    if (hidden.has(id)) {
-      visibleRowOf.set(id, nearestVisibleAncestor(id));
-    } else {
-      parentMap.set(id, nearestVisibleAncestor(id));
-    }
   }
-  return new DisplayTree(parentMap, visibleRowOf);
+}
+
+/** The display tree of a whole-file tree and its context tree, both built
+ *  from the same entries as byUuid. */
+export function toDisplayTree(
+  fullTree: ParentMap,
+  contextTree: ContextTree,
+  byUuid: ReadonlyMap<UUID, SessionEntry>,
+): DisplayTree {
+  const builder = new DisplayTreeBuilder(
+    finishedTreeView(fullTree),
+    { tree: contextTree },
+    byUuid,
+  );
+  builder.push();
+  return builder.tree;
 }

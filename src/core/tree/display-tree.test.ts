@@ -18,6 +18,7 @@ const failOnInvalid = (message: string): never => {
   throw new Error(`unexpected onInvalid: ${message}`);
 };
 
+/** The whole-file display tree. */
 function displayTreeOf(
   entries: SessionEntry[],
   onInvalid: OnInvalid = failOnInvalid,

@@ -1,0 +1,132 @@
+{
+  "sdkVersion": "0.3.258",
+  "cases": {
+    "p20-kill0": {
+      "resultSubtype": "success",
+      "error": null,
+      "stderr": null,
+      "verdicts": {
+        "eye-drops-whole": {
+          "matches": false,
+          "mismatches": [
+            "unexpectedly present: P20-TEXT-MARKER"
+          ]
+        },
+        "drops-calls-keeps-text": {
+          "matches": true,
+          "mismatches": []
+        },
+        "kept-healed": {
+          "matches": false,
+          "mismatches": [
+            "missing: P20-A-CMD",
+            "missing: P20-B-CMD",
+            "missing: Tool result missing"
+          ]
+        }
+      },
+      "matching": [
+        "drops-calls-keeps-text"
+      ],
+      "requestMessages": [
+        "user: [{\"type\":\"text\",\"text\":\"<system-reminder>\\nAs you answer the user's questions, you can use the following context:\\n# userEmail\\nThe user's e",
+        "assistant: [{\"type\":\"text\",\"text\":\"Running both: P20-TEXT-MARKER\"}]",
+        "user: [{\"type\":\"text\",\"text\":\"<system-reminder>\\nAvailable agent types for the Agent tool:\\n- claude: Catch-all for any task that doesn't fit a mo"
+      ]
+    },
+    "p20-kill1": {
+      "resultSubtype": "success",
+      "error": null,
+      "stderr": null,
+      "verdicts": {
+        "kept-healed-partial": {
+          "matches": false,
+          "mismatches": [
+            "missing: P20-B-CMD",
+            "missing: Tool result missing"
+          ]
+        },
+        "eye-drops-whole": {
+          "matches": false,
+          "mismatches": [
+            "unexpectedly present: P20-TEXT-MARKER",
+            "unexpectedly present: P20-A-CMD",
+            "unexpectedly present: P20-A-RESULT"
+          ]
+        },
+        "drops-unresolved-block": {
+          "matches": true,
+          "mismatches": []
+        }
+      },
+      "matching": [
+        "drops-unresolved-block"
+      ],
+      "requestMessages": [
+        "user: [{\"type\":\"text\",\"text\":\"<system-reminder>\\nAs you answer the user's questions, you can use the following context:\\n# userEmail\\nThe user's e",
+        "assistant: [{\"type\":\"text\",\"text\":\"Running both: P20-TEXT-MARKER\"},{\"type\":\"tool_use\",\"id\":\"toolu_synthP20A00000000000001\",\"name\":\"Bash\",\"input\":{\"comm",
+        "user: [{\"type\":\"tool_result\",\"tool_use_id\":\"toolu_synthP20A00000000000001\",\"content\":\"P20-A-RESULT\"},{\"type\":\"text\",\"text\":\"Continue from where yo",
+        "assistant: [{\"type\":\"text\",\"text\":\"No response requested.\"}]",
+        "user: [{\"type\":\"text\",\"text\":\"<system-reminder>\\nAvailable agent types for the Agent tool:\\n- claude: Catch-all for any task that doesn't fit a mo"
+      ]
+    },
+    "p20-part1": {
+      "resultSubtype": "success",
+      "error": null,
+      "stderr": null,
+      "verdicts": {
+        "cut-per-entry": {
+          "matches": true,
+          "mismatches": []
+        },
+        "expansion-recovers": {
+          "matches": false,
+          "mismatches": [
+            "missing: P20-TEXT-MARKER",
+            "missing: P20-B-CMD",
+            "missing: P20-B-RESULT"
+          ]
+        }
+      },
+      "matching": [
+        "cut-per-entry"
+      ],
+      "requestMessages": [
+        "user: [{\"type\":\"text\",\"text\":\"<system-reminder>\\nAs you answer the user's questions, you can use the following context:\\n# userEmail\\nThe user's e",
+        "assistant: [{\"type\":\"tool_use\",\"id\":\"toolu_synthP20A00000000000001\",\"name\":\"Bash\",\"input\":{\"command\":\"echo P20-A-CMD\"}}]",
+        "user: [{\"type\":\"tool_result\",\"tool_use_id\":\"toolu_synthP20A00000000000001\",\"content\":\"P20-A-RESULT\"}]",
+        "assistant: [{\"type\":\"text\",\"text\":\"Both ran. P20-DONE-TEXT\"}]",
+        "user: [{\"type\":\"text\",\"text\":\"<system-reminder>\\nAvailable agent types for the Agent tool:\\n- claude: Catch-all for any task that doesn't fit a mo"
+      ]
+    },
+    "p20-part2": {
+      "resultSubtype": "success",
+      "error": null,
+      "stderr": null,
+      "verdicts": {
+        "cut-per-entry": {
+          "matches": true,
+          "mismatches": []
+        },
+        "expansion-recovers": {
+          "matches": false,
+          "mismatches": [
+            "missing: P20-B-CMD",
+            "missing: P20-B-RESULT"
+          ]
+        }
+      },
+      "matching": [
+        "cut-per-entry"
+      ],
+      "requestMessages": [
+        "user: [{\"type\":\"text\",\"text\":\"<system-reminder>\\nAs you answer the user's questions, you can use the following context:\\n# userEmail\\nThe user's e",
+        "assistant: [{\"type\":\"text\",\"text\":\"Running both: P20-TEXT-MARKER\"},{\"type\":\"tool_use\",\"id\":\"toolu_synthP20A00000000000001\",\"name\":\"Bash\",\"input\":{\"comm",
+        "user: [{\"type\":\"tool_result\",\"tool_use_id\":\"toolu_synthP20A00000000000001\",\"content\":\"P20-A-RESULT\"}]",
+        "assistant: [{\"type\":\"text\",\"text\":\"Both ran. P20-DONE-TEXT\"}]",
+        "user: [{\"type\":\"text\",\"text\":\"<system-reminder>\\nAvailable agent types for the Agent tool:\\n- claude: Catch-all for any task that doesn't fit a mo"
+      ]
+    }
+  },
+  "violations": []
+}

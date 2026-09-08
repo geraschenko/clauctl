@@ -19,6 +19,7 @@ import {
   parseTreeNodeRef,
   type ParentMap,
   type SessionSnapshot,
+  type TreeNodeStr,
 } from "../core/tree/nodes.ts";
 import { treeChildren } from "../core/tree/parent-map.ts";
 import { isRecord } from "../core/generated/util.ts";
@@ -292,10 +293,10 @@ export function entrySummary(
  *  per-tree input `passesFilter`'s "picker" mode needs. */
 export function collectFinalAssistantIds(
   parentMap: ParentMap,
-  children: ReadonlyMap<string | null, readonly string[]>,
+  children: ReadonlyMap<TreeNodeStr | null, readonly TreeNodeStr[]>,
   byUuid: ReadonlyMap<UUID, SessionEntry>,
-): Set<string> {
-  const finalIds = new Set<string>();
+): Set<TreeNodeStr> {
+  const finalIds = new Set<TreeNodeStr>();
   for (const id of parentMap.keys()) {
     if (isFinalAssistantEntry(id, children, byUuid)) {
       finalIds.add(id);
@@ -348,17 +349,17 @@ export function treeRowGlyph(entry: SessionEntry): string {
 export function treeLines(
   parentMap: ParentMap,
   byUuid: ReadonlyMap<UUID, SessionEntry>,
-  currentLeafId: string | null,
-  passes: (id: string, entry: SessionEntry) => boolean,
+  currentLeafId: TreeNodeStr | null,
+  passes: (id: TreeNodeStr, entry: SessionEntry) => boolean,
   toolNames: ReadonlyMap<string, string>,
   omitUuid: boolean,
 ): DagLine[] {
   /** Every id → its nearest visible strict ancestor (null = none). */
-  const visibleAncestorOf = new Map<string, string | null>();
-  const visible = new Set<string>();
+  const visibleAncestorOf = new Map<TreeNodeStr, TreeNodeStr | null>();
+  const visible = new Set<TreeNodeStr>();
   const rows: DagRow[] = [];
   for (const [id, parent] of parentMap) {
-    let visibleAncestor: string | null = null;
+    let visibleAncestor: TreeNodeStr | null = null;
     if (parent !== null) {
       if (!visibleAncestorOf.has(parent)) {
         throw new Error(`treeLines: row ${id} precedes its parent ${parent}`);
@@ -384,7 +385,7 @@ export function treeLines(
       label,
     });
   }
-  let leafRow: string | null = null;
+  let leafRow: TreeNodeStr | null = null;
   if (currentLeafId !== null) {
     leafRow = visible.has(currentLeafId)
       ? currentLeafId
@@ -408,7 +409,7 @@ export function formatSessionSnapshot(
   const byUuid = entriesByUuid(snapshot.entries);
   const fullTree = buildTree(snapshot.entries, () => {});
   let parentMap: ParentMap;
-  let currentLeafId: string | null;
+  let currentLeafId: TreeNodeStr | null;
   if (options.filter === "raw") {
     parentMap = fullTree;
     currentLeafId =

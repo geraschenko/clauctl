@@ -25,6 +25,7 @@ import {
   parseTreeNodeRef,
   type ParentMap,
   type TreeNodeRef,
+  type TreeNodeStr,
 } from "../../core/tree/nodes.ts";
 import { treeChildren } from "../../core/tree/parent-map.ts";
 import { dagLineText, type DagLine } from "../../format/dag-lines.ts";
@@ -164,7 +165,7 @@ export class TreeSelectorComponent extends Container implements Focusable {
   private lines: readonly DagLine[] = [];
   /** Index into `lines`; always a line with a rowId when any exists. */
   private selectedLine = 0;
-  private lastSelectedId: string | null;
+  private lastSelectedId: TreeNodeStr | null;
   private warning: string | undefined;
 
   constructor(
@@ -241,14 +242,14 @@ export class TreeSelectorComponent extends Container implements Focusable {
 
   /** The line of `id` if shown, else its nearest shown ancestor, else a
    *  clamp of the previous selection (snapped to a selectable line). */
-  private nearestVisibleIndex(id: string): number {
-    const indexById = new Map<string, number>();
+  private nearestVisibleIndex(id: TreeNodeStr): number {
+    const indexById = new Map<TreeNodeStr, number>();
     for (const [index, line] of this.lines.entries()) {
       if (line.rowId !== undefined) {
         indexById.set(line.rowId, index);
       }
     }
-    let currentId: string | null = id;
+    let currentId: TreeNodeStr | null = id;
     while (currentId !== null) {
       const index = indexById.get(currentId);
       if (index !== undefined) {

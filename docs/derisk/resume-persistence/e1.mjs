@@ -4,7 +4,10 @@
 // control method, and kills the process. Phase B respawns with `resume` + the
 // SAME CLAUDE_CONFIG_DIR + an explicit *different* value Y. Pass = observed Y.
 //
-// Usage: node e1.mjs <field>   field ∈ { model, permissionMode }
+// Usage: node e1.mjs <field>   field ∈ { model, permissionMode, mcpServers }
+//
+// All turns are text-only, so the non-tested permission mode is "dontAsk"
+// (never bypassPermissions; docs/derisk/AGENTS.md).
 //
 // SECURITY: never touches the real ~/.claude — every spawn sets a scratch
 // CLAUDE_CONFIG_DIR. Uses the SDK-bundled `claude` binary (no
@@ -28,20 +31,20 @@ const FIELDS = {
     spawnDefault: HAIKU,
     X: "claude-sonnet-4-6",           // planted via setModel in process #1
     Y: HAIKU,                          // explicit Options.model in process #2
-    otherFixed: { permissionMode: "bypassPermissions" },
+    otherFixed: { permissionMode: "dontAsk" },
     spawnDefaultOption: { model: HAIKU },
     mutate: (q, v) => q.setModel(v),
     observe: (init) => init.model,
     respawnOption: (v) => ({ model: v }),
   },
   permissionMode: {
-    spawnDefault: "bypassPermissions",
+    spawnDefault: "dontAsk",
     X: "plan",                         // planted via setPermissionMode in #1
     Y: "acceptEdits",                  // explicit Options.permissionMode in #2
     // No-tool text turns never trigger a permission prompt, so omitting
     // permissionMode in the control is safe even though it defaults to 'default'.
     otherFixed: { model: HAIKU },
-    spawnDefaultOption: { permissionMode: "bypassPermissions" },
+    spawnDefaultOption: { permissionMode: "dontAsk" },
     mutate: (q, v) => q.setPermissionMode(v),
     observe: (init) => init.permissionMode,
     respawnOption: (v) => ({ permissionMode: v }),
@@ -52,7 +55,7 @@ const FIELDS = {
     // X out), not mere omission.
     X: { "mcp-x": everythingServer },
     Y: { "mcp-y": everythingServer },
-    otherFixed: { model: HAIKU, permissionMode: "bypassPermissions" },
+    otherFixed: { model: HAIKU, permissionMode: "dontAsk" },
     spawnDefaultOption: {},                       // process #1 starts with no dynamic servers
     mutate: (q, v) => q.setMcpServers(v),
     // Filter to servers WE declared. The account's claude.ai integrations

@@ -2,9 +2,9 @@
  * Checks success criterion 1 of docs/specs/context-tree.md against a real
  * session file (at every settled prefix, contextAt presents the same
  * context as loadedContext) and ContextTree.leaf at the whole file.
- * Reports every divergence; the documented ones
- * (spec Edge cases, e.g. pre-2.1.258 queued-prompt races) are expected on
- * old files. Read-only. Usage:
+ * Reports every divergence; the
+ * documented ones (spec Edge cases, e.g. pre-2.1.258 queued-prompt races)
+ * are expected on old files. Read-only. Usage:
  *   node scripts/check-context-at.ts <session.jsonl>...
  * Exit 1 on any mismatch.
  */

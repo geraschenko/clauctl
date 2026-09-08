@@ -526,9 +526,14 @@ untraced (could be a threshold change rather than a policy change).
 
 The 2.1.258 suite run (2026-09-01) again found zero loader-side drift, and
 the keep-segment reach on the same fixture flipped back to the 2.1.195
-shape (old summary through the probe turn kept). Three versions, three
-data points, two shapes with no monotone trend: treat the native keep-reach
-as unstable writer behavior, not a rule the loader may depend on.
+shape (old summary through the probe turn kept). A second 2.1.258 run
+(2026-09-11) produced the tail-only shape again — the reach varies
+_within_ a version, so it is not a per-version rule either. Two shapes
+across four runs, no monotone trend: treat the native keep-reach as
+unstable writer behavior, not a rule the loader may depend on.
+`check-reports.mjs` pins 0.3.258 to the latest observation (tail-only)
+so further flips surface; once the flakiness is characterized enough the
+assertion should accept either known shape and reject only a third.
 
 One loader-side drift in 2.1.258, outside the fixture space clauctl writes:
 a `compact_boundary` entry with no `compactMetadata` now fails the resume

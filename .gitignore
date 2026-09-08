@@ -6,4 +6,3 @@ scripts/tui-parity/out
 __pycache__/
 *.scip
 *.pbtxt
-docs/derisk/compact-boundary-injection/captures

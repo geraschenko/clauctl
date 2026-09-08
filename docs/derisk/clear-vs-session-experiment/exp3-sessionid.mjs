@@ -1,6 +1,13 @@
 // Follow-up: single session, 3 plain exchanges, NO slash command.
 // Question: does a `system/init` fire on every turn, or only once per connection?
-import { query } from "/home/anton/git/geraschenko/clauctl/node_modules/@anthropic-ai/claude-agent-sdk/sdk.mjs";
+import { query } from "../../../node_modules/@anthropic-ai/claude-agent-sdk/sdk.mjs";
+import { fileURLToPath } from "node:url";
+import { dirname } from "node:path";
+import { assertVersions, makeConfigDir, baseEnv } from "../../../tests/sdk/harness.ts";
+
+assertVersions();
+
+const HERE = dirname(fileURLToPath(import.meta.url));
 
 const log = [];
 const rec = (o) => log.push(o);
@@ -32,8 +39,9 @@ const input = {
 const q = query({
   prompt: input,
   options: {
-    pathToClaudeCodeExecutable: "/home/anton/.local/bin/claude",
-    permissionMode: "bypassPermissions",
+    // Text-only turns: no tool ever needs approval.
+    permissionMode: "dontAsk",
+    env: baseEnv(makeConfigDir("clear-vs-session-sessionid")),
   },
 });
 
@@ -71,5 +79,5 @@ try {
 }
 
 import { writeFileSync } from "fs";
-writeFileSync(`/tmp/clauctl-derisk/out-sessionid.json`, JSON.stringify(log, null, 2));
+writeFileSync(`${HERE}/captures/out-sessionid.json`, JSON.stringify(log, null, 2));
 console.log(JSON.stringify(log, null, 2));

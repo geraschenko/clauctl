@@ -1,0 +1,415 @@
+[
+  {
+    "seq": 0,
+    "t_ms": 8,
+    "event": "SCENARIO",
+    "label": "d_now_interrupt",
+    "mechanism": "iterable",
+    "injections": [
+      {
+        "text": "Reply with exactly the word ZULU and nothing else.",
+        "priority": "now"
+      }
+    ]
+  },
+  {
+    "seq": 1,
+    "t_ms": 174,
+    "event": "msg",
+    "type": "system",
+    "subtype": "init",
+    "session_id": "e4349818-3621-4495-8b7d-1567019e4f98"
+  },
+  {
+    "seq": 2,
+    "t_ms": 176,
+    "event": "msg",
+    "type": "system",
+    "subtype": "status",
+    "session_id": "e4349818-3621-4495-8b7d-1567019e4f98"
+  },
+  {
+    "seq": 3,
+    "t_ms": 1788,
+    "event": "partial",
+    "raw_type": "message_start",
+    "session_id": "e4349818-3621-4495-8b7d-1567019e4f98"
+  },
+  {
+    "seq": 4,
+    "t_ms": 1947,
+    "event": "partial",
+    "raw_type": "content_block_start",
+    "session_id": "e4349818-3621-4495-8b7d-1567019e4f98",
+    "block_type": "thinking"
+  },
+  {
+    "seq": 5,
+    "t_ms": 2336,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "e4349818-3621-4495-8b7d-1567019e4f98"
+  },
+  {
+    "seq": 6,
+    "t_ms": 2336,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "e4349818-3621-4495-8b7d-1567019e4f98"
+  },
+  {
+    "seq": 7,
+    "t_ms": 2337,
+    "event": "msg",
+    "type": "assistant",
+    "session_id": "e4349818-3621-4495-8b7d-1567019e4f98",
+    "uuid": "58794921-e4e8-4cda-a6c6-6ea34afc8cb9",
+    "parent_tool_use_id": null,
+    "tool_uses": []
+  },
+  {
+    "seq": 8,
+    "t_ms": 2338,
+    "event": "partial",
+    "raw_type": "content_block_stop",
+    "session_id": "e4349818-3621-4495-8b7d-1567019e4f98"
+  },
+  {
+    "seq": 9,
+    "t_ms": 2338,
+    "event": "partial",
+    "raw_type": "content_block_start",
+    "session_id": "e4349818-3621-4495-8b7d-1567019e4f98",
+    "block_type": "tool_use"
+  },
+  {
+    "seq": 10,
+    "t_ms": 2338,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "e4349818-3621-4495-8b7d-1567019e4f98"
+  },
+  {
+    "seq": 11,
+    "t_ms": 2338,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "e4349818-3621-4495-8b7d-1567019e4f98"
+  },
+  {
+    "seq": 12,
+    "t_ms": 2338,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "e4349818-3621-4495-8b7d-1567019e4f98"
+  },
+  {
+    "seq": 13,
+    "t_ms": 2338,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "e4349818-3621-4495-8b7d-1567019e4f98"
+  },
+  {
+    "seq": 14,
+    "t_ms": 2338,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "e4349818-3621-4495-8b7d-1567019e4f98"
+  },
+  {
+    "seq": 15,
+    "t_ms": 2338,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "e4349818-3621-4495-8b7d-1567019e4f98"
+  },
+  {
+    "seq": 16,
+    "t_ms": 2338,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "e4349818-3621-4495-8b7d-1567019e4f98"
+  },
+  {
+    "seq": 17,
+    "t_ms": 2338,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "e4349818-3621-4495-8b7d-1567019e4f98"
+  },
+  {
+    "seq": 18,
+    "t_ms": 2486,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "e4349818-3621-4495-8b7d-1567019e4f98"
+  },
+  {
+    "seq": 19,
+    "t_ms": 2487,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "e4349818-3621-4495-8b7d-1567019e4f98"
+  },
+  {
+    "seq": 20,
+    "t_ms": 2487,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "e4349818-3621-4495-8b7d-1567019e4f98"
+  },
+  {
+    "seq": 21,
+    "t_ms": 2487,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "e4349818-3621-4495-8b7d-1567019e4f98"
+  },
+  {
+    "seq": 22,
+    "t_ms": 2487,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "e4349818-3621-4495-8b7d-1567019e4f98"
+  },
+  {
+    "seq": 23,
+    "t_ms": 2487,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "e4349818-3621-4495-8b7d-1567019e4f98"
+  },
+  {
+    "seq": 24,
+    "t_ms": 2487,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "e4349818-3621-4495-8b7d-1567019e4f98"
+  },
+  {
+    "seq": 25,
+    "t_ms": 2487,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "e4349818-3621-4495-8b7d-1567019e4f98"
+  },
+  {
+    "seq": 26,
+    "t_ms": 2487,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "e4349818-3621-4495-8b7d-1567019e4f98"
+  },
+  {
+    "seq": 27,
+    "t_ms": 2492,
+    "event": "msg",
+    "type": "assistant",
+    "session_id": "e4349818-3621-4495-8b7d-1567019e4f98",
+    "uuid": "cb4b0823-3bfb-4c1e-a1c1-d883e4e7f900",
+    "parent_tool_use_id": null,
+    "tool_uses": [
+      {
+        "id": "toolu_01VzVrExAudE1eBc3kFd4Uy9",
+        "name": "Bash",
+        "input": {
+          "command": "sleep 4 && echo step-one-done",
+          "description": "Sleep 4 seconds then print step-one-done"
+        }
+      }
+    ]
+  },
+  {
+    "seq": 28,
+    "t_ms": 2492,
+    "event": "INJECT_START",
+    "mechanism": "iterable",
+    "count": 1,
+    "stage": "b0"
+  },
+  {
+    "seq": 29,
+    "t_ms": 2492,
+    "event": "INJECT",
+    "via": "iterable",
+    "text": "Reply with exactly the word ZULU and nothing else.",
+    "priority": "now",
+    "stage": "b0"
+  },
+  {
+    "seq": 30,
+    "t_ms": 2492,
+    "event": "INJECT_DONE",
+    "stage": "b0"
+  },
+  {
+    "seq": 31,
+    "t_ms": 2498,
+    "event": "partial",
+    "raw_type": "content_block_stop",
+    "session_id": "e4349818-3621-4495-8b7d-1567019e4f98"
+  },
+  {
+    "seq": 32,
+    "t_ms": 2499,
+    "event": "partial",
+    "raw_type": "message_delta",
+    "session_id": "e4349818-3621-4495-8b7d-1567019e4f98",
+    "stop_reason": "tool_use"
+  },
+  {
+    "seq": 33,
+    "t_ms": 2499,
+    "event": "BOUNDARY_tool_use_partial"
+  },
+  {
+    "seq": 34,
+    "t_ms": 2499,
+    "event": "partial",
+    "raw_type": "message_stop",
+    "session_id": "e4349818-3621-4495-8b7d-1567019e4f98"
+  },
+  {
+    "seq": 35,
+    "t_ms": 3918,
+    "event": "msg",
+    "type": "user",
+    "session_id": "e4349818-3621-4495-8b7d-1567019e4f98",
+    "uuid": "e40e541e-497c-4c7b-ba8a-71e3575a31b5",
+    "parent_tool_use_id": null,
+    "priority": null,
+    "content": "[{\"tool_use_id\":\"toolu_01VzVrExAudE1eBc3kFd4Uy9\",\"type\":\"tool_result\",\"content\":\"<error>Command was aborted before completion</error>\",\"is_error\":true}]"
+  },
+  {
+    "seq": 36,
+    "t_ms": 3919,
+    "event": "msg",
+    "type": "result",
+    "subtype": "success",
+    "is_error": false,
+    "session_id": "e4349818-3621-4495-8b7d-1567019e4f98",
+    "result_text": ""
+  },
+  {
+    "seq": 37,
+    "t_ms": 3919,
+    "event": "RESULT_BOUNDARY",
+    "count": 1
+  },
+  {
+    "seq": 38,
+    "t_ms": 3922,
+    "event": "msg",
+    "type": "system",
+    "subtype": "init",
+    "session_id": "e4349818-3621-4495-8b7d-1567019e4f98"
+  },
+  {
+    "seq": 39,
+    "t_ms": 3922,
+    "event": "msg",
+    "type": "system",
+    "subtype": "status",
+    "session_id": "e4349818-3621-4495-8b7d-1567019e4f98"
+  },
+  {
+    "seq": 40,
+    "t_ms": 5512,
+    "event": "partial",
+    "raw_type": "message_start",
+    "session_id": "e4349818-3621-4495-8b7d-1567019e4f98"
+  },
+  {
+    "seq": 41,
+    "t_ms": 5512,
+    "event": "partial",
+    "raw_type": "content_block_start",
+    "session_id": "e4349818-3621-4495-8b7d-1567019e4f98",
+    "block_type": "text"
+  },
+  {
+    "seq": 42,
+    "t_ms": 5513,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "e4349818-3621-4495-8b7d-1567019e4f98"
+  },
+  {
+    "seq": 43,
+    "t_ms": 5513,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "e4349818-3621-4495-8b7d-1567019e4f98"
+  },
+  {
+    "seq": 44,
+    "t_ms": 5520,
+    "event": "msg",
+    "type": "assistant",
+    "session_id": "e4349818-3621-4495-8b7d-1567019e4f98",
+    "uuid": "1b7b8ea5-af62-45f3-8835-f96cbbaae40a",
+    "parent_tool_use_id": null,
+    "text": "ZULU",
+    "tool_uses": []
+  },
+  {
+    "seq": 45,
+    "t_ms": 5520,
+    "event": "partial",
+    "raw_type": "content_block_stop",
+    "session_id": "e4349818-3621-4495-8b7d-1567019e4f98"
+  },
+  {
+    "seq": 46,
+    "t_ms": 5521,
+    "event": "partial",
+    "raw_type": "message_delta",
+    "session_id": "e4349818-3621-4495-8b7d-1567019e4f98",
+    "stop_reason": "end_turn"
+  },
+  {
+    "seq": 47,
+    "t_ms": 5521,
+    "event": "partial",
+    "raw_type": "message_stop",
+    "session_id": "e4349818-3621-4495-8b7d-1567019e4f98"
+  },
+  {
+    "seq": 48,
+    "t_ms": 5526,
+    "event": "msg",
+    "type": "rate_limit_event",
+    "session_id": "e4349818-3621-4495-8b7d-1567019e4f98"
+  },
+  {
+    "seq": 49,
+    "t_ms": 5527,
+    "event": "msg",
+    "type": "result",
+    "subtype": "success",
+    "is_error": false,
+    "session_id": "e4349818-3621-4495-8b7d-1567019e4f98",
+    "result_text": "ZULU"
+  },
+  {
+    "seq": 50,
+    "t_ms": 5527,
+    "event": "RESULT_BOUNDARY",
+    "count": 2
+  },
+  {
+    "seq": 51,
+    "t_ms": 14533,
+    "event": "DRAIN_IDLE_CLOSE"
+  },
+  {
+    "seq": 52,
+    "t_ms": 14560,
+    "event": "GENERATOR_ENDED",
+    "timedOut": false,
+    "session_ids": [
+      "e4349818-3621-4495-8b7d-1567019e4f98"
+    ]
+  }
+]

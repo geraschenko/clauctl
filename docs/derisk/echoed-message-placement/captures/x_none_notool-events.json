@@ -1,7 +1,7 @@
 [
   {
     "seq": 0,
-    "t_ms": 4,
+    "t_ms": 9,
     "event": "SCENARIO",
     "label": "x_none_notool",
     "mechanism": "iterable",
@@ -13,66 +13,58 @@
   },
   {
     "seq": 1,
-    "t_ms": 219,
+    "t_ms": 169,
     "event": "msg",
     "type": "system",
     "subtype": "init",
-    "session_id": "5dd80160-d026-48b8-9ecc-d938796a17e8"
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
   },
   {
     "seq": 2,
-    "t_ms": 219,
+    "t_ms": 170,
     "event": "msg",
     "type": "system",
     "subtype": "status",
-    "session_id": "5dd80160-d026-48b8-9ecc-d938796a17e8"
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
   },
   {
     "seq": 3,
-    "t_ms": 7608,
+    "t_ms": 852,
     "event": "partial",
     "raw_type": "message_start",
-    "session_id": "5dd80160-d026-48b8-9ecc-d938796a17e8"
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
   },
   {
     "seq": 4,
-    "t_ms": 7608,
+    "t_ms": 852,
     "event": "partial",
     "raw_type": "content_block_start",
-    "session_id": "5dd80160-d026-48b8-9ecc-d938796a17e8",
-    "block_type": "thinking"
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae",
+    "block_type": "text"
   },
   {
     "seq": 5,
-    "t_ms": 7608,
-    "event": "msg",
-    "type": "system",
-    "subtype": "thinking_tokens",
-    "session_id": "5dd80160-d026-48b8-9ecc-d938796a17e8"
+    "t_ms": 852,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
   },
   {
     "seq": 6,
-    "t_ms": 7608,
-    "event": "partial",
-    "raw_type": "content_block_delta",
-    "session_id": "5dd80160-d026-48b8-9ecc-d938796a17e8"
-  },
-  {
-    "seq": 7,
-    "t_ms": 7608,
+    "t_ms": 852,
     "event": "TEXT_TRIGGER"
   },
   {
-    "seq": 8,
-    "t_ms": 7608,
+    "seq": 7,
+    "t_ms": 852,
     "event": "INJECT_START",
     "mechanism": "iterable",
     "count": 1,
     "stage": "b0"
   },
   {
-    "seq": 9,
-    "t_ms": 7608,
+    "seq": 8,
+    "t_ms": 852,
     "event": "INJECT",
     "via": "iterable",
     "text": "Reply with exactly the word ALPHA and nothing else.",
@@ -80,561 +72,1636 @@
     "stage": "b0"
   },
   {
-    "seq": 10,
-    "t_ms": 7608,
+    "seq": 9,
+    "t_ms": 852,
     "event": "INJECT_DONE",
     "stage": "b0"
   },
   {
-    "seq": 11,
-    "t_ms": 7783,
+    "seq": 10,
+    "t_ms": 1205,
     "event": "partial",
     "raw_type": "content_block_delta",
-    "session_id": "5dd80160-d026-48b8-9ecc-d938796a17e8"
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
+  },
+  {
+    "seq": 11,
+    "t_ms": 1205,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
   },
   {
     "seq": 12,
-    "t_ms": 7840,
-    "event": "msg",
-    "type": "system",
-    "subtype": "thinking_tokens",
-    "session_id": "5dd80160-d026-48b8-9ecc-d938796a17e8"
+    "t_ms": 1205,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
   },
   {
     "seq": 13,
-    "t_ms": 7840,
+    "t_ms": 1206,
     "event": "partial",
     "raw_type": "content_block_delta",
-    "session_id": "5dd80160-d026-48b8-9ecc-d938796a17e8"
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
   },
   {
     "seq": 14,
-    "t_ms": 7847,
-    "event": "msg",
-    "type": "assistant",
-    "session_id": "5dd80160-d026-48b8-9ecc-d938796a17e8",
-    "uuid": "ad765259-8478-4f2c-9ee4-9b6622bdfdaf",
-    "parent_tool_use_id": null,
-    "tool_uses": []
+    "t_ms": 1206,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
   },
   {
     "seq": 15,
-    "t_ms": 7847,
+    "t_ms": 1206,
     "event": "partial",
-    "raw_type": "content_block_stop",
-    "session_id": "5dd80160-d026-48b8-9ecc-d938796a17e8"
+    "raw_type": "content_block_delta",
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
   },
   {
     "seq": 16,
-    "t_ms": 7847,
+    "t_ms": 1206,
     "event": "partial",
-    "raw_type": "content_block_start",
-    "session_id": "5dd80160-d026-48b8-9ecc-d938796a17e8",
-    "block_type": "text"
+    "raw_type": "content_block_delta",
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
   },
   {
     "seq": 17,
-    "t_ms": 7850,
+    "t_ms": 1237,
     "event": "partial",
     "raw_type": "content_block_delta",
-    "session_id": "5dd80160-d026-48b8-9ecc-d938796a17e8"
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
   },
   {
     "seq": 18,
-    "t_ms": 8324,
+    "t_ms": 1285,
     "event": "partial",
     "raw_type": "content_block_delta",
-    "session_id": "5dd80160-d026-48b8-9ecc-d938796a17e8"
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
   },
   {
     "seq": 19,
-    "t_ms": 8626,
+    "t_ms": 1331,
     "event": "partial",
     "raw_type": "content_block_delta",
-    "session_id": "5dd80160-d026-48b8-9ecc-d938796a17e8"
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
   },
   {
     "seq": 20,
-    "t_ms": 8950,
+    "t_ms": 1373,
     "event": "partial",
     "raw_type": "content_block_delta",
-    "session_id": "5dd80160-d026-48b8-9ecc-d938796a17e8"
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
   },
   {
     "seq": 21,
-    "t_ms": 9450,
+    "t_ms": 1417,
     "event": "partial",
     "raw_type": "content_block_delta",
-    "session_id": "5dd80160-d026-48b8-9ecc-d938796a17e8"
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
   },
   {
     "seq": 22,
-    "t_ms": 9731,
+    "t_ms": 1553,
     "event": "partial",
     "raw_type": "content_block_delta",
-    "session_id": "5dd80160-d026-48b8-9ecc-d938796a17e8"
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
   },
   {
     "seq": 23,
-    "t_ms": 10131,
+    "t_ms": 1553,
     "event": "partial",
     "raw_type": "content_block_delta",
-    "session_id": "5dd80160-d026-48b8-9ecc-d938796a17e8"
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
   },
   {
     "seq": 24,
-    "t_ms": 10516,
+    "t_ms": 1555,
     "event": "partial",
     "raw_type": "content_block_delta",
-    "session_id": "5dd80160-d026-48b8-9ecc-d938796a17e8"
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
   },
   {
     "seq": 25,
-    "t_ms": 10904,
+    "t_ms": 1602,
     "event": "partial",
     "raw_type": "content_block_delta",
-    "session_id": "5dd80160-d026-48b8-9ecc-d938796a17e8"
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
   },
   {
     "seq": 26,
-    "t_ms": 11290,
+    "t_ms": 1648,
     "event": "partial",
     "raw_type": "content_block_delta",
-    "session_id": "5dd80160-d026-48b8-9ecc-d938796a17e8"
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
   },
   {
     "seq": 27,
-    "t_ms": 11666,
+    "t_ms": 1694,
     "event": "partial",
     "raw_type": "content_block_delta",
-    "session_id": "5dd80160-d026-48b8-9ecc-d938796a17e8"
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
   },
   {
     "seq": 28,
-    "t_ms": 12111,
+    "t_ms": 1742,
     "event": "partial",
     "raw_type": "content_block_delta",
-    "session_id": "5dd80160-d026-48b8-9ecc-d938796a17e8"
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
   },
   {
     "seq": 29,
-    "t_ms": 12449,
+    "t_ms": 1785,
     "event": "partial",
     "raw_type": "content_block_delta",
-    "session_id": "5dd80160-d026-48b8-9ecc-d938796a17e8"
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
   },
   {
     "seq": 30,
-    "t_ms": 12841,
+    "t_ms": 1837,
     "event": "partial",
     "raw_type": "content_block_delta",
-    "session_id": "5dd80160-d026-48b8-9ecc-d938796a17e8"
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
   },
   {
     "seq": 31,
-    "t_ms": 13240,
+    "t_ms": 1878,
     "event": "partial",
     "raw_type": "content_block_delta",
-    "session_id": "5dd80160-d026-48b8-9ecc-d938796a17e8"
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
   },
   {
     "seq": 32,
-    "t_ms": 13648,
+    "t_ms": 1927,
     "event": "partial",
     "raw_type": "content_block_delta",
-    "session_id": "5dd80160-d026-48b8-9ecc-d938796a17e8"
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
   },
   {
     "seq": 33,
-    "t_ms": 13993,
+    "t_ms": 1972,
     "event": "partial",
     "raw_type": "content_block_delta",
-    "session_id": "5dd80160-d026-48b8-9ecc-d938796a17e8"
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
   },
   {
     "seq": 34,
-    "t_ms": 14467,
+    "t_ms": 2018,
     "event": "partial",
     "raw_type": "content_block_delta",
-    "session_id": "5dd80160-d026-48b8-9ecc-d938796a17e8"
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
   },
   {
     "seq": 35,
-    "t_ms": 14797,
+    "t_ms": 2057,
     "event": "partial",
     "raw_type": "content_block_delta",
-    "session_id": "5dd80160-d026-48b8-9ecc-d938796a17e8"
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
   },
   {
     "seq": 36,
-    "t_ms": 15287,
+    "t_ms": 2145,
     "event": "partial",
     "raw_type": "content_block_delta",
-    "session_id": "5dd80160-d026-48b8-9ecc-d938796a17e8"
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
   },
   {
     "seq": 37,
-    "t_ms": 15596,
+    "t_ms": 2152,
     "event": "partial",
     "raw_type": "content_block_delta",
-    "session_id": "5dd80160-d026-48b8-9ecc-d938796a17e8"
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
   },
   {
     "seq": 38,
-    "t_ms": 16024,
+    "t_ms": 2196,
     "event": "partial",
     "raw_type": "content_block_delta",
-    "session_id": "5dd80160-d026-48b8-9ecc-d938796a17e8"
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
   },
   {
     "seq": 39,
-    "t_ms": 16413,
+    "t_ms": 2295,
     "event": "partial",
     "raw_type": "content_block_delta",
-    "session_id": "5dd80160-d026-48b8-9ecc-d938796a17e8"
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
   },
   {
     "seq": 40,
-    "t_ms": 16790,
+    "t_ms": 2303,
     "event": "partial",
     "raw_type": "content_block_delta",
-    "session_id": "5dd80160-d026-48b8-9ecc-d938796a17e8"
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
   },
   {
     "seq": 41,
-    "t_ms": 17232,
+    "t_ms": 2330,
     "event": "partial",
     "raw_type": "content_block_delta",
-    "session_id": "5dd80160-d026-48b8-9ecc-d938796a17e8"
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
   },
   {
     "seq": 42,
-    "t_ms": 17577,
+    "t_ms": 2383,
     "event": "partial",
     "raw_type": "content_block_delta",
-    "session_id": "5dd80160-d026-48b8-9ecc-d938796a17e8"
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
   },
   {
     "seq": 43,
-    "t_ms": 17999,
+    "t_ms": 2425,
     "event": "partial",
     "raw_type": "content_block_delta",
-    "session_id": "5dd80160-d026-48b8-9ecc-d938796a17e8"
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
   },
   {
     "seq": 44,
-    "t_ms": 18461,
+    "t_ms": 2467,
     "event": "partial",
     "raw_type": "content_block_delta",
-    "session_id": "5dd80160-d026-48b8-9ecc-d938796a17e8"
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
   },
   {
     "seq": 45,
-    "t_ms": 18778,
+    "t_ms": 2513,
     "event": "partial",
     "raw_type": "content_block_delta",
-    "session_id": "5dd80160-d026-48b8-9ecc-d938796a17e8"
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
   },
   {
     "seq": 46,
-    "t_ms": 19280,
+    "t_ms": 2560,
     "event": "partial",
     "raw_type": "content_block_delta",
-    "session_id": "5dd80160-d026-48b8-9ecc-d938796a17e8"
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
   },
   {
     "seq": 47,
-    "t_ms": 19602,
+    "t_ms": 2611,
     "event": "partial",
     "raw_type": "content_block_delta",
-    "session_id": "5dd80160-d026-48b8-9ecc-d938796a17e8"
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
   },
   {
     "seq": 48,
-    "t_ms": 19997,
+    "t_ms": 2650,
     "event": "partial",
     "raw_type": "content_block_delta",
-    "session_id": "5dd80160-d026-48b8-9ecc-d938796a17e8"
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
   },
   {
     "seq": 49,
-    "t_ms": 20343,
+    "t_ms": 2695,
     "event": "partial",
     "raw_type": "content_block_delta",
-    "session_id": "5dd80160-d026-48b8-9ecc-d938796a17e8"
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
   },
   {
     "seq": 50,
-    "t_ms": 20737,
+    "t_ms": 2742,
     "event": "partial",
     "raw_type": "content_block_delta",
-    "session_id": "5dd80160-d026-48b8-9ecc-d938796a17e8"
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
   },
   {
     "seq": 51,
-    "t_ms": 21226,
+    "t_ms": 2786,
     "event": "partial",
     "raw_type": "content_block_delta",
-    "session_id": "5dd80160-d026-48b8-9ecc-d938796a17e8"
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
   },
   {
     "seq": 52,
-    "t_ms": 21562,
+    "t_ms": 2831,
     "event": "partial",
     "raw_type": "content_block_delta",
-    "session_id": "5dd80160-d026-48b8-9ecc-d938796a17e8"
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
   },
   {
     "seq": 53,
-    "t_ms": 21912,
+    "t_ms": 2877,
     "event": "partial",
     "raw_type": "content_block_delta",
-    "session_id": "5dd80160-d026-48b8-9ecc-d938796a17e8"
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
   },
   {
     "seq": 54,
-    "t_ms": 22352,
+    "t_ms": 2923,
     "event": "partial",
     "raw_type": "content_block_delta",
-    "session_id": "5dd80160-d026-48b8-9ecc-d938796a17e8"
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
   },
   {
     "seq": 55,
-    "t_ms": 22750,
+    "t_ms": 2968,
     "event": "partial",
     "raw_type": "content_block_delta",
-    "session_id": "5dd80160-d026-48b8-9ecc-d938796a17e8"
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
   },
   {
     "seq": 56,
-    "t_ms": 23080,
+    "t_ms": 3014,
     "event": "partial",
     "raw_type": "content_block_delta",
-    "session_id": "5dd80160-d026-48b8-9ecc-d938796a17e8"
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
   },
   {
     "seq": 57,
-    "t_ms": 23521,
+    "t_ms": 3058,
     "event": "partial",
     "raw_type": "content_block_delta",
-    "session_id": "5dd80160-d026-48b8-9ecc-d938796a17e8"
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
   },
   {
     "seq": 58,
-    "t_ms": 23900,
+    "t_ms": 3103,
     "event": "partial",
     "raw_type": "content_block_delta",
-    "session_id": "5dd80160-d026-48b8-9ecc-d938796a17e8"
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
   },
   {
     "seq": 59,
-    "t_ms": 24401,
+    "t_ms": 3149,
     "event": "partial",
     "raw_type": "content_block_delta",
-    "session_id": "5dd80160-d026-48b8-9ecc-d938796a17e8"
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
   },
   {
     "seq": 60,
-    "t_ms": 24810,
+    "t_ms": 3195,
     "event": "partial",
     "raw_type": "content_block_delta",
-    "session_id": "5dd80160-d026-48b8-9ecc-d938796a17e8"
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
   },
   {
     "seq": 61,
-    "t_ms": 25105,
+    "t_ms": 3242,
     "event": "partial",
     "raw_type": "content_block_delta",
-    "session_id": "5dd80160-d026-48b8-9ecc-d938796a17e8"
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
   },
   {
     "seq": 62,
-    "t_ms": 25528,
+    "t_ms": 3287,
     "event": "partial",
     "raw_type": "content_block_delta",
-    "session_id": "5dd80160-d026-48b8-9ecc-d938796a17e8"
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
   },
   {
     "seq": 63,
-    "t_ms": 25888,
+    "t_ms": 3332,
     "event": "partial",
     "raw_type": "content_block_delta",
-    "session_id": "5dd80160-d026-48b8-9ecc-d938796a17e8"
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
   },
   {
     "seq": 64,
-    "t_ms": 26345,
+    "t_ms": 3376,
     "event": "partial",
     "raw_type": "content_block_delta",
-    "session_id": "5dd80160-d026-48b8-9ecc-d938796a17e8"
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
   },
   {
     "seq": 65,
-    "t_ms": 26755,
+    "t_ms": 3425,
     "event": "partial",
     "raw_type": "content_block_delta",
-    "session_id": "5dd80160-d026-48b8-9ecc-d938796a17e8"
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
   },
   {
     "seq": 66,
-    "t_ms": 27176,
+    "t_ms": 3472,
     "event": "partial",
     "raw_type": "content_block_delta",
-    "session_id": "5dd80160-d026-48b8-9ecc-d938796a17e8"
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
   },
   {
     "seq": 67,
-    "t_ms": 27184,
-    "event": "msg",
-    "type": "assistant",
-    "session_id": "5dd80160-d026-48b8-9ecc-d938796a17e8",
-    "uuid": "68cc8dff-ac69-4850-aaad-cd02b5ce4ae6",
-    "parent_tool_use_id": null,
-    "text": "1. Every journey begins with a single step, though the destination is rarely what we imagined.\n2. Two sides to every story — and usually a third we haven't thought to ask about.\n3. Three is the number of things I forget I needed from the kitchen every single time.\n4. Four seasons remind us that change is not loss, but rhythm.\n5. Five senses are enough to experience a universe, if we remember to pay attention.\n6. Six degrees of separation suggest we are all already neighbors.\n7. Seven days in a week — enough time to either waste or transform something.\n8. Eight hours of sleep sounds simple, yet remains one of the great uncompleted projects.\n9. Nine lives may be a cat's gift, but we only need one well-lived.\n10. Ten feels like an arrival, though nothing is different from nine.\n11. Eleven is the age when you first suspect that adults don't have it figured out either.\n12. Twelve months pass faster each year, as if time learns to run by watching us.\n13. Thirteen gets a bad reputation it probably doesn't deserve.\n14. Fourteen is that strange hallway between childhood and wherever it is you're going.\n15. Fifteen minutes, Warhol said — though most of us would trade it for lasting quiet.\n16. Sixteen is old enough to feel everything and young enough to survive it.\n17. Seventeen is a prime number and also the age when everything feels urgent and rare.\n18. Eighteen carries a sudden weight of freedom nobody warned you would feel so heavy.\n19. Nineteen is the year you realize your hometown is smaller than you thought.\n20. Twenty years of living and you are only beginning to understand what questions to ask.\n21. Twenty-one: society hands you a drink to toast an adulthood you're still assembling.\n22. Twenty-two is underrated — uncertain enough to be interesting, free enough to be bold.\n23. Twenty-three pairs of chromosomes carry everything you are and everything you might become.\n24. Twenty-four hours in a day, and somehow kindness always seems to fit if you make room.\n25. Twenty-five feels like a checkpoint at which everyone expects a report you haven't written.\n26. Twenty-six letters in the alphabet — and with them, every human thought ever expressed.\n27. Twenty-seven is the age of the infamous club, and also just a Thursday for most of us.\n28. Twenty-eight days in February, that quiet month that doesn't overstay its welcome.\n29. Twenty-nine is often spent bracing for thirty, when thirty turns out to be rather fine.\n30. Thirty arrives and the things you worried about look smaller from this altitude.\n31. Thirty-one flavors, and still most of us return to the same two or three.\n32. Thirty-two teeth at full count — small tools that let us eat, speak, and smile our way through life.\n33. Thirty-three was the age of many beginnings disguised as endings.\n34. Thirty-four is a quiet number, solid and unhurried, like a Wednesday afternoon.\n35. Thirty-five: old enough to know better, young enough to try it anyway.\n36. Thirty-six is six squared — a reminder that foundations, laid early, multiply.\n37. Thirty-seven has a slight prime-number confidence about it, unbothered by divisibility.\n38. Thirty-eight years ago today, someone somewhere made a decision that changed everything without knowing it.\n39. Thirty-nine has one foot in the decade it knows and one eye on the one ahead.\n40. Forty is not the end of youth — it is the beginning of not caring what youth thinks of you.",
-    "tool_uses": []
+    "t_ms": 3515,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
   },
   {
     "seq": 68,
-    "t_ms": 27184,
+    "t_ms": 3563,
     "event": "partial",
-    "raw_type": "content_block_stop",
-    "session_id": "5dd80160-d026-48b8-9ecc-d938796a17e8"
+    "raw_type": "content_block_delta",
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
   },
   {
     "seq": 69,
-    "t_ms": 27226,
+    "t_ms": 3608,
     "event": "partial",
-    "raw_type": "message_delta",
-    "session_id": "5dd80160-d026-48b8-9ecc-d938796a17e8",
-    "stop_reason": "end_turn"
+    "raw_type": "content_block_delta",
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
   },
   {
     "seq": 70,
-    "t_ms": 27226,
+    "t_ms": 3651,
     "event": "partial",
-    "raw_type": "message_stop",
-    "session_id": "5dd80160-d026-48b8-9ecc-d938796a17e8"
+    "raw_type": "content_block_delta",
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
   },
   {
     "seq": 71,
-    "t_ms": 27227,
-    "event": "msg",
-    "type": "rate_limit_event",
-    "session_id": "5dd80160-d026-48b8-9ecc-d938796a17e8"
+    "t_ms": 3696,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
   },
   {
     "seq": 72,
-    "t_ms": 27228,
+    "t_ms": 3741,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
+  },
+  {
+    "seq": 73,
+    "t_ms": 3791,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
+  },
+  {
+    "seq": 74,
+    "t_ms": 3835,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
+  },
+  {
+    "seq": 75,
+    "t_ms": 3878,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
+  },
+  {
+    "seq": 76,
+    "t_ms": 3924,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
+  },
+  {
+    "seq": 77,
+    "t_ms": 3971,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
+  },
+  {
+    "seq": 78,
+    "t_ms": 4014,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
+  },
+  {
+    "seq": 79,
+    "t_ms": 4060,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
+  },
+  {
+    "seq": 80,
+    "t_ms": 4120,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
+  },
+  {
+    "seq": 81,
+    "t_ms": 4153,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
+  },
+  {
+    "seq": 82,
+    "t_ms": 4196,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
+  },
+  {
+    "seq": 83,
+    "t_ms": 4242,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
+  },
+  {
+    "seq": 84,
+    "t_ms": 4287,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
+  },
+  {
+    "seq": 85,
+    "t_ms": 4331,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
+  },
+  {
+    "seq": 86,
+    "t_ms": 4378,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
+  },
+  {
+    "seq": 87,
+    "t_ms": 4424,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
+  },
+  {
+    "seq": 88,
+    "t_ms": 4470,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
+  },
+  {
+    "seq": 89,
+    "t_ms": 4514,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
+  },
+  {
+    "seq": 90,
+    "t_ms": 4560,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
+  },
+  {
+    "seq": 91,
+    "t_ms": 4605,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
+  },
+  {
+    "seq": 92,
+    "t_ms": 4654,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
+  },
+  {
+    "seq": 93,
+    "t_ms": 4703,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
+  },
+  {
+    "seq": 94,
+    "t_ms": 4742,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
+  },
+  {
+    "seq": 95,
+    "t_ms": 4787,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
+  },
+  {
+    "seq": 96,
+    "t_ms": 4837,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
+  },
+  {
+    "seq": 97,
+    "t_ms": 4891,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
+  },
+  {
+    "seq": 98,
+    "t_ms": 4926,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
+  },
+  {
+    "seq": 99,
+    "t_ms": 4969,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
+  },
+  {
+    "seq": 100,
+    "t_ms": 5017,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
+  },
+  {
+    "seq": 101,
+    "t_ms": 5072,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
+  },
+  {
+    "seq": 102,
+    "t_ms": 5105,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
+  },
+  {
+    "seq": 103,
+    "t_ms": 5150,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
+  },
+  {
+    "seq": 104,
+    "t_ms": 5197,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
+  },
+  {
+    "seq": 105,
+    "t_ms": 5244,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
+  },
+  {
+    "seq": 106,
+    "t_ms": 5287,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
+  },
+  {
+    "seq": 107,
+    "t_ms": 5332,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
+  },
+  {
+    "seq": 108,
+    "t_ms": 5377,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
+  },
+  {
+    "seq": 109,
+    "t_ms": 5424,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
+  },
+  {
+    "seq": 110,
+    "t_ms": 5468,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
+  },
+  {
+    "seq": 111,
+    "t_ms": 5515,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
+  },
+  {
+    "seq": 112,
+    "t_ms": 5562,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
+  },
+  {
+    "seq": 113,
+    "t_ms": 5607,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
+  },
+  {
+    "seq": 114,
+    "t_ms": 5652,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
+  },
+  {
+    "seq": 115,
+    "t_ms": 5696,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
+  },
+  {
+    "seq": 116,
+    "t_ms": 5742,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
+  },
+  {
+    "seq": 117,
+    "t_ms": 5838,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
+  },
+  {
+    "seq": 118,
+    "t_ms": 5881,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
+  },
+  {
+    "seq": 119,
+    "t_ms": 5924,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
+  },
+  {
+    "seq": 120,
+    "t_ms": 5970,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
+  },
+  {
+    "seq": 121,
+    "t_ms": 6014,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
+  },
+  {
+    "seq": 122,
+    "t_ms": 6069,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
+  },
+  {
+    "seq": 123,
+    "t_ms": 6108,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
+  },
+  {
+    "seq": 124,
+    "t_ms": 6151,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
+  },
+  {
+    "seq": 125,
+    "t_ms": 6195,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
+  },
+  {
+    "seq": 126,
+    "t_ms": 6243,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
+  },
+  {
+    "seq": 127,
+    "t_ms": 6286,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
+  },
+  {
+    "seq": 128,
+    "t_ms": 6336,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
+  },
+  {
+    "seq": 129,
+    "t_ms": 6378,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
+  },
+  {
+    "seq": 130,
+    "t_ms": 6424,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
+  },
+  {
+    "seq": 131,
+    "t_ms": 6469,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
+  },
+  {
+    "seq": 132,
+    "t_ms": 6522,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
+  },
+  {
+    "seq": 133,
+    "t_ms": 6560,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
+  },
+  {
+    "seq": 134,
+    "t_ms": 6612,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
+  },
+  {
+    "seq": 135,
+    "t_ms": 6651,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
+  },
+  {
+    "seq": 136,
+    "t_ms": 6701,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
+  },
+  {
+    "seq": 137,
+    "t_ms": 6745,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
+  },
+  {
+    "seq": 138,
+    "t_ms": 6789,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
+  },
+  {
+    "seq": 139,
+    "t_ms": 6833,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
+  },
+  {
+    "seq": 140,
+    "t_ms": 6908,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
+  },
+  {
+    "seq": 141,
+    "t_ms": 6926,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
+  },
+  {
+    "seq": 142,
+    "t_ms": 6979,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
+  },
+  {
+    "seq": 143,
+    "t_ms": 7014,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
+  },
+  {
+    "seq": 144,
+    "t_ms": 7060,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
+  },
+  {
+    "seq": 145,
+    "t_ms": 7105,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
+  },
+  {
+    "seq": 146,
+    "t_ms": 7151,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
+  },
+  {
+    "seq": 147,
+    "t_ms": 7197,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
+  },
+  {
+    "seq": 148,
+    "t_ms": 7241,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
+  },
+  {
+    "seq": 149,
+    "t_ms": 7287,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
+  },
+  {
+    "seq": 150,
+    "t_ms": 7332,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
+  },
+  {
+    "seq": 151,
+    "t_ms": 7378,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
+  },
+  {
+    "seq": 152,
+    "t_ms": 7432,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
+  },
+  {
+    "seq": 153,
+    "t_ms": 7469,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
+  },
+  {
+    "seq": 154,
+    "t_ms": 7514,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
+  },
+  {
+    "seq": 155,
+    "t_ms": 7561,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
+  },
+  {
+    "seq": 156,
+    "t_ms": 7606,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
+  },
+  {
+    "seq": 157,
+    "t_ms": 7652,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
+  },
+  {
+    "seq": 158,
+    "t_ms": 7695,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
+  },
+  {
+    "seq": 159,
+    "t_ms": 7741,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
+  },
+  {
+    "seq": 160,
+    "t_ms": 7790,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
+  },
+  {
+    "seq": 161,
+    "t_ms": 7834,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
+  },
+  {
+    "seq": 162,
+    "t_ms": 7880,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
+  },
+  {
+    "seq": 163,
+    "t_ms": 7923,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
+  },
+  {
+    "seq": 164,
+    "t_ms": 7975,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
+  },
+  {
+    "seq": 165,
+    "t_ms": 8030,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
+  },
+  {
+    "seq": 166,
+    "t_ms": 8060,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
+  },
+  {
+    "seq": 167,
+    "t_ms": 8105,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
+  },
+  {
+    "seq": 168,
+    "t_ms": 8151,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
+  },
+  {
+    "seq": 169,
+    "t_ms": 8196,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
+  },
+  {
+    "seq": 170,
+    "t_ms": 8241,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
+  },
+  {
+    "seq": 171,
+    "t_ms": 8288,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
+  },
+  {
+    "seq": 172,
+    "t_ms": 8332,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
+  },
+  {
+    "seq": 173,
+    "t_ms": 8390,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
+  },
+  {
+    "seq": 174,
+    "t_ms": 8424,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
+  },
+  {
+    "seq": 175,
+    "t_ms": 8469,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
+  },
+  {
+    "seq": 176,
+    "t_ms": 8514,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
+  },
+  {
+    "seq": 177,
+    "t_ms": 8561,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
+  },
+  {
+    "seq": 178,
+    "t_ms": 8651,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
+  },
+  {
+    "seq": 179,
+    "t_ms": 8700,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
+  },
+  {
+    "seq": 180,
+    "t_ms": 8742,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
+  },
+  {
+    "seq": 181,
+    "t_ms": 8788,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
+  },
+  {
+    "seq": 182,
+    "t_ms": 8834,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
+  },
+  {
+    "seq": 183,
+    "t_ms": 8878,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
+  },
+  {
+    "seq": 184,
+    "t_ms": 8925,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
+  },
+  {
+    "seq": 185,
+    "t_ms": 9002,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
+  },
+  {
+    "seq": 186,
+    "t_ms": 9019,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
+  },
+  {
+    "seq": 187,
+    "t_ms": 9061,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
+  },
+  {
+    "seq": 188,
+    "t_ms": 9109,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
+  },
+  {
+    "seq": 189,
+    "t_ms": 9151,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
+  },
+  {
+    "seq": 190,
+    "t_ms": 9208,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
+  },
+  {
+    "seq": 191,
+    "t_ms": 9259,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
+  },
+  {
+    "seq": 192,
+    "t_ms": 9286,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
+  },
+  {
+    "seq": 193,
+    "t_ms": 9332,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
+  },
+  {
+    "seq": 194,
+    "t_ms": 9383,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
+  },
+  {
+    "seq": 195,
+    "t_ms": 9424,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
+  },
+  {
+    "seq": 196,
+    "t_ms": 9468,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
+  },
+  {
+    "seq": 197,
+    "t_ms": 9515,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
+  },
+  {
+    "seq": 198,
+    "t_ms": 9560,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
+  },
+  {
+    "seq": 199,
+    "t_ms": 9605,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
+  },
+  {
+    "seq": 200,
+    "t_ms": 9652,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
+  },
+  {
+    "seq": 201,
+    "t_ms": 9697,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
+  },
+  {
+    "seq": 202,
+    "t_ms": 9747,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
+  },
+  {
+    "seq": 203,
+    "t_ms": 9788,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
+  },
+  {
+    "seq": 204,
+    "t_ms": 9833,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
+  },
+  {
+    "seq": 205,
+    "t_ms": 9878,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
+  },
+  {
+    "seq": 206,
+    "t_ms": 9928,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
+  },
+  {
+    "seq": 207,
+    "t_ms": 9972,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
+  },
+  {
+    "seq": 208,
+    "t_ms": 10020,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
+  },
+  {
+    "seq": 209,
+    "t_ms": 10060,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
+  },
+  {
+    "seq": 210,
+    "t_ms": 10105,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
+  },
+  {
+    "seq": 211,
+    "t_ms": 10151,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
+  },
+  {
+    "seq": 212,
+    "t_ms": 10199,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
+  },
+  {
+    "seq": 213,
+    "t_ms": 10322,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
+  },
+  {
+    "seq": 214,
+    "t_ms": 10336,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
+  },
+  {
+    "seq": 215,
+    "t_ms": 10341,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
+  },
+  {
+    "seq": 216,
+    "t_ms": 10492,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
+  },
+  {
+    "seq": 217,
+    "t_ms": 10492,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
+  },
+  {
+    "seq": 218,
+    "t_ms": 10492,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
+  },
+  {
+    "seq": 219,
+    "t_ms": 10537,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
+  },
+  {
+    "seq": 220,
+    "t_ms": 10558,
+    "event": "msg",
+    "type": "assistant",
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae",
+    "uuid": "8af8734d-efd2-4b81-a83b-b4cc3410aad6",
+    "parent_tool_use_id": null,
+    "text": "1. A lonely beginning, the start of every count.\n2. Pairs feel more stable than solitary things.\n3. A triangle appears, and with it, shape.\n4. Four corners make a square, something to stand on.\n5. Halfway to ten, and already it feels like progress.\n6. A half dozen, quietly practical.\n7. Considered lucky by many, for reasons no one quite agrees on.\n8. Turn it sideways and it becomes infinity.\n9. One shy of a milestone, almost there.\n10. Two hands' worth of fingers, our oldest counting tool.\n11. Just past ten, the numbers start repeating a digit.\n12. A dozen, the unit of eggs and old-fashioned reckoning.\n13. Thought unlucky in some places, just another number in others.\n14. Two weeks in a fortnight, time folding over itself.\n15. A quarter of sixty, useful for clocks.\n16. Sweet sixteen, a birthday people make a fuss over.\n17. An odd, angular number, easy to overlook.\n18. Coming of age in many cultures.\n19. The end of the teens, one more threshold crossed.\n20. A score, though few people count that way anymore.\n21. Legal adulthood in some countries, a card game's target in others.\n22. A number that reads the same forwards and backwards.\n23. Often worn on jerseys, thanks to a certain basketball player.\n24. Hours in a day, the rhythm we all live by.\n25. A quarter century, or just five fives.\n26. As many letters as the alphabet, coincidentally.\n27. Three cubed, tidy and self-contained.\n28. The length of February, most years.\n29. The leap day shows up here, once every four years.\n30. A round, comfortable number, often a birthday to dread or celebrate.\n31. One more than a month can usually hold.\n32. Freezing point of water, in Fahrenheit.\n33. Often called Jesus's age at crucifixion, in tradition.\n34. Unremarkable, and there's something restful in that.\n35. Halfway between thirty and forty, no special claim to fame.\n36. Six squared, pleasingly symmetrical.\n37. A prime number, resistant to being broken apart.\n38. Getting close to the end of this little journey.\n39. The threshold before a milestone, anticipation building.\n40. Forty, journey's end, and a moment to reflect on how far a simple count can take you.",
+    "tool_uses": []
+  },
+  {
+    "seq": 221,
+    "t_ms": 10558,
+    "event": "partial",
+    "raw_type": "content_block_stop",
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
+  },
+  {
+    "seq": 222,
+    "t_ms": 10558,
+    "event": "partial",
+    "raw_type": "message_delta",
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae",
+    "stop_reason": "end_turn"
+  },
+  {
+    "seq": 223,
+    "t_ms": 10558,
+    "event": "partial",
+    "raw_type": "message_stop",
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
+  },
+  {
+    "seq": 224,
+    "t_ms": 10559,
+    "event": "msg",
+    "type": "rate_limit_event",
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
+  },
+  {
+    "seq": 225,
+    "t_ms": 10562,
     "event": "msg",
     "type": "result",
     "subtype": "success",
     "is_error": false,
-    "session_id": "5dd80160-d026-48b8-9ecc-d938796a17e8",
-    "result_text": "1. Every journey begins with a single step, though the destination is rarely what we imagined.\n2. Two sides to every story — and usually a third we haven't thought to ask about.\n3. Three is the number of things I forget I needed from the kitchen every single time.\n4. Four seasons remind us that change is not loss, but rhythm.\n5. Five senses are enough to experience a universe, if we remember to pay attention.\n6. Six degrees of separation suggest we are all already neighbors.\n7. Seven days in a week — enough time to either waste or transform something.\n8. Eight hours of sleep sounds simple, yet remains one of the great uncompleted projects.\n9. Nine lives may be a cat's gift, but we only need one well-lived.\n10. Ten feels like an arrival, though nothing is different from nine.\n11. Eleven is the age when you first suspect that adults don't have it figured out either.\n12. Twelve months pass faster each year, as if time learns to run by watching us.\n13. Thirteen gets a bad reputation it probably doesn't deserve.\n14. Fourteen is that strange hallway between childhood and wherever it is you're going.\n15. Fifteen minutes, Warhol said — though most of us would trade it for lasting quiet.\n16. Sixteen is old enough to feel everything and young enough to survive it.\n17. Seventeen is a prime number and also the age when everything feels urgent and rare.\n18. Eighteen carries a sudden weight of freedom nobody warned you would feel so heavy.\n19. Nineteen is the year you realize your hometown is smaller than you thought.\n20. Twenty years of living and you are only beginning to understand what questions to ask.\n21. Twenty-one: society hands you a drink to toast an adulthood you're still assembling.\n22. Twenty-two is underrated — uncertain enough to be interesting, free enough to be bold.\n23. Twenty-three pairs of chromosomes carry everything you are and everything you might become.\n24. Twenty-four hours in a day, and somehow kindness always seems to fit if you make room.\n25. Twenty-five feels like a checkpoint at which everyone expects a report you haven't written.\n26. Twenty-six letters in the alphabet — and with them, every human thought ever expressed.\n27. Twenty-seven is the age of the infamous club, and also just a Thursday for most of us.\n28. Twenty-eight days in February, that quiet month that doesn't overstay its welcome.\n29. Twenty-nine is often spent bracing for thirty, when thirty turns out to be rather fine.\n30. Thirty arrives and the things you worried about look smaller from this altitude.\n31. Thirty-one flavors, and still most of us return to the same two or three.\n32. Thirty-two teeth at full count — small tools that let us eat, speak, and smile our way through life.\n33. Thirty-three was the age of many beginnings disguised as endings.\n34. Thirty-four is a quiet number, solid and unhurried, like a Wednesday afternoon.\n35. Thirty-five: old enough to know better, young enough to try it anyway.\n36. Thirty-six is six squared — a reminder that foundations, laid early, multiply.\n37. Thirty-seven has a slight prime-number confidence about it, unbothered by divisibility.\n38. Thirty-eight years ago today, someone somewhere made a decision that changed everything without knowing it.\n39. Thirty-nine has one foot in the decade it knows and one eye on the one ahead.\n40. Forty is not the end of youth — it is the beginning of not caring what youth thinks of you."
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae",
+    "result_text": "1. A lonely beginning, the start of every count.\n2. Pairs feel more stable than solitary things.\n3. A triangle appears, and with it, shape.\n4. Four corners make a square, something to stand on.\n5. Halfway to ten, and already it feels like progress.\n6. A half dozen, quietly practical.\n7. Considered lucky by many, for reasons no one quite agrees on.\n8. Turn it sideways and it becomes infinity.\n9. One shy of a milestone, almost there.\n10. Two hands' worth of fingers, our oldest counting tool.\n11. Just past ten, the numbers start repeating a digit.\n12. A dozen, the unit of eggs and old-fashioned reckoning.\n13. Thought unlucky in some places, just another number in others.\n14. Two weeks in a fortnight, time folding over itself.\n15. A quarter of sixty, useful for clocks.\n16. Sweet sixteen, a birthday people make a fuss over.\n17. An odd, angular number, easy to overlook.\n18. Coming of age in many cultures.\n19. The end of the teens, one more threshold crossed.\n20. A score, though few people count that way anymore.\n21. Legal adulthood in some countries, a card game's target in others.\n22. A number that reads the same forwards and backwards.\n23. Often worn on jerseys, thanks to a certain basketball player.\n24. Hours in a day, the rhythm we all live by.\n25. A quarter century, or just five fives.\n26. As many letters as the alphabet, coincidentally.\n27. Three cubed, tidy and self-contained.\n28. The length of February, most years.\n29. The leap day shows up here, once every four years.\n30. A round, comfortable number, often a birthday to dread or celebrate.\n31. One more than a month can usually hold.\n32. Freezing point of water, in Fahrenheit.\n33. Often called Jesus's age at crucifixion, in tradition.\n34. Unremarkable, and there's something restful in that.\n35. Halfway between thirty and forty, no special claim to fame.\n36. Six squared, pleasingly symmetrical.\n37. A prime number, resistant to being broken apart.\n38. Getting close to the end of this little journey.\n39. The threshold before a milestone, anticipation building.\n40. Forty, journey's end, and a moment to reflect on how far a simple count can take you."
   },
   {
-    "seq": 73,
-    "t_ms": 27228,
+    "seq": 226,
+    "t_ms": 10562,
     "event": "RESULT_BOUNDARY",
     "count": 1
   },
   {
-    "seq": 74,
-    "t_ms": 27230,
+    "seq": 227,
+    "t_ms": 10565,
     "event": "msg",
     "type": "system",
     "subtype": "init",
-    "session_id": "5dd80160-d026-48b8-9ecc-d938796a17e8"
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
   },
   {
-    "seq": 75,
-    "t_ms": 27230,
+    "seq": 228,
+    "t_ms": 10565,
     "event": "msg",
     "type": "system",
     "subtype": "status",
-    "session_id": "5dd80160-d026-48b8-9ecc-d938796a17e8"
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
   },
   {
-    "seq": 76,
-    "t_ms": 28749,
+    "seq": 229,
+    "t_ms": 11661,
     "event": "partial",
     "raw_type": "message_start",
-    "session_id": "5dd80160-d026-48b8-9ecc-d938796a17e8"
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
   },
   {
-    "seq": 77,
-    "t_ms": 28749,
+    "seq": 230,
+    "t_ms": 11661,
     "event": "partial",
     "raw_type": "content_block_start",
-    "session_id": "5dd80160-d026-48b8-9ecc-d938796a17e8",
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae",
     "block_type": "text"
   },
   {
-    "seq": 78,
-    "t_ms": 28749,
+    "seq": 231,
+    "t_ms": 11661,
     "event": "partial",
     "raw_type": "content_block_delta",
-    "session_id": "5dd80160-d026-48b8-9ecc-d938796a17e8"
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
   },
   {
-    "seq": 79,
-    "t_ms": 28750,
+    "seq": 232,
+    "t_ms": 11662,
     "event": "msg",
     "type": "assistant",
-    "session_id": "5dd80160-d026-48b8-9ecc-d938796a17e8",
-    "uuid": "241ff7fc-5a4c-4de7-9f63-aec47923f396",
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae",
+    "uuid": "833275b3-cb3d-45ec-9530-764dcc9d0314",
     "parent_tool_use_id": null,
     "text": "ALPHA",
     "tool_uses": []
   },
   {
-    "seq": 80,
-    "t_ms": 28750,
+    "seq": 233,
+    "t_ms": 11662,
     "event": "partial",
     "raw_type": "content_block_stop",
-    "session_id": "5dd80160-d026-48b8-9ecc-d938796a17e8"
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
   },
   {
-    "seq": 81,
-    "t_ms": 28750,
+    "seq": 234,
+    "t_ms": 11666,
     "event": "partial",
     "raw_type": "message_delta",
-    "session_id": "5dd80160-d026-48b8-9ecc-d938796a17e8",
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae",
     "stop_reason": "end_turn"
   },
   {
-    "seq": 82,
-    "t_ms": 28750,
+    "seq": 235,
+    "t_ms": 11667,
     "event": "partial",
     "raw_type": "message_stop",
-    "session_id": "5dd80160-d026-48b8-9ecc-d938796a17e8"
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae"
   },
   {
-    "seq": 83,
-    "t_ms": 28751,
+    "seq": 236,
+    "t_ms": 11676,
     "event": "msg",
     "type": "result",
     "subtype": "success",
     "is_error": false,
-    "session_id": "5dd80160-d026-48b8-9ecc-d938796a17e8",
+    "session_id": "40d1cdda-e128-42fe-95f1-05aa9e893dae",
     "result_text": "ALPHA"
   },
   {
-    "seq": 84,
-    "t_ms": 28751,
+    "seq": 237,
+    "t_ms": 11676,
     "event": "RESULT_BOUNDARY",
     "count": 2
   },
   {
-    "seq": 85,
-    "t_ms": 37763,
+    "seq": 238,
+    "t_ms": 20679,
     "event": "DRAIN_IDLE_CLOSE"
   },
   {
-    "seq": 86,
-    "t_ms": 37776,
+    "seq": 239,
+    "t_ms": 20715,
     "event": "GENERATOR_ENDED",
     "timedOut": false,
-    "session_ids": ["5dd80160-d026-48b8-9ecc-d938796a17e8"]
+    "session_ids": [
+      "40d1cdda-e128-42fe-95f1-05aa9e893dae"
+    ]
   }
 ]

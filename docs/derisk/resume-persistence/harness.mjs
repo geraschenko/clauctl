@@ -4,14 +4,18 @@
 // with env = baseEnv(), which points CLAUDE_CONFIG_DIR at the scratch dir.
 // Uses the SDK-bundled `claude` binary (no pathToClaudeCodeExecutable override).
 
-import { query } from "/home/anton/.treehouse/clauctl-90dce5/1/clauctl/node_modules/@anthropic-ai/claude-agent-sdk/sdk.mjs";
+import { query } from "../../../node_modules/@anthropic-ai/claude-agent-sdk/sdk.mjs";
+import { assertVersions, makeConfigDir, baseEnv as scratchEnv } from "../../../tests/sdk/harness.ts";
 
-export const CONFIG_DIR = "/tmp/clauctl-resume-derisk";
+assertVersions();
+
+// One scratch dir per process: every phase of a run must share it for `resume`.
+export const CONFIG_DIR = makeConfigDir("resume-persistence");
 export const HAIKU = "claude-haiku-4-5-20251001";
 
 // Subprocess env with the scratch config dir. Options.env REPLACES the child
 // env entirely, so spread process.env first.
-export const baseEnv = () => ({ ...process.env, CLAUDE_CONFIG_DIR: CONFIG_DIR });
+export const baseEnv = () => scratchEnv(CONFIG_DIR);
 
 // Offline reference MCP server (echo tool). alwaysLoad so it connects before
 // the turn and surfaces in init.mcp_servers.

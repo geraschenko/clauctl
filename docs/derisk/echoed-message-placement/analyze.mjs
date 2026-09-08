@@ -29,7 +29,7 @@ for (const e of log) {
 }
 
 // ---- JSONL canonical chain ----
-const files = readdirSync(CAPTURES).filter((f) => f.startsWith(`${label}-session-`));
+const files = readdirSync(CAPTURES).filter((f) => new RegExp(`^${label}-session(-\\d+)?\\.jsonl$`).test(f));
 for (const f of files) {
   const lines = readFileSync(join(CAPTURES, f), "utf8").trim().split("\n").map((l) => JSON.parse(l));
   console.log(`\n===== ${f}: CANONICAL CHAIN (file order) =====`);

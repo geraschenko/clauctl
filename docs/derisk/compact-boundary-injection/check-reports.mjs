@@ -151,15 +151,17 @@ const starts = (u, p) => typeof u === "string" && u.startsWith(p);
   // unchanged): 2.1.195 kept a segment from the old summary through the
   // probe turn; 2.1.250 kept only the trailing assistant turn — old summary
   // and first probe gone, post-compact context = [new summary, assistant
-  // turn, probe] (3 messages). Known versions only: an unknown SDK version
-  // FAILS here so drift gets characterized, not silently accepted.
+  // turn, probe] (3 messages). 2.1.258 has produced BOTH shapes (see
+  // FINDINGS "Version drift"); pinned to the latest observation so a flip
+  // is noticed rather than absorbed. Known versions only: an unknown SDK
+  // version FAILS here so drift gets characterized, not silently accepted.
   const keptOld = r.q7.postProbe.hasOldSynthSummary && r.q7.postProbe.hasFirstProbe;
   const keptTailOnly = !r.q7.postProbe.hasOldSynthSummary && !r.q7.postProbe.hasFirstProbe
     && r.q7.postProbe.nMessages === 3;
   check("p4.q7 post-compact probe sees new compacted context (known writer keep-reach per version)",
     r.versions.sdk === "0.3.195" ? keptOld
     : r.versions.sdk === "0.3.250" ? keptTailOnly
-    : r.versions.sdk === "0.3.258" ? keptOld
+    : r.versions.sdk === "0.3.258" ? keptTailOnly
     : false);
   check("p4.q8 live dry-run rewind works", r.q8.liveDryRun.canRewind === true);
   check("p4.q8 behind-boundary rewind refused", r.q8.behindBoundaryDryRun.canRewind === false

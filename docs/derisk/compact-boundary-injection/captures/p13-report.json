@@ -1,0 +1,31 @@
+{
+  "sdkVersion": "0.3.258",
+  "resultSubtype": "success",
+  "error": null,
+  "stderr": null,
+  "nRequestMessages": 5,
+  "requestMessages": [
+    "user: [{\"type\":\"text\",\"text\":\"<system-reminder>\\nAs you answer the user's questions, you can use the following context:\\n# userEmail\\nThe user's e",
+    "assistant: [{\"type\":\"tool_use\",\"id\":\"toolu_synthFORKA0000000000001\",\"name\":\"Bash\",\"input\":{\"command\":\"echo FORK-A-CMD\"}},{\"type\":\"tool_use\",\"id\":\"toolu",
+    "user: [{\"type\":\"tool_result\",\"tool_use_id\":\"toolu_synthFORKB0000000000002\",\"content\":\"FORK-B-RESULT\"},{\"type\":\"tool_result\",\"tool_use_id\":\"toolu_s",
+    "assistant: [{\"type\":\"text\",\"text\":\"Both ran. FORK-DONE-TEXT\"}]",
+    "user: [{\"type\":\"text\",\"text\":\"<system-reminder>\\nAvailable agent types for the Agent tool:\\n- claude: Catch-all for any task that doesn't fit a mo"
+  ],
+  "verdicts": {
+    "expansion-active": {
+      "matches": true,
+      "mismatches": []
+    },
+    "walk-only": {
+      "matches": false,
+      "mismatches": [
+        "unexpectedly present: FORK-B-CMD",
+        "unexpectedly present: FORK-B-RESULT"
+      ]
+    }
+  },
+  "matching": [
+    "expansion-active"
+  ],
+  "violations": []
+}

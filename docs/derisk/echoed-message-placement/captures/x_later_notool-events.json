@@ -1,7 +1,7 @@
 [
   {
     "seq": 0,
-    "t_ms": 5,
+    "t_ms": 8,
     "event": "SCENARIO",
     "label": "x_later_notool",
     "mechanism": "iterable",
@@ -14,66 +14,58 @@
   },
   {
     "seq": 1,
-    "t_ms": 223,
+    "t_ms": 163,
     "event": "msg",
     "type": "system",
     "subtype": "init",
-    "session_id": "96ed13e6-9c1a-4ddc-b0fd-916a992003cf"
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
   },
   {
     "seq": 2,
-    "t_ms": 223,
+    "t_ms": 165,
     "event": "msg",
     "type": "system",
     "subtype": "status",
-    "session_id": "96ed13e6-9c1a-4ddc-b0fd-916a992003cf"
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
   },
   {
     "seq": 3,
-    "t_ms": 2340,
+    "t_ms": 819,
     "event": "partial",
     "raw_type": "message_start",
-    "session_id": "96ed13e6-9c1a-4ddc-b0fd-916a992003cf"
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
   },
   {
     "seq": 4,
-    "t_ms": 2340,
+    "t_ms": 819,
     "event": "partial",
     "raw_type": "content_block_start",
-    "session_id": "96ed13e6-9c1a-4ddc-b0fd-916a992003cf",
-    "block_type": "thinking"
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d",
+    "block_type": "text"
   },
   {
     "seq": 5,
-    "t_ms": 2343,
-    "event": "msg",
-    "type": "system",
-    "subtype": "thinking_tokens",
-    "session_id": "96ed13e6-9c1a-4ddc-b0fd-916a992003cf"
+    "t_ms": 820,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
   },
   {
     "seq": 6,
-    "t_ms": 2343,
-    "event": "partial",
-    "raw_type": "content_block_delta",
-    "session_id": "96ed13e6-9c1a-4ddc-b0fd-916a992003cf"
-  },
-  {
-    "seq": 7,
-    "t_ms": 2343,
+    "t_ms": 820,
     "event": "TEXT_TRIGGER"
   },
   {
-    "seq": 8,
-    "t_ms": 2343,
+    "seq": 7,
+    "t_ms": 820,
     "event": "INJECT_START",
     "mechanism": "iterable",
     "count": 1,
     "stage": "b0"
   },
   {
-    "seq": 9,
-    "t_ms": 2343,
+    "seq": 8,
+    "t_ms": 820,
     "event": "INJECT",
     "via": "iterable",
     "text": "Reply with exactly the word ALPHA and nothing else.",
@@ -81,562 +73,1629 @@
     "stage": "b0"
   },
   {
-    "seq": 10,
-    "t_ms": 2343,
+    "seq": 9,
+    "t_ms": 820,
     "event": "INJECT_DONE",
     "stage": "b0"
   },
   {
+    "seq": 10,
+    "t_ms": 1223,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
+  },
+  {
     "seq": 11,
-    "t_ms": 2699,
-    "event": "msg",
-    "type": "system",
-    "subtype": "thinking_tokens",
-    "session_id": "96ed13e6-9c1a-4ddc-b0fd-916a992003cf"
+    "t_ms": 1223,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
   },
   {
     "seq": 12,
-    "t_ms": 2699,
+    "t_ms": 1223,
     "event": "partial",
     "raw_type": "content_block_delta",
-    "session_id": "96ed13e6-9c1a-4ddc-b0fd-916a992003cf"
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
   },
   {
     "seq": 13,
-    "t_ms": 2699,
-    "event": "msg",
-    "type": "system",
-    "subtype": "thinking_tokens",
-    "session_id": "96ed13e6-9c1a-4ddc-b0fd-916a992003cf"
+    "t_ms": 1223,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
   },
   {
     "seq": 14,
-    "t_ms": 2699,
+    "t_ms": 1223,
     "event": "partial",
     "raw_type": "content_block_delta",
-    "session_id": "96ed13e6-9c1a-4ddc-b0fd-916a992003cf"
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
   },
   {
     "seq": 15,
-    "t_ms": 2700,
-    "event": "msg",
-    "type": "assistant",
-    "session_id": "96ed13e6-9c1a-4ddc-b0fd-916a992003cf",
-    "uuid": "52b9cd11-b20a-4230-b7ba-d79a3f476009",
-    "parent_tool_use_id": null,
-    "tool_uses": []
+    "t_ms": 1223,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
   },
   {
     "seq": 16,
-    "t_ms": 2711,
+    "t_ms": 1223,
     "event": "partial",
-    "raw_type": "content_block_stop",
-    "session_id": "96ed13e6-9c1a-4ddc-b0fd-916a992003cf"
+    "raw_type": "content_block_delta",
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
   },
   {
     "seq": 17,
-    "t_ms": 2711,
+    "t_ms": 1223,
     "event": "partial",
-    "raw_type": "content_block_start",
-    "session_id": "96ed13e6-9c1a-4ddc-b0fd-916a992003cf",
-    "block_type": "text"
+    "raw_type": "content_block_delta",
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
   },
   {
     "seq": 18,
-    "t_ms": 2711,
+    "t_ms": 1253,
     "event": "partial",
     "raw_type": "content_block_delta",
-    "session_id": "96ed13e6-9c1a-4ddc-b0fd-916a992003cf"
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
   },
   {
     "seq": 19,
-    "t_ms": 3100,
+    "t_ms": 1305,
     "event": "partial",
     "raw_type": "content_block_delta",
-    "session_id": "96ed13e6-9c1a-4ddc-b0fd-916a992003cf"
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
   },
   {
     "seq": 20,
-    "t_ms": 3486,
+    "t_ms": 1346,
     "event": "partial",
     "raw_type": "content_block_delta",
-    "session_id": "96ed13e6-9c1a-4ddc-b0fd-916a992003cf"
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
   },
   {
     "seq": 21,
-    "t_ms": 3797,
+    "t_ms": 1392,
     "event": "partial",
     "raw_type": "content_block_delta",
-    "session_id": "96ed13e6-9c1a-4ddc-b0fd-916a992003cf"
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
   },
   {
     "seq": 22,
-    "t_ms": 4173,
+    "t_ms": 1522,
     "event": "partial",
     "raw_type": "content_block_delta",
-    "session_id": "96ed13e6-9c1a-4ddc-b0fd-916a992003cf"
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
   },
   {
     "seq": 23,
-    "t_ms": 4541,
+    "t_ms": 1522,
     "event": "partial",
     "raw_type": "content_block_delta",
-    "session_id": "96ed13e6-9c1a-4ddc-b0fd-916a992003cf"
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
   },
   {
     "seq": 24,
-    "t_ms": 5022,
+    "t_ms": 1531,
     "event": "partial",
     "raw_type": "content_block_delta",
-    "session_id": "96ed13e6-9c1a-4ddc-b0fd-916a992003cf"
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
   },
   {
     "seq": 25,
-    "t_ms": 5536,
+    "t_ms": 1574,
     "event": "partial",
     "raw_type": "content_block_delta",
-    "session_id": "96ed13e6-9c1a-4ddc-b0fd-916a992003cf"
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
   },
   {
     "seq": 26,
-    "t_ms": 5682,
+    "t_ms": 1628,
     "event": "partial",
     "raw_type": "content_block_delta",
-    "session_id": "96ed13e6-9c1a-4ddc-b0fd-916a992003cf"
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
   },
   {
     "seq": 27,
-    "t_ms": 6149,
+    "t_ms": 1680,
     "event": "partial",
     "raw_type": "content_block_delta",
-    "session_id": "96ed13e6-9c1a-4ddc-b0fd-916a992003cf"
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
   },
   {
     "seq": 28,
-    "t_ms": 6425,
+    "t_ms": 1718,
     "event": "partial",
     "raw_type": "content_block_delta",
-    "session_id": "96ed13e6-9c1a-4ddc-b0fd-916a992003cf"
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
   },
   {
     "seq": 29,
-    "t_ms": 6866,
+    "t_ms": 1773,
     "event": "partial",
     "raw_type": "content_block_delta",
-    "session_id": "96ed13e6-9c1a-4ddc-b0fd-916a992003cf"
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
   },
   {
     "seq": 30,
-    "t_ms": 7275,
+    "t_ms": 1823,
     "event": "partial",
     "raw_type": "content_block_delta",
-    "session_id": "96ed13e6-9c1a-4ddc-b0fd-916a992003cf"
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
   },
   {
     "seq": 31,
-    "t_ms": 7583,
+    "t_ms": 1848,
     "event": "partial",
     "raw_type": "content_block_delta",
-    "session_id": "96ed13e6-9c1a-4ddc-b0fd-916a992003cf"
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
   },
   {
     "seq": 32,
-    "t_ms": 7992,
+    "t_ms": 1895,
     "event": "partial",
     "raw_type": "content_block_delta",
-    "session_id": "96ed13e6-9c1a-4ddc-b0fd-916a992003cf"
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
   },
   {
     "seq": 33,
-    "t_ms": 8326,
+    "t_ms": 1964,
     "event": "partial",
     "raw_type": "content_block_delta",
-    "session_id": "96ed13e6-9c1a-4ddc-b0fd-916a992003cf"
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
   },
   {
     "seq": 34,
-    "t_ms": 8717,
+    "t_ms": 1983,
     "event": "partial",
     "raw_type": "content_block_delta",
-    "session_id": "96ed13e6-9c1a-4ddc-b0fd-916a992003cf"
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
   },
   {
     "seq": 35,
-    "t_ms": 9085,
+    "t_ms": 2037,
     "event": "partial",
     "raw_type": "content_block_delta",
-    "session_id": "96ed13e6-9c1a-4ddc-b0fd-916a992003cf"
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
   },
   {
     "seq": 36,
-    "t_ms": 9530,
+    "t_ms": 2077,
     "event": "partial",
     "raw_type": "content_block_delta",
-    "session_id": "96ed13e6-9c1a-4ddc-b0fd-916a992003cf"
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
   },
   {
     "seq": 37,
-    "t_ms": 9849,
+    "t_ms": 2132,
     "event": "partial",
     "raw_type": "content_block_delta",
-    "session_id": "96ed13e6-9c1a-4ddc-b0fd-916a992003cf"
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
   },
   {
     "seq": 38,
-    "t_ms": 10244,
+    "t_ms": 2166,
     "event": "partial",
     "raw_type": "content_block_delta",
-    "session_id": "96ed13e6-9c1a-4ddc-b0fd-916a992003cf"
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
   },
   {
     "seq": 39,
-    "t_ms": 10654,
+    "t_ms": 2210,
     "event": "partial",
     "raw_type": "content_block_delta",
-    "session_id": "96ed13e6-9c1a-4ddc-b0fd-916a992003cf"
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
   },
   {
     "seq": 40,
-    "t_ms": 11064,
+    "t_ms": 2256,
     "event": "partial",
     "raw_type": "content_block_delta",
-    "session_id": "96ed13e6-9c1a-4ddc-b0fd-916a992003cf"
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
   },
   {
     "seq": 41,
-    "t_ms": 11476,
+    "t_ms": 2300,
     "event": "partial",
     "raw_type": "content_block_delta",
-    "session_id": "96ed13e6-9c1a-4ddc-b0fd-916a992003cf"
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
   },
   {
     "seq": 42,
-    "t_ms": 11749,
+    "t_ms": 2346,
     "event": "partial",
     "raw_type": "content_block_delta",
-    "session_id": "96ed13e6-9c1a-4ddc-b0fd-916a992003cf"
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
   },
   {
     "seq": 43,
-    "t_ms": 12192,
+    "t_ms": 2395,
     "event": "partial",
     "raw_type": "content_block_delta",
-    "session_id": "96ed13e6-9c1a-4ddc-b0fd-916a992003cf"
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
   },
   {
     "seq": 44,
-    "t_ms": 12557,
+    "t_ms": 2441,
     "event": "partial",
     "raw_type": "content_block_delta",
-    "session_id": "96ed13e6-9c1a-4ddc-b0fd-916a992003cf"
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
   },
   {
     "seq": 45,
-    "t_ms": 12895,
+    "t_ms": 2491,
     "event": "partial",
     "raw_type": "content_block_delta",
-    "session_id": "96ed13e6-9c1a-4ddc-b0fd-916a992003cf"
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
   },
   {
     "seq": 46,
-    "t_ms": 13317,
+    "t_ms": 2532,
     "event": "partial",
     "raw_type": "content_block_delta",
-    "session_id": "96ed13e6-9c1a-4ddc-b0fd-916a992003cf"
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
   },
   {
     "seq": 47,
-    "t_ms": 13688,
+    "t_ms": 2574,
     "event": "partial",
     "raw_type": "content_block_delta",
-    "session_id": "96ed13e6-9c1a-4ddc-b0fd-916a992003cf"
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
   },
   {
     "seq": 48,
-    "t_ms": 14136,
+    "t_ms": 2620,
     "event": "partial",
     "raw_type": "content_block_delta",
-    "session_id": "96ed13e6-9c1a-4ddc-b0fd-916a992003cf"
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
   },
   {
     "seq": 49,
-    "t_ms": 14443,
+    "t_ms": 2666,
     "event": "partial",
     "raw_type": "content_block_delta",
-    "session_id": "96ed13e6-9c1a-4ddc-b0fd-916a992003cf"
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
   },
   {
     "seq": 50,
-    "t_ms": 14855,
+    "t_ms": 2710,
     "event": "partial",
     "raw_type": "content_block_delta",
-    "session_id": "96ed13e6-9c1a-4ddc-b0fd-916a992003cf"
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
   },
   {
     "seq": 51,
-    "t_ms": 15262,
+    "t_ms": 2756,
     "event": "partial",
     "raw_type": "content_block_delta",
-    "session_id": "96ed13e6-9c1a-4ddc-b0fd-916a992003cf"
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
   },
   {
     "seq": 52,
-    "t_ms": 15550,
+    "t_ms": 2804,
     "event": "partial",
     "raw_type": "content_block_delta",
-    "session_id": "96ed13e6-9c1a-4ddc-b0fd-916a992003cf"
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
   },
   {
     "seq": 53,
-    "t_ms": 15936,
+    "t_ms": 2850,
     "event": "partial",
     "raw_type": "content_block_delta",
-    "session_id": "96ed13e6-9c1a-4ddc-b0fd-916a992003cf"
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
   },
   {
     "seq": 54,
-    "t_ms": 16316,
+    "t_ms": 2894,
     "event": "partial",
     "raw_type": "content_block_delta",
-    "session_id": "96ed13e6-9c1a-4ddc-b0fd-916a992003cf"
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
   },
   {
     "seq": 55,
-    "t_ms": 16707,
+    "t_ms": 2939,
     "event": "partial",
     "raw_type": "content_block_delta",
-    "session_id": "96ed13e6-9c1a-4ddc-b0fd-916a992003cf"
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
   },
   {
     "seq": 56,
-    "t_ms": 17095,
+    "t_ms": 2985,
     "event": "partial",
     "raw_type": "content_block_delta",
-    "session_id": "96ed13e6-9c1a-4ddc-b0fd-916a992003cf"
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
   },
   {
     "seq": 57,
-    "t_ms": 17519,
+    "t_ms": 3030,
     "event": "partial",
     "raw_type": "content_block_delta",
-    "session_id": "96ed13e6-9c1a-4ddc-b0fd-916a992003cf"
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
   },
   {
     "seq": 58,
-    "t_ms": 18540,
+    "t_ms": 3078,
     "event": "partial",
     "raw_type": "content_block_delta",
-    "session_id": "96ed13e6-9c1a-4ddc-b0fd-916a992003cf"
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
   },
   {
     "seq": 59,
-    "t_ms": 18540,
+    "t_ms": 3120,
     "event": "partial",
     "raw_type": "content_block_delta",
-    "session_id": "96ed13e6-9c1a-4ddc-b0fd-916a992003cf"
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
   },
   {
     "seq": 60,
-    "t_ms": 18599,
+    "t_ms": 3166,
     "event": "partial",
     "raw_type": "content_block_delta",
-    "session_id": "96ed13e6-9c1a-4ddc-b0fd-916a992003cf"
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
   },
   {
     "seq": 61,
-    "t_ms": 18979,
+    "t_ms": 3213,
     "event": "partial",
     "raw_type": "content_block_delta",
-    "session_id": "96ed13e6-9c1a-4ddc-b0fd-916a992003cf"
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
   },
   {
     "seq": 62,
-    "t_ms": 19463,
+    "t_ms": 3274,
     "event": "partial",
     "raw_type": "content_block_delta",
-    "session_id": "96ed13e6-9c1a-4ddc-b0fd-916a992003cf"
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
   },
   {
     "seq": 63,
-    "t_ms": 19769,
+    "t_ms": 3303,
     "event": "partial",
     "raw_type": "content_block_delta",
-    "session_id": "96ed13e6-9c1a-4ddc-b0fd-916a992003cf"
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
   },
   {
     "seq": 64,
-    "t_ms": 20124,
+    "t_ms": 3346,
     "event": "partial",
     "raw_type": "content_block_delta",
-    "session_id": "96ed13e6-9c1a-4ddc-b0fd-916a992003cf"
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
   },
   {
     "seq": 65,
-    "t_ms": 20520,
+    "t_ms": 3391,
     "event": "partial",
     "raw_type": "content_block_delta",
-    "session_id": "96ed13e6-9c1a-4ddc-b0fd-916a992003cf"
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
   },
   {
     "seq": 66,
-    "t_ms": 20689,
+    "t_ms": 3438,
     "event": "partial",
     "raw_type": "content_block_delta",
-    "session_id": "96ed13e6-9c1a-4ddc-b0fd-916a992003cf"
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
   },
   {
     "seq": 67,
-    "t_ms": 20690,
-    "event": "msg",
-    "type": "assistant",
-    "session_id": "96ed13e6-9c1a-4ddc-b0fd-916a992003cf",
-    "uuid": "8594c9c9-04dd-4344-a37b-6386f9c6a5f3",
-    "parent_tool_use_id": null,
-    "text": "1. Every journey begins with a single step, and this is mine.\n2. Two eyes see the world, yet each person's view remains uniquely their own.\n3. Three is the number of the triangle — the simplest shape that encloses space.\n4. Four seasons remind us that change is not loss, but rhythm.\n5. Five fingers on a hand, and yet together they can build cathedrals.\n6. Six sides to a snowflake, each one unrepeatable in all of history.\n7. Seven days in a week — enough time to begin something meaningful.\n8. Eight is the number that, turned on its side, becomes infinity.\n9. Nine lives may be a myth, but even one, lived well, is more than enough.\n10. Ten marks a milestone, a breath, a moment to look back before pressing on.\n11. Eleven feels like the start of something new, just past the comfort of ten.\n12. Twelve months in a year, and still we often feel time slipping through our hands.\n13. Thirteen is feared by some, but fear of numbers says more about us than the number.\n14. Fourteen — the age when many of us first sensed the weight of the future.\n15. Fifteen minutes of fame, Warhol said, but a lifetime of meaning requires more effort.\n16. Sixteen candles, sixteen wishes — so many of them quietly answered in time.\n17. Seventeen is the prime of primes, indivisible and slightly misunderstood.\n18. Eighteen brings the word \"adult,\" as if one day could rewrite everything.\n19. Nineteen is the last of adolescence, teetering on the edge of what comes next.\n20. Twenty years in, and the world starts to look both larger and more navigable.\n21. Twenty-one — society hands you a key, but you must still choose which doors to open.\n22. Twenty-two feels like standing in the middle of a long bridge with wind on both sides.\n23. Twenty-three chromosomes from each parent — love written in biology.\n24. Twenty-four hours in a day, and we spend so many of them forgetting to notice.\n25. Twenty-five is a quarter century, enough to know yourself a little but not enough to stop learning.\n26. Twenty-six letters in the English alphabet — all the words in the world, hiding inside them.\n27. Twenty-seven is a haunted number in music, but also the age of so much unfinished greatness.\n28. Twenty-eight days in February, as if even the calendar makes exceptions for the unusual.\n29. Twenty-nine is the last year before a decade turns — a quiet, underrated gift.\n30. Thirty arrives and you realize that knowing who you are is worth more than knowing everything.\n31. Thirty-one days in the longest months — time stretches when you're waiting, and races when you're not.\n32. Thirty-two teeth in a full set — the body quietly keeps count even when we don't.\n33. Thirty-three, the age of so many mythological and historical turning points, and still just a year.\n34. Thirty-four is unremarkable on the surface, which makes it the perfect year to do something remarkable.\n35. Thirty-five — the midpoint between birth and seventy, if you're fortunate enough to reach it.\n36. Thirty-six is six squared, a small reminder that growth can compound in unexpected ways.\n37. Thirty-seven is another prime, another reminder that some things resist easy division.\n38. Thirty-eight years old, and many people report finally feeling comfortable in their own skin.\n39. Thirty-nine is the last year people often cling to before letting go of a decade.\n40. Forty — a number ancient texts associate with trial, transformation, and arrival at something earned.",
-    "tool_uses": []
+    "t_ms": 3484,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
   },
   {
     "seq": 68,
-    "t_ms": 20690,
+    "t_ms": 3537,
     "event": "partial",
-    "raw_type": "content_block_stop",
-    "session_id": "96ed13e6-9c1a-4ddc-b0fd-916a992003cf"
+    "raw_type": "content_block_delta",
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
   },
   {
     "seq": 69,
-    "t_ms": 20697,
+    "t_ms": 3576,
     "event": "partial",
-    "raw_type": "message_delta",
-    "session_id": "96ed13e6-9c1a-4ddc-b0fd-916a992003cf",
-    "stop_reason": "end_turn"
+    "raw_type": "content_block_delta",
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
   },
   {
     "seq": 70,
-    "t_ms": 20697,
+    "t_ms": 3620,
     "event": "partial",
-    "raw_type": "message_stop",
-    "session_id": "96ed13e6-9c1a-4ddc-b0fd-916a992003cf"
+    "raw_type": "content_block_delta",
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
   },
   {
     "seq": 71,
-    "t_ms": 20698,
-    "event": "msg",
-    "type": "rate_limit_event",
-    "session_id": "96ed13e6-9c1a-4ddc-b0fd-916a992003cf"
+    "t_ms": 3666,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
   },
   {
     "seq": 72,
-    "t_ms": 20699,
+    "t_ms": 3712,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
+  },
+  {
+    "seq": 73,
+    "t_ms": 3756,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
+  },
+  {
+    "seq": 74,
+    "t_ms": 3805,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
+  },
+  {
+    "seq": 75,
+    "t_ms": 3849,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
+  },
+  {
+    "seq": 76,
+    "t_ms": 3895,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
+  },
+  {
+    "seq": 77,
+    "t_ms": 3938,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
+  },
+  {
+    "seq": 78,
+    "t_ms": 3988,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
+  },
+  {
+    "seq": 79,
+    "t_ms": 4029,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
+  },
+  {
+    "seq": 80,
+    "t_ms": 4075,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
+  },
+  {
+    "seq": 81,
+    "t_ms": 4127,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
+  },
+  {
+    "seq": 82,
+    "t_ms": 4167,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
+  },
+  {
+    "seq": 83,
+    "t_ms": 4211,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
+  },
+  {
+    "seq": 84,
+    "t_ms": 4257,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
+  },
+  {
+    "seq": 85,
+    "t_ms": 4300,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
+  },
+  {
+    "seq": 86,
+    "t_ms": 4348,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
+  },
+  {
+    "seq": 87,
+    "t_ms": 4394,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
+  },
+  {
+    "seq": 88,
+    "t_ms": 4438,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
+  },
+  {
+    "seq": 89,
+    "t_ms": 4483,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
+  },
+  {
+    "seq": 90,
+    "t_ms": 4529,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
+  },
+  {
+    "seq": 91,
+    "t_ms": 4577,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
+  },
+  {
+    "seq": 92,
+    "t_ms": 4620,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
+  },
+  {
+    "seq": 93,
+    "t_ms": 4665,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
+  },
+  {
+    "seq": 94,
+    "t_ms": 4711,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
+  },
+  {
+    "seq": 95,
+    "t_ms": 4763,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
+  },
+  {
+    "seq": 96,
+    "t_ms": 4803,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
+  },
+  {
+    "seq": 97,
+    "t_ms": 4847,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
+  },
+  {
+    "seq": 98,
+    "t_ms": 4893,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
+  },
+  {
+    "seq": 99,
+    "t_ms": 4939,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
+  },
+  {
+    "seq": 100,
+    "t_ms": 4983,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
+  },
+  {
+    "seq": 101,
+    "t_ms": 5029,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
+  },
+  {
+    "seq": 102,
+    "t_ms": 5075,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
+  },
+  {
+    "seq": 103,
+    "t_ms": 5120,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
+  },
+  {
+    "seq": 104,
+    "t_ms": 5164,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
+  },
+  {
+    "seq": 105,
+    "t_ms": 5211,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
+  },
+  {
+    "seq": 106,
+    "t_ms": 5258,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
+  },
+  {
+    "seq": 107,
+    "t_ms": 5301,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
+  },
+  {
+    "seq": 108,
+    "t_ms": 5346,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
+  },
+  {
+    "seq": 109,
+    "t_ms": 5394,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
+  },
+  {
+    "seq": 110,
+    "t_ms": 5438,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
+  },
+  {
+    "seq": 111,
+    "t_ms": 5484,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
+  },
+  {
+    "seq": 112,
+    "t_ms": 5537,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
+  },
+  {
+    "seq": 113,
+    "t_ms": 5574,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
+  },
+  {
+    "seq": 114,
+    "t_ms": 5623,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
+  },
+  {
+    "seq": 115,
+    "t_ms": 5667,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
+  },
+  {
+    "seq": 116,
+    "t_ms": 5711,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
+  },
+  {
+    "seq": 117,
+    "t_ms": 5757,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
+  },
+  {
+    "seq": 118,
+    "t_ms": 5802,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
+  },
+  {
+    "seq": 119,
+    "t_ms": 5847,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
+  },
+  {
+    "seq": 120,
+    "t_ms": 5894,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
+  },
+  {
+    "seq": 121,
+    "t_ms": 5942,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
+  },
+  {
+    "seq": 122,
+    "t_ms": 5990,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
+  },
+  {
+    "seq": 123,
+    "t_ms": 6031,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
+  },
+  {
+    "seq": 124,
+    "t_ms": 6074,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
+  },
+  {
+    "seq": 125,
+    "t_ms": 6120,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
+  },
+  {
+    "seq": 126,
+    "t_ms": 6166,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
+  },
+  {
+    "seq": 127,
+    "t_ms": 6213,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
+  },
+  {
+    "seq": 128,
+    "t_ms": 6257,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
+  },
+  {
+    "seq": 129,
+    "t_ms": 6302,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
+  },
+  {
+    "seq": 130,
+    "t_ms": 6354,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
+  },
+  {
+    "seq": 131,
+    "t_ms": 6393,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
+  },
+  {
+    "seq": 132,
+    "t_ms": 6439,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
+  },
+  {
+    "seq": 133,
+    "t_ms": 6483,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
+  },
+  {
+    "seq": 134,
+    "t_ms": 6528,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
+  },
+  {
+    "seq": 135,
+    "t_ms": 6575,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
+  },
+  {
+    "seq": 136,
+    "t_ms": 6622,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
+  },
+  {
+    "seq": 137,
+    "t_ms": 6672,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
+  },
+  {
+    "seq": 138,
+    "t_ms": 6715,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
+  },
+  {
+    "seq": 139,
+    "t_ms": 6759,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
+  },
+  {
+    "seq": 140,
+    "t_ms": 6803,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
+  },
+  {
+    "seq": 141,
+    "t_ms": 6848,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
+  },
+  {
+    "seq": 142,
+    "t_ms": 6893,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
+  },
+  {
+    "seq": 143,
+    "t_ms": 6939,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
+  },
+  {
+    "seq": 144,
+    "t_ms": 6984,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
+  },
+  {
+    "seq": 145,
+    "t_ms": 7031,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
+  },
+  {
+    "seq": 146,
+    "t_ms": 7086,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
+  },
+  {
+    "seq": 147,
+    "t_ms": 7124,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
+  },
+  {
+    "seq": 148,
+    "t_ms": 7167,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
+  },
+  {
+    "seq": 149,
+    "t_ms": 7211,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
+  },
+  {
+    "seq": 150,
+    "t_ms": 7256,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
+  },
+  {
+    "seq": 151,
+    "t_ms": 7301,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
+  },
+  {
+    "seq": 152,
+    "t_ms": 7347,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
+  },
+  {
+    "seq": 153,
+    "t_ms": 7397,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
+  },
+  {
+    "seq": 154,
+    "t_ms": 7452,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
+  },
+  {
+    "seq": 155,
+    "t_ms": 7484,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
+  },
+  {
+    "seq": 156,
+    "t_ms": 7529,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
+  },
+  {
+    "seq": 157,
+    "t_ms": 7574,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
+  },
+  {
+    "seq": 158,
+    "t_ms": 7621,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
+  },
+  {
+    "seq": 159,
+    "t_ms": 7666,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
+  },
+  {
+    "seq": 160,
+    "t_ms": 7712,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
+  },
+  {
+    "seq": 161,
+    "t_ms": 7759,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
+  },
+  {
+    "seq": 162,
+    "t_ms": 7805,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
+  },
+  {
+    "seq": 163,
+    "t_ms": 7849,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
+  },
+  {
+    "seq": 164,
+    "t_ms": 7894,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
+  },
+  {
+    "seq": 165,
+    "t_ms": 7939,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
+  },
+  {
+    "seq": 166,
+    "t_ms": 7984,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
+  },
+  {
+    "seq": 167,
+    "t_ms": 8034,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
+  },
+  {
+    "seq": 168,
+    "t_ms": 8075,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
+  },
+  {
+    "seq": 169,
+    "t_ms": 8126,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
+  },
+  {
+    "seq": 170,
+    "t_ms": 8174,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
+  },
+  {
+    "seq": 171,
+    "t_ms": 8212,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
+  },
+  {
+    "seq": 172,
+    "t_ms": 8257,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
+  },
+  {
+    "seq": 173,
+    "t_ms": 8309,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
+  },
+  {
+    "seq": 174,
+    "t_ms": 8348,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
+  },
+  {
+    "seq": 175,
+    "t_ms": 8395,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
+  },
+  {
+    "seq": 176,
+    "t_ms": 8439,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
+  },
+  {
+    "seq": 177,
+    "t_ms": 8514,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
+  },
+  {
+    "seq": 178,
+    "t_ms": 8530,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
+  },
+  {
+    "seq": 179,
+    "t_ms": 8577,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
+  },
+  {
+    "seq": 180,
+    "t_ms": 8622,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
+  },
+  {
+    "seq": 181,
+    "t_ms": 8666,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
+  },
+  {
+    "seq": 182,
+    "t_ms": 8712,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
+  },
+  {
+    "seq": 183,
+    "t_ms": 8757,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
+  },
+  {
+    "seq": 184,
+    "t_ms": 8802,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
+  },
+  {
+    "seq": 185,
+    "t_ms": 8848,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
+  },
+  {
+    "seq": 186,
+    "t_ms": 8893,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
+  },
+  {
+    "seq": 187,
+    "t_ms": 8940,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
+  },
+  {
+    "seq": 188,
+    "t_ms": 8985,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
+  },
+  {
+    "seq": 189,
+    "t_ms": 9030,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
+  },
+  {
+    "seq": 190,
+    "t_ms": 9078,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
+  },
+  {
+    "seq": 191,
+    "t_ms": 9123,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
+  },
+  {
+    "seq": 192,
+    "t_ms": 9166,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
+  },
+  {
+    "seq": 193,
+    "t_ms": 9215,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
+  },
+  {
+    "seq": 194,
+    "t_ms": 9259,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
+  },
+  {
+    "seq": 195,
+    "t_ms": 9302,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
+  },
+  {
+    "seq": 196,
+    "t_ms": 9349,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
+  },
+  {
+    "seq": 197,
+    "t_ms": 9394,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
+  },
+  {
+    "seq": 198,
+    "t_ms": 9439,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
+  },
+  {
+    "seq": 199,
+    "t_ms": 9491,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
+  },
+  {
+    "seq": 200,
+    "t_ms": 9532,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
+  },
+  {
+    "seq": 201,
+    "t_ms": 9575,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
+  },
+  {
+    "seq": 202,
+    "t_ms": 9622,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
+  },
+  {
+    "seq": 203,
+    "t_ms": 9676,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
+  },
+  {
+    "seq": 204,
+    "t_ms": 9713,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
+  },
+  {
+    "seq": 205,
+    "t_ms": 9759,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
+  },
+  {
+    "seq": 206,
+    "t_ms": 9803,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
+  },
+  {
+    "seq": 207,
+    "t_ms": 9849,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
+  },
+  {
+    "seq": 208,
+    "t_ms": 9895,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
+  },
+  {
+    "seq": 209,
+    "t_ms": 9939,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
+  },
+  {
+    "seq": 210,
+    "t_ms": 9988,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
+  },
+  {
+    "seq": 211,
+    "t_ms": 10030,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
+  },
+  {
+    "seq": 212,
+    "t_ms": 10077,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
+  },
+  {
+    "seq": 213,
+    "t_ms": 10125,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
+  },
+  {
+    "seq": 214,
+    "t_ms": 10175,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
+  },
+  {
+    "seq": 215,
+    "t_ms": 10213,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
+  },
+  {
+    "seq": 216,
+    "t_ms": 10258,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
+  },
+  {
+    "seq": 217,
+    "t_ms": 10313,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
+  },
+  {
+    "seq": 218,
+    "t_ms": 10383,
+    "event": "partial",
+    "raw_type": "content_block_delta",
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
+  },
+  {
+    "seq": 219,
+    "t_ms": 10399,
+    "event": "msg",
+    "type": "assistant",
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d",
+    "uuid": "f7688dfb-65eb-4bf3-935a-97ee18382835",
+    "parent_tool_use_id": null,
+    "text": "1. A solitary beginning, the number that starts every count.\n2. Pairs feel natural — two hands, two eyes, a sense of balance.\n3. Triangles and stools stand steady on this one.\n4. Four corners make a square, something solid and enclosed.\n5. Halfway to ten, a small milestone worth noticing.\n6. The first perfect number, quietly elegant in its factors.\n7. Considered lucky by many, mysterious in its primeness.\n8. Turn it sideways and it becomes infinity.\n9. Nearly a full decade, the last single digit.\n10. Two digits now — counting just got a little more complex.\n11. A double one, oddly symmetric to look at.\n12. A dozen, the unit of eggs and old measurement systems.\n13. Feared by some, just a number to everyone else.\n14. Two sevens hiding inside, easy to overlook.\n15. A quarter of sixty, useful for clocks and minutes.\n16. A perfect square, four times four.\n17. Prime and a little awkward, wedged between neighbors.\n18. Coming of age in many cultures.\n19. One short of a big round number, full of anticipation.\n20. A fifth of a hundred, a clean checkpoint.\n21. Legal adulthood in some places, a blackjack target in others.\n22. Another double digit, plain but companionable.\n23. Prime, and famously worn on jerseys.\n24. Hours in a day, a number that structures our lives.\n25. A quarter of a hundred, satisfyingly square.\n26. Letters in the alphabet, a hidden order underneath.\n27. Three cubed, tidy in its own quiet way.\n28. Another perfect number, rarer than it seems.\n29. Prime, and the days of February in a leap year.\n30. A third of the way to ninety, feels like a threshold.\n31. Prime again, the longest a month can be.\n32. A power of two, comfortable in binary.\n33. Symmetric digits, pleasant just to look at.\n34. Unremarkable, but part of the Fibonacci sequence.\n35. Halfway between thirty and forty, drifting toward the end.\n36. A perfect square, six times six.\n37. Prime, and oddly common as a \"random\" choice.\n38. Getting close now, the count is almost finished.\n39. One away from the end, a last pause before closing.\n40. The final number, a round place to stop and reflect.",
+    "tool_uses": []
+  },
+  {
+    "seq": 220,
+    "t_ms": 10399,
+    "event": "partial",
+    "raw_type": "content_block_stop",
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
+  },
+  {
+    "seq": 221,
+    "t_ms": 10400,
+    "event": "partial",
+    "raw_type": "message_delta",
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d",
+    "stop_reason": "end_turn"
+  },
+  {
+    "seq": 222,
+    "t_ms": 10400,
+    "event": "partial",
+    "raw_type": "message_stop",
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
+  },
+  {
+    "seq": 223,
+    "t_ms": 10401,
+    "event": "msg",
+    "type": "rate_limit_event",
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
+  },
+  {
+    "seq": 224,
+    "t_ms": 10403,
     "event": "msg",
     "type": "result",
     "subtype": "success",
     "is_error": false,
-    "session_id": "96ed13e6-9c1a-4ddc-b0fd-916a992003cf",
-    "result_text": "1. Every journey begins with a single step, and this is mine.\n2. Two eyes see the world, yet each person's view remains uniquely their own.\n3. Three is the number of the triangle — the simplest shape that encloses space.\n4. Four seasons remind us that change is not loss, but rhythm.\n5. Five fingers on a hand, and yet together they can build cathedrals.\n6. Six sides to a snowflake, each one unrepeatable in all of history.\n7. Seven days in a week — enough time to begin something meaningful.\n8. Eight is the number that, turned on its side, becomes infinity.\n9. Nine lives may be a myth, but even one, lived well, is more than enough.\n10. Ten marks a milestone, a breath, a moment to look back before pressing on.\n11. Eleven feels like the start of something new, just past the comfort of ten.\n12. Twelve months in a year, and still we often feel time slipping through our hands.\n13. Thirteen is feared by some, but fear of numbers says more about us than the number.\n14. Fourteen — the age when many of us first sensed the weight of the future.\n15. Fifteen minutes of fame, Warhol said, but a lifetime of meaning requires more effort.\n16. Sixteen candles, sixteen wishes — so many of them quietly answered in time.\n17. Seventeen is the prime of primes, indivisible and slightly misunderstood.\n18. Eighteen brings the word \"adult,\" as if one day could rewrite everything.\n19. Nineteen is the last of adolescence, teetering on the edge of what comes next.\n20. Twenty years in, and the world starts to look both larger and more navigable.\n21. Twenty-one — society hands you a key, but you must still choose which doors to open.\n22. Twenty-two feels like standing in the middle of a long bridge with wind on both sides.\n23. Twenty-three chromosomes from each parent — love written in biology.\n24. Twenty-four hours in a day, and we spend so many of them forgetting to notice.\n25. Twenty-five is a quarter century, enough to know yourself a little but not enough to stop learning.\n26. Twenty-six letters in the English alphabet — all the words in the world, hiding inside them.\n27. Twenty-seven is a haunted number in music, but also the age of so much unfinished greatness.\n28. Twenty-eight days in February, as if even the calendar makes exceptions for the unusual.\n29. Twenty-nine is the last year before a decade turns — a quiet, underrated gift.\n30. Thirty arrives and you realize that knowing who you are is worth more than knowing everything.\n31. Thirty-one days in the longest months — time stretches when you're waiting, and races when you're not.\n32. Thirty-two teeth in a full set — the body quietly keeps count even when we don't.\n33. Thirty-three, the age of so many mythological and historical turning points, and still just a year.\n34. Thirty-four is unremarkable on the surface, which makes it the perfect year to do something remarkable.\n35. Thirty-five — the midpoint between birth and seventy, if you're fortunate enough to reach it.\n36. Thirty-six is six squared, a small reminder that growth can compound in unexpected ways.\n37. Thirty-seven is another prime, another reminder that some things resist easy division.\n38. Thirty-eight years old, and many people report finally feeling comfortable in their own skin.\n39. Thirty-nine is the last year people often cling to before letting go of a decade.\n40. Forty — a number ancient texts associate with trial, transformation, and arrival at something earned."
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d",
+    "result_text": "1. A solitary beginning, the number that starts every count.\n2. Pairs feel natural — two hands, two eyes, a sense of balance.\n3. Triangles and stools stand steady on this one.\n4. Four corners make a square, something solid and enclosed.\n5. Halfway to ten, a small milestone worth noticing.\n6. The first perfect number, quietly elegant in its factors.\n7. Considered lucky by many, mysterious in its primeness.\n8. Turn it sideways and it becomes infinity.\n9. Nearly a full decade, the last single digit.\n10. Two digits now — counting just got a little more complex.\n11. A double one, oddly symmetric to look at.\n12. A dozen, the unit of eggs and old measurement systems.\n13. Feared by some, just a number to everyone else.\n14. Two sevens hiding inside, easy to overlook.\n15. A quarter of sixty, useful for clocks and minutes.\n16. A perfect square, four times four.\n17. Prime and a little awkward, wedged between neighbors.\n18. Coming of age in many cultures.\n19. One short of a big round number, full of anticipation.\n20. A fifth of a hundred, a clean checkpoint.\n21. Legal adulthood in some places, a blackjack target in others.\n22. Another double digit, plain but companionable.\n23. Prime, and famously worn on jerseys.\n24. Hours in a day, a number that structures our lives.\n25. A quarter of a hundred, satisfyingly square.\n26. Letters in the alphabet, a hidden order underneath.\n27. Three cubed, tidy in its own quiet way.\n28. Another perfect number, rarer than it seems.\n29. Prime, and the days of February in a leap year.\n30. A third of the way to ninety, feels like a threshold.\n31. Prime again, the longest a month can be.\n32. A power of two, comfortable in binary.\n33. Symmetric digits, pleasant just to look at.\n34. Unremarkable, but part of the Fibonacci sequence.\n35. Halfway between thirty and forty, drifting toward the end.\n36. A perfect square, six times six.\n37. Prime, and oddly common as a \"random\" choice.\n38. Getting close now, the count is almost finished.\n39. One away from the end, a last pause before closing.\n40. The final number, a round place to stop and reflect."
   },
   {
-    "seq": 73,
-    "t_ms": 20699,
+    "seq": 225,
+    "t_ms": 10403,
     "event": "RESULT_BOUNDARY",
     "count": 1
   },
   {
-    "seq": 74,
-    "t_ms": 20702,
+    "seq": 226,
+    "t_ms": 10406,
     "event": "msg",
     "type": "system",
     "subtype": "init",
-    "session_id": "96ed13e6-9c1a-4ddc-b0fd-916a992003cf"
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
   },
   {
-    "seq": 75,
-    "t_ms": 20702,
+    "seq": 227,
+    "t_ms": 10406,
     "event": "msg",
     "type": "system",
     "subtype": "status",
-    "session_id": "96ed13e6-9c1a-4ddc-b0fd-916a992003cf"
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
   },
   {
-    "seq": 76,
-    "t_ms": 23674,
+    "seq": 228,
+    "t_ms": 11753,
     "event": "partial",
     "raw_type": "message_start",
-    "session_id": "96ed13e6-9c1a-4ddc-b0fd-916a992003cf"
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
   },
   {
-    "seq": 77,
-    "t_ms": 23674,
+    "seq": 229,
+    "t_ms": 11753,
     "event": "partial",
     "raw_type": "content_block_start",
-    "session_id": "96ed13e6-9c1a-4ddc-b0fd-916a992003cf",
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d",
     "block_type": "text"
   },
   {
-    "seq": 78,
-    "t_ms": 23674,
+    "seq": 230,
+    "t_ms": 11753,
     "event": "partial",
     "raw_type": "content_block_delta",
-    "session_id": "96ed13e6-9c1a-4ddc-b0fd-916a992003cf"
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
   },
   {
-    "seq": 79,
-    "t_ms": 23674,
+    "seq": 231,
+    "t_ms": 11758,
     "event": "msg",
     "type": "assistant",
-    "session_id": "96ed13e6-9c1a-4ddc-b0fd-916a992003cf",
-    "uuid": "32809bdd-f7b8-42c3-bcdd-23cd96a60dcf",
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d",
+    "uuid": "b7f79d63-f6d7-4a9d-80d8-43d0ce72936f",
     "parent_tool_use_id": null,
     "text": "ALPHA",
     "tool_uses": []
   },
   {
-    "seq": 80,
-    "t_ms": 23674,
+    "seq": 232,
+    "t_ms": 11758,
     "event": "partial",
     "raw_type": "content_block_stop",
-    "session_id": "96ed13e6-9c1a-4ddc-b0fd-916a992003cf"
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
   },
   {
-    "seq": 81,
-    "t_ms": 23675,
+    "seq": 233,
+    "t_ms": 11759,
     "event": "partial",
     "raw_type": "message_delta",
-    "session_id": "96ed13e6-9c1a-4ddc-b0fd-916a992003cf",
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d",
     "stop_reason": "end_turn"
   },
   {
-    "seq": 82,
-    "t_ms": 23675,
+    "seq": 234,
+    "t_ms": 11759,
     "event": "partial",
     "raw_type": "message_stop",
-    "session_id": "96ed13e6-9c1a-4ddc-b0fd-916a992003cf"
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d"
   },
   {
-    "seq": 83,
-    "t_ms": 23676,
+    "seq": 235,
+    "t_ms": 11767,
     "event": "msg",
     "type": "result",
     "subtype": "success",
     "is_error": false,
-    "session_id": "96ed13e6-9c1a-4ddc-b0fd-916a992003cf",
+    "session_id": "975d1286-0704-4408-9f29-578ab3eb357d",
     "result_text": "ALPHA"
   },
   {
-    "seq": 84,
-    "t_ms": 23676,
+    "seq": 236,
+    "t_ms": 11767,
     "event": "RESULT_BOUNDARY",
     "count": 2
   },
   {
-    "seq": 85,
-    "t_ms": 32695,
+    "seq": 237,
+    "t_ms": 20770,
     "event": "DRAIN_IDLE_CLOSE"
   },
   {
-    "seq": 86,
-    "t_ms": 32711,
+    "seq": 238,
+    "t_ms": 20803,
     "event": "GENERATOR_ENDED",
     "timedOut": false,
-    "session_ids": ["96ed13e6-9c1a-4ddc-b0fd-916a992003cf"]
+    "session_ids": [
+      "975d1286-0704-4408-9f29-578ab3eb357d"
+    ]
   }
 ]

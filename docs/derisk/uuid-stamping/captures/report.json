@@ -1,0 +1,43 @@
+{
+  "sdk": "0.3.258",
+  "sessionId": "60d6a525-86a5-4375-975b-a20c33938050",
+  "stamped": {
+    "A": "97d8936b-4948-446c-95d7-d7cc96ec24f5",
+    "B": "c938aa6b-8464-4599-97e1-6d9c70bba7e6",
+    "C": "16f75189-dddd-430c-a86a-5686c12bb4cc"
+  },
+  "fileEntriesWithStampedUuid": {
+    "A": [
+      {
+        "type": "user",
+        "text": "Run `sleep 3; echo probe-one` as a Bash tool call, then reply with the single word DONE."
+      }
+    ],
+    "B": [],
+    "C": [
+      {
+        "type": "user",
+        "text": "Reply with exactly the word pong."
+      }
+    ]
+  },
+  "queryMessagesWithStampedUuid": {
+    "A": [],
+    "B": [],
+    "C": []
+  },
+  "fileUserEntries": [
+    {
+      "uuid": "97d8936b-4948-446c-95d7-d7cc96ec24f5",
+      "text": "Run `sleep 3; echo probe-one` as a Bash tool call, then reply with the single word DONE."
+    },
+    {
+      "uuid": "11c9f1c9-e148-42da-a90d-b51c01dd51ef",
+      "text": "[{\"tool_use_id\":\"toolu_01Qz3xeTeX2dofcqWnJPeGqb\",\"type\":\"tool_result\",\"content\":\"probe-one\",\"is_error\":false}]"
+    },
+    {
+      "uuid": "16f75189-dddd-430c-a86a-5686c12bb4cc",
+      "text": "Reply with exactly the word pong."
+    }
+  ]
+}

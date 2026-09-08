@@ -378,8 +378,8 @@ in the raw captures). Only the fate of the non-executing branch was misread.
 
 ```bash
 cd docs/derisk/echoed-message-placement
-export CLAUDE_CONFIG_DIR=/tmp/clauctl-echo-exp/claude-config   # isolated; needs .credentials.json
-node exp.mjs <scenario>        # writes captures/<scenario>-events.json + -session-*.jsonl
+node exp.mjs <scenario>        # writes captures/<scenario>-events.json + <scenario>-session.jsonl
+                               # (scratch CLAUDE_CONFIG_DIR via tests/sdk/harness.ts; permissionMode "auto")
 node analyze.mjs <scenario>    # renders live timeline + canonical chain
 node summarize.mjs <scenario>  # one-line outcome (exec/steer/tools/interrupt)
 ```

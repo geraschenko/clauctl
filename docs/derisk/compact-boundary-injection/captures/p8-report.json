@@ -1,0 +1,15 @@
+{
+  "versions": {
+    "sdk": "0.3.258"
+  },
+  "p2a": {
+    "returned": 10,
+    "returnedWithSystem": 11,
+    "requestTextBlocksMatched": 6
+  },
+  "p7": {
+    "returned": 3,
+    "stackedBoundariesInFile": 12,
+    "divergence": "gSM includes same-message sibling entries excluded from the playlist; the wire does not"
+  }
+}

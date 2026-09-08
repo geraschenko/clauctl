@@ -87,8 +87,10 @@ How this experiment was actually run, so a future reader can reproduce or trust 
   `resolveNext`/`pending` queue and advances to the next user message only when it sees a
   `result` message — so each turn is fully drained before the next prompt is sent, and the
   input stream is held open the whole time.
-- `query()` was called with `options.permissionMode: "bypassPermissions"` (cheap, no prompts)
-  and `pathToClaudeCodeExecutable` pointing at `~/.local/bin/claude`.
+- `query()` is called with `options.permissionMode: "dontAsk"` (text-only turns, nothing to
+  approve) against a scratch `CLAUDE_CONFIG_DIR` from `tests/sdk/harness.ts` and the SDK-bundled
+  binary. (The original 2026-08 runs used `bypassPermissions`, the system binary and the real
+  `~/.claude`; reruns on 2026-09-11 under the current rules reproduced the findings.)
 - The slash command is sent as an ordinary user message whose `content` is the **bare string**
   `"/clear"` (resp. `"/new"`) — no special command envelope; slash commands ride the normal
   input stream.
@@ -139,10 +141,10 @@ versions may have behaved differently.)
   `node exp.mjs /new new`).
 - `exp2-singlesession.mjs` — single-session follow-up, no slash command, no `session_id` field.
 - `exp3-sessionid.mjs` — single-session follow-up that adds `session_id:"default"` per message.
-- `out-clear.json`, `out-new.json` — slimmed message logs for each slash-command run
+- `captures/out-clear.json`, `out-new.json` — slimmed message logs for each slash-command run
   (type/subtype/session_id plus assistant text and result text).
-- `out-singlesession.json`, `out-sessionid.json` — message logs for the two follow-ups.
-- `raw-out.jsonl` — raw CLI output (no SDK) proving the per-turn `init` at the binary level.
+- `captures/out-singlesession.json`, `out-sessionid.json` — message logs for the two follow-ups.
+- `captures/raw-out.jsonl` — raw CLI output (no SDK) proving the per-turn `init` at the binary level.
 - `pids-clear.log`, `pids-new.log` — raw `ps` watcher output proving the child PID was stable.
 
 ## Learnings

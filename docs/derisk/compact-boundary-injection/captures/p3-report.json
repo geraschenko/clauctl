@@ -1,0 +1,205 @@
+{
+  "versions": {
+    "sdk": "0.3.258"
+  },
+  "m1": {
+    "name": "m1-orphan-tool-use",
+    "error": null,
+    "resultSubtype": "success",
+    "stderr": null,
+    "apiStatuses": [
+      200
+    ],
+    "probeAttempts": 1,
+    "probe": {
+      "nMessages": 5,
+      "roles": "user,assistant,user,assistant,user",
+      "markerIdx": {
+        "u1Tag": -1,
+        "magicWord": 1,
+        "u2Tag": -1,
+        "four": -1,
+        "u3Tag": 2,
+        "red": 3,
+        "toolUse": -1,
+        "toolResult": -1,
+        "synth1": 0,
+        "synth2": -1
+      },
+      "probeIdx": 4
+    },
+    "firstNewUserParent": "254029a1"
+  },
+  "m2": {
+    "name": "m2-orphan-tool-result",
+    "error": null,
+    "resultSubtype": "success",
+    "stderr": null,
+    "apiStatuses": [
+      200
+    ],
+    "probeAttempts": 1,
+    "probe": {
+      "nMessages": 5,
+      "roles": "user,assistant,user,assistant,user",
+      "markerIdx": {
+        "u1Tag": -1,
+        "magicWord": 1,
+        "u2Tag": -1,
+        "four": -1,
+        "u3Tag": 2,
+        "red": 3,
+        "toolUse": -1,
+        "toolResult": -1,
+        "synth1": 0,
+        "synth2": -1
+      },
+      "probeIdx": 4
+    },
+    "firstNewUserParent": "254029a1"
+  },
+  "m3": {
+    "name": "m3-reordered",
+    "error": null,
+    "resultSubtype": "success",
+    "stderr": null,
+    "apiStatuses": [
+      200
+    ],
+    "probeAttempts": 1,
+    "probe": {
+      "nMessages": 5,
+      "roles": "user,assistant,user,assistant,user",
+      "markerIdx": {
+        "u1Tag": -1,
+        "magicWord": -1,
+        "u2Tag": 2,
+        "four": 3,
+        "u3Tag": 0,
+        "red": 1,
+        "toolUse": -1,
+        "toolResult": -1,
+        "synth1": 0,
+        "synth2": -1
+      },
+      "probeIdx": 4
+    },
+    "firstNewUserParent": "d16f84b0",
+    "expect": "if context follows list order: u3Tag/red at lower indices than u2Tag/four; parent = four"
+  },
+  "m4": {
+    "name": "m4-duplicate",
+    "error": null,
+    "resultSubtype": "success",
+    "stderr": null,
+    "apiStatuses": [
+      200
+    ],
+    "probeAttempts": 1,
+    "probe": {
+      "nMessages": 3,
+      "roles": "user,assistant,user",
+      "markerIdx": {
+        "u1Tag": -1,
+        "magicWord": -1,
+        "u2Tag": -1,
+        "four": -1,
+        "u3Tag": -1,
+        "red": -1,
+        "toolUse": -1,
+        "toolResult": -1,
+        "synth1": 0,
+        "synth2": -1
+      },
+      "probeIdx": 2
+    },
+    "firstNewUserParent": "de127da0"
+  },
+  "m5": {
+    "name": "m5-stacked",
+    "error": null,
+    "resultSubtype": "success",
+    "stderr": null,
+    "apiStatuses": [
+      200
+    ],
+    "probeAttempts": 1,
+    "probe": {
+      "nMessages": 3,
+      "roles": "user,assistant,user",
+      "markerIdx": {
+        "u1Tag": -1,
+        "magicWord": -1,
+        "u2Tag": -1,
+        "four": -1,
+        "u3Tag": -1,
+        "red": 1,
+        "toolUse": -1,
+        "toolResult": -1,
+        "synth1": -1,
+        "synth2": 0
+      },
+      "probeIdx": 2
+    },
+    "firstNewUserParent": "254029a1",
+    "expect": "which boundary wins? if the second: synth2 present, synth1 absent, context = summary2 + Red"
+  },
+  "m6": {
+    "name": "m6-trailing",
+    "error": null,
+    "resultSubtype": "success",
+    "stderr": null,
+    "apiStatuses": [
+      200
+    ],
+    "probeAttempts": 1,
+    "probe": {
+      "nMessages": 3,
+      "roles": "user,assistant,user",
+      "markerIdx": {
+        "u1Tag": -1,
+        "magicWord": -1,
+        "u2Tag": -1,
+        "four": -1,
+        "u3Tag": 1,
+        "red": 1,
+        "toolUse": -1,
+        "toolResult": -1,
+        "synth1": 0,
+        "synth2": -1
+      },
+      "probeIdx": 2
+    },
+    "firstNewUserParent": "254029a1",
+    "expect": "same as the clean p1-case-B result: relink unaffected, parent = red"
+  },
+  "m7": {
+    "name": "m7-attachment-uuid",
+    "error": null,
+    "resultSubtype": "success",
+    "stderr": null,
+    "apiStatuses": [
+      200
+    ],
+    "probeAttempts": 1,
+    "probe": {
+      "nMessages": 3,
+      "roles": "user,assistant,user",
+      "markerIdx": {
+        "u1Tag": -1,
+        "magicWord": -1,
+        "u2Tag": -1,
+        "four": -1,
+        "u3Tag": 1,
+        "red": 1,
+        "toolUse": -1,
+        "toolResult": -1,
+        "synth1": 0,
+        "synth2": -1
+      },
+      "probeIdx": 2
+    },
+    "firstNewUserParent": "254029a1",
+    "expect": "attachment uuid EXISTS in the file — does the relink accept it, and what does it render as?"
+  }
+}

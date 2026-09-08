@@ -2,18 +2,25 @@
  * The assistant-context relation over the full tree: every occurrence
  * except boundary rows, each under its context predecessor, so the
  * root-first path to any occurrence is the assistant context there (see
- * docs/specs/context-tree.md). The middle layer between buildTree (the
- * file view) and toDisplayTree (the human view); docs/session-views.md
- * explains why the three are kept apart.
+ * docs/specs/context-tree.md). The middle layer between the session tree
+ * (the file view) and the display tree (the human view);
+ * docs/session-views.md explains why the three are kept apart.
  */
 
 import type { UUID } from "node:crypto";
+import type {
+  NonNullableUsage,
+  SDKAssistantMessage,
+} from "@anthropic-ai/claude-agent-sdk";
+import { toNonNullableUsage } from "../agent-state.ts";
 import { hasUuid, type SessionEntry, type UuidEntry } from "../session/file.ts";
+import { finishedTreeView, type FullTreeView } from "./build-tree.ts";
 import {
   formatTreeNodeRef,
   parseTreeNodeRef,
   type ParentMap,
   type TreeNodeRef,
+  type TreeNodeStr,
 } from "./nodes.ts";
 import { isToolResultEntry } from "./loader.ts";
 import { ToolGroup } from "./tool-group.ts";
@@ -36,13 +43,13 @@ export class ContextTree {
    *  attachment entries included: the CLI parents turns on them).
    *  `contextAt(leaf)` is the context the next turn will see. */
   readonly leaf: TreeNodeRef | null;
-  private readonly relinkedOccurrencesOf: ReadonlyMap<UUID, string[]>;
+  private readonly relinkedOccurrencesOf: ReadonlyMap<UUID, TreeNodeStr[]>;
 
   constructor(
     parentMap: ParentMap,
     excluded: ReadonlySet<UUID>,
     leaf: TreeNodeRef | null,
-    relinkedOccurrencesOf: ReadonlyMap<UUID, string[]>,
+    relinkedOccurrencesOf: ReadonlyMap<UUID, TreeNodeStr[]>,
   ) {
     this.parentMap = parentMap;
     this.excluded = excluded;
@@ -51,7 +58,7 @@ export class ContextTree {
   }
 
   /** Every occurrence of `uuid`, in materialization order. */
-  occurrencesOf(uuid: UUID): string[] {
+  occurrencesOf(uuid: UUID): TreeNodeStr[] {
     return [
       ...(this.parentMap.has(uuid) ? [uuid] : []),
       ...(this.relinkedOccurrencesOf.get(uuid) ?? []),
@@ -59,7 +66,7 @@ export class ContextTree {
   }
 
   /** The context predecessor of `id`: its nearest non-excluded ancestor. */
-  nonExcludedPredecessor(id: string): string | null {
+  nonExcludedPredecessor(id: TreeNodeStr): TreeNodeStr | null {
     let current = this.parentMap.get(id) ?? null;
     while (
       current !== null &&
@@ -79,7 +86,7 @@ export class ContextTree {
     }
     const path: TreeNodeRef[] = [];
     for (
-      let current: string | null = tip;
+      let current: TreeNodeStr | null = tip;
       current !== null;
       current = this.parentMap.get(current) ?? null
     ) {
@@ -93,79 +100,169 @@ export class ContextTree {
   }
 }
 
-/** The context tree of a full tree built by buildTree, with byUuid from
- *  entriesByUuid over the same entries; throws when they disagree or a
- *  parent follows its child. Tool groups are linearized in canonical file
- *  order, which deliberately differs from the loader's splice order
+/** The context tree of a full tree as it grows, with byUuid holding every
+ *  entry the full tree has placed; throws when they disagree or a parent
+ *  follows its child. Tool groups are linearized in canonical file order,
+ *  which deliberately differs from the loader's splice order
  *  (docs/specs/context-tree.md, Edge cases). */
-export function toContextTree(
-  fullTree: ParentMap,
-  byUuid: ReadonlyMap<UUID, SessionEntry>,
-): ContextTree {
-  const entryOf = (id: string): UuidEntry => {
-    const entry = byUuid.get(parseTreeNodeRef(id).uuid);
+export class ContextTreeBuilder {
+  private readonly fullTree: FullTreeView;
+  private readonly byUuid: ReadonlyMap<UUID, SessionEntry>;
+  private readonly parentMap = new Map<TreeNodeStr, TreeNodeStr | null>();
+  private readonly relinkedOccurrencesOf = new Map<UUID, TreeNodeStr[]>();
+  private readonly excluded = new Set<UUID>();
+  private leaf: TreeNodeRef | null = null;
+  private group: ToolGroup | undefined;
+  /** Index into fullTree.nodes of the next node to place. */
+  private cursor = 0;
+  private finished = false;
+
+  constructor(fullTree: FullTreeView, byUuid: ReadonlyMap<UUID, SessionEntry>) {
+    this.fullTree = fullTree;
+    this.byUuid = byUuid;
+  }
+
+  /** Live view over the builder's maps: parentMap/excluded/leaf reflect
+   *  every push so far. */
+  get tree(): ContextTree {
+    return new ContextTree(
+      this.parentMap,
+      this.excluded,
+      this.leaf,
+      this.relinkedOccurrencesOf,
+    );
+  }
+
+  get awaitingAnchors(): readonly UUID[] {
+    return this.fullTree.awaitingAnchors;
+  }
+
+  /** Consume the full-tree nodes materialized since the last push. */
+  push(): void {
+    if (this.finished) {
+      throw new Error("ContextTreeBuilder: push after finish");
+    }
+    const nodes = this.fullTree.nodes;
+    for (; this.cursor < nodes.length; this.cursor++) {
+      this.place(nodes[this.cursor]!);
+    }
+  }
+
+  /** End of input: the open tool group ends, so its unanswered calls are
+   *  dead. The daemon never calls it; live, a call awaits its result. */
+  finish(): void {
+    this.finished = true;
+    this.endGroup();
+  }
+
+  /** usage/model of the last non-excluded, non-sidechain assistant on
+   *  contextAt(ref): a parent walk from ref (no memo — exclusion is
+   *  retroactive at group end); O(distance to the previous eligible
+   *  assistant). */
+  lastAssistantOn(
+    ref: TreeNodeRef,
+  ): { usage?: NonNullableUsage; model?: string } | undefined {
+    for (
+      let current: TreeNodeStr | null = formatTreeNodeRef(ref);
+      current !== null;
+      current = this.parentMap.get(current) ?? null
+    ) {
+      const entry = this.byUuid.get(parseTreeNodeRef(current).uuid);
+      if (
+        entry?.type !== "assistant" ||
+        entry.isSidechain === true ||
+        this.excluded.has(parseTreeNodeRef(current).uuid)
+      ) {
+        continue;
+      }
+      const message = entry.message as SDKAssistantMessage["message"];
+      return {
+        ...(message.usage !== undefined && {
+          usage: toNonNullableUsage(message.usage),
+        }),
+        ...(message.model !== undefined && { model: message.model }),
+      };
+    }
+    return undefined;
+  }
+
+  private entryOf(id: TreeNodeStr): UuidEntry {
+    const entry = this.byUuid.get(parseTreeNodeRef(id).uuid);
     if (entry === undefined || !hasUuid(entry)) {
-      throw new Error(`toContextTree: ${id} names no entry`);
+      throw new Error(`ContextTreeBuilder: ${id} names no entry`);
     }
     return entry;
-  };
+  }
 
-  const parentMap = new Map<string, string | null>();
-  const relinkedOccurrencesOf = new Map<UUID, string[]>();
-  const excluded = new Set<UUID>();
-  let leaf: TreeNodeRef | null = null;
-  let group: ToolGroup | undefined;
+  private endGroup(): void {
+    for (const uuid of this.group?.excludedAtEnd() ?? []) {
+      this.excluded.add(uuid);
+    }
+    this.group = undefined;
+  }
 
-  for (const [id, fullParent] of fullTree) {
+  private place(id: TreeNodeStr): void {
     const ref = parseTreeNodeRef(id);
-    const entry = entryOf(id);
-    let parent = fullParent;
+    const entry = this.entryOf(id);
+    let parent = this.fullTree.parentMap.get(id) ?? null;
     if (ref.viaBoundary !== undefined) {
-      const occurrences = relinkedOccurrencesOf.get(ref.uuid);
+      const occurrences = this.relinkedOccurrencesOf.get(ref.uuid);
       if (occurrences === undefined) {
-        relinkedOccurrencesOf.set(ref.uuid, [id]);
+        this.relinkedOccurrencesOf.set(ref.uuid, [id]);
       } else {
         occurrences.push(id);
       }
     } else {
-      const groupPredecessor = group?.push(entry);
+      const groupPredecessor = this.group?.push(entry);
       if (groupPredecessor !== undefined) {
         parent = groupPredecessor;
       } else {
-        for (const uuid of group?.excludedAtEnd() ?? []) {
-          excluded.add(uuid);
-        }
-        group = entry.type === "assistant" ? new ToolGroup(entry) : undefined;
+        this.endGroup();
+        this.group =
+          entry.type === "assistant" ? new ToolGroup(entry) : undefined;
       }
     }
     if (entry.subtype === "compact_boundary") {
-      leaf = null;
-      continue;
+      this.leaf = null;
+      return;
     }
     if (
       isToolResultEntry(entry) &&
-      (entry.parentUuid == null || !byUuid.has(entry.parentUuid))
+      (entry.parentUuid == null || !this.byUuid.has(entry.parentUuid))
     ) {
-      excluded.add(ref.uuid);
+      this.excluded.add(ref.uuid);
     }
-    if (parent !== null && entryOf(parent).subtype === "compact_boundary") {
+    if (
+      parent !== null &&
+      this.entryOf(parent).subtype === "compact_boundary"
+    ) {
       parent = null;
     }
-    if (parent !== null && !parentMap.has(parent)) {
-      throw new Error(`toContextTree: ${id} precedes its parent ${parent}`);
+    if (parent !== null && !this.parentMap.has(parent)) {
+      throw new Error(
+        `ContextTreeBuilder: ${id} precedes its parent ${parent}`,
+      );
     }
-    parentMap.set(id, parent);
-    leaf = ref;
+    this.parentMap.set(id, parent);
+    this.leaf = ref;
   }
-  for (const uuid of group?.excludedAtEnd() ?? []) {
-    excluded.add(uuid);
-  }
-  return new ContextTree(parentMap, excluded, leaf, relinkedOccurrencesOf);
+}
+
+/** The context tree of a whole-file tree built by buildTree, with byUuid
+ *  from entriesByUuid over the same entries. */
+export function toContextTree(
+  fullTree: ParentMap,
+  byUuid: ReadonlyMap<UUID, SessionEntry>,
+): ContextTree {
+  const builder = new ContextTreeBuilder(finishedTreeView(fullTree), byUuid);
+  builder.push();
+  builder.finish();
+  return builder.tree;
 }
 
 export interface PreservedListMatch {
   /** Occurrence id whose context the list's matched prefix reproduces. */
-  branchPoint: string;
+  branchPoint: TreeNodeStr;
   /** Index into preservedUuids of the first non-excluded entry that did not
    *  match; preservedUuids.length when everything matched (pure rewind). */
   remainderFrom: number;
@@ -179,20 +276,20 @@ export function matchPreservedList(
   contextTree: ContextTree,
   preservedUuids: readonly UUID[],
   anchorIsSummary: boolean,
-  materialized: Pick<ReadonlySet<string>, "has">,
-  hidden: ReadonlySet<string>,
+  materialized: Pick<ReadonlySet<TreeNodeStr>, "has">,
+  hidden: ReadonlySet<TreeNodeStr>,
 ): PreservedListMatch | undefined {
   /** Occurrences of the previous list entry the path may continue from;
    *  undefined before the first non-excluded entry. */
-  let previous: ReadonlySet<string> | undefined;
-  let deepest: string[] | undefined;
+  let previous: ReadonlySet<TreeNodeStr> | undefined;
+  let deepest: TreeNodeStr[] | undefined;
   let index = 0;
   for (; index < preservedUuids.length; index++) {
     const uuid = preservedUuids[index]!;
     if (contextTree.excluded.has(uuid)) {
       continue;
     }
-    const continuesPath = (occurrence: string): boolean => {
+    const continuesPath = (occurrence: TreeNodeStr): boolean => {
       if (!materialized.has(occurrence)) {
         return false;
       }

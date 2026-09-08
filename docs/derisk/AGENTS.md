@@ -27,3 +27,14 @@ Implementation: `tests/sdk/harness.ts` sets it at module scope;
 probes that import either (directly or via `round2.mjs`) — both CLI
 spawns (`baseEnv` spreads `process.env`) and in-process SDK calls. New
 experiment harnesses in other subdirectories must do the equivalent.
+
+## Permission policy: never `bypassPermissions`
+
+No probe or SDK test may pass `permissionMode: "bypassPermissions"` (or
+`allowDangerouslySkipPermissions`). Choose by whether the probe needs
+the tool calls to actually run:
+
+- results not needed → `permissionMode: "dontAsk"` (auto-denies
+  anything not pre-approved);
+- results needed → `permissionMode: "auto"` (classifier approves or
+  denies; no interactive prompt).

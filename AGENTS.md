@@ -19,7 +19,6 @@
 - Do not preserve backward compatibility unless the user asks for it.
 - Do not delete explanatory comments unless they are obsolete; preserve or update them when refactoring.
 - Iterating over the same collection several times in one function is a design smell; combine passes unless a pass genuinely needs lookahead over the whole collection.
-- Tree/context builders over the session entry list make one pass total: each row is placed once on arrival, and retroactive fixes (group linearization, boundary relinking) touch a bounded recent past. Hold the daemon's future rolling `tail -f` model in mind when structuring this code. (Note that this bullet should become out of date very soon. Remove it once it does.)
 - Doc comments state how to use and think about a symbol. Algorithm detail and caveats belong in the spec; a comment that restates or narrates the implementation is fluff — delete it. A comment a reviewer would skip should not exist.
 
 ## Naming and References

@@ -1,0 +1,81 @@
+{
+  "versions": {
+    "sdk": "0.3.258"
+  },
+  "q7": {
+    "probeUsage": {
+      "input": 10,
+      "cacheCreate": 2767,
+      "cacheRead": 21036
+    },
+    "compactSubtype": "success",
+    "compactReqScope": {
+      "nMessages": 3,
+      "hasSynthSummary": true,
+      "hasRed": true,
+      "hasU1": false,
+      "hasU2": false
+    },
+    "newBoundaryMetadata": {
+      "trigger": "manual",
+      "preTokens": 23886,
+      "durationMs": 8421,
+      "preservedSegment": {
+        "headUuid": "386da773-b739-402e-94a3-c6b61117aa95",
+        "anchorUuid": "1ed5ab92-ded3-4379-bd00-dc406439ebe5",
+        "tailUuid": "e79a3c05-25bc-473f-915e-c7ee1dbf470d"
+      },
+      "preservedMessages": {
+        "anchorUuid": "1ed5ab92-ded3-4379-bd00-dc406439ebe5",
+        "uuids": [
+          "386da773-b739-402e-94a3-c6b61117aa95",
+          "e79a3c05-25bc-473f-915e-c7ee1dbf470d"
+        ],
+        "allUuids": [
+          "386da773-b739-402e-94a3-c6b61117aa95",
+          "e79a3c05-25bc-473f-915e-c7ee1dbf470d"
+        ]
+      },
+      "postTokens": 708,
+      "cumulativeDroppedTokens": 62178
+    },
+    "postProbe": {
+      "nMessages": 3,
+      "hasOldSynthSummary": false,
+      "hasFirstProbe": false
+    }
+  },
+  "q8": {
+    "contentAfterT2": "V2",
+    "liveDryRun": {
+      "canRewind": true,
+      "filesChanged": [
+        "/tmp/clauctl-cbi-derisk/p4-q8-cwd/notes.txt"
+      ],
+      "insertions": 0,
+      "deletions": 1
+    },
+    "behindBoundaryDryRun": {
+      "canRewind": false,
+      "error": "No file checkpoint found for this message."
+    },
+    "behindBoundaryReal": {
+      "error": "Error: No file checkpoint found for this message."
+    },
+    "contentAfterRewind": "V2",
+    "onChainReal": {
+      "canRewind": true,
+      "skippedLinks": 0
+    },
+    "contentAfterOnChain": "V1"
+  },
+  "q9": {
+    "resultToLeafOnDiskMs": 177,
+    "fileGrewAfterLeaf": false,
+    "bytesAfterLeaf": 0,
+    "sentinelSurvivedClose": true,
+    "entriesAfterSentinel": [
+      "last-prompt"
+    ]
+  }
+}

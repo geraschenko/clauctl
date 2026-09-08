@@ -1,0 +1,62 @@
+[
+  {
+    "type": "system",
+    "subtype": "init",
+    "session_id": "fd0b9b41-18bb-4b11-af91-485f605d36e2"
+  },
+  {
+    "type": "assistant",
+    "session_id": "fd0b9b41-18bb-4b11-af91-485f605d36e2",
+    "text": "OK"
+  },
+  {
+    "type": "result",
+    "subtype": "success",
+    "session_id": "fd0b9b41-18bb-4b11-af91-485f605d36e2",
+    "result_text": "OK"
+  },
+  {
+    "event": "RESULT_BOUNDARY",
+    "after_step": 1
+  },
+  {
+    "type": "system",
+    "subtype": "init",
+    "session_id": "fd0b9b41-18bb-4b11-af91-485f605d36e2"
+  },
+  {
+    "type": "assistant",
+    "session_id": "fd0b9b41-18bb-4b11-af91-485f605d36e2",
+    "text": "bananas"
+  },
+  {
+    "type": "result",
+    "subtype": "success",
+    "session_id": "fd0b9b41-18bb-4b11-af91-485f605d36e2",
+    "result_text": "bananas"
+  },
+  {
+    "event": "RESULT_BOUNDARY",
+    "after_step": 2
+  },
+  {
+    "type": "system",
+    "subtype": "init",
+    "session_id": "fd0b9b41-18bb-4b11-af91-485f605d36e2"
+  },
+  {
+    "type": "assistant",
+    "session_id": "fd0b9b41-18bb-4b11-af91-485f605d36e2",
+    "text": "BANANAS"
+  },
+  {
+    "type": "result",
+    "subtype": "success",
+    "session_id": "fd0b9b41-18bb-4b11-af91-485f605d36e2",
+    "result_text": "BANANAS"
+  },
+  {
+    "event": "RESULT_BOUNDARY",
+    "after_step": 3
+  }
+]

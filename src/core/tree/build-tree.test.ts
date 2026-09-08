@@ -8,7 +8,7 @@ import assert from "node:assert/strict";
 import { randomUUID, type UUID } from "node:crypto";
 import { test } from "node:test";
 import type { SessionEntry } from "../session/file.ts";
-import { buildTree } from "./build-tree.ts";
+import { buildTree, SessionTreeBuilder } from "./build-tree.ts";
 
 const uuid = (): UUID => randomUUID();
 
@@ -351,5 +351,37 @@ test("empty-uuids boundary (P10; see file comment): no block, no decoration, sta
       [wipe.uuid, e2.uuid],
       [e3.uuid, e2.uuid],
     ],
+  );
+});
+
+// --- rolling builder ----------------------------------------------------------
+
+test("awaitingAnchors names the boundary until its summary arrives; push after finish throws", () => {
+  const sid = uuid();
+  const e1 = userEntry(null, sid);
+  const summaryUuid = uuid();
+  const b = boundaryEntry({
+    sessionId: sid,
+    uuids: [e1.uuid],
+    anchor: summaryUuid,
+    logicalParentUuid: e1.uuid,
+  });
+  const builder = new SessionTreeBuilder(failOnInvalid);
+  builder.pushAll([e1, b]);
+  assert.deepEqual(builder.awaitingAnchors, [b.uuid]);
+  // The block is absent from the live view, not provisional.
+  assert.deepEqual(builder.nodes, [e1.uuid, b.uuid]);
+  builder.push(summaryEntry(b.uuid, sid, summaryUuid));
+  assert.deepEqual(builder.awaitingAnchors, []);
+  assert.deepEqual(builder.nodes, [
+    e1.uuid,
+    b.uuid,
+    summaryUuid,
+    `${e1.uuid}@${b.uuid}`,
+  ]);
+  builder.finish();
+  assert.throws(
+    () => builder.push(userEntry(e1.uuid, sid)),
+    /push after finish/,
   );
 });

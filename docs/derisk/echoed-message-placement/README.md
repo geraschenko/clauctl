@@ -81,7 +81,7 @@ Required harness settings:
   `stop_reason == "tool_use"`. Without partials you cannot see boundary 3.
 - **Use the SDK-bundled `claude` binary** (do not point `pathToClaudeCodeExecutable`
   at the system binary) — keeps results tied to the pinned version.
-- `options.permissionMode: "bypassPermissions"` (cheap, no prompts) and
+- `options.permissionMode: "auto"` (tool calls run, no prompts; never `bypassPermissions`) and
   `persistSession` left at its default-on so a JSONL is written.
 
 Experiment shape:

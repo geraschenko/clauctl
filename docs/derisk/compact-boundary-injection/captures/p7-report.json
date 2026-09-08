@@ -1,0 +1,80 @@
+{
+  "versions": {
+    "sdk": "0.3.258"
+  },
+  "reps": 12,
+  "sessionId": "c2bed8ae-948a-487c-b52a-cdac9f42f4ce",
+  "allAssertionsPassed": true,
+  "leafOnDiskMs": {
+    "min": 96,
+    "median": 99,
+    "max": 99
+  },
+  "teardownMs": {
+    "min": 17,
+    "median": 24,
+    "max": 28
+  },
+  "cycles": [
+    {
+      "cycle": 0,
+      "leafOnDiskMs": 98,
+      "teardownMs": 26
+    },
+    {
+      "cycle": 1,
+      "leafOnDiskMs": 97,
+      "teardownMs": 23
+    },
+    {
+      "cycle": 2,
+      "leafOnDiskMs": 97,
+      "teardownMs": 23
+    },
+    {
+      "cycle": 3,
+      "leafOnDiskMs": 97,
+      "teardownMs": 23
+    },
+    {
+      "cycle": 4,
+      "leafOnDiskMs": 99,
+      "teardownMs": 24
+    },
+    {
+      "cycle": 5,
+      "leafOnDiskMs": 99,
+      "teardownMs": 28
+    },
+    {
+      "cycle": 6,
+      "leafOnDiskMs": 99,
+      "teardownMs": 27
+    },
+    {
+      "cycle": 7,
+      "leafOnDiskMs": 98,
+      "teardownMs": 22
+    },
+    {
+      "cycle": 8,
+      "leafOnDiskMs": 96,
+      "teardownMs": 26
+    },
+    {
+      "cycle": 9,
+      "leafOnDiskMs": 99,
+      "teardownMs": 26
+    },
+    {
+      "cycle": 10,
+      "leafOnDiskMs": 99,
+      "teardownMs": 21
+    },
+    {
+      "cycle": 11,
+      "leafOnDiskMs": 99,
+      "teardownMs": 17
+    }
+  ]
+}

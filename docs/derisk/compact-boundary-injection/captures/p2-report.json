@@ -1,0 +1,322 @@
+{
+  "versions": {
+    "sdk": "0.3.258"
+  },
+  "a": {
+    "name": "a-upto",
+    "error": null,
+    "resultSubtype": "success",
+    "stderr": null,
+    "resumedSessionId": "c4a1bb69-58cb-4e57-b5f9-7f7e27a9fe36",
+    "sameSessionId": true,
+    "sessionFiles": [
+      "c4a1bb69-58cb-4e57-b5f9-7f7e27a9fe36.jsonl"
+    ],
+    "nonProbeInferenceRequests": 0,
+    "probe": {
+      "nMessages": 5,
+      "roles": "user,assistant,user,assistant,user",
+      "markerIdx": {
+        "u1Tag": -1,
+        "magicWord": -1,
+        "u2Tag": 0,
+        "four": 1,
+        "u3Tag": 2,
+        "red": 3,
+        "u2bTag": -1,
+        "six": -1,
+        "synth": 0,
+        "toolResult": -1
+      },
+      "probeIdx": 4
+    },
+    "firstNewUserParent": "254029a1-4a9c-42de-a203-636db3353fe0",
+    "expect": {
+      "parent": "254029a1",
+      "note": "summary first, then U2..U3; U1 absent"
+    }
+  },
+  "b": {
+    "name": "b-from",
+    "error": null,
+    "resultSubtype": "success",
+    "stderr": null,
+    "resumedSessionId": "c4a1bb69-58cb-4e57-b5f9-7f7e27a9fe36",
+    "sameSessionId": true,
+    "sessionFiles": [
+      "c4a1bb69-58cb-4e57-b5f9-7f7e27a9fe36.jsonl"
+    ],
+    "nonProbeInferenceRequests": 0,
+    "probe": {
+      "nMessages": 9,
+      "roles": "user,assistant,user,assistant,user,assistant,user,assistant,user",
+      "markerIdx": {
+        "u1Tag": 0,
+        "magicWord": 4,
+        "u2Tag": -1,
+        "four": -1,
+        "u3Tag": -1,
+        "red": -1,
+        "u2bTag": -1,
+        "six": -1,
+        "synth": 6,
+        "toolResult": 2
+      },
+      "probeIdx": 8
+    },
+    "firstNewUserParent": "63329af5-3279-4abe-9465-9a4831035aa5",
+    "expect": {
+      "note": "open question: prefix+summary order and next-write parent"
+    }
+  },
+  "c": {
+    "name": "c-subset",
+    "error": null,
+    "resultSubtype": "success",
+    "stderr": null,
+    "resumedSessionId": "c4a1bb69-58cb-4e57-b5f9-7f7e27a9fe36",
+    "sameSessionId": true,
+    "sessionFiles": [
+      "c4a1bb69-58cb-4e57-b5f9-7f7e27a9fe36.jsonl"
+    ],
+    "nonProbeInferenceRequests": 0,
+    "probe": {
+      "nMessages": 7,
+      "roles": "user,assistant,user,assistant,user,assistant,user",
+      "markerIdx": {
+        "u1Tag": -1,
+        "magicWord": 2,
+        "u2Tag": -1,
+        "four": -1,
+        "u3Tag": 4,
+        "red": 5,
+        "u2bTag": -1,
+        "six": -1,
+        "synth": 0,
+        "toolResult": 2
+      },
+      "probeIdx": 6
+    },
+    "firstNewUserParent": "254029a1-4a9c-42de-a203-636db3353fe0",
+    "expect": {
+      "parent": "254029a1",
+      "note": "tool pair + U3 present; U1 user text, failed Read, and U2 turn absent"
+    }
+  },
+  "d": {
+    "name": "d-trunk",
+    "error": null,
+    "resultSubtype": "success",
+    "stderr": null,
+    "resumedSessionId": "d3d313fa-9bc8-4dca-8549-5b20aa96dc4f",
+    "sameSessionId": true,
+    "sessionFiles": [
+      "d3d313fa-9bc8-4dca-8549-5b20aa96dc4f.jsonl"
+    ],
+    "nonProbeInferenceRequests": 0,
+    "probe": {
+      "nMessages": 5,
+      "roles": "user,assistant,user,assistant,user",
+      "markerIdx": {
+        "u1Tag": 0,
+        "magicWord": 2,
+        "u2Tag": -1,
+        "four": -1,
+        "u3Tag": -1,
+        "red": -1,
+        "u2bTag": -1,
+        "six": -1,
+        "synth": -1,
+        "toolResult": 2
+      },
+      "probeIdx": 4
+    },
+    "firstNewUserParent": "41a8c835-46cb-45c4-b024-4542a8a85bdb",
+    "expect": {
+      "parent": "41a8c835",
+      "note": "context ends at U1 turn; U2/U3/U2B absent; no summarization request"
+    }
+  },
+  "e": {
+    "name": "e-abandoned",
+    "error": null,
+    "resultSubtype": "error_during_execution",
+    "stderr": "No message found with message.uuid of: 91d9474f-87dc-480b-891c-145783428066",
+    "sameSessionId": false,
+    "sessionFiles": [
+      "d3d313fa-9bc8-4dca-8549-5b20aa96dc4f.jsonl"
+    ],
+    "nonProbeInferenceRequests": 0,
+    "probe": "NO PROBE REQUEST CAPTURED",
+    "firstNewUserParent": null,
+    "expect": {
+      "note": "error_during_execution, stderr 'No message found with message.uuid', no API request"
+    }
+  },
+  "f": {
+    "name": "f-nonexistent",
+    "error": null,
+    "resultSubtype": "error_during_execution",
+    "stderr": "No message found with message.uuid of: 3f02b06e-e195-4bdf-8bc1-52cea29460bc",
+    "sameSessionId": false,
+    "sessionFiles": [
+      "d3d313fa-9bc8-4dca-8549-5b20aa96dc4f.jsonl"
+    ],
+    "nonProbeInferenceRequests": 0,
+    "probe": "NO PROBE REQUEST CAPTURED",
+    "firstNewUserParent": null,
+    "expect": {
+      "note": "same failure mode as e"
+    }
+  },
+  "i": {
+    "name": "i-leafmarker",
+    "error": null,
+    "resultSubtype": "success",
+    "stderr": null,
+    "resumedSessionId": "d3d313fa-9bc8-4dca-8549-5b20aa96dc4f",
+    "sameSessionId": true,
+    "sessionFiles": [
+      "d3d313fa-9bc8-4dca-8549-5b20aa96dc4f.jsonl"
+    ],
+    "nonProbeInferenceRequests": 0,
+    "probe": {
+      "nMessages": 9,
+      "roles": "user,assistant,user,assistant,user,assistant,user,assistant,user",
+      "markerIdx": {
+        "u1Tag": 0,
+        "magicWord": 2,
+        "u2Tag": 4,
+        "four": 5,
+        "u3Tag": 6,
+        "red": 7,
+        "u2bTag": -1,
+        "six": -1,
+        "synth": -1,
+        "toolResult": 2
+      },
+      "probeIdx": 8
+    },
+    "firstNewUserParent": "1bdbd3e9-6d74-4f0d-93fc-d8234b21d66f",
+    "expect": {
+      "parent": "91d9474f",
+      "note": "if leaf selection follows last entry: U1..U3 active, U2B absent"
+    }
+  },
+  "j": {
+    "name": "j-boundary-switch",
+    "error": null,
+    "resultSubtype": "success",
+    "stderr": null,
+    "resumedSessionId": "d3d313fa-9bc8-4dca-8549-5b20aa96dc4f",
+    "sameSessionId": true,
+    "sessionFiles": [
+      "d3d313fa-9bc8-4dca-8549-5b20aa96dc4f.jsonl"
+    ],
+    "nonProbeInferenceRequests": 0,
+    "probe": {
+      "nMessages": 9,
+      "roles": "user,assistant,user,assistant,user,assistant,user,assistant,user",
+      "markerIdx": {
+        "u1Tag": 0,
+        "magicWord": 2,
+        "u2Tag": 4,
+        "four": 5,
+        "u3Tag": 6,
+        "red": 7,
+        "u2bTag": -1,
+        "six": -1,
+        "synth": 0,
+        "toolResult": 2
+      },
+      "probeIdx": 8
+    },
+    "firstNewUserParent": "91d9474f-87dc-480b-891c-145783428066",
+    "expect": {
+      "parent": "91d9474f",
+      "note": "U1..U3 branch active incl. 4/Red; U2B/6 absent"
+    }
+  },
+  "g": {
+    "name": "g-behind-boundary",
+    "error": null,
+    "resultSubtype": "error_during_execution",
+    "stderr": "No message found with message.uuid of: d16f84b0-9656-4d6e-9f53-f44a583217bc",
+    "sameSessionId": false,
+    "sessionFiles": [
+      "c4a1bb69-58cb-4e57-b5f9-7f7e27a9fe36.jsonl"
+    ],
+    "nonProbeInferenceRequests": 0,
+    "probe": "NO PROBE REQUEST CAPTURED",
+    "firstNewUserParent": null,
+    "expect": {
+      "note": "exploratory: is a summarized-region uuid reachable for rewind?"
+    }
+  },
+  "h": {
+    "name": "h-combined",
+    "error": null,
+    "resultSubtype": "success",
+    "stderr": null,
+    "resumedSessionId": "d3d313fa-9bc8-4dca-8549-5b20aa96dc4f",
+    "sameSessionId": true,
+    "sessionFiles": [
+      "d3d313fa-9bc8-4dca-8549-5b20aa96dc4f.jsonl"
+    ],
+    "nonProbeInferenceRequests": 0,
+    "probe": {
+      "nMessages": 7,
+      "roles": "user,assistant,user,assistant,user,assistant,user",
+      "markerIdx": {
+        "u1Tag": 0,
+        "magicWord": 2,
+        "u2Tag": -1,
+        "four": -1,
+        "u3Tag": -1,
+        "red": -1,
+        "u2bTag": -1,
+        "six": -1,
+        "synth": 4,
+        "toolResult": 2
+      },
+      "probeIdx": 6
+    },
+    "firstNewUserParent": "83be1722-91b2-4443-92c0-168399341c60",
+    "expect": {
+      "note": "U1 turn + summary only; U2/U3/U2B absent; relink overrides natural leaf 6"
+    }
+  },
+  "k": {
+    "name": "k-marker-past-boundary",
+    "error": null,
+    "resultSubtype": "success",
+    "stderr": null,
+    "resumedSessionId": "c4a1bb69-58cb-4e57-b5f9-7f7e27a9fe36",
+    "sameSessionId": true,
+    "sessionFiles": [
+      "c4a1bb69-58cb-4e57-b5f9-7f7e27a9fe36.jsonl"
+    ],
+    "nonProbeInferenceRequests": 0,
+    "probe": {
+      "nMessages": 3,
+      "roles": "user,assistant,user",
+      "markerIdx": {
+        "u1Tag": -1,
+        "magicWord": -1,
+        "u2Tag": -1,
+        "four": -1,
+        "u3Tag": 1,
+        "red": 1,
+        "u2bTag": -1,
+        "six": -1,
+        "synth": 0,
+        "toolResult": -1
+      },
+      "probeIdx": 2
+    },
+    "firstNewUserParent": "254029a1-4a9c-42de-a203-636db3353fe0",
+    "expect": {
+      "note": "exploratory: does the raw-parent walk from the marker bypass the boundary entirely (full U1..U2 context, no summary)?"
+    }
+  }
+}
