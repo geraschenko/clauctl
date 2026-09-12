@@ -23,7 +23,8 @@ import {
 import type { ReadonlyFooterDataProvider } from "@earendil-works/pi-coding-agent";
 import type { PermissionMode } from "@anthropic-ai/claude-agent-sdk";
 import {
-  INITIAL_AGENT_STATE,
+  initialAgentState,
+  lastUsage,
   type AgentState,
 } from "../../core/agent-state.ts";
 import { claudeStyle } from "../claude-style.ts";
@@ -85,7 +86,7 @@ function contextWindow(model: string | undefined): number {
 
 export class FooterComponent implements Component {
   private readonly dataProvider: ReadonlyFooterDataProvider | undefined;
-  private state: AgentState = INITIAL_AGENT_STATE;
+  private state: AgentState = initialAgentState();
 
   constructor(dataProvider: ReadonlyFooterDataProvider | undefined) {
     this.dataProvider = dataProvider;
@@ -126,11 +127,12 @@ export class FooterComponent implements Component {
     }
 
     const rightParts: string[] = [];
-    if (this.state.lastUsage !== undefined) {
+    const usage = lastUsage(this.state);
+    if (usage !== undefined) {
       const tokens =
-        this.state.lastUsage.input_tokens +
-        this.state.lastUsage.cache_read_input_tokens +
-        this.state.lastUsage.cache_creation_input_tokens;
+        usage.input_tokens +
+        usage.cache_read_input_tokens +
+        usage.cache_creation_input_tokens;
       const percent = Math.round(
         (tokens / contextWindow(this.state.model)) * 100,
       );

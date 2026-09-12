@@ -22,15 +22,16 @@ import {
   type FSWatcher,
 } from "node:fs";
 import { AsyncQueue } from "../generated/streaming/async-queue.ts";
-import {
-  runStream,
-  type StreamClient,
-  type StreamEvent,
-  type StreamSubscription,
+import type {
+  StreamClient,
+  StreamEvent,
+  StreamSubscription,
 } from "../generated/streaming/driver.ts";
 import {
-  readSessionEntries,
+  malformedLineError,
   SessionEntryParser,
+  type MalformedLine,
+  type ParsedEntry,
   type SessionEntry,
 } from "./file.ts";
 
@@ -100,23 +101,27 @@ export class CanonicalEntryFilter {
   }
 }
 
-/** StreamClient over one existing session file. Installs fs.watch before the
- *  initial stat/read so no append can fall between snapshot and follow;
- *  scans [0, historyEnd) before subscribe() resolves — also under "skip", to
- *  seed first-wins dedup and retain a torn suffix — queueing the extent's
- *  canonical entries as events under "emit"; then follows appends
- *  incrementally from the retained byte offset. One event per canonical
- *  entry, paired with its post-fold state; the seed is the emission-start
- *  state. One subscribe() per client. */
-export class SessionEntryClient implements StreamClient<
-  SessionEntry,
-  EntryStreamState
-> {
+/** A pending whenQuiet(): its window restarts on every read that yields
+ *  bytes and settles when the window elapses or the follower closes. */
+interface QuietWaiter {
+  rearm: () => void;
+  settle: () => void;
+}
+
+/** fs.watch + byte offset + torn-suffix parser over one existing session
+ *  file, delivering every parsed line synchronously inside the read (no
+ *  first-wins filtering; that is the consumer's). Installs fs.watch before
+ *  the initial stat/read so no append can fall between snapshot and follow.
+ *  A malformed terminated line is reported through `onMalformedLine` and
+ *  skipped; a failing stat/read leaves the offset where it was and the next
+ *  wake retries; truncation, inode replacement and watcher errors are
+ *  failures (recorded byte ranges would be stale; the CLI never does this). */
+export class SessionLogFollower {
   private readonly filePath: string;
-  private readonly options: EntryClientOptions;
-  private readonly events = new AsyncQueue<
-    StreamEvent<SessionEntry, EntryStreamState>
-  >();
+  private readonly onEntry: (parsed: ParsedEntry) => void;
+  private readonly onMalformedLine: (line: MalformedLine) => void;
+  private readonly onFailure: (error: Error) => void;
+  private readonly parser = new SessionEntryParser();
   /** Wake tokens from the fs.watch callback. The queue (not a bare flag) is
    *  what the follow loop parks on — a boolean cannot wake an awaiting
    *  consumer. wakePending caps it at one queued token, coalescing callback
@@ -131,7 +136,252 @@ export class SessionEntryClient implements StreamClient<
   private identity: { dev: number; ino: number } | undefined;
   /** File bytes consumed so far (the parser holds any torn suffix). */
   private offset = 0;
-  private parser: SessionEntryParser;
+  private readonly quietWaiters = new Set<QuietWaiter>();
+  private readonly failureWaiters: ((error: Error) => void)[] = [];
+  private followerFailure: Error | undefined;
+  private closed = false;
+
+  constructor(
+    filePath: string,
+    onEntry: (parsed: ParsedEntry) => void,
+    onMalformedLine: (line: MalformedLine) => void,
+    onFailure: (error: Error) => void,
+  ) {
+    this.filePath = filePath;
+    this.onEntry = onEntry;
+    this.onMalformedLine = onMalformedLine;
+    this.onFailure = onFailure;
+  }
+
+  /** Why following stopped, when not a clean close(). */
+  get failure(): Error | undefined {
+    return this.followerFailure;
+  }
+
+  /** Read the initial extent (onEntry per line, synchronously) and start
+   *  following. Throws on a missing/unreadable file, after closing. */
+  start(): void {
+    try {
+      this.watcher = watch(this.filePath, (eventType) => {
+        if (eventType === "rename") {
+          this.renameSeen = true;
+        }
+        this.wake();
+      });
+      this.watcher.on("error", (error) => this.fail(error));
+      this.fd = openSync(this.filePath, "r");
+      const stat = fstatSync(this.fd);
+      this.identity = { dev: stat.dev, ino: stat.ino };
+      this.consumeBytes(stat.size);
+      // Catches bytes that became visible during setup even if their
+      // notification coalesced with an event before the initial read.
+      this.wake();
+      void this.follow();
+    } catch (error) {
+      this.close();
+      throw error;
+    }
+  }
+
+  /** Consume everything visible right now, synchronously. Throws the
+   *  follower failure (also reported via onFailure) on truncation. No-op
+   *  after close. */
+  drainVisibleBytes(): void {
+    if (this.closed) {
+      return;
+    }
+    try {
+      this.consumeToCurrentSize();
+    } catch (error) {
+      this.fail(error);
+      throw error;
+    }
+  }
+
+  /** Resolves once `quietMs` have passed with no new bytes (the first quiet
+   *  window; a read that yields bytes restarts the window), or on close. */
+  whenQuiet(quietMs: number): Promise<void> {
+    return new Promise((resolve) => {
+      let timer: NodeJS.Timeout | undefined;
+      const waiter: QuietWaiter = {
+        rearm: () => {
+          clearTimeout(timer);
+          timer = setTimeout(waiter.settle, quietMs);
+        },
+        settle: () => {
+          clearTimeout(timer);
+          this.quietWaiters.delete(waiter);
+          resolve();
+        },
+      };
+      if (this.closed) {
+        resolve();
+        return;
+      }
+      this.quietWaiters.add(waiter);
+      waiter.rearm();
+    });
+  }
+
+  /** Resolves on failure (immediately if already failed); never on a clean
+   *  close. */
+  whenFailed(): Promise<Error> {
+    if (this.followerFailure !== undefined) {
+      return Promise.resolve(this.followerFailure);
+    }
+    return new Promise((resolve) => this.failureWaiters.push(resolve));
+  }
+
+  /** Release the watcher and file handle. Idempotent. */
+  close(): void {
+    if (this.closed) {
+      return;
+    }
+    this.closed = true;
+    this.watcher?.close();
+    if (this.fd !== undefined) {
+      closeSync(this.fd);
+      this.fd = undefined;
+    }
+    this.wakes.close();
+    for (const waiter of this.quietWaiters) {
+      waiter.settle();
+    }
+  }
+
+  private wake(): void {
+    if (!this.wakePending) {
+      this.wakePending = true;
+      this.wakes.push(true);
+    }
+  }
+
+  private fail(error: unknown): void {
+    if (this.closed) {
+      return;
+    }
+    this.followerFailure =
+      error instanceof Error ? error : new Error(String(error));
+    this.close();
+    for (const resolve of this.failureWaiters) {
+      resolve(this.followerFailure);
+    }
+    this.failureWaiters.length = 0;
+    this.onFailure(this.followerFailure);
+  }
+
+  /** One wake per park: capture/reset flags before draining, so a watcher
+   *  callback during the drain queues the next token. Notifications are
+   *  wakeups only — each drain reads all bytes currently available. */
+  private async follow(): Promise<void> {
+    try {
+      for await (const _token of this.wakes) {
+        this.wakePending = false;
+        const sawRename = this.renameSeen;
+        this.renameSeen = false;
+        if (sawRename) {
+          this.verifyIdentity();
+        }
+        this.consumeToCurrentSize();
+      }
+    } catch (error) {
+      this.fail(error);
+    }
+  }
+
+  private consumeToCurrentSize(): void {
+    let size: number;
+    try {
+      size = fstatSync(this.fd!).size;
+    } catch {
+      return; // retried on the next wake
+    }
+    if (size < this.offset) {
+      throw new Error(
+        `${this.filePath} truncated below the consumed byte extent ` +
+          `(${size} < ${this.offset}); a Claude session file only grows`,
+      );
+    }
+    this.consumeBytes(size);
+  }
+
+  /** The path must still name the file we opened; a replaced or removed file
+   *  is unrecoverable (restarting from byte zero would duplicate uuid-less
+   *  entries and conceal data loss). */
+  private verifyIdentity(): void {
+    const stat = statSync(this.filePath, { throwIfNoEntry: false });
+    if (
+      stat === undefined ||
+      stat.dev !== this.identity!.dev ||
+      stat.ino !== this.identity!.ino
+    ) {
+      throw new Error(`${this.filePath} was replaced or removed`);
+    }
+  }
+
+  /** Read [#offset, end), parse, and deliver each entry. A read error ends
+   *  the read early; what was read is consumed and the rest retried on the
+   *  next wake. */
+  private consumeBytes(end: number): void {
+    if (end <= this.offset) {
+      return;
+    }
+    const length = end - this.offset;
+    const buffer = Buffer.alloc(length);
+    let bytesRead = 0;
+    try {
+      while (bytesRead < length) {
+        const n = readSync(
+          this.fd!,
+          buffer,
+          bytesRead,
+          length - bytesRead,
+          this.offset + bytesRead,
+        );
+        if (n === 0) {
+          break;
+        }
+        bytesRead += n;
+      }
+    } catch {
+      // retried on the next wake
+    }
+    if (bytesRead === 0) {
+      return;
+    }
+    this.offset += bytesRead;
+    for (const waiter of this.quietWaiters) {
+      waiter.rearm();
+    }
+    const chunk = bytesRead === length ? buffer : buffer.subarray(0, bytesRead);
+    for (const line of this.parser.push(chunk)) {
+      if (this.closed) {
+        return;
+      }
+      line.match(this.onEntry, this.onMalformedLine);
+    }
+  }
+}
+
+/** StreamClient over one existing session file: a CanonicalEntryFilter and
+ *  event queue composed on a SessionLogFollower. The follower scans
+ *  [0, historyEnd) before subscribe() resolves — also under "skip", to seed
+ *  first-wins dedup and retain a torn suffix — queueing the extent's
+ *  canonical entries as events under "emit"; then follows appends. One event
+ *  per canonical entry, paired with its post-fold state; the seed is the
+ *  emission-start state. One subscribe() per client. */
+export class SessionEntryClient implements StreamClient<
+  SessionEntry,
+  EntryStreamState
+> {
+  private readonly filePath: string;
+  private readonly options: EntryClientOptions;
+  private readonly events = new AsyncQueue<
+    StreamEvent<SessionEntry, EntryStreamState>
+  >();
+  private readonly follower: SessionLogFollower;
+  /** False while the initial extent is scanned under history "skip". */
+  private emitting: boolean;
   /** Public so a cross-file follower (AgentObserver) can carry it into the
    *  next file's client for first-wins dedup across a session rollover. */
   readonly filter: CanonicalEntryFilter;
@@ -158,17 +408,26 @@ export class SessionEntryClient implements StreamClient<
     }
     this.filePath = filePath;
     this.options = options;
-    this.parser = new SessionEntryParser(filePath);
+    this.emitting = options.history === "emit";
     this.filter =
       filter ??
       new CanonicalEntryFilter(
         options.history === "emit" ? options.since : undefined,
       );
+    // A malformed terminated line is corruption for this consumer: chain
+    // computation and file mutation must not proceed against incomplete
+    // history.
+    this.follower = new SessionLogFollower(
+      filePath,
+      ({ entry }) => this.accept(entry),
+      (line) => this.fail(malformedLineError(filePath, line)),
+      (error) => this.fail(error),
+    );
   }
 
   /** Why the event queue closed, when not a clean close(): truncation,
-   *  replacement, watcher/read/stat error, or a malformed terminated line
-   *  during follow. undefined while healthy or after a clean close(). */
+   *  replacement, watcher error, or a malformed terminated line. undefined
+   *  while healthy or after a clean close(). */
   get failure(): Error | undefined {
     return this.streamFailure;
   }
@@ -184,42 +443,25 @@ export class SessionEntryClient implements StreamClient<
     }
     this.subscribed = true;
     try {
-      this.watcher = watch(this.filePath, (eventType) => {
-        if (eventType === "rename") {
-          this.renameSeen = true;
-        }
-        if (!this.wakePending) {
-          this.wakePending = true;
-          this.wakes.push(true);
-        }
-      });
-      this.watcher.on("error", (error) => this.fail(error));
-      this.fd = openSync(this.filePath, "r");
-      const stat = fstatSync(this.fd);
-      this.identity = { dev: stat.dev, ino: stat.ino };
-      const emit = this.options.history === "emit";
       const since =
         this.options.history === "emit" ? this.options.since : undefined;
       // A carried filter arrives with the previous file's leaf; under "emit"
       // this file's entries follow as events, so the seed precedes them.
       const leafBeforeScan = this.filter.leaf;
-      this.consumeBytes(stat.size, emit);
+      this.follower.start();
+      if (this.streamFailure !== undefined) {
+        throw this.streamFailure;
+      }
       if (this.filter.cursorPending) {
         throw new Error(
           `since cursor ${since} does not match any entry in ${this.filePath}`,
         );
       }
       const seed: EntryStreamState = {
-        leaf: emit ? (since ?? leafBeforeScan) : this.filter.leaf,
+        leaf: this.emitting ? (since ?? leafBeforeScan) : this.filter.leaf,
         seenUuids: this.filter.seenUuids,
       };
-      // Catches bytes that became visible during setup even if their
-      // notification coalesced with an event before the initial read.
-      if (!this.wakePending) {
-        this.wakePending = true;
-        this.wakes.push(true);
-      }
-      void this.follow();
+      this.emitting = true;
       return { seed, events: this.events };
     } catch (error) {
       this.close();
@@ -235,13 +477,20 @@ export class SessionEntryClient implements StreamClient<
       return;
     }
     this.closed = true;
-    this.watcher?.close();
-    if (this.fd !== undefined) {
-      closeSync(this.fd);
-      this.fd = undefined;
-    }
-    this.wakes.close();
+    this.follower.close();
     this.events.close();
+  }
+
+  /** Synchronously consume any bytes appended since the last read. The final
+   *  drain when the daemon socket closes: entries flushed just before the
+   *  close may not have woken the follower yet, and after close() no wake
+   *  ever will. A failure is recorded as `failure`, not thrown. */
+  drainVisibleBytes(): void {
+    try {
+      this.follower.drainVisibleBytes();
+    } catch {
+      // routed through onFailure → fail()
+    }
   }
 
   private fail(error: unknown): void {
@@ -253,100 +502,18 @@ export class SessionEntryClient implements StreamClient<
     this.close();
   }
 
-  /** One wake per park: capture/reset flags before draining, so a watcher
-   *  callback during the drain queues the next token. Notifications are
-   *  wakeups only — each drain reads all bytes currently available. */
-  private async follow(): Promise<void> {
-    try {
-      for await (const _token of this.wakes) {
-        this.wakePending = false;
-        const sawRename = this.renameSeen;
-        this.renameSeen = false;
-        if (sawRename) {
-          this.verifyIdentity();
-        }
-        this.consumeToCurrentSize();
-      }
-    } catch (error) {
-      this.fail(error);
-    }
-  }
-
-  private consumeToCurrentSize(): void {
-    const size = fstatSync(this.fd!).size;
-    if (size < this.offset) {
-      throw new Error(
-        `${this.filePath} truncated below the consumed byte extent ` +
-          `(${size} < ${this.offset}); a Claude session file only grows`,
-      );
-    }
-    this.consumeBytes(size, true);
-  }
-
-  /** Synchronously consume any bytes appended since the last read. The final
-   *  drain when the daemon socket closes: entries flushed just before the
-   *  close may not have woken the follower yet, and after close() no wake
-   *  ever will. */
-  drainVisibleBytes(): void {
-    if (this.closed || this.fd === undefined) {
-      return;
-    }
-    try {
-      this.consumeToCurrentSize();
-    } catch (error) {
-      this.fail(error);
-    }
-  }
-
-  /** The path must still name the file we opened; a replaced or removed file
-   *  is unrecoverable (restarting from byte zero would duplicate uuid-less
-   *  entries and conceal data loss). */
-  private verifyIdentity(): void {
-    const stat = statSync(this.filePath, { throwIfNoEntry: false });
-    if (
-      stat === undefined ||
-      stat.dev !== this.identity!.dev ||
-      stat.ino !== this.identity!.ino
-    ) {
-      throw new Error(`${this.filePath} was replaced or removed`);
-    }
-  }
-
-  /** Read [#offset, end), parse, filter, and (when emitting) push canonical
-   *  entries paired with their post-fold state. */
-  private consumeBytes(end: number, emit: boolean): void {
-    if (end <= this.offset) {
-      return;
-    }
-    const length = end - this.offset;
-    const buffer = Buffer.alloc(length);
-    let bytesRead = 0;
-    while (bytesRead < length) {
-      const n = readSync(
-        this.fd!,
-        buffer,
-        bytesRead,
-        length - bytesRead,
-        this.offset + bytesRead,
-      );
-      if (n === 0) {
-        break;
-      }
-      bytesRead += n;
-    }
-    this.offset += bytesRead;
-    const chunk = bytesRead === length ? buffer : buffer.subarray(0, bytesRead);
-    for (const entry of this.parser.push(chunk)) {
-      const accepted = this.filter.accept(entry);
-      if (accepted !== undefined && emit) {
-        this.events.push({
-          event: accepted,
-          state: {
-            leaf: this.filter.leaf,
-            seenUuids: this.filter.seenUuids,
-          },
-        });
-      }
+  /** Filter, and (when emitting) push the canonical entry paired with its
+   *  post-fold state. */
+  private accept(entry: SessionEntry): void {
+    const accepted = this.filter.accept(entry);
+    if (accepted !== undefined && this.emitting) {
+      this.events.push({
+        event: accepted,
+        state: {
+          leaf: this.filter.leaf,
+          seenUuids: this.filter.seenUuids,
+        },
+      });
     }
   }
 }
@@ -370,55 +537,4 @@ export function canonicalizeEntries(
     throw new Error(`since cursor ${since} does not match any entry`);
   }
   return canonical;
-}
-
-/** Resolves when an entry with this uuid is in the file (covers the
- *  ~100–180 ms flush lag after the SDK result message). A stream condition
- *  over a history:"skip" subscription: `seenUuids` membership, not canonical
- *  emission, so a duplicate or pre-cursor occurrence also satisfies it. */
-export async function waitForEntry(
-  filePath: string,
-  uuid: UUID,
-  timeoutMs = 10_000,
-): Promise<void> {
-  const client = new SessionEntryClient(filePath, { history: "skip" });
-  try {
-    const { outcome } = await runStream(
-      client,
-      {
-        onSeed: (seed) => seed.seenUuids.has(uuid),
-        onEvent: (_entry, state) => state.seenUuids.has(uuid),
-      },
-      timeoutMs,
-    );
-    if (outcome === "timeout") {
-      throw new Error(
-        `entry ${uuid} did not appear in ${filePath} within ${timeoutMs}ms`,
-      );
-    }
-    if (outcome === "closed") {
-      throw (
-        client.failure ??
-        new Error(`entry stream for ${filePath} closed unexpectedly`)
-      );
-    }
-  } finally {
-    client.close();
-  }
-}
-
-/** The file's entries once `leafUuid` (the last transcript entry the caller
- *  has seen reported elsewhere, e.g. on the daemon's event stream) is on
- *  disk — read consistency across the CLI's flush lag. Pass undefined when
- *  there is nothing to wait for. Deliberately wait-then-read rather than a
- *  one-pass collect-until-leaf: the read returns the whole file at read
- *  time, including entries persisted after the leaf. */
-export async function readEntriesAfterStreamFlush(
-  filePath: string,
-  leafUuid: UUID | undefined,
-): Promise<SessionEntry[]> {
-  if (leafUuid !== undefined) {
-    await waitForEntry(filePath, leafUuid);
-  }
-  return readSessionEntries(filePath);
 }

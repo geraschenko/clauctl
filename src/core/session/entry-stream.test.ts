@@ -12,12 +12,11 @@ import { test } from "node:test";
 import type { StreamEvent } from "../generated/streaming/driver.ts";
 import {
   canonicalizeEntries,
-  readEntriesAfterStreamFlush,
   SessionEntryClient,
-  waitForEntry,
+  SessionLogFollower,
   type EntryStreamState,
 } from "./entry-stream.ts";
-import type { SessionEntry } from "./file.ts";
+import type { MalformedLine, ParsedEntry, SessionEntry } from "./file.ts";
 
 const uuid = (): UUID => randomUUID();
 
@@ -139,6 +138,144 @@ test("canonicalizeEntries only honors the cursor's FIRST occurrence position", (
     ),
     [after],
   );
+});
+
+/** A follower whose callbacks record into arrays; `failed` is its
+ *  whenFailed() promise so tests await the failure, not a clock. */
+function recordingFollower(file: string): {
+  follower: SessionLogFollower;
+  parsed: ParsedEntry[];
+  malformed: MalformedLine[];
+  failed: Promise<Error>;
+} {
+  const parsed: ParsedEntry[] = [];
+  const malformed: MalformedLine[] = [];
+  const reported: Error[] = [];
+  const follower = new SessionLogFollower(
+    file,
+    (entry) => parsed.push(entry),
+    (line) => malformed.push(line),
+    (error) => reported.push(error),
+  );
+  const failed = follower.whenFailed().then((error) => {
+    assert.deepEqual(reported, [error]);
+    return error;
+  });
+  return { follower, parsed, malformed, failed };
+}
+
+test("follower scans the extent synchronously in start, then follows appends with file byte ranges", async () => {
+  const a = { uuid: uuid(), type: "user" };
+  const b = { uuid: uuid(), type: "assistant" };
+  const file = tempFile([a]);
+  const { follower, parsed } = recordingFollower(file);
+  try {
+    follower.start();
+    assert.deepEqual(parsed, [
+      { entry: a, range: { offset: 0, length: jsonl([a]).length } },
+    ]);
+    const quiet = follower.whenQuiet(50);
+    appendFileSync(file, jsonl([b]));
+    await quiet;
+    assert.deepEqual(parsed[1], {
+      entry: b,
+      range: { offset: jsonl([a]).length, length: jsonl([b]).length },
+    });
+    assert.equal(follower.failure, undefined);
+  } finally {
+    follower.close();
+  }
+});
+
+test("follower reports a malformed line's range, skips it, and keeps following", async () => {
+  const a = { uuid: uuid(), type: "user" };
+  const b = { uuid: uuid(), type: "assistant" };
+  const file = tempFile([a], "malformed\n");
+  const { follower, parsed, malformed } = recordingFollower(file);
+  try {
+    follower.start();
+    assert.deepEqual(malformed, [
+      {
+        range: { offset: jsonl([a]).length, length: 10 },
+        lineNumber: 2,
+        reason: "not-json",
+      },
+    ]);
+    const quiet = follower.whenQuiet(50);
+    appendFileSync(file, jsonl([b]));
+    await quiet;
+    assert.deepEqual(
+      parsed.map((p) => p.entry),
+      [a, b],
+    );
+    assert.equal(follower.failure, undefined);
+  } finally {
+    follower.close();
+  }
+});
+
+test("follower fails on truncation; drainVisibleBytes throws the failure", async () => {
+  const entries = [
+    { uuid: uuid(), type: "user", padding: "x".repeat(200) },
+    { uuid: uuid(), type: "assistant" },
+  ];
+  const file = tempFile(entries);
+  const { follower, failed } = recordingFollower(file);
+  try {
+    follower.start();
+    writeFileSync(file, jsonl([entries[0]!]));
+    assert.throws(
+      () => follower.drainVisibleBytes(),
+      /truncated below the consumed byte extent/,
+    );
+    assert.match((await failed).message, /truncated below/);
+    assert.equal(follower.failure, await failed);
+    // No-op once closed.
+    follower.drainVisibleBytes();
+  } finally {
+    follower.close();
+  }
+});
+
+test("follower fails on replacement (rename away); whenFailed resolves", async () => {
+  const file = tempFile([{ uuid: uuid(), type: "user" }]);
+  const { follower, failed } = recordingFollower(file);
+  try {
+    follower.start();
+    renameSync(file, `${file}.rotated`);
+    assert.match((await failed).message, /replaced or removed/);
+  } finally {
+    follower.close();
+  }
+});
+
+test("follower whenQuiet restarts its window on each read that yields bytes", async () => {
+  const file = tempFile([{ uuid: uuid(), type: "user" }]);
+  const { follower, parsed } = recordingFollower(file);
+  try {
+    follower.start();
+    const quiet = follower.whenQuiet(80);
+    // A drain inside the window delivers bytes, so quiet cannot have
+    // resolved before the entry it delivers is parsed.
+    appendFileSync(file, jsonl([{ uuid: uuid(), type: "assistant" }]));
+    follower.drainVisibleBytes();
+    assert.equal(parsed.length, 2);
+    await quiet;
+    assert.equal(parsed.length, 2);
+  } finally {
+    follower.close();
+  }
+});
+
+test("follower start throws on a missing file; whenQuiet resolves on close", async () => {
+  const missing = join(mkdtempSync(join(tmpdir(), "clauctl-es-")), "no.jsonl");
+  const { follower } = recordingFollower(missing);
+  assert.throws(() => follower.start(), /ENOENT/);
+  const { follower: open } = recordingFollower(tempFile([{ uuid: uuid() }]));
+  open.start();
+  const quiet = open.whenQuiet(10_000);
+  open.close();
+  await quiet;
 });
 
 test("history emit queues the extent's canonical entries, then follows live appends", async () => {
@@ -389,46 +526,4 @@ test("a clean close leaves failure undefined and ends the queue", async () => {
   const result = await events.next();
   assert.equal(result.done, true);
   assert.equal(client.failure, undefined);
-});
-
-test("waitForEntry resolves immediately for a present entry", async () => {
-  const entry = { uuid: uuid(), type: "user" };
-  await waitForEntry(tempFile([entry]), entry.uuid);
-});
-
-test("waitForEntry resolves once the entry is appended, even as a duplicate", async () => {
-  const historyEntry = { uuid: uuid(), type: "user" };
-  const file = tempFile([historyEntry]);
-  const target = uuid();
-  const waiting = waitForEntry(file, target);
-  // seenUuids membership, not canonical emission: a re-persisted duplicate
-  // ahead of the target must not stall the wait.
-  appendFileSync(file, jsonl([historyEntry, { uuid: target }]));
-  await waiting;
-});
-
-test("waitForEntry rejects on timeout", async () => {
-  const file = tempFile([{ uuid: uuid() }]);
-  await assert.rejects(waitForEntry(file, uuid(), 50), /did not appear/);
-});
-
-test("waitForEntry rejects with the client failure when the file is corrupted", async () => {
-  const file = tempFile([{ uuid: uuid() }]);
-  const waiting = waitForEntry(file, uuid());
-  appendFileSync(file, "malformed\n");
-  await assert.rejects(waiting, /malformed session file line/);
-});
-
-test("readEntriesAfterStreamFlush returns the whole file, including post-leaf entries", async () => {
-  const leaf = { uuid: uuid(), type: "assistant" };
-  const postLeaf = { uuid: uuid(), type: "user", after: true };
-  const file = tempFile([leaf, postLeaf]);
-  assert.deepEqual(await readEntriesAfterStreamFlush(file, leaf.uuid), [
-    leaf,
-    postLeaf,
-  ]);
-  assert.deepEqual(await readEntriesAfterStreamFlush(file, undefined), [
-    leaf,
-    postLeaf,
-  ]);
 });

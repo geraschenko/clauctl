@@ -3,8 +3,8 @@
  * (readSessionEntries → buildTree + toDisplayTree → nearestVisibleRow →
  * pathToLeaf, cf. interactive-mode.ts replay) fed through the exact
  * TranscriptRenderer the attach TUI uses, without tmux or a live agent.
- * The leaf is the daemon-seeded one (seedFromEntries), matching what
- * get-entries would report for a freshly started daemon. Output is the
+ * The leaf is the context tree's, matching what get-entries reports for a
+ * freshly started daemon. Output is the
  * transcript container only — no footer, editor, status or pending area.
  * `pathUpToBoundary` does not apply: there is no live stream, so the whole
  * path renders.
@@ -20,7 +20,6 @@ import {
   entriesByUuid,
   readSessionEntries,
 } from "../../src/core/session/file.ts";
-import { seedFromEntries } from "../../src/core/session/seed.ts";
 import { TranscriptRenderer } from "../../src/tui/transcript.ts";
 
 export function renderSessionFile(
@@ -34,12 +33,9 @@ export function renderSessionFile(
   };
   const byUuid = entriesByUuid(entries);
   const fullTree = buildTree(entries, onInvalid);
-  const displayTree = toDisplayTree(
-    fullTree,
-    toContextTree(fullTree, byUuid),
-    byUuid,
-  );
-  const leaf = seedFromEntries(entries, onInvalid).leaf ?? null;
+  const contextTree = toContextTree(fullTree, byUuid);
+  const displayTree = toDisplayTree(fullTree, contextTree, byUuid);
+  const leaf = contextTree.leaf;
   const leafRow =
     leaf === null ? null : (displayTree.nearestVisibleRow(leaf) ?? null);
   const container = new Container();

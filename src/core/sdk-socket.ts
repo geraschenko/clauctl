@@ -3,7 +3,7 @@
  * socket. Three record shapes flow daemon→client, distinguished structurally:
  * the hello (first line on connect, so clients can validate they are talking
  * to a clauctl daemon), responses (have an `id`), and pushed events (`{ event:
- * SdkEvent }`, only on connections that sent `subscribe`).
+ * AgentEvent }`, only on connections that sent `subscribe`).
  */
 
 import type { UUID } from "node:crypto";
@@ -12,12 +12,18 @@ import type { ContentBlockParam } from "@anthropic-ai/sdk/resources";
 import type {
   EffortLevel,
   McpServerConfig,
+  NonNullableUsage,
   PermissionMode,
   SDKMessage,
   SDKUserMessage,
   Settings,
 } from "@anthropic-ai/claude-agent-sdk";
-import { nextAgentState, type AgentState } from "./agent-state.ts";
+import {
+  nextAgentState,
+  type AgentState,
+  type TrackerAnomaly,
+} from "./agent-state.ts";
+import type { SessionEntry } from "./session/file.ts";
 import { AsyncQueue } from "./generated/streaming/async-queue.ts";
 import type {
   StreamEvent,
@@ -47,26 +53,55 @@ export type MessageDelivery = "turn" | "steer" | "append";
  * carrying all its ids — the whole bucket runs as a single turn with a single
  * `result`.
  */
-export type SdkEvent =
+export type AgentEvent =
   | { kind: "userMessageQueued"; id: number; message: SDKUserMessage }
   | { kind: "userMessageDequeued"; delivery: MessageDelivery; ids: number[] }
   | { kind: "compactSent"; message: SDKUserMessage } // /compact issued while Idle
   | { kind: "interruptSent" }
   | { kind: "controlApplied"; request: SdkControlApplied }
-  // Broadcast after every successful set-context (both modes, including
-  // no-write rewinds), and also when the session file was mutated but the
-  // subsequent Query restart failed — watchers track file truth. Deliberately
-  // NOT an SdkControlMutation: that type is reserved for controls the real
-  // SDK supports, while set-context is a method we wish the SDK had.
-  // `leaf` is the post-change context tip — the value get-entries' leaf
-  // computation reports after the change (null after an empty-context
-  // reset); observers fold it into leaf (agent-state.ts).
-  | {
-      kind: "contextChanged";
-      request: SetContextRequest;
-      leaf: TreeNodeRef | null;
-    }
+  // Emitted after the sessionEntry that completes a compact_boundary — the
+  // boundary's own, or its anchor's when the block was deferred — whatever
+  // wrote it (native compaction or set-context). `leaf` is the final
+  // post-boundary context tip (null after a wipe).
+  | { kind: "contextChanged"; boundary: UUID; leaf: TreeNodeRef | null }
   | { kind: "sdkMessage"; message: SDKMessage }
+  // One per canonical log entry of the tracked file, in file order, emitted
+  // as soon as the follower reads the line (never held for resolution:
+  // subscribers run the same merge). `entry` is the complete entry when its
+  // class is session-only, else `structuralEntry(entry)`: the subscriber
+  // already holds the payload from the `sdkMessage` twin. `expectsSdkMessage`
+  // is that class decision (false = session-only; a prediction from the
+  // table, not an observation), made by the tracker on the
+  // complete entry: the fold reads it rather than re-classifying, because
+  // the `<local-command-stdout>` rule reads `message.content`, a payload
+  // leaf the projection empties. `leaf` is the context tree's leaf after
+  // this entry and `lastAssistant` the usage/model of the last
+  // non-excluded, non-sidechain assistant on contextAt(leaf) (absent when
+  // none; each field independently optional) — daemon-computed, so clients
+  // fold them without owning a tree. `awaitingAnchors` lists the boundaries
+  // whose blocks are still deferred (session tracker incomplete).
+  | {
+      kind: "sessionEntry";
+      entry: SessionEntry;
+      expectsSdkMessage: boolean;
+      leaf: TreeNodeRef | null;
+      lastAssistant?: { usage?: NonNullableUsage; model?: string };
+      awaitingAnchors: readonly UUID[];
+    }
+  // The follower moved to `sessionId`: the old file's SessionState is dropped
+  // and the new file is about to be scanned.
+  | { kind: "sessionFileChanged"; sessionId: UUID }
+  // The follower's start() has returned for the tracked file: every entry
+  // the file held when it was opened has been folded.
+  | { kind: "scanComplete" }
+  // The daemon appended these uuid-bearing entries to the query file
+  // (set-context); emitted before the drain that delivers them.
+  | { kind: "sessionAppended"; uuids: readonly UUID[] }
+  // A daemon-detected anomaly (follower failure, malformed line,
+  // classification at the dedup site, awaiting-anchor); the fold sets
+  // `anomaly`. Fold-detected ones (merge errors, head-mismatch) need no
+  // event: every fold computes them.
+  | { kind: "trackerAnomaly"; anomaly: TrackerAnomaly }
   // Emitted by the daemon before any teardown, so subscribers can distinguish
   // a deliberate shutdown (archive → SIGTERM, stream end) from a crash (socket
   // close with no announcement). Delivery is best-effort: process exit races
@@ -279,7 +314,7 @@ export type SdkRequest =
     }
   | { type: "interrupt" }
   // Response data is the daemon's current AgentState; every event emitted
-  // after it follows as an SdkEventRecord line until the connection closes.
+  // after it follows as an AgentEventRecord line until the connection closes.
   // No history replay — a subscriber starts at "now" and folds from there
   // (agent-state.ts).
   | { type: "subscribe"; attachment?: SubscribeAttachment }
@@ -288,19 +323,20 @@ export type SdkRequest =
   // `[]` with no session or a null leaf. Derived from the transcript file
   // via the context tree, not from the Query, so it is not an SdkControlRead.
   | { type: "get-context"; at?: TreeNodeRef }
-  // Response data: SessionSnapshot — every jsonl line of the current
-  // session, verbatim, plus the current-leaf occurrence. Clients build the
-  // tree locally (build-tree.ts); a nested wire representation would overflow
-  // JSON.stringify on long sessions.
-  | { type: "get-entries" }
+  // Response data: SessionSnapshot — every canonical jsonl line of the
+  // current session (after the `since` cursor when given; an unknown cursor
+  // is an error), verbatim, plus the current-leaf occurrence. Clients build
+  // the tree locally (build-tree.ts); a nested wire representation would
+  // overflow JSON.stringify on long sessions.
+  | { type: "get-entries"; since?: UUID }
   // Response data: SetContextResult.
   | SetContextRequest
   | SdkControlMutation
   | SdkControlRead;
 
 /** A pushed stream event on a subscribed connection; no `id`, unlike responses. */
-export interface SdkEventRecord {
-  event: SdkEvent;
+export interface AgentEventRecord {
+  event: AgentEvent;
 }
 
 export type SdkRequestRecord = SdkRequest & { id: string };
@@ -316,7 +352,7 @@ interface PendingRequest {
 
 /** What `subscribe` hands the stream driver: the state before any delivered
  *  event, plus the queue of (event, post-fold state) pairs. */
-export type SdkEventSubscription = StreamSubscription<SdkEvent, AgentState>;
+export type AgentEventSubscription = StreamSubscription<AgentEvent, AgentState>;
 
 export class SdkSocketClient {
   private readonly socket: Socket;
@@ -326,7 +362,7 @@ export class SdkSocketClient {
   private closed = false;
   // Installed by subscribe(), before the request goes out; until then event
   // lines have nowhere to go. Doubles as the single-subscription guard.
-  private events: AsyncQueue<StreamEvent<SdkEvent, AgentState>> | undefined;
+  private events: AsyncQueue<StreamEvent<AgentEvent, AgentState>> | undefined;
   // The client-owned fold: seeded from the subscribe response at dispatch,
   // advanced by nextAgentState per event line. undefined until subscribed.
   private foldedState: AgentState | undefined;
@@ -426,9 +462,9 @@ export class SdkSocketClient {
   // line (the daemon writes the seed response before attaching the event
   // sink).
   private dispatchLine(line: string): void {
-    let record: { id?: string; event?: SdkEvent };
+    let record: { id?: string; event?: AgentEvent };
     try {
-      record = JSON.parse(line) as { id?: string; event?: SdkEvent };
+      record = JSON.parse(line) as { id?: string; event?: AgentEvent };
     } catch {
       return;
     }
@@ -495,11 +531,11 @@ export class SdkSocketClient {
    */
   async subscribe(
     attachment?: SubscribeAttachment,
-  ): Promise<SdkEventSubscription> {
+  ): Promise<AgentEventSubscription> {
     if (this.events !== undefined) {
       throw new Error("sdk socket client is already subscribed");
     }
-    const events = new AsyncQueue<StreamEvent<SdkEvent, AgentState>>();
+    const events = new AsyncQueue<StreamEvent<AgentEvent, AgentState>>();
     this.events = events;
     const { id, response } = this.sendRequest({
       type: "subscribe",

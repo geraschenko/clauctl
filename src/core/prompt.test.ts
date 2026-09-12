@@ -19,24 +19,24 @@ import type {
   SDKMessage,
   SDKUserMessage,
 } from "@anthropic-ai/claude-agent-sdk";
-import { INITIAL_AGENT_STATE, type AgentState } from "./agent-state.ts";
+import { initialAgentState, type AgentState } from "./agent-state.ts";
 import { app } from "./app.ts";
 import { RESPONSE_SENT, startSdkServer } from "./daemon/sdk-server.ts";
 import { runCliApp } from "./generated/cli.ts";
 import { fakeProcess, type CapturedProcess } from "./generated/test-util.ts";
 import { sdkSocketPath, writeAgentRecord } from "./registry.ts";
-import type { SdkEvent, SdkRequestRecord } from "./sdk-socket.ts";
+import type { AgentEvent, SdkRequestRecord } from "./sdk-socket.ts";
 import type { SessionEntry } from "./session/file.ts";
 
 const UUID_A = "00000000-0000-4000-8000-00000000000a" as UUID;
 const UUID_B = "00000000-0000-4000-8000-00000000000b" as UUID;
 const UUID_H = "00000000-0000-4000-8000-00000000000e" as UUID;
 
-const BUSY_STATE: AgentState = { ...INITIAL_AGENT_STATE, activity: "working" };
+const BUSY_STATE: AgentState = { ...initialAgentState(), activity: "working" };
 
-const RESULT_EVENT: SdkEvent = {
+const RESULT_EVENT: AgentEvent = {
   kind: "sdkMessage",
-  message: { type: "result" } as unknown as SDKMessage,
+  message: { type: "result", session_id: "s1" } as unknown as SDKMessage,
 };
 
 function userMessage(text: string): SDKUserMessage {
@@ -47,20 +47,21 @@ function userMessage(text: string): SDKUserMessage {
   } as SDKUserMessage;
 }
 
-function queuedEvent(id: number, text: string): SdkEvent {
+function queuedEvent(id: number, text: string): AgentEvent {
   return { kind: "userMessageQueued", id, message: userMessage(text) };
 }
 
-function dequeuedEvent(ids: number[]): SdkEvent {
+function dequeuedEvent(ids: number[]): AgentEvent {
   return { kind: "userMessageDequeued", delivery: "turn", ids };
 }
 
-function assistantEvent(uuid: UUID): SdkEvent {
+function assistantEvent(uuid: UUID): AgentEvent {
   return {
     kind: "sdkMessage",
     message: {
       type: "assistant",
       uuid,
+      session_id: "s1",
       message: { usage: {} },
     } as unknown as SDKMessage,
   };
@@ -93,7 +94,7 @@ async function runCommand(argv: string[]): Promise<CapturedProcess> {
 async function withPromptAgent(
   options: {
     seed?: AgentState;
-    events?: SdkEvent[];
+    events?: AgentEvent[];
     hangUp?: boolean;
     sessionEntries?: SessionEntry[];
     onPrompt?: (request: SdkRequestRecord) => Promise<unknown>;
@@ -136,7 +137,7 @@ async function withPromptAgent(
             JSON.stringify({
               id: request.id,
               ok: true,
-              data: options.seed ?? INITIAL_AGENT_STATE,
+              data: options.seed ?? initialAgentState(),
             }),
             ...(options.events ?? []).map((event) => JSON.stringify({ event })),
             "",
@@ -270,7 +271,7 @@ test("events leg starts at our dequeue, inclusive, and ends at the result", asyn
       ]);
       assert.equal(result.proc.exitCode, 0);
       const kinds = result.stdoutChunks.map(
-        (line) => (JSON.parse(line) as { event: SdkEvent }).event.kind,
+        (line) => (JSON.parse(line) as { event: AgentEvent }).event.kind,
       );
       assert.deepEqual(kinds, ["userMessageDequeued", "sdkMessage"]);
     },
@@ -356,7 +357,7 @@ test("messages leg renders only our turn's entries, not history", async () => {
 });
 
 test("/compact has no receipt and streams ungated until the result", async () => {
-  const compactSent: SdkEvent = {
+  const compactSent: AgentEvent = {
     kind: "compactSent",
     message: userMessage("/compact"),
   };
@@ -379,7 +380,7 @@ test("/compact has no receipt and streams ungated until the result", async () =>
       ]);
       assert.equal(result.proc.exitCode, 0);
       const kinds = result.stdoutChunks.map(
-        (line) => (JSON.parse(line) as { event: SdkEvent }).event.kind,
+        (line) => (JSON.parse(line) as { event: AgentEvent }).event.kind,
       );
       assert.deepEqual(kinds, ["compactSent", "sdkMessage"]);
     },

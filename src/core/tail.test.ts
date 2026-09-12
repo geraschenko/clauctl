@@ -13,13 +13,17 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
-import { INITIAL_AGENT_STATE, type AgentState } from "./agent-state.ts";
+import {
+  freshSessionState,
+  initialAgentState,
+  type AgentState,
+} from "./agent-state.ts";
 import { app } from "./app.ts";
 import { RESPONSE_SENT, startSdkServer } from "./daemon/sdk-server.ts";
 import { runCliApp } from "./generated/cli.ts";
 import { fakeProcess, type CapturedProcess } from "./generated/test-util.ts";
 import { sdkSocketPath, writeAgentRecord } from "./registry.ts";
-import type { SdkEvent } from "./sdk-socket.ts";
+import type { AgentEvent } from "./sdk-socket.ts";
 import type { SessionEntry } from "./session/file.ts";
 import { UntilSettlement } from "./tail.ts";
 
@@ -28,14 +32,25 @@ const UUID_B = "00000000-0000-4000-8000-00000000000b" as UUID;
 const UUID_C = "00000000-0000-4000-8000-00000000000c" as UUID;
 const UUID_MISSING = "00000000-0000-4000-8000-0000000000ff" as UUID;
 
-const BUSY_STATE: AgentState = { ...INITIAL_AGENT_STATE, activity: "working" };
+const BUSY_STATE: AgentState = { ...initialAgentState(), activity: "working" };
 
-const RESULT_EVENT: SdkEvent = {
+/** `base` with its query file's leaf at `uuid` (the fake daemon's session
+ *  id is "s1"). */
+function withLeaf(base: AgentState, uuid: UUID): AgentState {
+  const sessionId = "s1" as UUID;
+  return {
+    ...base,
+    querySessionId: sessionId,
+    sessions: { [sessionId]: { ...freshSessionState(), treeLeaf: { uuid } } },
+  };
+}
+
+const RESULT_EVENT: AgentEvent = {
   kind: "sdkMessage",
   message: { type: "result" } as unknown as SDKMessage,
 };
 
-function initEvent(sessionId: string): SdkEvent {
+function initEvent(sessionId: string): AgentEvent {
   return {
     kind: "sdkMessage",
     message: {
@@ -50,7 +65,7 @@ function initEvent(sessionId: string): SdkEvent {
   };
 }
 
-function assistantEvent(uuid: UUID): SdkEvent {
+function assistantEvent(uuid: UUID): AgentEvent {
   return {
     kind: "sdkMessage",
     message: {
@@ -104,7 +119,7 @@ async function withTailAgent(
   options: {
     live: boolean;
     seed?: AgentState;
-    events?: SdkEvent[];
+    events?: AgentEvent[];
     hangUp?: boolean;
     sessions: SessionSpec[];
     onDiskOnly?: SessionSpec[];
@@ -142,7 +157,7 @@ async function withTailAgent(
               JSON.stringify({
                 id: request.id,
                 ok: true,
-                data: options.seed ?? INITIAL_AGENT_STATE,
+                data: options.seed ?? initialAgentState(),
               }),
               ...(options.events ?? []).map((event) =>
                 JSON.stringify({ event }),
@@ -362,7 +377,7 @@ test("--until turn-end on an idle agent emits history and exits", async () => {
   await withTailAgent(
     {
       live: true,
-      seed: { ...INITIAL_AGENT_STATE, leaf: { uuid: UUID_B } },
+      seed: withLeaf(initialAgentState(), UUID_B),
       sessions,
     },
     async (agentId) => {
@@ -418,7 +433,7 @@ test("--until settles only after the target leaf is consumed as an entry", async
   await withTailAgent(
     {
       live: true,
-      seed: { ...BUSY_STATE, leaf: { uuid: UUID_B } },
+      seed: withLeaf(BUSY_STATE, UUID_B),
       events: [RESULT_EVENT],
       sessions,
     },
@@ -494,7 +509,7 @@ test("UntilSettlement's catch-up deadline expires naming the target and file", a
   );
   try {
     const settled = settlement.metAtSeed({
-      sdk: { ...INITIAL_AGENT_STATE, leaf: { uuid: UUID_MISSING } },
+      sdk: withLeaf(initialAgentState(), UUID_MISSING),
       entries: { seenUuids: new Set() },
     });
     // Idle at the seed, so the condition holds, but the leaf has not been

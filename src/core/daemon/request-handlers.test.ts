@@ -6,16 +6,17 @@
 
 import assert from "node:assert/strict";
 import { randomUUID, type UUID } from "node:crypto";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import fs, {
+  appendFileSync,
+  mkdirSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
+import { syncBuiltinESMExports } from "node:module";
 import { join } from "node:path";
-import { test } from "node:test";
-import type {
-  Query,
-  SDKMessage,
-  SDKUserMessage,
-} from "@anthropic-ai/claude-agent-sdk";
-import { INITIAL_AGENT_STATE } from "../agent-state.ts";
+import { test, type TestContext } from "node:test";
+import type { Query, SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
+import { initialAgentState } from "../agent-state.ts";
 import type { SessionSnapshot, TreeNodeRef } from "../tree/nodes.ts";
 import type { PersistedOptions } from "../options.ts";
 import {
@@ -24,17 +25,21 @@ import {
   type SessionEntry,
 } from "../session/file.ts";
 import type {
-  SdkEvent,
+  AgentEvent,
   SdkRequestRecord,
   SubscribeAttachment,
 } from "../sdk-socket.ts";
+import { AnomalyRecorder } from "./anomaly-bundle.ts";
 import { EventHub } from "./event-hub.ts";
 import {
   createRequestHandler,
   type RequestHandlerDeps,
 } from "./request-handlers.ts";
+import { RwGate } from "./rw-gate.ts";
 import { RESPONSE_SENT, type SdkConnection } from "./sdk-server.ts";
+import { TrackedSessionLog } from "./tracked-session-log.ts";
 import type { TurnQueue } from "./turn-queue.ts";
+import { tempDir } from "../../test-support/temp-dir.ts";
 
 const uuid = (): UUID => randomUUID();
 
@@ -123,14 +128,22 @@ interface Fixture {
   events: EventHub;
   pushed: SDKUserMessage[];
   persisted: PersistedOptions[];
-  emitted: SdkEvent[];
+  /** Every hub event except the session log's own (`sessionFileChanged`,
+   *  `scanComplete`, `sessionEntry`), which every file write produces. */
+  emitted: AgentEvent[];
   teardowns: number;
   restarts: string[];
   registeredAttachments: SubscribeAttachment[];
   deregisteredAttachments: SubscribeAttachment[];
   sessionId: UUID;
   file: string;
+  /** The history a (re)started daemon finds on disk: writes the file and
+   *  starts tracking it (scanned, so excluded from query matching). Once
+   *  per fixture. */
   writeEntries: (entries: SessionEntry[]) => void;
+  /** What the CLI writes while running: appended after the scan and
+   *  drained into the tracker. */
+  appendEntries: (entries: SessionEntry[]) => void;
 }
 
 interface FixtureOptions {
@@ -140,35 +153,58 @@ interface FixtureOptions {
   withSession?: boolean;
   teardownQuery?: () => Promise<void>;
   restartQuery?: () => Promise<void>;
-  /** Written to the session file BEFORE the handler is created: history a
-   *  (re)started daemon finds on disk. */
-  initialEntries?: (sessionId: UUID) => SessionEntry[];
 }
 
-function fixture(options: FixtureOptions = {}): Fixture {
+const LOG_EVENT_KINDS = new Set<AgentEvent["kind"]>([
+  "sessionFileChanged",
+  "scanComplete",
+  "sessionEntry",
+]);
+
+function fixture(t: TestContext, options: FixtureOptions = {}): Fixture {
   const pushed: SDKUserMessage[] = [];
   const persisted: PersistedOptions[] = [];
   let persistedOptions: PersistedOptions = options.persistedOptions ?? {};
   const sessionId = uuid();
   const cwd = "/work/fixture";
-  const configDir = mkdtempSync(join(tmpdir(), "clauctl-rh-"));
+  const configDir = tempDir("rh", t);
   // Settings resolution reads CLAUDE_CONFIG_DIR at call time; tests in one
   // file run sequentially, so this does not race.
   process.env.CLAUDE_CONFIG_DIR = configDir;
   const file = sessionFilePath(configDir, cwd, sessionId);
   mkdirSync(join(configDir, "projects", "-work-fixture"), { recursive: true });
-  const events = new EventHub({
+  const events: EventHub = new EventHub({
     seed: {
-      ...INITIAL_AGENT_STATE,
+      ...initialAgentState(),
       cwd,
-      ...(options.withSession !== false && { sessionId }),
+      ...(options.withSession !== false && { querySessionId: sessionId }),
     },
     deliver: (message) => pushed.push(message),
+    tracker: () => trackedLog.tracker,
+    log: () => {},
+    anomalies: new AnomalyRecorder(configDir),
   });
-  const emitted: SdkEvent[] = [];
-  events.subscribe((line) => {
-    emitted.push((JSON.parse(line) as { event: SdkEvent }).event);
+  const failLoudly = (message: string): never => {
+    throw new Error(`unexpected daemon-log diagnostic: ${message}`);
+  };
+  const gate = new RwGate();
+  const trackedLog: TrackedSessionLog = new TrackedSessionLog({
+    hub: events,
+    gate,
+    sessionFilePath: (id) => sessionFilePath(configDir, cwd, id),
+    onInvalid: failLoudly,
+    log: failLoudly,
   });
+  t.after(() => trackedLog.close());
+  const emitted: AgentEvent[] = [];
+  events.subscribe((event) => {
+    if (!LOG_EVENT_KINDS.has(event.kind)) {
+      emitted.push(event);
+    }
+  });
+  const serialize = (entries: SessionEntry[]): string =>
+    entries.map((entry) => `${JSON.stringify(entry)}\n`).join("");
+  let started = false;
   const f: Fixture = {
     handle: (request, connection = { write: () => {}, onClose: () => {} }) =>
       handler(request, connection),
@@ -183,24 +219,27 @@ function fixture(options: FixtureOptions = {}): Fixture {
     sessionId,
     file,
     writeEntries: (entries) => {
-      writeFileSync(
-        file,
-        entries.map((entry) => `${JSON.stringify(entry)}\n`).join(""),
-      );
+      assert.equal(started, false, "writeEntries is the pre-start history");
+      started = true;
+      writeFileSync(file, serialize(entries));
+      trackedLog.start(sessionId);
+    },
+    appendEntries: (entries) => {
+      appendFileSync(file, serialize(entries));
+      trackedLog.drainVisibleBytes();
     },
   };
   const deps: RequestHandlerDeps = {
     getQuery: () => (options.claudeQuery ?? {}) as Query,
     events,
+    gate,
     // The compact path only pushes; a recording stub suffices.
     getTurnQueue: () =>
       ({
         push: (message: SDKUserMessage) => pushed.push(message),
       }) as unknown as TurnQueue,
     cwd,
-    log: (message) => {
-      throw new Error(`unexpected daemon-log diagnostic: ${message}`);
-    },
+    log: failLoudly,
     getPersistedOptions: () => persistedOptions,
     setPersistedOptions: (next) => {
       persistedOptions = next;
@@ -215,14 +254,12 @@ function fixture(options: FixtureOptions = {}): Fixture {
       f.restarts.push(resume);
       await options.restartQuery?.();
     },
+    trackedLog,
     registerAttachment: (info) => {
       f.registeredAttachments.push(info);
       return () => f.deregisteredAttachments.push(info);
     },
   };
-  if (options.initialEntries !== undefined) {
-    f.writeEntries(options.initialEntries(sessionId));
-  }
   const handler = createRequestHandler(deps);
   return f;
 }
@@ -265,8 +302,8 @@ function linearSession(f: Fixture): {
 
 // --- pre-existing request semantics ------------------------------------------
 
-test("prompt delivers through the hub and returns the acceptance receipt", async () => {
-  const f = fixture();
+test("prompt delivers through the hub and returns the acceptance receipt", async (t) => {
+  const f = fixture(t);
   const result = await f.handle({ type: "prompt", content: "hi", id: "r1" });
   assert.deepEqual(result, { id: 1 });
   assert.equal(f.pushed.length, 1);
@@ -274,8 +311,8 @@ test("prompt delivers through the hub and returns the acceptance receipt", async
   assert.equal(f.events.agentState.activity, "pending");
 });
 
-test("/compact while idle pushes directly and emits compactSent", async () => {
-  const f = fixture();
+test("/compact while idle pushes directly and emits compactSent", async (t) => {
+  const f = fixture(t);
   await f.handle({ type: "prompt", content: "/compact", id: "r1" });
   assert.equal(f.pushed.length, 1);
   assert.deepEqual(f.pushed[0]!.origin, { kind: "human" });
@@ -286,8 +323,8 @@ test("/compact while idle pushes directly and emits compactSent", async () => {
   assert.equal(f.events.agentState.activity, "compacting");
 });
 
-test("/compact is rejected when not idle", async () => {
-  const f = fixture();
+test("/compact is rejected when not idle", async (t) => {
+  const f = fixture(t);
   f.events.deliverUserMessage(userMessage());
   assert.equal(f.events.agentState.activity, "pending");
   await assert.rejects(
@@ -296,8 +333,8 @@ test("/compact is rejected when not idle", async () => {
   );
 });
 
-test("subscribe writes its own response carrying events.agentState", async () => {
-  const f = fixture();
+test("subscribe writes its own response carrying events.agentState", async (t) => {
+  const f = fixture(t);
   f.events.deliverUserMessage(userMessage());
   const written: string[] = [];
   const connection: SdkConnection = {
@@ -324,8 +361,8 @@ test("subscribe writes its own response carrying events.agentState", async () =>
   assert.equal(f.registeredAttachments.length, 0);
 });
 
-test("subscribe with an attachment registers it and deregisters on connection close", async () => {
-  const f = fixture();
+test("subscribe with an attachment registers it and deregisters on connection close", async (t) => {
+  const f = fixture(t);
   const closers: Array<() => void> = [];
   const connection: SdkConnection = {
     write: () => {},
@@ -352,8 +389,8 @@ test("subscribe with an attachment registers it and deregisters on connection cl
   ]);
 });
 
-test("subscribe rejects a malformed attachment before any side effect", async () => {
-  const f = fixture();
+test("subscribe rejects a malformed attachment before any side effect", async (t) => {
+  const f = fixture(t);
   const written: string[] = [];
   const connection: SdkConnection = {
     write: (line) => written.push(line),
@@ -377,8 +414,8 @@ test("subscribe rejects a malformed attachment before any side effect", async ()
 // runRead's switch has no default, so without the explicit rejection an
 // unknown type would fall through to `ok: true` — an old CLI's archive would
 // take a false "wait-idle" acknowledgement as "idle" and SIGTERM a busy agent.
-test("an unknown request type (e.g. legacy wait-idle) is rejected, not acknowledged", async () => {
-  const f = fixture();
+test("an unknown request type (e.g. legacy wait-idle) is rejected, not acknowledged", async (t) => {
+  const f = fixture(t);
   await assert.rejects(
     f.handle({ type: "wait-idle", id: "w1" } as unknown as SdkRequestRecord),
     /unknown request type: wait-idle/,
@@ -391,14 +428,14 @@ test("an unknown request type (e.g. legacy wait-idle) is rejected, not acknowled
   );
 });
 
-test("get-context with no session returns [] without touching the transcript", async () => {
-  const f = fixture({ withSession: false });
+test("get-context with no session returns [] without touching the transcript", async (t) => {
+  const f = fixture(t, { withSession: false });
   assert.deepEqual(await f.handle({ type: "get-context", id: "g1" }), []);
 });
 
-test("interrupt returns the SDK queue-survival receipt and emits its event", async () => {
+test("interrupt returns the SDK queue-survival receipt and emits its event", async (t) => {
   const stillQueued = [uuid(), uuid()];
-  const f = fixture({
+  const f = fixture(t, {
     claudeQuery: {
       interrupt: async () => ({ still_queued: stillQueued }),
     },
@@ -412,7 +449,7 @@ test("interrupt returns the SDK queue-survival receipt and emits its event", asy
   );
 });
 
-test("two in-flight mutations do not interleave: apply and persist run as a chain", async () => {
+test("two in-flight mutations do not interleave: apply and persist run as a chain", async (t) => {
   const order: string[] = [];
   const gates: Array<() => void> = [];
   const claudeQuery: Partial<Query> = {
@@ -421,7 +458,7 @@ test("two in-flight mutations do not interleave: apply and persist run as a chai
       return new Promise((resolve) => gates.push(() => resolve(undefined)));
     },
   };
-  const f = fixture({ claudeQuery });
+  const f = fixture(t, { claudeQuery });
   const first = f.handle({ type: "set-model", model: "a", id: "m1" });
   const second = f.handle({ type: "set-model", model: "b", id: "m2" });
   // Flush microtasks so both handlers reach the chain, then check that only
@@ -439,7 +476,7 @@ test("two in-flight mutations do not interleave: apply and persist run as a chai
   );
 });
 
-test("a failed mutation rejects its requester without poisoning the chain", async () => {
+test("a failed mutation rejects its requester without poisoning the chain", async (t) => {
   let calls = 0;
   const claudeQuery: Partial<Query> = {
     setModel: () => {
@@ -449,7 +486,7 @@ test("a failed mutation rejects its requester without poisoning the chain", asyn
         : Promise.resolve(undefined);
     },
   };
-  const f = fixture({ claudeQuery });
+  const f = fixture(t, { claudeQuery });
   await assert.rejects(f.handle({ type: "set-model", model: "a", id: "m1" }));
   await f.handle({ type: "set-model", model: "b", id: "m2" });
   assert.deepEqual(
@@ -458,12 +495,12 @@ test("a failed mutation rejects its requester without poisoning the chain", asyn
   );
 });
 
-test("apply-flag-settings effortLevel null emits the resolved post-clear level", async () => {
+test("apply-flag-settings effortLevel null emits the resolved post-clear level", async (t) => {
   const claudeQuery: Partial<Query> = {
     applyFlagSettings: async () => undefined,
   };
   // The spawn --effort flag wins the post-clear resolution.
-  const f = fixture({ claudeQuery, persistedOptions: { effort: "max" } });
+  const f = fixture(t, { claudeQuery, persistedOptions: { effort: "max" } });
   await f.handle({
     type: "apply-flag-settings",
     settings: { effortLevel: null },
@@ -475,14 +512,14 @@ test("apply-flag-settings effortLevel null emits the resolved post-clear level",
   assert.equal(applied.request.settings.effortLevel, "max");
 });
 
-test("apply-flag-settings rejects an unknown effortLevel; no controlApplied is emitted", async () => {
+test("apply-flag-settings rejects an unknown effortLevel; no controlApplied is emitted", async (t) => {
   let applied = 0;
   const claudeQuery: Partial<Query> = {
     applyFlagSettings: async () => {
       applied += 1;
     },
   };
-  const f = fixture({ claudeQuery });
+  const f = fixture(t, { claudeQuery });
   await assert.rejects(
     f.handle({
       type: "apply-flag-settings",
@@ -507,13 +544,13 @@ test("apply-flag-settings rejects an unknown effortLevel; no controlApplied is e
   );
 });
 
-test("apply-flag-settings effortLevel null stays null when no tier specifies one", async () => {
+test("apply-flag-settings effortLevel null stays null when no tier specifies one", async (t) => {
   const claudeQuery: Partial<Query> = {
     applyFlagSettings: async () => undefined,
   };
   // No --effort flag; the fixture's isolated CLAUDE_CONFIG_DIR has no
   // settings, so the cascade yields nothing.
-  const f = fixture({ claudeQuery });
+  const f = fixture(t, { claudeQuery });
   await f.handle({
     type: "apply-flag-settings",
     settings: { effortLevel: null },
@@ -527,8 +564,76 @@ test("apply-flag-settings effortLevel null stays null when no tier specifies one
 
 // --- get-entries -----------------------------------------------------------
 
-test("get-entries returns every entry verbatim plus the chain-tip leaf", async () => {
-  const f = fixture();
+/** Meter of the session log's reads from now until the test ends: whole-file
+ *  reads (readFileSync of the log) and bytes read through fds opened on it.
+ *  The mocks replace the `fs` object's methods; syncBuiltinESMExports makes
+ *  the named imports file.ts/entry-stream.ts hold follow. */
+function meterLogReads(
+  t: TestContext,
+  logPath: string,
+): () => { wholeFileReads: number; bytes: number } {
+  const openSync = t.mock.method(fs, "openSync");
+  const readSync = t.mock.method(fs, "readSync");
+  const readFileSync = t.mock.method(fs, "readFileSync");
+  syncBuiltinESMExports();
+  t.after(() => {
+    t.mock.restoreAll();
+    syncBuiltinESMExports();
+  });
+  return () => {
+    const logFds = new Set(
+      openSync.mock.calls
+        .filter((call) => call.arguments[0] === logPath)
+        .map((call) => call.result),
+    );
+    return {
+      wholeFileReads: readFileSync.mock.calls.filter(
+        (call) => call.arguments[0] === logPath,
+      ).length,
+      bytes: readSync.mock.calls
+        .filter((call) => logFds.has(call.arguments[0]))
+        .reduce((total, call) => total + (call.result ?? 0), 0),
+    };
+  };
+}
+
+const lineBytes = (entry: SessionEntry): number =>
+  Buffer.byteLength(`${JSON.stringify(entry)}\n`);
+
+// Criterion 1: the startup scan is the follower's one read of the file;
+// afterwards requests read the log only at the recorded byte ranges of the
+// entries they serve, never the whole file, and a set-context's own append
+// reaches the tracker through the follower's incremental read.
+test("after the startup scan, requests read only the byte ranges they serve", async (t) => {
+  const f = fixture(t);
+  const reads = meterLogReads(t, f.file);
+  const { u1, a1, u2, a2 } = linearSession(f);
+  const historyBytes = [u1, a1, u2, a2].reduce(
+    (total, entry) => total + lineBytes(entry),
+    0,
+  );
+  let expectedBytes = historyBytes;
+  assert.deepEqual(reads(), { wholeFileReads: 0, bytes: expectedBytes });
+  await f.handle({ type: "get-entries", id: "e1" });
+  expectedBytes += historyBytes;
+  assert.deepEqual(reads(), { wholeFileReads: 0, bytes: expectedBytes });
+  await f.handle({ type: "get-entries", since: u2.uuid, id: "e2" });
+  expectedBytes += lineBytes(a2);
+  assert.deepEqual(reads(), { wholeFileReads: 0, bytes: expectedBytes });
+  // get-context serves complete entries in phase 3, so it reads the two
+  // it serves.
+  await f.handle({ type: "get-context", at: { uuid: a1.uuid }, id: "g1" });
+  expectedBytes += lineBytes(u1) + lineBytes(a1);
+  assert.deepEqual(reads(), { wholeFileReads: 0, bytes: expectedBytes });
+  await f.handle({ type: "set-context", uuids: [u2.uuid, a2.uuid], id: "c1" });
+  // Validation normalizes against every entry (one read per entry), then the
+  // follower reads the appended boundary line.
+  expectedBytes += historyBytes + (statSync(f.file).size - historyBytes);
+  assert.deepEqual(reads(), { wholeFileReads: 0, bytes: expectedBytes });
+});
+
+test("get-entries returns every entry verbatim plus the chain-tip leaf", async (t) => {
+  const f = fixture(t);
   const { u1, a2 } = linearSession(f);
   const snapshot = (await f.handle({
     type: "get-entries",
@@ -539,8 +644,24 @@ test("get-entries returns every entry verbatim plus the chain-tip leaf", async (
   assert.deepEqual(snapshot.leaf, { uuid: a2.uuid });
 });
 
-test("get-entries returns an empty snapshot without a session", async () => {
-  const f = fixture({ withSession: false });
+test("get-entries --since returns the canonical entries after the cursor; an unknown cursor errors", async (t) => {
+  const f = fixture(t);
+  const { a1, u2, a2 } = linearSession(f);
+  const snapshot = (await f.handle({
+    type: "get-entries",
+    since: a1.uuid,
+    id: "e1",
+  })) as SessionSnapshot;
+  assert.deepEqual(snapshot.entries, [u2, a2]);
+  assert.deepEqual(snapshot.leaf, { uuid: a2.uuid });
+  await assert.rejects(
+    f.handle({ type: "get-entries", since: uuid(), id: "e2" }),
+    /unknown entry uuid/,
+  );
+});
+
+test("get-entries returns an empty snapshot without a session", async (t) => {
+  const f = fixture(t, { withSession: false });
   const snapshot = (await f.handle({
     type: "get-entries",
     id: "e1",
@@ -550,8 +671,8 @@ test("get-entries returns an empty snapshot without a session", async () => {
 
 // --- set-context validation ------------------------------------------------
 
-test("set-context rejects while busy, before any teardown", async () => {
-  const f = fixture();
+test("set-context rejects while busy, before any teardown", async (t) => {
+  const f = fixture(t);
   linearSession(f);
   f.events.deliverUserMessage(userMessage());
   await assert.rejects(
@@ -561,8 +682,8 @@ test("set-context rejects while busy, before any teardown", async () => {
   assert.equal(f.teardowns, 0);
 });
 
-test("set-context rejects delivered-but-unconfirmed prompts as busy", async () => {
-  const f = fixture();
+test("set-context rejects delivered-but-unconfirmed prompts as busy", async (t) => {
+  const f = fixture(t);
   linearSession(f);
   const appendOnly: SDKUserMessage = { ...userMessage(), shouldQuery: false };
   f.events.deliverUserMessage(appendOnly);
@@ -573,8 +694,8 @@ test("set-context rejects delivered-but-unconfirmed prompts as busy", async () =
   );
 });
 
-test("set-context rejects unknown and duplicate uuid lists", async () => {
-  const f = fixture();
+test("set-context rejects unknown and duplicate uuid lists", async (t) => {
+  const f = fixture(t);
   const { u1 } = linearSession(f);
   const stranger = uuid();
   await assert.rejects(
@@ -589,8 +710,8 @@ test("set-context rejects unknown and duplicate uuid lists", async () => {
   assert.equal(f.restarts.length, 0);
 });
 
-test("set-context errors without a session", async () => {
-  const f = fixture({ withSession: false });
+test("set-context errors without a session", async (t) => {
+  const f = fixture(t, { withSession: false });
   await assert.rejects(
     f.handle({ type: "set-context", uuids: [uuid()], id: "c1" }),
     /no session yet/,
@@ -599,8 +720,8 @@ test("set-context errors without a session", async () => {
 
 // --- set-context boundary mode -----------------------------------------------
 
-test("boundary mode appends boundary+summary, restarts, broadcasts", async () => {
-  const f = fixture();
+test("boundary mode appends boundary+summary, restarts, broadcasts", async (t) => {
+  const f = fixture(t);
   const { u2, a2 } = linearSession(f);
   const result = (await f.handle({
     type: "set-context",
@@ -628,7 +749,7 @@ test("boundary mode appends boundary+summary, restarts, broadcasts", async () =>
 
   assert.deepEqual(
     f.emitted.map((event) => event.kind),
-    ["contextChanged"],
+    ["sessionAppended", "contextChanged"],
   );
   // The effective context (what get-context returns): summary first, then
   // the preserved uuids.
@@ -639,8 +760,8 @@ test("boundary mode appends boundary+summary, restarts, broadcasts", async () =>
   ]);
 });
 
-test("boundary mode without summary uses the boundary's own uuid as anchor", async () => {
-  const f = fixture();
+test("boundary mode without summary uses the boundary's own uuid as anchor", async (t) => {
+  const f = fixture(t);
   const { u2, a2 } = linearSession(f);
   const result = (await f.handle({
     type: "set-context",
@@ -657,8 +778,8 @@ test("boundary mode without summary uses the boundary's own uuid as anchor", asy
   assert.deepEqual(await contextUuids(f), [u2.uuid, a2.uuid]);
 });
 
-test("boundary mode completes a split tool pair and reports what it added", async () => {
-  const f = fixture();
+test("boundary mode completes a split tool pair and reports what it added", async (t) => {
+  const f = fixture(t);
   const sid = f.sessionId;
   const u1 = userEntry(null, sid, "run it");
   const call: SessionEntry & { uuid: UUID } = {
@@ -705,8 +826,8 @@ test("boundary mode completes a split tool pair and reports what it added", asyn
 
 // --- set-context rewind mode ---------------------------------------------------
 
-test("rewind on the active chain appends a no-summary boundary listing the context at the target", async () => {
-  const f = fixture();
+test("rewind on the active chain appends a no-summary boundary listing the context at the target", async (t) => {
+  const f = fixture(t);
   const { u1, a1 } = linearSession(f);
   const result = (await f.handle({
     type: "set-context",
@@ -729,7 +850,7 @@ test("rewind on the active chain appends a no-summary boundary listing the conte
   assert.equal(metadata.preservedMessages.anchorUuid, result.boundaryUuid);
   assert.deepEqual(
     f.emitted.map((event) => event.kind),
-    ["contextChanged"],
+    ["sessionAppended", "contextChanged"],
   );
   assert.deepEqual(await contextUuids(f), [u1.uuid, a1.uuid]);
   const snapshot = (await f.handle({
@@ -742,8 +863,8 @@ test("rewind on the active chain appends a no-summary boundary listing the conte
   });
 });
 
-test("rewind with appended uuids lists the context at the target followed by the append", async () => {
-  const f = fixture();
+test("rewind with appended uuids lists the context at the target followed by the append", async (t) => {
+  const f = fixture(t);
   const sid = f.sessionId;
   const u1 = userEntry(null, sid);
   const a1 = assistantEntry(u1.uuid, sid);
@@ -782,8 +903,8 @@ test("rewind with appended uuids lists the context at the target followed by the
 // The context at an assistant includes the turn_duration rows the loader
 // keeps; a rewind lists them verbatim (unlike a hand-written list, which
 // normalization would have to complete).
-test("rewind lists the system:turn_duration entries in the target's context", async () => {
-  const f = fixture();
+test("rewind lists the system:turn_duration entries in the target's context", async (t) => {
+  const f = fixture(t);
   const sid = f.sessionId;
   const u1 = userEntry(null, sid);
   const a1 = assistantEntry(u1.uuid, sid);
@@ -817,8 +938,8 @@ test("rewind lists the system:turn_duration entries in the target's context", as
   assert.equal(boundary.logicalParentUuid, a2.uuid);
 });
 
-test("rewind to an abandoned branch appends a no-summary boundary", async () => {
-  const f = fixture();
+test("rewind to an abandoned branch appends a no-summary boundary", async (t) => {
+  const f = fixture(t);
   const sid = f.sessionId;
   const u1 = userEntry(null, sid);
   const a1 = assistantEntry(u1.uuid, sid);
@@ -847,9 +968,9 @@ test("rewind to an abandoned branch appends a no-summary boundary", async () => 
     a2a.uuid,
   ]);
   assert.equal(metadata.preservedMessages.anchorUuid, result.boundaryUuid);
-  // After the boundary append, the leaf is the new effective tip straight
-  // from the re-read file (no override involvement) — a relinked node, since
-  // the chain ends inside the boundary's relink (no post entries).
+  // After the boundary append, the leaf is the tracker's tip — a relinked
+  // node, since the chain ends inside the boundary's relink (no post
+  // entries).
   const snapshot = (await f.handle({
     type: "get-entries",
     id: "t1",
@@ -862,8 +983,8 @@ test("rewind to an abandoned branch appends a no-summary boundary", async () => 
 
 // logicalParentUuid is structural: the deepest context-tree occurrence the
 // preserved list reproduces, independent of which boundary is current.
-test("boundaries written after a rewind take structural logicalParentUuids", async () => {
-  const f = fixture();
+test("boundaries written after a rewind take structural logicalParentUuids", async (t) => {
+  const f = fixture(t);
   const sid = f.sessionId;
   const u1 = userEntry(null, sid);
   const a1 = assistantEntry(u1.uuid, sid);
@@ -896,11 +1017,11 @@ test("boundaries written after a rewind take structural logicalParentUuids", asy
 
 // --- get-context ---------------------------------------------------------------
 
-// The context is read from the file through the context tree, so a
-// branch-switch rewind (whose boundary the SDK's own getSessionMessages
-// misreads — FINDINGS.md P9 a/b) is served correctly with no daemon state.
-test("get-context after a branch-switch rewind lists the rewound branch", async () => {
-  const f = fixture();
+// The context is served from the tracker's context tree, so a branch-switch
+// rewind (whose boundary the SDK's own getSessionMessages misreads —
+// FINDINGS.md P9 a/b) is served correctly.
+test("get-context after a branch-switch rewind lists the rewound branch", async (t) => {
+  const f = fixture(t);
   const sid = f.sessionId;
   const u1 = userEntry(null, sid);
   const a1 = assistantEntry(u1.uuid, sid);
@@ -922,70 +1043,51 @@ test("get-context after a branch-switch rewind lists the rewound branch", async 
   ]);
 });
 
-test("get-context follows the next transcript write past a boundary", async () => {
-  const f = fixture();
+test("get-context follows the next transcript write past a boundary", async (t) => {
+  const f = fixture(t);
   const { u2, a2 } = linearSession(f);
   await f.handle({ type: "set-context", uuids: [u2.uuid, a2.uuid], id: "c1" });
   const u3 = userEntry(a2.uuid, f.sessionId, "post-boundary turn");
-  f.writeEntries([...readSessionEntries(f.file), u3]);
-  f.events.observeSdkMessage({
-    type: "user",
-    uuid: u3.uuid,
-    session_id: f.sessionId,
-    message: { role: "user", content: "post-boundary turn" },
-    parent_tool_use_id: null,
-  } as SDKMessage);
+  f.appendEntries([u3]);
   assert.deepEqual(await contextUuids(f), [u2.uuid, a2.uuid, u3.uuid]);
 });
 
 // Restart independence: a daemon that starts on a file already holding a
 // boundary serves the same context as the daemon that wrote it.
-test("get-context after a restart honors a boundary preserving an older prefix", async () => {
-  let entries!: ReturnType<typeof linearSession>;
-  const f = fixture({
-    initialEntries: (sid) => {
-      const u1 = userEntry(null, sid);
-      const a1 = assistantEntry(u1.uuid, sid);
-      const u2 = userEntry(a1.uuid, sid);
-      const a2 = assistantEntry(u2.uuid, sid);
-      entries = { u1, a1, u2, a2 };
-      return [
-        u1,
-        a1,
-        u2,
-        a2,
-        boundaryEntry({
-          sessionId: sid,
-          uuids: [u1.uuid, a1.uuid],
-          anchor: "own",
-        }),
-      ];
-    },
-  });
-  assert.deepEqual(await contextUuids(f), [entries.u1.uuid, entries.a1.uuid]);
+test("get-context after a restart honors a boundary preserving an older prefix", async (t) => {
+  const f = fixture(t);
+  const sid = f.sessionId;
+  const u1 = userEntry(null, sid);
+  const a1 = assistantEntry(u1.uuid, sid);
+  const u2 = userEntry(a1.uuid, sid);
+  const a2 = assistantEntry(u2.uuid, sid);
+  f.writeEntries([
+    u1,
+    a1,
+    u2,
+    a2,
+    boundaryEntry({ sessionId: sid, uuids: [u1.uuid, a1.uuid], anchor: "own" }),
+  ]);
+  assert.deepEqual(await contextUuids(f), [u1.uuid, a1.uuid]);
 });
 
-test("get-context after a restart includes turns written after the boundary", async () => {
-  let chain!: UUID[];
-  const f = fixture({
-    initialEntries: (sid) => {
-      const u1 = userEntry(null, sid);
-      const a1 = assistantEntry(u1.uuid, sid);
-      const boundary = boundaryEntry({
-        sessionId: sid,
-        uuids: [u1.uuid, a1.uuid],
-        anchor: "own",
-      });
-      const u2 = userEntry(a1.uuid, sid, "post-boundary turn");
-      chain = [u1.uuid, a1.uuid, u2.uuid];
-      return [u1, a1, boundary, u2];
-    },
+test("get-context after a restart includes turns written after the boundary", async (t) => {
+  const f = fixture(t);
+  const sid = f.sessionId;
+  const u1 = userEntry(null, sid);
+  const a1 = assistantEntry(u1.uuid, sid);
+  const boundary = boundaryEntry({
+    sessionId: sid,
+    uuids: [u1.uuid, a1.uuid],
+    anchor: "own",
   });
-  assert.deepEqual(await contextUuids(f), chain);
+  const u2 = userEntry(a1.uuid, sid, "post-boundary turn");
+  f.writeEntries([u1, a1, boundary, u2]);
+  assert.deepEqual(await contextUuids(f), [u1.uuid, a1.uuid, u2.uuid]);
 });
 
-test("get-context default equals the context at the get-entries leaf", async () => {
-  const f = fixture();
+test("get-context default equals the context at the get-entries leaf", async (t) => {
+  const f = fixture(t);
   const { u1, a1 } = linearSession(f);
   await f.handle({
     type: "set-context",
@@ -1001,15 +1103,15 @@ test("get-context default equals the context at the get-entries leaf", async () 
   assert.deepEqual(await contextUuids(f, snapshot.leaf!), [u1.uuid, a1.uuid]);
 });
 
-test("get-context --at serves a raw occurrence and a relinked one", async () => {
-  const f = fixture();
+test("get-context --at serves a raw occurrence and a relinked one", async (t) => {
+  const f = fixture(t);
   const { u1, a1, u2, a2 } = linearSession(f);
   const boundary = boundaryEntry({
     sessionId: f.sessionId,
     uuids: [u1.uuid, a1.uuid],
     anchor: "own",
   });
-  f.writeEntries([u1, a1, u2, a2, boundary]);
+  f.appendEntries([boundary]);
   assert.deepEqual(await contextUuids(f, { uuid: a2.uuid }), [
     u1.uuid,
     a1.uuid,
@@ -1022,8 +1124,8 @@ test("get-context --at serves a raw occurrence and a relinked one", async () => 
   );
 });
 
-test("get-context --at rejects an occurrence absent from the context tree", async () => {
-  const f = fixture();
+test("get-context --at rejects an occurrence absent from the context tree", async (t) => {
+  const f = fixture(t);
   const { a1 } = linearSession(f);
   await assert.rejects(
     f.handle({
@@ -1041,8 +1143,8 @@ test("get-context --at rejects an occurrence absent from the context tree", asyn
 
 // Every entry on the context path is returned verbatim, including the
 // kinds the stream fold ignores (isMeta prompts, system entries).
-test("get-context returns isMeta and system entries verbatim", async () => {
-  const f = fixture();
+test("get-context returns isMeta and system entries verbatim", async (t) => {
+  const f = fixture(t);
   const sid = f.sessionId;
   const u1 = userEntry(null, sid);
   const a1 = assistantEntry(u1.uuid, sid);
@@ -1066,8 +1168,8 @@ test("get-context returns isMeta and system entries verbatim", async () => {
 
 // Re-persisted copies (a legal file shape; see cli-history-repersistence
 // FINDINGS) are first-wins duplicates for the tree.
-test("rewind in a file with re-persisted copies lists the first occurrences' context", async () => {
-  const f = fixture();
+test("rewind in a file with re-persisted copies lists the first occurrences' context", async (t) => {
+  const f = fixture(t);
   const sid = f.sessionId;
   const u1 = userEntry(null, sid);
   const a1 = assistantEntry(u1.uuid, sid);
@@ -1086,8 +1188,8 @@ test("rewind in a file with re-persisted copies lists the first occurrences' con
   assert.deepEqual(f.restarts, [f.sessionId]);
 });
 
-test("rewind to a member of a boundary's preserved uuids resurrects the summarized region", async () => {
-  const f = fixture();
+test("rewind to a member of a boundary's preserved uuids resurrects the summarized region", async (t) => {
+  const f = fixture(t);
   const sid = f.sessionId;
   const u1 = userEntry(null, sid);
   const a1 = assistantEntry(u1.uuid, sid);
@@ -1123,8 +1225,8 @@ test("rewind to a member of a boundary's preserved uuids resurrects the summariz
   ]);
 });
 
-test("rewind accepts any context-tree occurrence; an absent one is rejected before teardown", async () => {
-  const f = fixture();
+test("rewind accepts any context-tree occurrence; an absent one is rejected before teardown", async (t) => {
+  const f = fixture(t);
   const sid = f.sessionId;
   const u1 = userEntry(null, sid);
   const thinking = assistantEntry(u1.uuid, sid, "msg_shared");
@@ -1160,12 +1262,12 @@ test("rewind accepts any context-tree occurrence; an absent one is rejected befo
 
 // --- gate and restart-failure behavior -----------------------------------------
 
-test("while a context change is in flight, Query-bound requests error and reads wait", async () => {
+test("while a context change is in flight, Query-bound requests error and reads wait", async (t) => {
   let releaseTeardown!: () => void;
   const teardownGate = new Promise<void>((resolve) => {
     releaseTeardown = resolve;
   });
-  const f = fixture({ teardownQuery: () => teardownGate });
+  const f = fixture(t, { teardownQuery: () => teardownGate });
   const { a1 } = linearSession(f);
   const setContext = f.handle({
     type: "set-context",
@@ -1196,7 +1298,7 @@ test("while a context change is in flight, Query-bound requests error and reads 
   assert.equal(((await read) as SessionSnapshot).entries.length, 5);
 });
 
-test("set-context drains in-flight Query operations before teardown", async () => {
+test("set-context drains in-flight Query operations before teardown", async (t) => {
   let resolveInterrupt!: () => void;
   const claudeQuery: Partial<Query> = {
     interrupt: () =>
@@ -1204,7 +1306,7 @@ test("set-context drains in-flight Query operations before teardown", async () =
         resolveInterrupt = () => resolve(undefined);
       }),
   };
-  const f = fixture({ claudeQuery });
+  const f = fixture(t, { claudeQuery });
   const { a1 } = linearSession(f);
   const interrupt = f.handle({ type: "interrupt", id: "i1" });
   await new Promise((resolve) => setImmediate(resolve));
@@ -1221,9 +1323,9 @@ test("set-context drains in-flight Query operations before teardown", async () =
   assert.equal(f.teardowns, 1);
 });
 
-test("restart failure leaves the daemon query-unavailable until a set-context succeeds", async () => {
+test("restart failure leaves the daemon query-unavailable until a set-context succeeds", async (t) => {
   let failRestart = true;
-  const f = fixture({
+  const f = fixture(t, {
     restartQuery: () =>
       failRestart
         ? Promise.reject(new Error("spawn failed"))
@@ -1243,7 +1345,7 @@ test("restart failure leaves the daemon query-unavailable until a set-context su
   assert.equal(readSessionEntries(f.file).length, 5);
   assert.deepEqual(
     f.emitted.map((event) => event.kind),
-    ["contextChanged"],
+    ["sessionAppended", "contextChanged"],
   );
   // Query-bound requests error; file reads keep working.
   await assert.rejects(
@@ -1270,8 +1372,8 @@ test("restart failure leaves the daemon query-unavailable until a set-context su
   assert.equal(f.pushed.length, 1);
 });
 
-test("a later boundary listing the full chain restores the rewound-away tail", async () => {
-  const f = fixture();
+test("a later boundary listing the full chain restores the rewound-away tail", async (t) => {
+  const f = fixture(t);
   const { u1, a1, u2, a2 } = linearSession(f);
   await f.handle({
     type: "set-context",
@@ -1289,14 +1391,14 @@ test("a later boundary listing the full chain restores the rewound-away tail", a
 // The contextChanged.leaf invariant: the event carries exactly the leaf a
 // post-change get-entries reports (the empty and viaBoundary paths are
 // pinned in their own tests below).
-test("contextChanged.leaf equals the post-change get-entries leaf (explicit list and rewind)", async () => {
+test("contextChanged.leaf equals the post-change get-entries leaf (explicit list and rewind)", async (t) => {
   const lastContextChanged = (f: Fixture) =>
     f.emitted.findLast(
-      (event): event is Extract<SdkEvent, { kind: "contextChanged" }> =>
+      (event): event is Extract<AgentEvent, { kind: "contextChanged" }> =>
         event.kind === "contextChanged",
     )!;
 
-  const appendFixture = fixture();
+  const appendFixture = fixture(t);
   const { u2, a2 } = linearSession(appendFixture);
   await appendFixture.handle({
     type: "set-context",
@@ -1312,7 +1414,7 @@ test("contextChanged.leaf equals the post-change get-entries leaf (explicit list
   assert.notEqual(appendEvent.leaf!.viaBoundary, undefined);
   assert.deepEqual(appendEvent.leaf, appendSnapshot.leaf);
 
-  const rewindFixture = fixture();
+  const rewindFixture = fixture(t);
   const { a1 } = linearSession(rewindFixture);
   const rewindResult = (await rewindFixture.handle({
     type: "set-context",
@@ -1333,16 +1435,15 @@ test("contextChanged.leaf equals the post-change get-entries leaf (explicit list
 
 // --- occurrence-aware rewind (rewindTo.viaBoundary) --------------------------
 
-test("viaBoundary rewind to a preserved member lists that occurrence's context", async () => {
-  const f = fixture();
+test("viaBoundary rewind to a preserved member lists that occurrence's context", async (t) => {
+  const f = fixture(t);
   const { u1, a1 } = linearSession(f);
   const boundary = boundaryEntry({
     sessionId: f.sessionId,
     uuids: [u1.uuid, a1.uuid],
     anchor: "own",
   });
-  const entries = [...readSessionEntries(f.file), boundary];
-  f.writeEntries(entries);
+  f.appendEntries([boundary]);
 
   const result = (await f.handle({
     type: "set-context",
@@ -1361,7 +1462,7 @@ test("viaBoundary rewind to a preserved member lists that occurrence's context",
   // the relinked occurrence.
   assert.equal(appended.logicalParentUuid, a1.uuid);
   const event = f.emitted.findLast(
-    (candidate): candidate is Extract<SdkEvent, { kind: "contextChanged" }> =>
+    (candidate): candidate is Extract<AgentEvent, { kind: "contextChanged" }> =>
       candidate.kind === "contextChanged",
   )!;
   assert.deepEqual(event.leaf, { uuid: a1.uuid, viaBoundary: appended.uuid });
@@ -1372,8 +1473,8 @@ test("viaBoundary rewind to a preserved member lists that occurrence's context",
   assert.deepEqual(snapshot.leaf, event.leaf);
 });
 
-test("viaBoundary rewind into a superseded boundary's chain appends a prefix boundary", async () => {
-  const f = fixture();
+test("viaBoundary rewind into a superseded boundary's chain appends a prefix boundary", async (t) => {
+  const f = fixture(t);
   const { u1, a1, u2, a2 } = linearSession(f);
   const first = boundaryEntry({
     sessionId: f.sessionId,
@@ -1388,7 +1489,7 @@ test("viaBoundary rewind into a superseded boundary's chain appends a prefix bou
   // Stacked boundaries: the second wins entirely, abandoning the first's
   // chain (P3 m5; see file comment) — a pick inside the first cannot
   // resume, so it appends.
-  f.writeEntries([u1, a1, u2, a2, first, second]);
+  f.appendEntries([first, second]);
 
   await f.handle({
     type: "set-context",
@@ -1404,7 +1505,7 @@ test("viaBoundary rewind into a superseded boundary's chain appends a prefix bou
     [u1.uuid, a1.uuid],
   );
   const event = f.emitted.findLast(
-    (candidate): candidate is Extract<SdkEvent, { kind: "contextChanged" }> =>
+    (candidate): candidate is Extract<AgentEvent, { kind: "contextChanged" }> =>
       candidate.kind === "contextChanged",
   )!;
   assert.deepEqual(event.leaf, { uuid: a1.uuid, viaBoundary: appended.uuid });
@@ -1415,9 +1516,9 @@ test("viaBoundary rewind into a superseded boundary's chain appends a prefix bou
   assert.deepEqual(snapshot.leaf, event.leaf);
 });
 
-test("viaBoundary rewind ignores post-block turns before the next boundary", async () => {
-  const f = fixture();
-  const { u1, a1, u2, a2 } = linearSession(f);
+test("viaBoundary rewind ignores post-block turns before the next boundary", async (t) => {
+  const f = fixture(t);
+  const { u1, a1 } = linearSession(f);
   const first = boundaryEntry({
     sessionId: f.sessionId,
     uuids: [u1.uuid, a1.uuid],
@@ -1433,7 +1534,7 @@ test("viaBoundary rewind ignores post-block turns before the next boundary", asy
     uuids: [p1.uuid, p2.uuid],
     anchor: "own",
   });
-  f.writeEntries([u1, a1, u2, a2, first, p1, p2, second]);
+  f.appendEntries([first, p1, p2, second]);
 
   await f.handle({
     type: "set-context",
@@ -1449,15 +1550,15 @@ test("viaBoundary rewind ignores post-block turns before the next boundary", asy
   );
 });
 
-test("viaBoundary rewind rejects an occurrence absent from the context tree", async () => {
-  const f = fixture();
+test("viaBoundary rewind rejects an occurrence absent from the context tree", async (t) => {
+  const f = fixture(t);
   const { u1, a1, u2, a2 } = linearSession(f);
   const boundary = boundaryEntry({
     sessionId: f.sessionId,
     uuids: [u2.uuid, a2.uuid],
     anchor: "own",
   });
-  f.writeEntries([u1, a1, u2, a2, boundary]);
+  f.appendEntries([boundary]);
   await assert.rejects(
     f.handle({
       type: "set-context",
@@ -1480,8 +1581,8 @@ test("viaBoundary rewind rejects an occurrence absent from the context tree", as
 
 // --- empty context (uuids: []) ----------------------------------------------
 
-test("empty-uuids set-context appends a keep-nothing boundary; contextChanged carries leaf null", async () => {
-  const f = fixture();
+test("empty-uuids set-context appends a keep-nothing boundary; contextChanged carries leaf null", async (t) => {
+  const f = fixture(t);
   linearSession(f);
   await f.handle({ type: "set-context", uuids: [], id: "c1" });
   const appended = readSessionEntries(f.file).at(-1)!;
@@ -1492,7 +1593,7 @@ test("empty-uuids set-context appends a keep-nothing boundary; contextChanged ca
     [],
   );
   const event = f.emitted.findLast(
-    (candidate): candidate is Extract<SdkEvent, { kind: "contextChanged" }> =>
+    (candidate): candidate is Extract<AgentEvent, { kind: "contextChanged" }> =>
       candidate.kind === "contextChanged",
   )!;
   assert.equal(event.leaf, null);

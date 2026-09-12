@@ -1,5 +1,5 @@
 /**
- * The observable state of an agent: a pure fold over the emitted SdkEvent
+ * The observable state of an agent: a pure fold over the emitted AgentEvent
  * stream from a seed. The daemon maintains its state by running
  * `nextAgentState` over every event it emits, and a subscriber maintains its
  * own copy by seeding from the subscribe response and running the same fold
@@ -38,12 +38,66 @@ import type {
   NonNullableUsage,
   PermissionMode,
   SDKAssistantMessage,
+  SDKMessage,
   SDKUserMessage,
 } from "@anthropic-ai/claude-agent-sdk";
-import type { SdkEvent } from "./sdk-socket.ts";
+import type { Result } from "neverthrow";
+import type { AgentEvent } from "./sdk-socket.ts";
+import type { SessionEntry } from "./session/file.ts";
+import {
+  createMerge,
+  excludeFrom,
+  hasPending,
+  type MergeError,
+  type MergeState,
+  type MergeStep,
+  observe,
+  pending,
+  type Resolved,
+} from "./stream-merge.ts";
+import { isToolResultEntry } from "./tree/loader.ts";
 import type { TreeNodeRef } from "./tree/nodes.ts";
 
 export type AgentActivity = "idle" | "pending" | "working" | "compacting";
+
+export type MergeStream = "query" | "session";
+
+export interface TrackerAnomaly {
+  readonly kind:
+    | "merge-error"
+    | "head-mismatch"
+    | "classification"
+    | "awaiting-anchor"
+    | "malformed-line"
+    | "follower-failure";
+  /** Names the ids, streams and classes involved, the boundary (anchor),
+   *  the line's byte range (malformed), or the error (follower). */
+  readonly detail: string;
+}
+
+/** The fold's view of one session: the merge of its query stream and its
+ *  file, and what has been observed on it. Fields that mirror a top-level
+ *  `AgentState` field (`model`) are observed evidence; the top-level one is
+ *  the prediction for the next query. */
+export interface SessionState {
+  readonly merge: MergeState<UUID, MergeStream>;
+  /** The context tree's leaf, folded from sessionEntry.leaf; null before
+   *  any entry and after a wipe. */
+  readonly treeLeaf: TreeNodeRef | null;
+  /** The last leaf-eligible query observation still pending on `query`;
+   *  null once the log has it. */
+  readonly pendingLeaf: UUID | null;
+  /** Boundaries whose preserved blocks are deferred behind anchors not
+   *  yet in the log; the session tracker is incomplete while non-empty. */
+  readonly awaitingAnchors: readonly UUID[];
+  /** Usage/model observed on the last assistant message of the context
+   *  (from the query stream while unsettled, from the file once settled). */
+  readonly lastUsage?: NonNullableUsage;
+  readonly model?: string;
+  /** While true, session observations are excluded from `query`: the
+   *  scan has not yet met an id the query stream reported. */
+  readonly scanExcluded: boolean;
+}
 
 /**
  * A wire type: the subscribe response is a serialized AgentState, so
@@ -57,12 +111,11 @@ export type AgentActivity = "idle" | "pending" | "working" | "compacting";
  */
 export interface AgentState {
   readonly activity: AgentActivity;
-  readonly sessionId?: string;
+  /** Predictive: what the next query will use (seeded from settings, folded
+   *  from init/set-model), as opposed to the per-session observed `model`. */
   readonly model?: string;
+  /** Predictive, like `model`; observed only through the query stream. */
   readonly permissionMode?: PermissionMode;
-  /** API usage of the last assistant message (per-message, not cumulative);
-   *  its token counters approximate the current context size. */
-  readonly lastUsage?: NonNullableUsage;
   /** The reasoning effort the next query will use. Seeded by the daemon
    *  (spawn `--effort` flag, else resolved settings), folded from
    *  apply-flag-settings. */
@@ -76,26 +129,443 @@ export interface AgentState {
   readonly queuedMessages: readonly { id: number; message: SDKUserMessage }[];
   /** Consumed as turn/append, not yet confirmed by a later stream emission. */
   readonly deliveredMessages: readonly SDKUserMessage[];
-  /** The attach boundary: the current leaf occurrence of the session tree.
-   *  Stream user/assistant messages fold it as a raw ref; a contextChanged
-   *  event folds its post-change `leaf` (possibly a viaBoundary occurrence,
-   *  null unsets). */
-  readonly leaf?: TreeNodeRef;
+  /** Plain record (it crosses the wire in `subscribe`). */
+  readonly sessions: Readonly<Record<UUID, SessionState>>;
+  /** The query file: the latest query message's `session_id`; undefined
+   *  on a fresh spawn until the first `system/init`. */
+  readonly querySessionId?: UUID;
+  /** The tracked file; trails `querySessionId` until the switch;
+   *  undefined until the first file exists. */
+  readonly fileSessionId?: UUID;
+  /** Set by the fold that detected it, absent on every other state:
+   *  "the event just folded was anomalous". History lives in the log
+   *  and the bundles. */
+  readonly anomaly?: TrackerAnomaly;
 }
 
-export const INITIAL_AGENT_STATE: AgentState = {
-  activity: "idle",
-  observedPermissionModes: [],
-  queuedMessages: [],
-  deliveredMessages: [],
+/** Per-agent fields only, no file: `sessions` is empty and both session ids
+ *  undefined. The seed file, when it exists, enters through the
+ *  `sessionFileChanged` that `TrackedSessionLog.start` emits. daemon.ts
+ *  spreads the settings cascade (`model`, `permissionMode`, `effortLevel`,
+ *  `cwd`) over it. */
+export function initialAgentState(): AgentState {
+  return {
+    activity: "idle",
+    observedPermissionModes: [],
+    queuedMessages: [],
+    deliveredMessages: [],
+    sessions: {},
+  };
+}
+
+export const querySession = (state: AgentState): SessionState | undefined =>
+  state.querySessionId === undefined
+    ? undefined
+    : state.sessions[state.querySessionId];
+
+/** The query-side leaf of the query file (merge model, Leaf); null
+ *  without a file. */
+export const leaf = (state: AgentState): TreeNodeRef | null => {
+  const file = querySession(state);
+  if (file === undefined) {
+    return null;
+  }
+  return file.pendingLeaf === null ? file.treeLeaf : { uuid: file.pendingLeaf };
 };
+
+/** Usage of the last assistant message on the query file's context (its
+ *  token counters approximate the current context size). */
+export const lastUsage = (state: AgentState): NonNullableUsage | undefined =>
+  querySession(state)?.lastUsage;
+
+export const sessionSettled = (file: SessionState): boolean =>
+  !hasPending(file.merge, "query") && file.awaitingAnchors.length === 0;
+
+/** "The file has caught up to the query"; vacuously true before the
+ *  query has a file (nothing has happened that could be pending). */
+export const settled = (state: AgentState): boolean => {
+  const file = querySession(state);
+  return file === undefined || sessionSettled(file);
+};
+
+const MERGE_STREAMS: readonly MergeStream[] = ["query", "session"];
+
+const EMPTY_MERGE: MergeState<UUID, MergeStream> = createMerge<
+  UUID,
+  MergeStream
+>(MERGE_STREAMS).match(
+  (merge) => merge,
+  (error) => {
+    throw new Error(error.message);
+  },
+);
+
+/** A file the fold has not seen a log entry of yet: the scan exclusion
+ *  holds until a session observation meets a query-reported id. */
+export function freshSessionState(): SessionState {
+  return {
+    merge: EMPTY_MERGE,
+    treeLeaf: null,
+    pendingLeaf: null,
+    awaitingAnchors: [],
+    scanExcluded: true,
+  };
+}
+
+const otherStream = (stream: MergeStream): MergeStream =>
+  stream === "query" ? "session" : "query";
+
+/** `type/subtype` of a query message or log entry, for anomaly details. */
+function classOf(item: { type?: string; subtype?: string }): string {
+  return item.subtype === undefined
+    ? (item.type ?? "?")
+    : `${item.type}/${item.subtype}`;
+}
+
+interface Observation {
+  readonly session: SessionState;
+  readonly anomalies: readonly TrackerAnomaly[];
+}
+
+/** One merge observation on `file`. `excludeOther` is the caller's
+ *  classification of a FIRST observation (an existing node is evidence
+ *  the other stream carries the id); a failing merge call leaves the
+ *  merge as it was and is reported. Resolutions clear `pendingLeaf`; a
+ *  resolved node a stream skipped is a head-mismatch. */
+function observeOn(
+  session: SessionState,
+  stream: MergeStream,
+  uuid: UUID,
+  className: string,
+  excludeOther: boolean,
+): Observation {
+  const anomalies: TrackerAnomaly[] = [];
+  const resolved: Resolved<UUID, MergeStream>[] = [];
+  let merge = session.merge;
+  const apply = (
+    result: Result<MergeStep<UUID, MergeStream>, MergeError>,
+  ): void =>
+    result.match(
+      (step) => {
+        merge = step.state;
+        resolved.push(...step.resolved);
+      },
+      (error) => {
+        anomalies.push({
+          kind:
+            error.kind === "excluded-observed"
+              ? "classification"
+              : "merge-error",
+          detail: `${className} ${uuid} on ${stream}: ${error.message}`,
+        });
+      },
+    );
+  if (excludeOther) apply(excludeFrom(merge, [otherStream(stream)], uuid));
+  apply(observe(merge, stream, uuid));
+  const skipped = resolved.flatMap((node) => {
+    const missing = MERGE_STREAMS.filter(
+      (name) =>
+        !node.seenOn.includes(name) && !node.excludedFrom.includes(name),
+    );
+    return missing.length === 0
+      ? []
+      : [
+          `${node.id} seen on ${node.seenOn.join(",")}, skipped by ${missing.join(",")}`,
+        ];
+  });
+  if (skipped.length > 0) {
+    anomalies.push({ kind: "head-mismatch", detail: skipped.join("; ") });
+  }
+  const pendingLeaf = resolved.some((node) => node.id === session.pendingLeaf)
+    ? null
+    : session.pendingLeaf;
+  return { session: { ...session, merge, pendingLeaf }, anomalies };
+}
+
+const ANOMALY_PRECEDENCE: readonly TrackerAnomaly["kind"][] = [
+  "merge-error",
+  "classification",
+  "head-mismatch",
+];
+
+/** At most one anomaly per fold: the kind by precedence, the detail
+ *  naming every condition that fired. */
+function withAnomalies(
+  state: AgentState,
+  anomalies: readonly TrackerAnomaly[],
+): AgentState {
+  if (anomalies.length === 0) return state;
+  const kind =
+    ANOMALY_PRECEDENCE.find((candidate) =>
+      anomalies.some((anomaly) => anomaly.kind === candidate),
+    ) ?? anomalies[0]!.kind;
+  const detail = anomalies
+    .map((anomaly) => `${anomaly.kind}: ${anomaly.detail}`)
+    .join("; ");
+  return { ...state, anomaly: { kind, detail } };
+}
+
+function withSession(
+  state: AgentState,
+  sessionId: UUID,
+  session: SessionState,
+): AgentState {
+  return { ...state, sessions: { ...state.sessions, [sessionId]: session } };
+}
+
+function withoutFile(
+  state: AgentState,
+  sessionId: UUID | undefined,
+): AgentState {
+  if (sessionId === undefined || !(sessionId in state.sessions)) return state;
+  const { [sessionId]: _dropped, ...sessions } = state.sessions;
+  return { ...state, sessions };
+}
+
+/** A leaf-eligible query message: the file entry it becomes is a tree
+ *  row (user/assistant with a uuid; subagent traffic is filtered before
+ *  the fold reaches here). */
+function isLeafEligible(message: SDKMessage): boolean {
+  return (
+    (message.type === "user" || message.type === "assistant") &&
+    message.uuid !== undefined
+  );
+}
+
+/** A query message's merge rule on its `session_id` file (spec, Fold rules,
+ *  sdkMessage): observe on `query`, first observations excluded from
+ *  `session` per the classification; per-file usage/model evidence. */
+function foldQueryMessage(state: AgentState, message: SDKMessage): AgentState {
+  const sessionId = message.session_id as UUID;
+  let session = state.sessions[sessionId] ?? freshSessionState();
+  let anomalies: readonly TrackerAnomaly[] = [];
+  if (message.uuid !== undefined) {
+    const uuid = message.uuid as UUID;
+    if (isLeafEligible(message)) session = { ...session, pendingLeaf: uuid };
+    const first = !Object.hasOwn(session.merge.nodes, uuid);
+    ({ session, anomalies } = observeOn(
+      session,
+      "query",
+      uuid,
+      classOf(message),
+      first && excludedFromSession(message),
+    ));
+  }
+  if (message.type === "assistant") {
+    session = {
+      ...session,
+      lastUsage: toNonNullableUsage(message.message.usage),
+      model: message.message.model,
+    };
+  }
+  if (message.type === "system" && message.subtype === "compact_boundary") {
+    session = withPostTokens(session, message.compact_metadata.post_tokens);
+  }
+  return withAnomalies(
+    withSession({ ...state, querySessionId: sessionId }, sessionId, session),
+    anomalies,
+  );
+}
+
+/** post_tokens is the compacted context size; represented as a pure
+ *  input_tokens usage so consumers summing the input-side counters
+ *  (footer, set-context's preTokensOf) read back exactly post_tokens.
+ *  Without it the old lastUsage describes the superseded context, so it
+ *  is dropped rather than kept wrong. */
+function withPostTokens(
+  session: SessionState,
+  postTokens: number | undefined,
+): SessionState {
+  if (postTokens === undefined) {
+    const { lastUsage: _lastUsage, ...withoutUsage } = session;
+    return withoutUsage;
+  }
+  return {
+    ...session,
+    lastUsage: {
+      input_tokens: postTokens,
+      output_tokens: 0,
+      cache_creation_input_tokens: 0,
+      cache_read_input_tokens: 0,
+    } as NonNullableUsage,
+  };
+}
+
+/** A log entry's merge rule on the tracked file (spec, Fold rules,
+ *  sessionEntry): observe on `session`, first observations excluded from
+ *  `query` when the tracker's classification or the scan exclusion says so;
+ *  the log's leaf and anchors always, its usage/model/version only once the
+ *  file is settled (the query side leads while it is not). */
+function foldSessionEntry(
+  state: AgentState,
+  event: Extract<AgentEvent, { kind: "sessionEntry" }>,
+): AgentState {
+  const sessionId = state.fileSessionId;
+  if (sessionId === undefined) return state;
+  let session = state.sessions[sessionId] ?? freshSessionState();
+  let anomalies: readonly TrackerAnomaly[] = [];
+  const uuid = event.entry.uuid;
+  if (uuid !== undefined) {
+    const first = !Object.hasOwn(session.merge.nodes, uuid);
+    if (!first && session.scanExcluded)
+      session = { ...session, scanExcluded: false };
+    ({ session, anomalies } = observeOn(
+      session,
+      "session",
+      uuid,
+      classOf(event.entry),
+      first && (!event.expectsSdkMessage || session.scanExcluded),
+    ));
+  }
+  session = {
+    ...session,
+    treeLeaf: event.leaf,
+    awaitingAnchors: event.awaitingAnchors,
+  };
+  let next = state;
+  if (sessionSettled(session)) {
+    const { lastUsage: _lastUsage, model: _model, ...evidenceless } = session;
+    const usage = event.lastAssistant?.usage;
+    const model = event.lastAssistant?.model;
+    session = {
+      ...evidenceless,
+      ...(usage !== undefined && { lastUsage: usage }),
+      ...(model !== undefined && { model }),
+    };
+    if (typeof event.entry.version === "string") {
+      next = { ...next, claudeCodeVersion: event.entry.version };
+    }
+  }
+  return withAnomalies(withSession(next, sessionId, session), anomalies);
+}
+
+/** The follower moved: the old file's state is dropped, unless the move
+ *  is a rescan of the same file, which keeps what the query side still
+ *  knows (its pending observations with their exclusions, the leaf and
+ *  usage evidence) and forgets everything the log told us. */
+function foldSessionFileChanged(
+  state: AgentState,
+  sessionId: UUID,
+): AgentState {
+  const old =
+    state.fileSessionId === undefined
+      ? undefined
+      : state.sessions[state.fileSessionId];
+  const dropped = withoutFile(state, state.fileSessionId);
+  if (old === undefined || sessionId !== state.fileSessionId) {
+    return {
+      ...withSession(
+        dropped,
+        sessionId,
+        dropped.sessions[sessionId] ?? freshSessionState(),
+      ),
+      fileSessionId: sessionId,
+    };
+  }
+  let session: SessionState = {
+    ...freshSessionState(),
+    pendingLeaf: old.pendingLeaf,
+    ...(old.lastUsage !== undefined && { lastUsage: old.lastUsage }),
+    ...(old.model !== undefined && { model: old.model }),
+  };
+  const anomalies: TrackerAnomaly[] = [];
+  for (const uuid of pending(old.merge, "query")) {
+    const observation = observeOn(
+      session,
+      "query",
+      uuid,
+      "rescan",
+      old.merge.nodes[uuid]?.excludedFrom.includes("session") === true,
+    );
+    session = observation.session;
+    anomalies.push(...observation.anomalies);
+  }
+  return withAnomalies(
+    { ...withSession(dropped, sessionId, session), fileSessionId: sessionId },
+    anomalies,
+  );
+}
+
+/** Daemon-appended entries (set-context) are query action items on the
+ *  query file; their log entries resolve them. */
+function foldSessionAppended(
+  state: AgentState,
+  uuids: readonly UUID[],
+): AgentState {
+  const sessionId = state.querySessionId;
+  if (sessionId === undefined) return state;
+  let session = state.sessions[sessionId] ?? freshSessionState();
+  const anomalies: TrackerAnomaly[] = [];
+  for (const uuid of uuids) {
+    const observation = observeOn(session, "query", uuid, "appended", false);
+    session = observation.session;
+    anomalies.push(...observation.anomalies);
+  }
+  return withAnomalies(withSession(state, sessionId, session), anomalies);
+}
+
+function foldScanComplete(state: AgentState): AgentState {
+  const sessionId = state.fileSessionId;
+  if (sessionId === undefined) return state;
+  const session = state.sessions[sessionId];
+  return session === undefined || !session.scanExcluded
+    ? state
+    : withSession(state, sessionId, { ...session, scanExcluded: false });
+}
+
+/** The classification table, one function per side: whether the other
+ *  stream never carries this occurrence. Uuid-less occurrences are not
+ *  asked. `excludedFromQuery` needs the complete entry (it reads
+ *  `message.content`), so the tracker calls it once per entry and
+ *  publishes the answer as the event's `expectsSdkMessage`; the fold reads
+ *  that. */
+export function excludedFromSession(message: SDKMessage): boolean {
+  switch (message.type) {
+    case "assistant":
+    case "user":
+      return false;
+    case "system":
+      return message.subtype !== "compact_boundary";
+    default:
+      return true;
+  }
+}
+export function excludedFromQuery(entry: SessionEntry): boolean {
+  switch (entry.type) {
+    case "assistant":
+      return false;
+    case "user":
+      return !(
+        isToolResultEntry(entry) ||
+        entry.isCompactSummary === true ||
+        isLocalCommandStdout(entry)
+      );
+    case "system":
+      return (
+        entry.subtype !== "compact_boundary" &&
+        entry.subtype !== "local_command"
+      );
+    default:
+      return true;
+  }
+}
+
+/** A slash command's output logged as a `user` entry, which the query
+ *  stream replays (`isReplay`) — the shared `user` class that has no
+ *  `tool_result` block (classification table). */
+function isLocalCommandStdout(entry: SessionEntry): boolean {
+  const content = (entry.message as { content?: unknown } | undefined)?.content;
+  return (
+    typeof content === "string" && content.startsWith("<local-command-stdout>")
+  );
+}
 
 /**
  * The API's usage object with nulls removed, as NonNullableUsage promises:
  * the numeric token counters are defaulted to 0 (arithmetic over them never
  * sees a hole); other null fields are dropped rather than given made-up
  * non-null values. Also used to coerce usage objects read back from session
- * file entries (session/seed.ts seedFromEntries).
+ * file entries (tree/context-tree.ts).
  */
 export function toNonNullableUsage(
   usage: SDKAssistantMessage["message"]["usage"],
@@ -143,7 +613,18 @@ function withObservedPermissionMode(
   };
 }
 
-export function nextAgentState(state: AgentState, event: SdkEvent): AgentState {
+/** `anomaly` describes the event just folded, so every fold starts from
+ *  a state without one. */
+export function nextAgentState(
+  state: AgentState,
+  event: AgentEvent,
+): AgentState {
+  if (state.anomaly === undefined) return foldEvent(state, event);
+  const { anomaly: _anomaly, ...cleared } = state;
+  return foldEvent(cleared, event);
+}
+
+function foldEvent(state: AgentState, event: AgentEvent): AgentState {
   switch (event.kind) {
     case "userMessageQueued": {
       const queuedMessages = [
@@ -195,15 +676,20 @@ export function nextAgentState(state: AgentState, event: SdkEvent): AgentState {
     // through — consumers react to the event itself, not to a state change.
     case "shutdown":
       return state;
-    // The effective context lives in the session file; the fold tracks only
-    // its tip, which the event carries.
-    case "contextChanged": {
-      if (event.leaf === null) {
-        const { leaf: _leaf, ...withoutLeaf } = state;
-        return withoutLeaf;
-      }
-      return { ...state, leaf: event.leaf };
-    }
+    case "sessionEntry":
+      return foldSessionEntry(state, event);
+    case "sessionFileChanged":
+      return foldSessionFileChanged(state, event.sessionId);
+    case "scanComplete":
+      return foldScanComplete(state);
+    case "sessionAppended":
+      return foldSessionAppended(state, event.uuids);
+    case "trackerAnomaly":
+      return { ...state, anomaly: event.anomaly };
+    // The tip it announces is already folded from the sessionEntry that
+    // completed the boundary (SessionState.treeLeaf).
+    case "contextChanged":
+      return state;
     case "controlApplied": {
       const request = event.request;
       if (request.type === "set-model") {
@@ -243,17 +729,17 @@ export function nextAgentState(state: AgentState, event: SdkEvent): AgentState {
         // eligibility filter).
         return state;
       }
-      let next = state;
+      let next = foldQueryMessage(state, message);
       if (
         (message.type === "user" || message.type === "assistant") &&
         message.uuid !== undefined
       ) {
         // The uuid guard is for the type only: stream user/assistant messages
         // always carry the transcript uuid (verified in the CLI binary; the
-        // optional uuid on SDKUserMessage is for host-pushed input). Boundary
-        // advance and deliveredMessages clear happen in the same fold step —
-        // that is the prompt-visibility bookkeeping (header comment).
-        next = { ...next, leaf: { uuid: message.uuid as UUID } };
+        // optional uuid on SDKUserMessage is for host-pushed input). The
+        // boundary advance (foldQueryMessage's pendingLeaf) and the
+        // deliveredMessages clear happen in the same fold step — that is the
+        // prompt-visibility bookkeeping (header comment).
         if (next.deliveredMessages.length > 0) {
           next = { ...next, deliveredMessages: [] };
         }
@@ -261,32 +747,15 @@ export function nextAgentState(state: AgentState, event: SdkEvent): AgentState {
       if (message.type === "conversation_reset") {
         // SDK 0.3.250 emits this before the new conversation's init. Despite
         // its name, new_conversation_id is not the transcript session_id
-        // announced by that init (verified live), so clear session identity
-        // until the authoritative init while discarding old-context evidence.
-        // Queued future turns still belong to the running process.
-        const {
-          sessionId: _sessionId,
-          leaf: _leaf,
-          lastUsage: _lastUsage,
-          ...withoutOldContext
-        } = next;
-        return { ...withoutOldContext, deliveredMessages: [] };
+        // announced by that init (verified live); the old context's evidence
+        // stays with its file. Queued future turns still belong to the
+        // running process.
+        return { ...next, deliveredMessages: [] };
       }
       if (message.type === "system" && message.subtype === "init") {
-        // The leaf must belong to the announced session's file: history reads
-        // gate on the leaf uuid appearing in that file, and a resumed session
-        // can fork — init then announces a new id whose file never contains
-        // the leaf seeded from the resumed file. Drop the leaf on an id
-        // change; stream messages repopulate it. (conversation_reset enforces
-        // the same coupling by clearing both.)
-        if (next.leaf !== undefined && next.sessionId !== message.session_id) {
-          const { leaf: _leaf, ...withoutLeaf } = next;
-          next = withoutLeaf;
-        }
         return withObservedPermissionMode(
           {
             ...next,
-            sessionId: message.session_id,
             model: message.model,
             cwd: message.cwd,
             claudeCodeVersion: message.claude_code_version,
@@ -303,31 +772,7 @@ export function nextAgentState(state: AgentState, event: SdkEvent): AgentState {
         // transitions).
         return withObservedPermissionMode(next, message.permissionMode);
       }
-      if (message.type === "system" && message.subtype === "compact_boundary") {
-        // post_tokens is the compacted context size; represented as a pure
-        // input_tokens usage so consumers summing the input-side counters
-        // (footer, set-context's preTokensOf) read back exactly post_tokens.
-        // Without it the old lastUsage describes the superseded context, so
-        // it is dropped rather than kept wrong.
-        if (message.compact_metadata.post_tokens === undefined) {
-          const { lastUsage: _lastUsage, ...withoutUsage } = next;
-          return withoutUsage;
-        }
-        return {
-          ...next,
-          lastUsage: {
-            input_tokens: message.compact_metadata.post_tokens,
-            output_tokens: 0,
-            cache_creation_input_tokens: 0,
-            cache_read_input_tokens: 0,
-          } as NonNullableUsage,
-        };
-      }
       if (message.type === "assistant") {
-        next = {
-          ...next,
-          lastUsage: toNonNullableUsage(message.message.usage),
-        };
         // Top-level assistant output confirms the turn started. Compacting is
         // exited by the subsequent `result`, not by assistant output or the
         // compact-boundary message (which arrives when compaction *finishes*).

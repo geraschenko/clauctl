@@ -12,7 +12,7 @@
  *   `idle`).
  * - idle: `isIdle` — activity is idle and no querying messages are queued
  *   (the common condition, so it gets the short name).
- * - no-activity:<secs>: no SdkEvent of any kind for N seconds, regardless of
+ * - no-activity:<secs>: no AgentEvent of any kind for N seconds, regardless of
  *   activity state; catches turns stalled on human-facing UI, which `idle`
  *   never reports. N may be fractional (e.g. `no-activity:0.5`). Enforced by
  *   the stream driver's quiet timer, never by an event.
@@ -20,10 +20,10 @@
 
 import { isIdle, type AgentState } from "./agent-state.ts";
 import { makeUntilCheckers } from "./generated/until-engine.ts";
-import type { SdkEvent } from "./sdk-socket.ts";
+import type { AgentEvent } from "./sdk-socket.ts";
 
 export const { untilMetAtSeed, untilMetByEvent, untilQuietMs } =
-  makeUntilCheckers<SdkEvent, AgentState>({
+  makeUntilCheckers<AgentEvent, AgentState>({
     isIdle,
     isTurnEnd: (event) =>
       event.kind === "sdkMessage" && event.message.type === "result",

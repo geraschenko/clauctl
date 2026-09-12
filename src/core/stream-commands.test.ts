@@ -13,20 +13,20 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
-import { INITIAL_AGENT_STATE, type AgentState } from "./agent-state.ts";
+import { initialAgentState, type AgentState } from "./agent-state.ts";
 import { app } from "./app.ts";
 import { RESPONSE_SENT, startSdkServer } from "./daemon/sdk-server.ts";
 import { runCliApp } from "./generated/cli.ts";
 import { fakeProcess, type CapturedProcess } from "./generated/test-util.ts";
 import { sdkSocketPath, writeAgentRecord } from "./registry.ts";
-import type { SdkEvent } from "./sdk-socket.ts";
+import type { AgentEvent } from "./sdk-socket.ts";
 
 /** Not idle, so `--until turn-end` is unmet at the seed and the commands
  *  actually watch the stream. */
-const BUSY_STATE: AgentState = { ...INITIAL_AGENT_STATE, activity: "working" };
+const BUSY_STATE: AgentState = { ...initialAgentState(), activity: "working" };
 
 /** The fold reads only `type` here; a result with nothing queued means idle. */
-const RESULT_EVENT: SdkEvent = {
+const RESULT_EVENT: AgentEvent = {
   kind: "sdkMessage",
   message: { type: "result" } as unknown as SDKMessage,
 };
@@ -45,7 +45,7 @@ async function runCommand(argv: string[]): Promise<CapturedProcess> {
  */
 async function withAgent<T>(
   seed: AgentState,
-  events: SdkEvent[],
+  events: AgentEvent[],
   hangUp: boolean,
   fn: (agentId: string) => Promise<T>,
 ): Promise<T> {
@@ -115,7 +115,8 @@ test("tail prints the snapshot before the event that satisfies --until", async (
     ]);
     assert.equal(result.proc.exitCode, 0);
     const records = result.stdoutChunks.map(
-      (line) => JSON.parse(line) as { snapshot?: AgentState; event?: SdkEvent },
+      (line) =>
+        JSON.parse(line) as { snapshot?: AgentState; event?: AgentEvent },
     );
     assert.deepEqual(records[0]!.snapshot, BUSY_STATE);
     assert.equal(records[1]!.event!.kind, "sdkMessage");

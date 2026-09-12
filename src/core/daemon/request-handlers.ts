@@ -11,12 +11,10 @@
  */
 
 import type { Query, SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
+import { settled } from "../agent-state.ts";
 import type { SessionSnapshot } from "../tree/nodes.ts";
-import { buildTree } from "../tree/build-tree.ts";
-import { toContextTree } from "../tree/context-tree.ts";
 import { settingsSeed, type PersistedOptions } from "../options.ts";
-import { entriesByUuid, type SessionEntry } from "../session/file.ts";
-import { readEntriesAfterStreamFlush } from "../session/entry-stream.ts";
+import type { SessionEntry } from "../session/file.ts";
 import {
   applyMutation,
   isControlMutation,
@@ -33,9 +31,10 @@ import {
   type SubscribeAttachment,
 } from "../sdk-socket.ts";
 import type { EventHub } from "./event-hub.ts";
-import { RwGate } from "./rw-gate.ts";
+import type { RwGate } from "./rw-gate.ts";
 import { RESPONSE_SENT, type SdkConnection } from "./sdk-server.ts";
 import { createSetContextHandler } from "./set-context.ts";
+import type { TrackedSessionLog } from "./tracked-session-log.ts";
 import type { TurnQueue } from "./turn-queue.ts";
 
 export interface RequestHandlerDeps {
@@ -54,6 +53,9 @@ export interface RequestHandlerDeps {
   setPersistedOptions(options: PersistedOptions): void;
   /** The session jsonl path for a session id (configDir + cwd baked in). */
   sessionFilePath(sessionId: string): string;
+  /** The tracked file's tracker (read after acquiring the gate: a switch
+   *  replaces it) and the follower drain set-context needs. */
+  trackedLog: TrackedSessionLog;
   /** Ends the TurnQueue and waits for the Query stream to complete — the
    *  SDK's cleanup awaits the child's exit (FINDINGS.md P7). */
   teardownQuery(): Promise<void>;
@@ -63,6 +65,9 @@ export interface RequestHandlerDeps {
   /** Register a live attacher; returns the deregister, wired to connection
    *  close. Implemented by daemon.ts (record write + audit). */
   registerAttachment(info: SubscribeAttachment): () => void;
+  /** The request gate, shared with the tracked log's switch worker and the
+   *  shutdown drain (daemon.ts owns it). */
+  gate: RwGate;
 }
 
 /**
@@ -94,16 +99,33 @@ async function appliedRequest(
   };
 }
 
+/** Requests served from the tracker (spec, Data flow 4/5): settle outside
+ *  the gate, acquire, and re-check — a switch or set-context that landed
+ *  while waiting for the gate may have unsettled the state again. */
+async function acquireSettled(
+  events: EventHub,
+  acquire: () => Promise<() => void>,
+): Promise<() => void> {
+  while (true) {
+    await events.whenSettled();
+    const release = await acquire();
+    if (settled(events.agentState)) {
+      return release;
+    }
+    release();
+  }
+}
+
 export function createRequestHandler(
   deps: RequestHandlerDeps,
 ): (request: SdkRequestRecord, connection: SdkConnection) => Promise<unknown> {
-  const { events } = deps;
-  // Serializes set-context (the writer) against everything Query-bound.
-  // Request dispatch is deliberately concurrent, so an idle check alone is a
-  // moment-in-time read; the gate guarantees no request touches the old Query
-  // during teardown/replacement. While set-context holds (or awaits) the
-  // gate, Query-bound arrivals error and file reads wait.
-  const gate = new RwGate();
+  const { events, gate } = deps;
+  // The gate serializes set-context (the writer) against everything
+  // Query-bound. Request dispatch is deliberately concurrent, so an idle
+  // check alone is a moment-in-time read; the gate guarantees no request
+  // touches the old Query during teardown/replacement. While set-context
+  // holds (or awaits) the gate, Query-bound arrivals error and file reads
+  // wait.
   // Daemon policy, separate from the gate: a concurrent set-context errors
   // instead of queueing. Checked-and-set synchronously, so two arrivals
   // cannot both pass.
@@ -115,7 +137,8 @@ export function createRequestHandler(
   let queryAvailable = true;
 
   const handleSetContext = createSetContextHandler(deps, {
-    gate,
+    acquireSettledExclusive: () =>
+      acquireSettled(events, () => gate.awaitExclusive()),
     setQueryAvailable: (available) => {
       queryAvailable = available;
     },
@@ -225,44 +248,31 @@ export function createRequestHandler(
       }
       case "get-context":
       case "get-entries": {
-        const release = await gate.awaitShared();
+        // No tracker: nothing announced or scanned yet (a fresh agent, or a
+        // resume whose file is missing) — nothing to serve.
+        const release = await acquireSettled(events, () => gate.awaitShared());
         try {
-          // Valid before the first init because the hub is seeded (on
-          // revival, with the last recorded session); a truly fresh agent has
-          // no history, so an empty snapshot/context.
-          const sessionId = events.agentState.sessionId;
-          if (sessionId === undefined) {
-            if (request.type === "get-context") {
-              const empty: SessionEntry[] = [];
-              return empty;
-            }
-            const empty: SessionSnapshot = { entries: [], leaf: null };
-            return empty;
-          }
-          // Waiting on the last stream-reported leaf gives read consistency
-          // across the CLI's flush lag; a relinked leaf's newest on-disk
-          // entry is its boundary, so the wait keys on viaBoundary ?? uuid.
-          // The leaf is unset when no turn has run this daemon lifetime —
-          // the file is quiescent then.
-          const stateLeaf = events.agentState.leaf;
-          const entries = await readEntriesAfterStreamFlush(
-            deps.sessionFilePath(sessionId),
-            stateLeaf === undefined
-              ? undefined
-              : (stateLeaf.viaBoundary ?? stateLeaf.uuid),
-          );
-          const byUuid = entriesByUuid(entries);
-          const tree = toContextTree(buildTree(entries, deps.log), byUuid);
+          const tracker = deps.trackedLog.tracker;
           if (request.type === "get-entries") {
-            const snapshot: SessionSnapshot = { entries, leaf: tree.leaf };
+            const snapshot: SessionSnapshot =
+              tracker === undefined
+                ? { entries: [], leaf: null }
+                : {
+                    entries: tracker.payloads(
+                      tracker.uuidsAfter(request.since),
+                    ),
+                    leaf: tracker.leaf,
+                  };
             return snapshot;
           }
-          const tip = request.at ?? tree.leaf;
-          if (tip === null) {
+          const tip = request.at ?? tracker?.leaf ?? null;
+          if (tracker === undefined || tip === null) {
             const empty: SessionEntry[] = [];
             return empty;
           }
-          return tree.contextAt(tip).map((ref) => byUuid.get(ref.uuid)!);
+          return tracker.payloads(
+            tracker.contextAt(tip).map((ref) => ref.uuid),
+          );
         } finally {
           release();
         }
@@ -311,7 +321,9 @@ export function createRequestHandler(
           data: events.agentState,
         };
         connection.write(`${JSON.stringify(response)}\n`);
-        const unsubscribe = events.subscribe((line) => connection.write(line));
+        const unsubscribe = events.subscribe((event) =>
+          connection.write(`${JSON.stringify({ event })}\n`),
+        );
         connection.onClose(unsubscribe);
         // Connection close counts as detach — the daemon-side registration is
         // what catches kill -9'd attachers.

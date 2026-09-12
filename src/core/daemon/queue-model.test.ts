@@ -10,7 +10,7 @@ import {
   observeSdkMessage,
   type QueueModelState,
 } from "./queue-model.ts";
-import type { SdkEvent } from "../sdk-socket.ts";
+import type { AgentEvent } from "../sdk-socket.ts";
 
 function userMessage(overrides: Partial<SDKUserMessage> = {}): SDKUserMessage {
   return {
@@ -36,7 +36,7 @@ const toolResult = {
 
 interface Scenario {
   state: QueueModelState;
-  events: SdkEvent[];
+  events: AgentEvent[];
 }
 
 function accept(
@@ -63,7 +63,7 @@ function start(): Scenario {
   return { state: INITIAL_QUEUE_MODEL_STATE, events: [] };
 }
 
-function dequeues(scenario: Scenario): SdkEvent[] {
+function dequeues(scenario: Scenario): AgentEvent[] {
   return scenario.events.filter(
     (event) => event.kind === "userMessageDequeued",
   );

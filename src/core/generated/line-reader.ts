@@ -6,7 +6,14 @@
  * Splitting only — parsing and error wording stay with the callers.
  */
 
-export type Line = Readonly<{ text: string; lineNumber: number }>;
+export type Line = Readonly<{
+  text: string;
+  lineNumber: number;
+  /** Byte offset from the first byte ever pushed, including skipped lines. */
+  byteOffset: number;
+  /** Bytes from byteOffset through the terminating newline inclusive. */
+  byteLength: number;
+}>;
 
 const NEWLINE = "\n".charCodeAt(0);
 
@@ -19,10 +26,13 @@ const NEWLINE = "\n".charCodeAt(0);
 export class LineReader {
   private tornSuffix = Buffer.alloc(0);
   private lineNumber = 0;
+  private bytesPushed = 0;
 
   /** Complete non-blank lines terminated within this chunk (prefixed by any
    *  retained torn suffix). */
   push(chunk: Buffer): Line[] {
+    const dataByteOffset = this.bytesPushed - this.tornSuffix.length;
+    this.bytesPushed += chunk.length;
     const data =
       this.tornSuffix.length === 0
         ? chunk
@@ -36,11 +46,15 @@ export class LineReader {
       }
       this.lineNumber += 1;
       const text = data.toString("utf8", lineStart, newlineIndex);
-      lineStart = newlineIndex + 1;
-      if (text.trim() === "") {
-        continue;
+      if (text.trim() !== "") {
+        lines.push({
+          text,
+          lineNumber: this.lineNumber,
+          byteOffset: dataByteOffset + lineStart,
+          byteLength: newlineIndex + 1 - lineStart,
+        });
       }
-      lines.push({ text, lineNumber: this.lineNumber });
+      lineStart = newlineIndex + 1;
     }
     // Copied, not a subarray view: a view would pin the (possibly whole-file)
     // parent buffer for the lifetime of the torn suffix.

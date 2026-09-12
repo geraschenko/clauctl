@@ -57,7 +57,7 @@ import {
 import { UsageError } from "./generated/util.ts";
 import { ensureAgentRunning } from "./lifecycle.ts";
 import { sdkSocketPath, type AgentRecord } from "./registry.ts";
-import { connectWithRetry, type SdkEvent } from "./sdk-socket.ts";
+import { connectWithRetry, type AgentEvent } from "./sdk-socket.ts";
 import { UntilSettlement } from "./tail.ts";
 import { untilMetByEvent, untilQuietMs } from "./until.ts";
 
@@ -150,7 +150,7 @@ async function submitPrompt(
 }
 
 /** Whether this event announces the dequeue of our own message. */
-function opensGate(event: SdkEvent, promptId: number | undefined): boolean {
+function opensGate(event: AgentEvent, promptId: number | undefined): boolean {
   return (
     promptId !== undefined &&
     event.kind === "userMessageDequeued" &&

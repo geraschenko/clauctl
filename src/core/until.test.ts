@@ -4,13 +4,13 @@ import type {
   SDKMessage,
   SDKUserMessage,
 } from "@anthropic-ai/claude-agent-sdk";
-import { INITIAL_AGENT_STATE, type AgentState } from "./agent-state.ts";
-import type { SdkEvent } from "./sdk-socket.ts";
+import { initialAgentState, type AgentState } from "./agent-state.ts";
+import type { AgentEvent } from "./sdk-socket.ts";
 import { untilMetAtSeed, untilMetByEvent } from "./until.ts";
 
-const idleState = INITIAL_AGENT_STATE;
+const idleState = initialAgentState();
 const workingState: AgentState = {
-  ...INITIAL_AGENT_STATE,
+  ...initialAgentState(),
   activity: "working",
 };
 const queryingMessage: SDKUserMessage = {
@@ -20,23 +20,23 @@ const queryingMessage: SDKUserMessage = {
 };
 /** Idle activity but a querying message queued — a turn is still owed. */
 const pendingState: AgentState = {
-  ...INITIAL_AGENT_STATE,
+  ...initialAgentState(),
   activity: "pending",
   queuedMessages: [{ id: 1, message: queryingMessage }],
 };
 
-const resultEvent: SdkEvent = {
+const resultEvent: AgentEvent = {
   kind: "sdkMessage",
   message: { type: "result" } as SDKMessage,
 };
-const assistantEvent: SdkEvent = {
+const assistantEvent: AgentEvent = {
   kind: "sdkMessage",
   message: { type: "assistant" } as SDKMessage,
 };
 
 // Grammar, duration, and generic checker behavior are covered by the synced
 // generated/until-engine.test.ts; these tests pin the clauctl instantiation:
-// the SdkEvent/AgentState predicates.
+// the AgentEvent/AgentState predicates.
 
 // --- untilMetAtSeed ----------------------------------------------------------
 

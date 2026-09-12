@@ -4,12 +4,15 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
+import { err, ok } from "neverthrow";
 import {
   appendSessionEntries,
   buildBoundaryEntries,
   entriesByUuid,
+  entryOrThrow,
   entryToSessionMessage,
   projectKey,
+  readEntriesAt,
   readSessionEntries,
   SessionEntryParser,
   sessionFilePath,
@@ -66,33 +69,101 @@ test("readSessionEntries throws on malformed non-final lines and non-object valu
   assert.throws(() => readSessionEntries(nonObject), /not an object/);
 });
 
-test("SessionEntryParser yields multiple entries from one chunk", () => {
-  const parser = new SessionEntryParser("/s.jsonl");
-  const a = { uuid: uuid(), type: "user" };
+test("SessionEntryParser yields multiple entries from one chunk with their byte ranges", () => {
+  const parser = new SessionEntryParser();
+  const a = { uuid: uuid(), type: "user", text: "héllo → 🚀" };
   const b = { type: "summary", note: "no uuid" };
-  const entries = parser.push(
-    Buffer.from(`${JSON.stringify(a)}\n${JSON.stringify(b)}\n`),
-  );
-  assert.deepEqual(entries, [a, b]);
+  const aLine = `${JSON.stringify(a)}\n`;
+  const bLine = `${JSON.stringify(b)}\r\n`;
+  const aLength = Buffer.byteLength(aLine);
+  assert.deepEqual(parser.push(Buffer.from(aLine + bLine)), [
+    ok({ entry: a, range: { offset: 0, length: aLength } }),
+    ok({
+      entry: b,
+      range: { offset: aLength, length: Buffer.byteLength(bLine) },
+    }),
+  ]);
+});
+
+test("SessionEntryParser ranges skip blank lines and span a line torn across pushes", () => {
+  const parser = new SessionEntryParser();
+  const a = { uuid: uuid(), type: "user" };
+  const b = { uuid: uuid(), type: "assistant" };
+  const aLine = `${JSON.stringify(a)}\n`;
+  const bLine = `${JSON.stringify(b)}\n`;
+  const bStart = aLine.length + 1;
+  const first = Buffer.from(`${aLine}\n${bLine.slice(0, 5)}`);
+  assert.deepEqual(parser.push(first), [
+    ok({ entry: a, range: { offset: 0, length: aLine.length } }),
+  ]);
+  assert.deepEqual(parser.push(Buffer.from(bLine.slice(5))), [
+    ok({ entry: b, range: { offset: bStart, length: bLine.length } }),
+  ]);
 });
 
 test("SessionEntryParser counts blank lines toward error line numbers", () => {
-  const parser = new SessionEntryParser("/s.jsonl");
+  const parser = new SessionEntryParser();
   const entry = { uuid: uuid() };
-  assert.deepEqual(parser.push(Buffer.from(`${JSON.stringify(entry)}\n\n`)), [
-    entry,
+  const firstChunk = `${JSON.stringify(entry)}\n\n`;
+  const range = { offset: 0, length: firstChunk.length - 1 };
+  assert.deepEqual(parser.push(Buffer.from(firstChunk)), [
+    ok({ entry, range }),
+  ]);
+  const malformed = {
+    range: { offset: firstChunk.length + 4, length: 10 },
+    lineNumber: 4,
+    reason: "not-json",
+  } as const;
+  assert.deepEqual(parser.push(Buffer.from("   \nmalformed\n")), [
+    err(malformed),
   ]);
   assert.throws(
-    () => parser.push(Buffer.from("   \nmalformed\n")),
+    () => entryOrThrow("/s.jsonl", err(malformed)),
     /^Error: \/s\.jsonl:4: malformed session file line$/,
   );
 });
 
-test("SessionEntryParser throws on a terminated non-object line", () => {
-  const parser = new SessionEntryParser("/s.jsonl");
+test("SessionEntryParser reports malformed lines in file order and keeps parsing", () => {
+  const parser = new SessionEntryParser();
+  const entry = { uuid: uuid() };
+  const entryLine = `${JSON.stringify(entry)}\n`;
+  assert.deepEqual(parser.push(Buffer.from(`bad\n[1]\n${entryLine}`)), [
+    err({ range: { offset: 0, length: 4 }, lineNumber: 1, reason: "not-json" }),
+    err({
+      range: { offset: 4, length: 4 },
+      lineNumber: 2,
+      reason: "not-object",
+    }),
+    ok({ entry, range: { offset: 8, length: entryLine.length } }),
+  ]);
+});
+
+test("readEntriesAt reads entries by range without the rest of the file; a stale range throws", () => {
+  const file = join(mkdtempSync(join(tmpdir(), "clauctl-sf-")), "s.jsonl");
+  const entries = [
+    { uuid: uuid(), type: "user", text: "🚀" },
+    { uuid: uuid(), type: "assistant" },
+    { uuid: uuid(), type: "user" },
+  ];
+  const content = entries.map((e) => `${JSON.stringify(e)}\n`).join("");
+  writeFileSync(file, content);
+  const ranges = new SessionEntryParser()
+    .push(Buffer.from(content))
+    .map((line) => entryOrThrow(file, line).range);
+  assert.deepEqual(readEntriesAt(file, [ranges[2]!, ranges[0]!]), [
+    entries[2],
+    entries[0],
+  ]);
+  assert.deepEqual(readEntriesAt(file, []), []);
+  const stale = { offset: ranges[1]!.offset + 1, length: ranges[1]!.length };
   assert.throws(
-    () => parser.push(Buffer.from("[1,2]\n")),
-    /^Error: \/s\.jsonl:1: session file line is not an object$/,
+    () => readEntriesAt(file, [stale]),
+    /malformed session file line/,
+  );
+  const pastEnd = { offset: Buffer.byteLength(content), length: 10 };
+  assert.throws(
+    () => readEntriesAt(file, [pastEnd]),
+    /does not hold one entry line/,
   );
 });
 

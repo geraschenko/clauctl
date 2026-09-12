@@ -1,7 +1,9 @@
 # Spec: session tracker — the daemon follows the session log and merges it into the agent event stream
 
 > Status: **DRAFT, rewritten on top of docs/specs/stream-merge.md
-> (2026-09-11); reviewer-approved at round 13, awaiting Anton's
+> (2026-09-11); reviewer-approved at round 13; redesigned 2026-09-12
+> (payload-free shared entries, no slimming; WORK LOG "Redesign" and
+> docs/specs/session-tracker/redesign-2026-09-12.md), awaiting Anton's
 > review.** Follow-up to
 > docs/specs/get-context.md (its Cost section anticipated this) and
 > docs/thoughts/get-entries-caching.md. Derisk rounds and the rewrite's
@@ -31,10 +33,10 @@ assumption is documented as "unproven".
 Wanted:
 
 - **The daemon follows the session log** (`tail -f`) and maintains a
-  **session tracker** — slim entries, byte ranges, the rolling full tree
-  and context tree — from startup on. It never re-parses the log and
-  never rebuilds a tree; full payloads are re-read by byte range on
-  request.
+  **session tracker** — structural entries, byte ranges, the rolling
+  full tree and context tree — from startup on. It never re-parses the
+  log and never rebuilds a tree; full payloads are re-read by byte
+  range on request.
 - **One agent event stream.** sdk.sock emits the union of query-stream
   messages, log entries, and daemon bookkeeping — "the interface we wish
   the claude CLI provided". `AgentObserver` (client-side merge) goes
@@ -43,11 +45,17 @@ Wanted:
   are merged by docs/specs/stream-merge.md's library inside the fold,
   and the state says whether the log has caught up with the query
   stream.
-- **Slim entries by default.** Strings in the fields known to carry
-  bulk (message content, tool results, attachments) are cut to
-  `SLIM_STRING_LIMIT`; full payloads are fetched by uuid only when a
-  view renders beyond the cut. Trees and default rendering need nothing
-  more.
+- **Send what the query stream lacks.** A log entry whose class the
+  query stream also carries (Classification table) goes out as its
+  **structural projection** — payload strings emptied, everything the
+  trees read kept — because the subscriber already has the payload
+  from the `sdkMessage` twin; every other entry (attachments, prompts,
+  hook summaries, …) goes out intact. No entry is ever truncated.
+- **Trees are a function of the entry stream.** Every tree — the
+  daemon's full and context trees, a client's display tree — is built
+  from `sessionEntry` events alone (structural entries suffice for the
+  builders), so the live tree structure equals the structure a restart
+  rebuilds from the file.
 - **Rolling builders.** `buildTree`, `toContextTree`, `toDisplayTree`
   become `push(entry)` builders; daemon and TUI extend their trees per
   arriving entry.
@@ -86,9 +94,9 @@ docs/session-views.md):
   tracker are on (`fileSessionId`). Equal to the query file except
   between a query message with a new `session_id` and the switch
   (below).
-- **`FileState`** — the per-file part of `AgentState`: merge, tree
+- **`SessionState`** — the per-file part of `AgentState`: merge, tree
   leaf, pending leaf, `awaitingAnchors`, `lastUsage`/`model`.
-- **settled** — a `FileState` with nothing pending on `query` and no
+- **settled** — a `SessionState` with nothing pending on `query` and no
   boundary awaiting its anchor. The agent state is settled when the
   query file is the tracked file and is settled.
 - **switch** — the daemon moves the follower and the session tracker
@@ -118,7 +126,7 @@ not carry the id (`excludedFromSession(message)` /
 `excludedFromQuery(entry)`). How a wrong table surfaces is in the
 Classification table section. The fold additionally excludes a scan
 entry
-from `query` while `FileState.scanExcluded` holds — from the file's
+from `query` while `SessionState.scanExcluded` holds — from the file's
 opening until the scan meets an id the merge already holds (the query
 stream reported it first) or `scanComplete` arrives. The startup scan
 is therefore excluded entirely (a resumed query never re-reports the
@@ -158,17 +166,18 @@ other stream passes them.
 
 ### Classification table (which streams carry an id)
 
-| side    | class                                                                                                                                                              | other side                                                                                                                                                                               | evidence                                             |
-| ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------- |
-| query   | `assistant`                                                                                                                                                        | session `assistant`, or session `system/local_command` (slash-command output; same uuid, different class)                                                                                | captures, probe                                      |
-| query   | `user` (tool results, compaction summary)                                                                                                                          | session `user`                                                                                                                                                                           | captures, probe                                      |
-| query   | `system/compact_boundary`                                                                                                                                          | session `system/compact_boundary`                                                                                                                                                        | live compact, probe                                  |
-| query   | `result`, `system/init`, `system/status`, `system/thinking_tokens`, `stream_event`, `tool_progress`, `rate_limit_event`, task/notification/session_state, `hook_*` | none (query-only)                                                                                                                                                                        | probe (`hook_*` never observed on either stream)     |
-| session | `assistant`, `user` tool results / summaries, `system/compact_boundary`, `system/local_command`                                                                    | query (above)                                                                                                                                                                            | probe                                                |
-| session | `user` prompts (ours and the CLI's `<command-name>` entries)                                                                                                       | none (session-only): the query stream never echoes a prompt; clauctl does not stamp `SDKUserMessage.uuid` (the CLI would persist it — docs/derisk/uuid-stamping/ — but see Observations) | docs/derisk/uuid-stamping/                           |
-| session | local-command `user` entries (`isMeta`: `<local-command-caveat>`, `<local-command-stdout>`)                                                                        | none (session-only)                                                                                                                                                                      | probe                                                |
-| session | `attachment`, `system/{stop_hook_summary, turn_duration, api_error, away_summary, informational, model_*_fallback}`                                                | none (session-only); `turn_duration`/`api_error` not yet observed                                                                                                                        | probe (`stop_hook_summary`, `attachment`), 349 files |
-| —       | uuid-less log classes (`last-prompt`, `queue-operation`, `mode`, `permission-mode`, `ai-title`, `file-history-*`, `agent-*`, `atis-latch`, …)                      | never enter the merge                                                                                                                                                                    | 349 files                                            |
+| side    | class                                                                                                                                                              | other side                                                                                                                                                                               | evidence                                                     |
+| ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------ |
+| query   | `assistant`                                                                                                                                                        | session `assistant`, or session `system/local_command` (slash-command output; same uuid, different class)                                                                                | captures, probe                                              |
+| query   | `user` (tool results, compaction summary)                                                                                                                          | session `user`                                                                                                                                                                           | captures, probe                                              |
+| query   | `system/compact_boundary`                                                                                                                                          | session `system/compact_boundary`                                                                                                                                                        | live compact, probe                                          |
+| query   | `result`, `system/init`, `system/status`, `system/thinking_tokens`, `stream_event`, `tool_progress`, `rate_limit_event`, task/notification/session_state, `hook_*` | none (query-only)                                                                                                                                                                        | probe (`hook_*` never observed on either stream)             |
+| session | `assistant`, `user` tool results / summaries, `system/compact_boundary`, `system/local_command`                                                                    | query (above)                                                                                                                                                                            | probe                                                        |
+| session | `user` prompts (ours and the CLI's `<command-name>` entries)                                                                                                       | none (session-only): the query stream never echoes a prompt; clauctl does not stamp `SDKUserMessage.uuid` (the CLI would persist it — docs/derisk/uuid-stamping/ — but see Observations) | docs/derisk/uuid-stamping/                                   |
+| session | `user` `<local-command-stdout>` (a slash command's output logged as a `user` entry, never `isMeta`; `/compact`'s "Compacted")                                      | query `user` with `isReplay: true` (the CLI replays the entry to the SDK consumer)                                                                                                       | captures 2/2 (2026-09-11); 349 files: 4519/4519 non-`isMeta` |
+| session | local-command input entries: `<local-command-caveat>` (`isMeta`), `<command-name>` (not `isMeta`; carries the stamped uuid when we stamp)                          | none (session-only)                                                                                                                                                                      | probe; 349 files                                             |
+| session | `attachment`, `system/{stop_hook_summary, turn_duration, api_error, away_summary, informational, model_*_fallback}`                                                | none (session-only); `turn_duration`/`api_error` not yet observed                                                                                                                        | probe (`stop_hook_summary`, `attachment`), 349 files         |
+| —       | uuid-less log classes (`last-prompt`, `queue-operation`, `mode`, `permission-mode`, `ai-title`, `file-history-*`, `agent-*`, `atis-latch`, …)                      | never enter the merge                                                                                                                                                                    | 349 files                                                    |
 
 Evidence: SDK 0.3.258 `sdk.d.ts` (every `SDKMessage` variant carries
 `uuid`; optional only on host-pushed `SDKUserMessage`); 349 real
@@ -178,16 +187,27 @@ assistant/user uuids in the paired file); a live `/compact` on
 docs/derisk/uuid-stamping/ (probes, 2026-09-11).
 tests/sdk/stream-classification.test.ts pins the table and the same
 relative order of shared uuids on both streams. `excludedFromQuery` on
-a `user` entry is "no `tool_result` block and not a compaction
-summary" — tool results and summaries are the shared `user` classes.
+a `user` entry is "no `tool_result` block, not `isCompactSummary`, and
+its string content does not start with `<local-command-stdout>`" —
+tool results, summaries and local-command output are the shared `user`
+classes. Local-command **output** is shared under two shapes (`/cost`:
+`system/local_command` ↔ query `assistant`; `/compact`: `user` stdout
+↔ query `user` replay); local-command **input** (caveat, command) is
+session-only.
 
-Unknown rows are treated as **session-only** (excluded from `query`).
-A wrong row surfaces as an anomaly (below) in one of two ways:
+The table also decides what crosses the wire: a session-only entry
+goes out intact, a shared one as its structural projection (Agent
+events). Unknown rows are treated as **session-only** (excluded from
+`query`) — the safe direction: the entry goes out whole. A wrong row
+surfaces as an anomaly (below) in one of two ways; a "one-sided" row
+that is really shared additionally costs a duplicate payload on the
+wire, a "shared" row that is really one-sided costs the payload the
+subscriber never gets (the head-mismatch names it):
 
-| table says           | reality   | detected by                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
-| -------------------- | --------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| shared               | one-sided | **head-mismatch**: the id resolves only when a successor closes it, with `seenOn ∪ excludedFrom` missing the absent stream.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
-| one-sided (excluded) | shared    | the excluded node resolves at once and is forgotten, so there is no `Resolved` to inspect when the other stream shows the id. Resident behind a pending predecessor: the library's `excluded-observed`. Forgotten: on the query side the **dedup site** — a `byUuid` hit with no merge node whose entry class is session-only (a shared class is a duplicate, Query-stream duplicates); on the session side the fresh node pends and closes as a **head-mismatch** unless the entry's own class is also session-only, in which case nothing fires — both sides agree it is one-sided, and the merge is unharmed. |
+| table says           | reality   | detected by                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| -------------------- | --------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| shared               | one-sided | **head-mismatch**: the id resolves only when a successor closes it, with `seenOn ∪ excludedFrom` missing the absent stream.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| one-sided (excluded) | shared    | the excluded node resolves at once and is forgotten, so there is no `Resolved` to inspect when the other stream shows the id. Resident behind a pending predecessor: the library's `excluded-observed`. Forgotten: on the query side the **dedup site** — an `index` hit with no merge node whose class is session-only (a shared class is a duplicate, Query-stream duplicates); on the session side the fresh node pends and closes as a **head-mismatch** unless the entry's own class is also session-only, in which case nothing fires — both sides agree it is one-sided, and the merge is unharmed. |
 
 A `system/init` never carries a shared id; `sessionFileChanged` is a
 daemon event, not an SDK message.
@@ -200,16 +220,16 @@ tail; docs/derisk/stream-classification/README, 2/2; the copies are
 equal modulo `message.id`). Unresolved, a repeat is an
 `order-violation`; resolved, it would create a node that never
 resolves. The daemon dedups query uuids **first-wins before the merge**:
-a query item is a duplicate iff its uuid is in its file's `byUuid`
+a query item is a duplicate iff its uuid is in its file's `index`
 (available only while its file is the tracked one) and the merge has
-no node for it (it resolved, which needed a query observation). `byUuid` alone is not enough — the file may lead
+no node for it (it resolved, which needed a query observation). `index` alone is not enough — the file may lead
 the query for a shared uuid, and that first query observation is what
 resolves the node. A duplicate is neither folded nor broadcast (like a
 duplicate log line): the agent event stream is the interface we wish
 the CLI provided, and it would not repeat itself. The same check
 separates duplicates from classification errors (Classification
-table): the class of the `byUuid` entry decides. Caveat, accepted: a
-repeat on a file the follower has not reached yet (no `byUuid`) is an
+table): the class recorded in the `index` decides. Caveat, accepted: a
+repeat on a file the follower has not reached yet (no `index`) is an
 `order-violation`.
 
 ### Anomalies
@@ -252,7 +272,7 @@ criterion 8's gated part with `sessionFileChanged` naming the current
 id, entered at once (the settle and quiet waits are skipped: a request
 that holds the shared gate finishes — its payload read fails on the
 stale range, an error, not a wrong answer — and none starts on the
-failed tracker). The fold keeps the `FileState`'s query-side facts —
+failed tracker). The fold keeps the `SessionState`'s query-side facts —
 `pendingLeaf`, `lastUsage`, `model`, and the merge rebuilt from its
 query-pending nodes: each id of `pending(old.merge, "query")`
 re-observed on `query` in order, with `excludeFrom(["session"])`
@@ -271,7 +291,7 @@ part with `next = fileSessionId`, then loops as usual.
 
 The diagnostic bundle (`<daemon dir>/anomaly-<timestamp>.json`): the
 anomaly, the merge state before the failing call, the last
-`ANOMALY_TRAIL` (50) events of both streams as `{kind, type, subtype,
+`ANOMALY_CONTEXT_EVENTS` (50) events of both streams as `{kind, type, subtype,
 uuid, session_id}` (no payloads), `claudeCodeVersion`, and the tracked
 and query session ids. It is what a reproduction needs: the trail
 replays through the fold; the session files themselves are named by
@@ -288,7 +308,7 @@ tracker **incomplete** until the anchor arrives: the block rows are
 deferred and the leaf is provisional. Every `sessionEntry` event
 reports `awaitingAnchors` (the uuids of boundaries still deferred, in
 file order; several can be outstanding, and one anchor can complete
-several); the fold keeps them in the `FileState`, and `contextChanged`
+several); the fold keeps them in the `SessionState`, and `contextChanged`
 is emitted per boundary when it completes — after the boundary's own
 `sessionEntry` when nothing is deferred, else after the anchor's (one
 event per completed boundary, file order).
@@ -334,10 +354,10 @@ display.push()`; pushing into a finished builder throws. Without
    does).
 3. **Same fold everywhere.** An observer seeded from `subscribe` and
    folding the pushed `AgentEvent`s holds the same `AgentState` as the
-   daemon, whichever payload variant it subscribed with: the fold reads
-   only fields slimming never touches (`uuid`, `type`, `subtype`,
-   `isMeta`, `isSidechain`, `version`, `permissionMode`, and the event's
-   own `leaf`/`lastAssistant`/`awaitingAnchors`). The merge is part of
+   daemon: the fold reads only fields the structural projection never
+   touches (`uuid`, `type`, `subtype`, `isMeta`, `isSidechain`,
+   `version`, `permissionMode`, and the event's own
+   `expectsSdkMessage`/`leaf`/`lastAssistant`/`awaitingAnchors`). The merge is part of
    the state, so the client's settledness is the daemon's. A daemon
    restarted on a log holds, after its startup scan, the `leaf`,
    `treeLeaf`, `lastUsage`, `model`, `claudeCodeVersion`,
@@ -363,24 +383,30 @@ display.push()`; pushing into a finished builder throws. Without
    compaction and `set-context` alike — carrying `{boundary, leaf}` with
    the final post-boundary leaf; the request-handler emit is deleted.
    `tail --type events` annotates from the boundary's `compactMetadata`.
-6. **Slim by default.** `get-entries {payload: "slim"}` on the 167 MB
-   fixture returns < 25% of the file's bytes; every string at a
-   `SLIM_PATHS` leaf of a uuid-bearing entry is ≤ `SLIM_STRING_LIMIT`,
-   every other value — structural fields like block `type`, `id`,
-   `tool_use_id`, `name` included — and every uuid-less entry is
-   JSON-equal to the file; `truncated` lists exactly the uuids where
-   something was cut. `get-entries {uuids}`
-   returns those entries complete (JSON-equal to the file), in requested
-   order.
-7. **TUI never refetches for `/tree`.** The TUI's trees are extended from
-   `sessionEntry` events; `/tree` and `reloadHistory` read local state.
-   `reloadHistory` fetches the `truncated` user/assistant
-   (non-tool-result) entries on the rendered path in one `get-entries
-{uuids}` before rendering (their text is always expanded); ctrl+o
-   expansion fetches the truncated tool results/summaries it uncovers.
-   Live messages render from the query stream as today.
+6. **Payload-free shared entries, intact everything else.** A
+   `sessionEntry` event for a shared-class entry (`excludedFromQuery`
+   false) carries `structuralEntry(entry)`: every string at a
+   `PAYLOAD_PATHS` leaf is empty, every other value — block `type`,
+   `id`, `tool_use_id`, `name`, `message.id`/`usage`/`model`,
+   `compactMetadata`, `toolUseResult`'s keys — is JSON-equal to the
+   file. A session-only entry (attachments, prompts, hook summaries,
+   uuid-less rows) is JSON-equal to the file. `get-entries {uuids}` and
+   `get-entries {payload: "full"}` return entries complete (JSON-equal
+   to the file), in requested/file order. No entry is truncated
+   anywhere; a client that wants shorter attachment bodies cuts them
+   itself.
+7. **Trees from the stream; `/tree` never refetches.** The TUI's trees
+   are extended from `sessionEntry` events (structural entries are all
+   the builders need); `/tree` and `reloadHistory` read local state.
+   Rendering payloads come from the `sdkMessage` twin (live) or the
+   `get-entries {payload: "full"}` history fetched at attach — never
+   from a per-node refetch. A `queued_command` attachment (a steered
+   prompt, docs/derisk/uuid-stamping/) is a display-tree row rendered
+   as the user message it was, after the tool result it rode on — the
+   same row whether the attachment arrived live or in the history
+   fetch, so a restart shows what the live view showed.
 8. **Switches are serialized and settle first.** A query message with a
-   new `session_id` creates that file's `FileState` and makes it the
+   new `session_id` creates that file's `SessionState` and makes it the
    query file at once; the reader never pauses. The daemon then
    switches the follower, outside the request gate: it waits for the
    tracked file to settle (its merge holds only that file's items, so
@@ -390,10 +416,10 @@ display.push()`; pushing into a finished builder throws. Without
    marker; log-only trailing rows — `stop_hook_summary`,
    `turn_duration` — arrive after the last shared id and matter only to
    `tail --type entries`; named cost). Then, under the exclusive gate:
-   close the old follower, drop its `SessionTracker` and `FileState`,
+   close the old follower, drop its `SessionTracker` and `SessionState`,
    emit `sessionFileChanged {sessionId}` (the fold sets
    `fileSessionId`; clients reset their trees), open the next file in
-   `files` order and scan it (every scanned entry is folded and
+   `sessions` order and scan it (every scanned entry is folded and
    broadcast like any other, excluded from `query` per the merge
    model), emit `scanComplete`, release the gate. Repeat while
    `fileSessionId ≠ querySessionId` (two rapid `/clear`s); on a fresh
@@ -469,7 +495,7 @@ P.last@B}` (the last preserved occurrence). `Q: S` (the compaction
   (dedup covers the known case); see Anomalies.
 - Classification error: an `attachment` entry `t` is classified
   session-only (`S: t`, excluded from `query`, resolved and forgotten);
-  the SDK then reports `t`: `t` is in `byUuid`, has no merge node, and
+  the SDK then reports `t`: `t` is in the `index`, has no merge node, and
   `excludedFromQuery` holds → the hub emits a `classification`
   anomaly naming `attachment`/`t` and drops the message; the banner
   shows, the table gains a row from the bundle.
@@ -481,13 +507,13 @@ P.last@B}` (the last preserved occurrence). `Q: S` (the compaction
   context's last assistant), `claudeCodeVersion`, `permissionMode` —
   the seed. The first live query message `m` is `Q: m` → pending until
   the log delivers it.
-- `/clear`: query reports `system/init` with new id `F2` → `files[F2]`
+- `/clear`: query reports `system/init` with new id `F2` → `sessions[F2]`
   created (empty merge, `scanExcluded: true`), `querySessionId = F2`,
   `fileSessionId = F1`. The old file `F1` has `pending(q) = [a]` (its last
   assistant): the follower delivers `a`, `F1` settles, goes quiet, is
-  closed; `files[F1]` dropped; `sessionFileChanged {F2}`
+  closed; `sessions[F1]` dropped; `sessionFileChanged {F2}`
   (`fileSessionId = F2`); meanwhile the query stream has already reported `F2`'s first
-  turn `Q: a1` into `files[F2].merge` (the prompt `p1` is never a
+  turn `Q: a1` into `sessions[F2].merge` (the prompt `p1` is never a
   query observation). The scan of `F2` reads `p1` first: session-only
   and `scanExcluded`, resolves at once; then `a1`: the merge holds it
   → `scanExcluded = false`, plain `S: a1` resolves it;
@@ -497,20 +523,65 @@ P.last@B}` (the last preserved occurrence). `Q: S` (the compaction
   has no node for them) and resolve at once; the first entry the
   query reported for `F2` ends the exclusion.
 - Query duplicate: after a `/compact` the CLI re-sends the preserved
-  `/cost` assistant message `c`; `c` is in `byUuid` and has no merge
+  `/cost` assistant message `c`; `c` is in the `index` and has no merge
   node → dropped before the merge.
 - TUI start: `subscribe` (events buffer), then `get-entries {payload:
-"slim"}` → `SessionSnapshot {entries, truncated, leaf}`; every
-  `sessionEntry` event received before the response is folded but not
-  pushed into the tree (the snapshot contains it — see Data flow 6); no
-  gap, no replay in `subscribe`.
-- `reloadHistory` on a path with 40 `truncated` entries, 12 of them
-  user/assistant text: one `get-entries {uuids: [12]}`, render; the 28
-  tool results render their 200-char heads. User presses ctrl+o: one
-  `get-entries {uuids: [28]}`, re-render. (Per-message expansion is a
-  later change; it only shrinks the second fetch.)
+"full"}` → `SessionSnapshot {entries, leaf}`; every `sessionEntry`
+  event received before the response is folded but not pushed into the
+  tree (the snapshot contains it — see Data flow 6); no gap, no replay
+  in `subscribe`. Live from then on: an assistant message arrives as
+  `sdkMessage` (payload, rendered at once) and later as a structural
+  `sessionEntry` (parent link; pushed into the trees); an attachment
+  arrives once, intact.
+- A steered prompt: `userMessageDequeued {delivery: "steer"}` (the
+  pending-area preview), the tool-result `user` twin pair, then the
+  `queued_command` attachment entry intact — the display tree gains a
+  user row for it under the tool result. After a restart the history
+  fetch delivers the same attachment and the same row appears. The
+  attachment is an ordinary in-context node (the tool-result entry
+  carries nothing of the steer; docs/derisk/uuid-stamping/captures),
+  so no relinked ref and no picker special case: rewinding to it is a
+  rewind to its uuid. Caveat: the CLI takes an attachment in a
+  preserved list without contributing its content
+  (docs/derisk/compact-boundary-injection/FINDINGS.md, P3 m6), so a
+  rewind to the steer row likely leaves the steer text out of the
+  assistant's context — as a rewind to the tool result would.
+- A client that only wants ids: `get-context {payload: "uuids"}` → the
+  refs of `contextAt(leaf)` in context order (not file order: boundary
+  relinking reorders), no file read; `get-entries {payload: "uuids"}`
+  → every canonical uuid of the log, in-context or not, in file order.
 
 ## Type design
+
+### Module layering: `session/` is the format, `daemon/` is the policy
+
+The test for where a session-file module lives: does it need a daemon
+to make sense?
+
+`src/core/session/` knows the file as a format and nothing about the
+daemon. Any process that has a session file can use it: file.ts (path,
+parse, byte ranges, `entriesByUuid`, boundary append), structural.ts
+(the projection), entry-stream.ts (`SessionLogFollower`: tail one file,
+deliver each terminated line; and `SessionEntryClient`, the
+filter+queue adapter on it that `tail`/`format` use on a dormant
+agent's file).
+
+`src/core/daemon/` decides what the daemon keeps resident and serves
+over the socket. session-tracker.ts (`SessionTracker`) holds ONE file:
+structural entries + byte ranges + rolling trees, and turns each pushed
+line into the socket's `sessionEntry` event — "structural resident,
+full by range, payload-free on the wire when the query stream has it"
+is daemon serving policy, not a file property. tracked-session-log.ts
+(`TrackedSessionLog`) decides WHICH file is followed and when it
+switches: it owns the follower + tracker pair, the startup scan and
+the switch worker, and replaces both on a session change.
+
+The data path is `SessionLogFollower → SessionTracker.push →
+EventHub.emit`. `TrackedSessionLog` is not in it: it constructs and
+replaces the first two and connects them to the third.
+The follower stays separate from the tracker because two adapters
+consume it (the tracker and `SessionEntryClient`) and the tracker is
+then testable without a filesystem.
 
 ### Agent events (`src/core/sdk-socket.ts`)
 
@@ -519,19 +590,29 @@ P.last@B}` (the last preserved occurrence). `Q: S` (the compaction
 ```ts
 export type AgentEvent =
   | { kind: "sdkMessage"; message: SDKMessage }
-  // One per canonical log entry of the tracked file, in file order.
-  // `entry` is complete inside the daemon; on the wire it is the
-  // subscriber's payload variant, with `truncated` present iff slimming
-  // cut something. `leaf` is the context tree's leaf after this entry and
+  // One per canonical log entry of the tracked file, in file order,
+  // emitted as soon as the follower reads the line (never held for
+  // resolution: subscribers run the same merge and decide for
+  // themselves). `entry` is the complete entry when its class is
+  // session-only (`excludedFromQuery`), else `structuralEntry(entry)`:
+  // the subscriber already holds the payload from the `sdkMessage`
+  // twin, so only what the trees and the fold read crosses the wire.
+  // `expectsSdkMessage` is that class decision (false = session-only;
+  // a prediction from the table, not an observation), made by
+  // the tracker on the complete entry: the fold reads it rather than
+  // re-classifying, because the `<local-command-stdout>` rule reads
+  // `message.content`, a payload leaf the projection empties.
+  // `leaf` is the context tree's leaf after this entry and
   // `lastAssistant` the usage/model of the last non-excluded,
   // non-sidechain assistant on contextAt(leaf) (absent when none; each
-  // field independently optional) — daemon-computed, so clients fold
-  // them without owning a tree. `awaitingAnchors` lists the boundaries
-  // whose blocks are still deferred (session tracker incomplete).
+  // field independently optional) — daemon-computed, so a client folds
+  // them without owning a tree and a restart seeds them from the scan.
+  // `awaitingAnchors` lists the boundaries whose blocks are still
+  // deferred (session tracker incomplete).
   | {
       kind: "sessionEntry";
       entry: SessionEntry;
-      truncated?: true;
+      expectsSdkMessage: boolean;
       leaf: TreeNodeRef | null;
       lastAssistant?: { usage?: NonNullableUsage; model?: string };
       awaitingAnchors: readonly UUID[];
@@ -541,7 +622,7 @@ export type AgentEvent =
   // whatever wrote it (native compaction or set-context). `leaf` is the
   // final post-boundary context tip (null after a wipe).
   | { kind: "contextChanged"; boundary: UUID; leaf: TreeNodeRef | null }
-  // The follower moved to `sessionId`: the old file's FileState is
+  // The follower moved to `sessionId`: the old file's SessionState is
   // dropped and the new file is about to be scanned.
   | { kind: "sessionFileChanged"; sessionId: UUID }
   // The follower's start() has returned for the tracked file: every
@@ -587,8 +668,11 @@ export interface TrackerAnomaly {
    *  the line's byte range (malformed), or the error (follower). */
   readonly detail: string;
 }
-/** The fold's view of one session file. */
-export interface FileState {
+/** The fold's view of one session: the merge of its query stream and its
+ *  file, and what has been observed on it. Fields that mirror a top-level
+ *  `AgentState` field (`model`) are observed evidence; the top-level one is
+ *  the prediction for the next query. */
+export interface SessionState {
   readonly merge: MergeState<UUID, MergeStream>;
   /** The context tree's leaf, folded from sessionEntry.leaf; null before
    *  any entry and after a wipe. */
@@ -599,8 +683,8 @@ export interface FileState {
   /** Boundaries whose preserved blocks are deferred behind anchors not
    *  yet in the log; the session tracker is incomplete while non-empty. */
   readonly awaitingAnchors: readonly UUID[];
-  /** Usage/model of the last assistant on the context (query-side while
-   *  unsettled, log-side once settled). */
+  /** Usage/model observed on the last assistant message of the context
+   *  (from the query stream while unsettled, from the file once settled). */
   readonly lastUsage?: NonNullableUsage;
   readonly model?: string;
   /** While true, session observations are excluded from `query`: the
@@ -612,9 +696,9 @@ export interface AgentState {
   // ...existing per-agent fields (activity, permissionMode, effortLevel,
   // claudeCodeVersion, observedPermissionModes, cwd, queuedMessages,
   // deliveredMessages) unchanged; `sessionId`, `model`, `lastUsage`,
-  // `leaf` move into FileState / derive from it...
+  // `leaf` move into SessionState / derive from it...
   /** Plain record (it crosses the wire in `subscribe`). */
-  readonly files: Readonly<Record<UUID, FileState>>;
+  readonly files: Readonly<Record<UUID, SessionState>>;
   /** The query file: the latest query message's `session_id`; undefined
    *  on a fresh spawn until the first `system/init`. */
   readonly querySessionId?: UUID;
@@ -627,21 +711,28 @@ export interface AgentState {
   readonly anomaly?: TrackerAnomaly;
 }
 
-/** `sessionId` is the resumed session on restart; absent on a fresh
- *  spawn (no file exists until the first prompt's `system/init`). */
-export function initialAgentState(sessionId?: UUID): AgentState;
+/** Per-agent fields only, no file: `sessions` is empty and both session ids
+ *  undefined. The seed file, when it exists, enters through the
+ *  `sessionFileChanged` that `TrackedSessionLog.start` emits. daemon.ts
+ *  spreads the settings cascade (`model`, `permissionMode`,
+ *  `effortLevel`, `cwd`) over it as it does over INITIAL_AGENT_STATE
+ *  today. */
+export function initialAgentState(): AgentState;
 
-export const queryFile = (state: AgentState): FileState | undefined;
+export const querySession = (state: AgentState): SessionState | undefined;
 /** The query-side leaf of the query file (merge model, Leaf); null
  *  without a file. */
 export const leaf = (state: AgentState): TreeNodeRef | null;
-export const fileSettled = (file: FileState): boolean;   // !hasPending(merge, "query") && awaitingAnchors empty
+export const sessionSettled = (file: SessionState): boolean;   // !hasPending(merge, "query") && awaitingAnchors empty
 /** False without a file: requests on a fresh spawn fail as today. */
 export const settled = (state: AgentState): boolean;
 
 /** The classification table, one function per side: whether the other
  *  stream never carries this occurrence. Uuid-less occurrences are not
- *  asked. */
+ *  asked. `excludedFromQuery` needs the complete entry (it reads
+ *  `message.content`), so the tracker calls it once per entry and
+ *  publishes the answer as the event's `expectsSdkMessage`; the fold reads
+ *  that. */
 export function excludedFromSession(message: SDKMessage): boolean;
 export function excludedFromQuery(entry: SessionEntry): boolean;
 
@@ -657,58 +748,60 @@ them all; a fold sets at most one `anomaly`, by the precedence in the
 merge model, and clears it otherwise):
 
 - `sdkMessage`: routed by `message.session_id`. An unknown
-  `session_id` creates its `FileState` (empty merge, `scanExcluded:
+  `session_id` creates its `SessionState` (empty merge, `scanExcluded:
 true`) and sets
   `querySessionId`. Then `observe("query", uuid)`; on a first
   observation, `excludeFrom(["session"])` when
   `excludedFromSession(message)`; a leaf-eligible message sets
   `pendingLeaf`; `lastUsage`/`model` from an assistant message as
   today. `system/init` touches nothing else. Per-agent fields fold as
-  today.
+  today. Subagent messages (`parent_tool_use_id` set) reach sinks but
+  fold nothing: their entries live in the `subagents/` files, never in
+  this one, so an observation would pend forever (subagent state
+  tracking: docs/thoughts/subagent-activity.md).
 - `sessionEntry`: routed to `fileSessionId`. Uuid-bearing entries:
   `observe("session", uuid)`; on a first observation,
-  `excludeFrom(["query"])` when `excludedFromQuery(entry)` or
+  `excludeFrom(["query"])` when `event.expectsSdkMessage` is false or
   `scanExcluded`; a session observation that finds the node already
   in the merge clears `scanExcluded`. Then `treeLeaf = event.leaf`,
   `awaitingAnchors = event.awaitingAnchors`; when the file is settled
   after the observation, `lastUsage`/`model` from
-  `event.lastAssistant` (each unset when absent) — an unsettled fold
-  holds fresher query-side values a lagging entry must not overwrite;
-  `claudeCodeVersion` from `version`; `permissionMode` from
-  `permission-mode` entries.
+  `event.lastAssistant` (each unset when absent) and
+  `claudeCodeVersion` from `version` — an unsettled fold holds fresher
+  query-side values a lagging entry must not overwrite.
+  `permissionMode` is query-side only (`init`/`status`/`controlApplied`);
+  `permission-mode` entries do not fold.
 - any resolution (either stream) of the id in `pendingLeaf` clears it.
 - `userMessageQueued`/`userMessageDequeued`: queue bookkeeping as
   today; no merge observation (prompts are session-only).
 - `sessionAppended`: `observe("query", uuid)` for each uuid, on the
   query file.
-- `sessionFileChanged`: delete `files[fileSessionId]`; when
+- `sessionFileChanged`: delete `sessions[fileSessionId]`; when
   `sessionId` is that same id (a follower-failure rescan) replace it
   with `{merge: rebuilt from pending(old.merge, "query") — each
 observed on "query" in order, excludeFrom(["session"]) where
 old.merge.nodes[id].excludedFrom had it; pendingLeaf, lastUsage,
 model: old; treeLeaf: null; awaitingAnchors: []; scanExcluded:
-true}`; then `fileSessionId = sessionId`. A new file's `FileState` exists —
-  the query message that named the id created it — with
-  `scanExcluded` still true: only session observations clear it, and
-  none have been routed to it.
-- `scanComplete`: `files[fileSessionId].scanExcluded = false`.
+true}`; then `fileSessionId = sessionId`. A new file's `SessionState`
+  usually exists — the query message that named the id created it —
+  with `scanExcluded` still true: only session observations clear it,
+  and none have been routed to it; when absent (the seed file at
+  startup, before any query message) a fresh one is created.
+- `scanComplete`: `sessions[fileSessionId].scanExcluded = false`.
 - `trackerAnomaly`: set `anomaly`.
 - `contextChanged`: nothing (the boundary's `sessionEntry` already
   folded the leaf; the event exists for consumers).
 
-### Slim projection (`src/core/session/slim.ts`)
+### Structural projection (`src/core/session/structural.ts`)
 
 ```ts
-/** Strings under a slimmed path are at most this many UTF-16 code units
- *  (a surrogate pair is never split). */
-export const SLIM_STRING_LIMIT = 200;
-
-/** The leaves that carry bulk, measured over real logs (WORK LOG). Within
- *  message content only payload leaves are cut — never structural fields
- *  (`type`, `id`, `tool_use_id`, `name`) the builders and set-context
- *  validation read. `**` = every string value beneath; `[]` = each
- *  element; keys are never touched. */
-export const SLIM_PATHS = [
+/** The leaves that carry payload, measured over real logs (WORK LOG).
+ *  Within message content only payload leaves are listed — never
+ *  structural fields (`type`, `id`, `tool_use_id`, `name`, `usage`,
+ *  `model`, `message.id`) the builders and set-context validation read.
+ *  `**` = every string value beneath; `[]` = each element; keys are
+ *  never touched. */
+export const PAYLOAD_PATHS = [
   "message.content", // when a plain string
   "message.content[].text",
   "message.content[].thinking",
@@ -721,15 +814,21 @@ export const SLIM_PATHS = [
   "attachment.**",
 ] as const;
 
-/** Same shape as `entry`; string values at SLIM_PATHS leaves cut to the
- *  limit; `truncated` iff something was cut. Strings elsewhere are not
- *  inspected. Uuid-less entries are returned unchanged (nothing could
- *  refetch them). */
-export function slimEntry(entry: SessionEntry): {
-  entry: SessionEntry;
-  truncated: boolean;
-};
+/** Same shape as `entry` with every string at a PAYLOAD_PATHS leaf
+ *  replaced by "" (keys and block skeleton kept, so the result is still
+ *  a valid entry for the builders). Strings elsewhere are not inspected.
+ *  Uuid-less entries are returned unchanged. */
+export function structuralEntry(entry: SessionEntry): SessionEntry;
 ```
+
+The projection is what the builders read (parent links, block ids,
+`usage`/`model`, `compactMetadata` — never payload) and what a
+`sessionEntry` event carries for a shared-class entry. It is a
+projection, not a truncation: there is no length limit and no
+`truncated` mark; a consumer that needs a payload holds its `sdkMessage`
+twin or reads the range. The daemon does not retain it: an entry is
+pushed into the trees on observation and dropped once every builder
+has consumed its node (Session tracker).
 
 ### Parser byte ranges (`src/core/session/file.ts`)
 
@@ -743,10 +842,19 @@ export interface ParsedEntry {
   range: ByteRange;
 }
 
+/** A terminated line that is not a JSON object. */
+export interface MalformedLine {
+  range: ByteRange;
+  lineNumber: number;
+  reason: "not-json" | "not-object";
+}
+
 export class SessionEntryParser {
-  /** Complete entries terminated within this chunk, with their byte range
-   *  in the file (line including its terminator). */
-  push(chunk: Buffer): ParsedEntry[];
+  /** The lines terminated within this chunk, in file order, each with its
+   *  byte range (line including its terminator). Corruption policy is the
+   *  caller's: whole-file readers throw (`entryOrThrow`), the follower
+   *  reports and skips. */
+  push(chunk: Buffer): Result<ParsedEntry, MalformedLine>[];
 }
 /** Unchanged signature; maps ParsedEntry → entry. */
 export function readSessionEntries(filePath: string): SessionEntry[];
@@ -774,7 +882,7 @@ export class SessionLogFollower {
   constructor(
     filePath: string,
     onEntry: (parsed: ParsedEntry) => void,
-    onMalformedLine: (range: ByteRange, error: Error) => void,
+    onMalformedLine: (line: MalformedLine) => void,
     onFailure: (error: Error) => void,
   );
   /** Read the initial extent (calling onEntry per line) and start following. */
@@ -861,9 +969,10 @@ export class ContextTreeBuilder {
   /** Live view: parentMap/excluded/leaf reflect every push so far. */
   get tree(): ContextTree;
   /** usage/model of the last non-excluded, non-sidechain assistant on
-   *  contextAt(ref): a parent walk from ref (no memo — exclusion is
-   *  retroactive at group end); O(distance to the previous eligible
-   *  assistant). */
+   *  contextAt(ref): a parent walk from ref over the builder's own
+   *  per-assistant `{usage, model}` record (taken at push, so the walk
+   *  reads no entries; no memo — exclusion is retroactive at group
+   *  end); O(distance to the previous eligible assistant). */
   lastAssistantOn(
     ref: TreeNodeRef,
   ): { usage?: NonNullableUsage; model?: string } | undefined;
@@ -896,7 +1005,10 @@ The builders chain: a caller pushes the entry into `byUuid` and the
 `SessionTreeBuilder`, then calls `push()` on the dependents, which
 consume `nodes` from their own cursor. Nodes are only ever appended
 (deferred nodes are absent, not provisional), so a dependent never sees
-a node move. `ContextTree.excluded` and the display tree's hidden set are
+a node move. `byUuid` is read only when a node is consumed, so a caller
+that keeps no entries (the daemon) may delete an entry from it once
+its node has been consumed by every dependent; entries deferred behind
+an absent anchor stay until then. `ContextTree.excluded` and the display tree's hidden set are
 live sets: the bounded retroactive edits (a group's `excluded` at group
 end; a boundary hiding a prefix of its own block) mutate them in place.
 `TreeNodeStr` (parent-map.ts) types every serialized `TreeNodeRef`.
@@ -907,58 +1019,119 @@ Phase-1 work log: docs/specs/session-tracker/phase-1-rolling-builders.md.
 ```ts
 export class SessionTracker {
   constructor(filePath: string, onInvalid: OnInvalid);
-  /** First-wins on uuid. Returns the event to emit (complete entry, plus
-   *  the slim projection for the wire) or undefined for a duplicate uuid.
-   *  Extends entries, byUuid, ranges and the two trees. `completedBoundaries`
-   *  lists, in file order, every boundary this entry completed (its own,
-   *  or those whose deferred blocks it anchored) with the context leaf
-   *  right after that boundary's block materialized. */
-  push(parsed: ParsedEntry):
-    | {
-        event: Extract<AgentEvent, { kind: "sessionEntry" }>;
-        slim: SessionEntry;
-        truncated: boolean;
-        completedBoundaries: readonly {
-          boundary: UUID;
-          leaf: TreeNodeRef | null;
-        }[];
-      }
-    | undefined;
-  /** Canonical entries after `since` (throws when the cursor is unknown):
-   *  slim from memory, or complete via readEntriesAt over their ranges. */
-  entries(since: UUID | undefined, payload: "slim" | "full"): SessionSnapshot;
-  /** Complete entries for these uuids, requested order; throws on an
-   *  unknown uuid. */
+  /** First-wins on uuid. Records the entry's range and class, pushes it
+   *  through the two trees (on observation — structure is a function
+   *  of file order; resolution is the fold's concern) and drops it once
+   *  consumed, and returns the events to emit, in order: `[]` for a
+   *  duplicate uuid; else the `sessionEntry` — the complete entry for a
+   *  session-only class, `structuralEntry(entry)` for a shared one,
+   *  `expectsSdkMessage` saying which — followed by one `contextChanged` per boundary this entry completed
+   *  (its own, or those whose deferred blocks it anchored), in file
+   *  order, each with the context leaf right after that boundary's
+   *  block materialized. */
+  push(
+    parsed: ParsedEntry,
+  ): readonly Extract<
+    AgentEvent,
+    { kind: "sessionEntry" | "contextChanged" }
+  >[];
+  /** Canonical uuids after `since` in file order (throws when the cursor
+   *  is unknown). */
+  uuidsAfter(since: UUID | undefined): readonly UUID[];
+  /** Complete entries for these uuids via readEntriesAt over their
+   *  ranges, requested order; throws on an unknown uuid. */
   payloads(uuids: readonly UUID[]): SessionEntry[];
   /** The context at an occurrence, as refs in context order. */
   contextAt(at: TreeNodeRef): readonly TreeNodeRef[];
-  get byUuid(): ReadonlyMap<UUID, SessionEntry>; // slim
+  /** Every canonical uuid of the file with its byte range and class —
+   *  the dedup site's existence/class check and set-context
+   *  validation's existence check; entries themselves are read by
+   *  range. */
+  get index(): ReadonlyMap<
+    UUID,
+    { range: ByteRange; expectsSdkMessage: boolean }
+  >;
   get contextTree(): ContextTree;
   get leaf(): TreeNodeRef | null;
 }
 ```
 
-No display tree in the daemon. daemon.ts composes `SessionTracker` with a
-`SessionLogFollower` whose `onEntry` is
-`(parsed) => { const pushed = sessionTracker.push(parsed); if (pushed) events.observeSessionEntry(pushed); }`
-whose `onMalformedLine` emits a `trackerAnomaly {kind:
-"malformed-line"}`, and whose `onFailure` emits a `trackerAnomaly
-{kind: "follower-failure"}` and starts the same-file switch (merge
-model, Anomalies); after `follower.start()` returns it emits
-`scanComplete`.
+The tracker retains no entries: the complete entry exists between the
+parser and the end of `push`'s sinks; the structural entry lives in the
+builders' `byUuid` only until every dependent has consumed its node
+(deferred block rows until their anchor). Set-context validation reads
+what it needs through `payloads`. Uuid-less entries (no range lookup
+could name them) are emitted intact and not retained.
+
+No display tree in the daemon. A `SessionTracker` knows one file only
+(its ranges are offsets into that file); the tracked-log module below
+replaces it together with the follower at every switch.
+
+### Tracked log (`src/core/daemon/tracked-session-log.ts`)
+
+The daemon's follow of the session log across files: the current
+`SessionLogFollower` + `SessionTracker` pair, the startup scan, and the
+switch worker (criterion 8, Data flow 3, the failure rescan). The hub
+does not own the tracker: it emits the whole agent event stream and
+is not bound to a file; it reads the tracker only at the dedup site.
+
+```ts
+export class TrackedSessionLog {
+  constructor(deps: {
+    hub: EventHub;
+    /** The request gate; the switch's gated part takes it exclusively. */
+    gate: RwGate;
+    sessionFilePath(sessionId: UUID): string;
+    onInvalid: OnInvalid;
+    log(message: string): void;
+  });
+  /** When the seed file exists: emit `sessionFileChanged {sessionId:
+   *  seed}`, build the follower + tracker on it, scan, `scanComplete`
+   *  (Data flow 1). Then start the switch worker, which subscribes to
+   *  the hub and runs whenever the folded state shows a defined
+   *  querySessionId ≠ fileSessionId. */
+  start(seedSessionId: UUID | undefined): void;
+  /** The tracked file's tracker; replaced at a switch (so handlers read
+   *  it after acquiring the gate); undefined before the first file. */
+  get tracker(): SessionTracker | undefined;
+  /** The follower's drainVisibleBytes (set-context, shutdown). */
+  drainVisibleBytes(): void;
+  close(): void;
+}
+```
+
+Its follower's `onEntry` is
+`(parsed) => { for (const event of tracker.push(parsed)) hub.emit(event); }`,
+its `onMalformedLine` emits a `trackerAnomaly {kind: "malformed-line"}`,
+and its `onFailure` emits a `trackerAnomaly {kind: "follower-failure"}`
+and redirects the worker to the same-file rescan (merge model,
+Anomalies); after `follower.start()` returns it emits `scanComplete`.
 
 ### Event hub (`src/core/daemon/event-hub.ts`)
 
 ```ts
+export interface EventHubOptions {
+  seed: AgentState;
+  /** Unchanged: hands an accepted user message to the SDK (turnQueue.push)
+   *  inside deliverUserMessage, so a delivered-but-unmodeled message cannot
+   *  exist. Only user/SDK messages go through deliverUserMessage /
+   *  observeSdkMessage (the queue model must see them); everything else —
+   *  daemon actions and session entries alike — goes through emit. */
+  deliver: (message: SDKUserMessage) => void;
+  /** The tracked file's tracker, read only at the dedup site. */
+  tracker: () => SessionTracker | undefined;
+  log: (message: string) => void;
+  anomalies: AnomalyRecorder;
+}
+
 export class EventHub {
-  /** Sinks receive the event plus, for sessionEntry, its slim projection;
-   *  serialization per subscriber variant moves to sdk-server. */
-  subscribe(
-    sink: (
-      event: AgentEvent,
-      slim?: { entry: SessionEntry; truncated: boolean },
-    ) => void,
-  ): () => void;
+  constructor(options: EventHubOptions);
+  /** Sinks receive every event, post-fold, in order (as today); every
+   *  subscriber sees the same sessionEntry the tracker produced. */
+  subscribe(sink: (event: AgentEvent) => void): () => void;
+  /** Everything with no queue-model involvement, session entries
+   *  included. A fold whose state carries `anomaly` logs it at error
+   *  and writes the diagnostic bundle. */
   emit(
     event: Extract<
       AgentEvent,
@@ -968,6 +1141,8 @@ export class EventHub {
           | "compactSent"
           | "controlApplied"
           | "shutdown"
+          | "sessionEntry"
+          | "contextChanged"
           | "sessionFileChanged"
           | "scanComplete"
           | "sessionAppended"
@@ -976,54 +1151,75 @@ export class EventHub {
     >,
   ): void;
   /** Dedup (merge model, Query-stream duplicates: needs the tracked
-   *  file's byUuid) — a session-only class at the dedup site emits
+   *  file's index) — a session-only class at the dedup site emits
    *  `trackerAnomaly {kind: "classification"}` and drops the message,
-   *  a shared class drops it silently — then fold. A fold whose state
-   *  carries `anomaly` logs it at error and writes the diagnostic
-   *  bundle. */
+   *  a shared class drops it silently — then fold (same anomaly
+   *  handling as emit). */
   observeSdkMessage(message: SDKMessage): void;
-  /** Fold the entry event (same anomaly handling), then emit one
-   *  contextChanged per `completedBoundaries` element, in order. */
-  observeSessionEntry(
-    pushed: NonNullable<ReturnType<SessionTracker["push"]>>,
-  ): void;
-  /** The tracked file's SessionTracker; replaced at a switch (criterion
-   *  8), so handlers read it after acquiring the gate. */
-  get sessionTracker(): SessionTracker;
   /** Resolves when settled(agentState) — immediately if already; rejects
    *  after SETTLE_TIMEOUT_MS naming the query file's pending("query"). */
   whenSettled(): Promise<void>;
-  /** Resolves when `fileSettled(files[sessionId])` (the switch's wait
+  /** Resolves when `sessionSettled(sessions[sessionId])` (the switch's wait
    *  on the old file); same bound as whenSettled. */
   whenFileSettled(sessionId: UUID): Promise<void>;
+}
+```
+
+### Anomaly bundles (`src/core/daemon/anomaly-bundle.ts`)
+
+Diagnostics, not state: the hub delegates here; the fold knows nothing
+of it.
+
+```ts
+/** Events of both streams kept as context for a bundle. */
+export const ANOMALY_CONTEXT_EVENTS = 50;
+
+export class AnomalyRecorder {
+  constructor(daemonDir: string);
+  /** Ring of the last ANOMALY_CONTEXT_EVENTS events as
+   *  `{kind, type, subtype, uuid, session_id}` (no payloads). Called on
+   *  every fold. */
+  record(event: AgentEvent): void;
+  /** Writes `<daemonDir>/anomaly-<timestamp>.json` (merge model,
+   *  Anomalies: the anomaly, the merge state before the failing call —
+   *  `before.files`, the ring, `claudeCodeVersion`, the tracked and
+   *  query session ids); returns the path. */
+  write(anomaly: TrackerAnomaly, before: AgentState, after: AgentState): string;
 }
 ```
 
 ### Wire (`src/core/sdk-socket.ts`)
 
 ```ts
-| { type: "subscribe"; attachment?: SubscribeAttachment; entryPayload?: "slim" | "full" }  // default slim
-| { type: "get-entries"; payload: "slim" | "full"; since?: UUID }   // → SessionSnapshot
-| { type: "get-entries"; uuids: UUID[] }                            // → SessionEntry[] complete, requested order
-| { type: "get-context"; at?: TreeNodeRef; payload: "slim" | "full" } // → ContextSlice
+| { type: "subscribe"; attachment?: SubscribeAttachment }              // unchanged
+| { type: "get-entries"; payload: "uuids" | "full"; since?: UUID }   // → SessionSnapshot
+| { type: "get-entries"; uuids: UUID[] }                              // → SessionEntry[] complete, requested order
+| { type: "get-context"; at?: TreeNodeRef; payload: "uuids" | "full" } // → ContextSlice
 
+/** `payload: "uuids"`: `uuids` only, no file read; `"full"`: the
+ *  complete entries in file order (readEntriesAt over the ranges). */
 export interface SessionSnapshot {
-  entries: SessionEntry[];
-  /** Uuids of entries slimming cut (empty for payload "full"). */
-  truncated: UUID[];
+  uuids: UUID[];
+  entries?: SessionEntry[];
   leaf: TreeNodeRef | null;
 }
-export interface ContextSlice { entries: SessionEntry[]; truncated: UUID[] }
+/** Same convention: `refs` always (context order), `entries` for "full". */
+export interface ContextSlice { refs: TreeNodeRef[]; entries?: SessionEntry[] }
 ```
 
 `SetContextResult` is unchanged (`boundaryUuid`). sdk-server serializes
-each `sessionEntry` once per payload variant a connected subscriber
-uses, synchronously inside the sink (the complete entry is not
-retained afterwards).
+whatever event the sink receives, synchronously (the complete entry is
+not retained afterwards). A subscriber gets the `AgentState` with its
+subscription and asks for history only if it wants it: `get-entries`
+with `"full"` for a client that builds trees or prints the log (the
+TUI, `tail` with a history range), `"uuids"` for one that only needs
+identities (uuid-prefix resolution, scripts), nothing for a live-only
+client (`prompt`, `tail` without `--since`).
 
 CLI: `clauctl get-entries` sends `payload: "full"` (complete JSONL for
-`format`), `--slim` sends slim; `clauctl context` sends `full`; the TUI
-and uuid-prefix resolution (`sdk-commands.ts`) send slim.
+`format`), `--uuids` sends `"uuids"`; `clauctl context` sends `full`,
+`--uuids` sends `"uuids"`; uuid-prefix resolution (`sdk-commands.ts`)
+sends `"uuids"`.
 
 ### Deleted
 
@@ -1034,42 +1230,52 @@ class reduces to condition + `settled`), `waitForEntry`,
 `readEntriesAfterStreamFlush`, the `contextChanged.request` field and
 its `requestAnnotation` in format/events.ts, the stale "no-write
 rewinds" comment in sdk-socket.ts, `AgentState.sessionId`/`leaf`/
-`lastUsage`/`model` as top-level fields (into `FileState`).
+`lastUsage`/`model` as top-level fields (into `SessionState`). From the
+pre-redesign phases: `SLIM_STRING_LIMIT`, `slimEntry`, `SlimProjection`
+and slim.ts (renamed structural.ts with `PAYLOAD_PATHS`/
+`structuralEntry`), `truncated` on events and snapshots, `EntryPayload`
+and the hub's full/slim sink sets, `subscribe`'s `entryPayload`,
+`payload: "slim"`, `SessionTracker.entries`.
 
 ## Data flow
 
-1. **Startup.** daemon.ts builds `initialAgentState(seedSessionId)`,
-   opens `SessionLogFollower(path, onEntry)` on the seed session file
-   and calls `start()`: every existing line goes through
-   `sessionTracker.push(parsed)` → `hub.observeSessionEntry` with no
-   subscribers attached; each is a session observation excluded from
+1. **Startup.** daemon.ts builds `initialAgentState()` (plus the
+   settings cascade) and calls `trackedLog.start(seedSessionId)`, which,
+   when the seed file exists, emits `sessionFileChanged` (creating the
+   `SessionState`), opens `SessionLogFollower(path, onEntry)` on it and
+   calls `start()`: every existing line goes through
+   `sessionTracker.push(parsed)` → `hub.emit` with no subscribers
+   attached; each is a session observation excluded from
    `query` (`scanExcluded` holds — no query message exists yet), so
    the merge stays empty; then `scanComplete`. The fold state after the
    scan _is_ the seed (settled, `treeLeaf`, `leaf` = `treeLeaf`,
    `lastUsage`/`model` from the context's last assistant, version,
-   mode). The complete entry is dropped after the sinks run; only slim
-   - range are retained.
+   mode). The complete entry is dropped after the sinks run; only the
+   structural entry + range are retained.
 2. **Live.** Query message → `hub.observeSdkMessage` (dedup; fold:
    route by `session_id`, observe on `query`, class exclusion; dequeues
    follow as today and observe nothing). fs event → follower
-   reads new bytes → parser → `sessionTracker.push(parsed)` (slim,
-   byUuid, range, `SessionTreeBuilder.push`, `ContextTreeBuilder.push`,
-   leaf, lastAssistant) → `hub.observeSessionEntry` (fold: observe on
-   `session`, class/scan exclusion; the entry that completes a
-   boundary — its own or its anchor's — additionally emits
-   `contextChanged`). Sinks receive events synchronously, post-fold.
-3. **Switch.** Criterion 8's sequence, run by one worker in daemon.ts
-   that is started when the folded state shows `fileSessionId ≠
+   reads new bytes → parser → `sessionTracker.push(parsed)` (index
+   range + class, structural entry into the builders' `byUuid`,
+   `SessionTreeBuilder.push`, `ContextTreeBuilder.push`, consumed
+   entries deleted, leaf, lastAssistant; the entry that
+   completes a boundary — its own or its anchor's — returns a
+   `contextChanged` after its `sessionEntry`) → `hub.emit` per event
+   (fold: observe on `session`, class/scan exclusion). Sinks receive
+   events synchronously, post-fold; a shared-class `sessionEntry`
+   carries the structural entry, a session-only one the complete
+   entry.
+3. **Switch.** Criterion 8's sequence, run by `TrackedSessionLog`'s worker,
+   which is started when the folded state shows `fileSessionId ≠
 querySessionId` after an `sdkMessage` and none is running: `await
 hub.whenFileSettled(fileSessionId)` (timeout logged, not fatal),
    `await follower.whenQuiet(SESSION_FILE_QUIET_MS)` — both skipped on
    a fresh spawn (`fileSessionId` undefined: no old file, no
    follower) and both abandoned when the follower fails meanwhile
    (`follower.whenFailed()` wins the race) — then under the exclusive
-   gate: `follower.close()`, new
-   `SessionTracker(nextPath)` installed on the hub,
-   `hub.emit(sessionFileChanged {sessionId: next})`, new follower
-   `start()` (scan → `observeSessionEntry`, excluded from `query` until
+   gate: `follower.close()`, new `SessionTracker(nextPath)` replaces
+   the old one, `hub.emit(sessionFileChanged {sessionId: next})`, new follower
+   `start()` (scan → `emit`, excluded from `query` until
    the scan meets a query-reported id), `hub.emit(scanComplete)`;
    release; repeat while `fileSessionId ≠ querySessionId`. The reader
    loop never waits on it. The next file's path is derived from its
@@ -1078,17 +1284,18 @@ hub.whenFileSettled(fileSessionId)` (timeout logged, not fatal),
    the running one) with `next = fileSessionId`, gated part only; the
    loop condition then takes over (merge model, Anomalies).
 4. **`get-entries` / `get-context`.** `await hub.whenSettled()` outside
-   the gate; gate shared; take `hub.sessionTracker`; if no longer
+   the gate; gate shared; take `trackedLog.tracker`; if no longer
    `settled`, release and repeat; serve
-   `sessionTracker.entries(since, payload)` /
-   `sessionTracker.contextAt(at ?? sessionTracker.leaf)` mapped through
-   `sessionTracker.byUuid` (slim) or `sessionTracker.payloads` (full,
-   context order).
+   `sessionTracker.uuidsAfter(since)` /
+   `sessionTracker.contextAt(at ?? sessionTracker.leaf)`, mapped through
+   `sessionTracker.payloads` (file/context order) for `payload:
+"full"`.
 5. **`set-context`.** Same protocol as 4 with the exclusive gate:
    `await whenSettled()` outside the gate; gate exclusive; take
-   `hub.sessionTracker`; if no longer `settled`, release and repeat;
+   `sessionLog.tracker`; if no longer `settled`, release and repeat;
    validate the requested list against
-   `sessionTracker.byUuid`/`sessionTracker.contextTree`;
+   `sessionTracker.index`/`sessionTracker.contextTree` (entries via
+   `payloads`);
    `teardownQuery`; `appendSessionEntries`; `hub.emit(sessionAppended
 {uuids})` with the uuids of what was appended (the boundary and, for
    a summary boundary, its summary); `follower.drainVisibleBytes()`
@@ -1101,71 +1308,99 @@ hub.whenFileSettled(fileSessionId)` (timeout logged, not fatal),
    failing step. A `compact_boundary` observed in the log restarts the
    query only if it is down; only `set-context` stops it (natural
    compactions do not restart it today; kept).
-6. **Clients.** `subscribe` first (events buffer in the socket), then
-   `get-entries {payload: "slim"}`. Every event is folded into the
+6. **Clients.** `subscribe` gives the `AgentState` and the live stream;
+   nothing else is assumed of a client. Every event is folded into the
    client's `AgentState` in socket order — the client's fold is the
-   daemon's, merge included. What differs before the response is the
-   tree: a `sessionFileChanged` received before it resets the client's
-   model (so a switch that lands between subscribe and response cannot
-   wipe the snapshot afterwards), and `sessionEntry` events received
-   before it are not pushed into the tree; then the snapshot is
-   applied; then live `sessionEntry` events are pushed. Not pushing is
-   sound because the handler computes the snapshot and writes the
-   response without yielding, and sinks run synchronously inside the
-   follower's read, so no event can fall between the snapshot and the
-   response on the socket: everything received before the response is
-   in the snapshot, everything after it is not. No cursor is needed for
-   the handoff, which is what lets uuid-less entries (relevant only to
-   `tail --type entries`, never slimmed) ride along without an identity
-   of their own. The TUI pushes snapshot entries then live
-   `sessionEntry` events into its own `byUuid` +
-   `SessionTreeBuilder`/`ContextTreeBuilder`/`DisplayTreeBuilder`;
-   `/tree` and `reloadHistory` read them. `reloadHistory` fetches the
-   truncated user/assistant entries of the path before rendering;
-   ctrl+o expansion fetches the truncated tool results/summaries it
-   uncovers. On `sessionFileChanged` it resets its model and rebuilds
-   it from the scan's events (criterion 8). `tail --type
-entries|messages` uses the same handoff: subscribe with
-   `entryPayload: "full"` (buffering), `get-entries {payload: "full",
-since}` (`--since` is a uuid cursor, as today), print the snapshot,
-   skip printing the `sessionEntry` events received before the response
-   (they are in the snapshot), then print live `sessionEntry` events.
+   daemon's, merge included. A client that wants history (the TUI,
+   `tail`) sends `get-entries {payload: "full"}` after subscribing
+   (events buffer in the socket meanwhile). What differs before the
+   response is the tree: a `sessionFileChanged` received before it
+   resets the client's model (so a switch that lands between subscribe
+   and response cannot wipe the snapshot afterwards), and
+   `sessionEntry` events received before it are not pushed into the
+   tree; then the snapshot is applied; then live `sessionEntry` events
+   are pushed. Not pushing is sound because the handler computes the
+   snapshot and writes the response without yielding, and sinks run
+   synchronously inside the follower's read, so no event can fall
+   between the snapshot and the response on the socket: everything
+   received before the response is in the snapshot, everything after
+   it is not. No cursor is needed for the handoff, which is what lets
+   uuid-less entries (relevant only to `tail --type entries`) ride
+   along without an identity of their own.
+
+   The TUI keeps `byUuid: Map<UUID, SessionEntry>` (complete entries
+   from the snapshot, then whatever each live `sessionEntry` carries —
+   structural for shared classes) feeding its
+   `SessionTreeBuilder`/`ContextTreeBuilder`/`DisplayTreeBuilder`, and
+   a separate `Map<UUID, SDKMessage>` of `sdkMessage` payloads by their
+   entry uuid for rendering. The trees are a function of the entry
+   stream alone — the same function the daemon computes and a restart
+   recomputes from the file — so the live structure equals the
+   structure after a restart (`compactMetadata` rides intact, so
+   boundaries place identically). The two maps hold different
+   information for the same uuid (the entry has the links and
+   structure, the SDK message the payload), so rendering a node checks
+   both: the complete entry (history), the SDK message (live shared
+   entry), or the intact entry (live session-only entry: attachments,
+   prompts); nothing is refetched. A `queued_command` attachment is a
+   display-tree row rendered as a user message (criterion 7). `/tree`
+   and `reloadHistory` read local state. On `sessionFileChanged` it
+   resets its model and rebuilds it from the scan's events (criterion
+   8). `tail --type entries|messages` uses the same handoff: subscribe
+   (buffering), `get-entries {payload: "full", since}` (`--since` is a
+   uuid cursor, as today), print the snapshot, skip printing the
+   `sessionEntry` events received before the response (they are in the
+   snapshot), then print live `sessionEntry` events (structural for
+   shared classes: `--type entries` prints what the wire carries; the
+   payload printed alongside is the `sdkMessage`).
    `--until` order: print the snapshot, then evaluate the condition
    against the state at subscription (an already-idle agent completes
    here), then against buffered/live events in order; once latched,
    completion awaits `settled(state)`. `prompt --type entries|messages`
    stays live-only.
+
 7. **Shutdown.** Criterion 9's sequence under the exclusive gate.
 
 ## Cost
 
-- **Daemon resident:** slim entries + byte ranges + full/context trees
-  (+ the `nodes` array). ≈ 40–65 MB for the
-  167 MB / 50k-entry fixture (criterion 10 bounds it at 80 MB) versus
-  240 MB of complete entries. Complete entries exist only transiently
-  per parsed chunk. Startup remains one full parse (~390 ms on that
-  fixture) — the only whole-file read.
-- **Per live entry:** slim walk (proportional to the entry's size) +
-  two builder pushes (O(1) placement; `lastAssistantOn` is O(distance
-  to the previous eligible assistant)) + one merge observation
-  (O(unresolved nodes touched), a handful) + one serialization per
-  payload variant in use. A `full` subscriber costs one extra
-  `JSON.stringify` of the complete entry per entry.
-- **Per `get-entries` slim:** stringify of the slim list — ~30 MB /
-  ~100 ms on the 50k fixture at TUI start; zero thereafter (`/tree` is
-  local). `payload: "full"` re-reads and re-parses every range: ~the
-  startup cost, on demand (`clauctl get-entries` for `format`).
+- **Daemon resident:** the index (uuid → range + class) + full/context
+  trees (+ the `nodes` array, the context tree's per-assistant
+  usage/model records) + structural entries deferred behind absent
+  anchors. Far below the slim measurement's 40–65 MB for the 167 MB /
+  50k-entry fixture (no entries are retained; criterion 10 keeps the
+  80 MB bound as a ceiling) versus 240 MB of complete entries.
+  Complete entries exist only transiently per parsed chunk. Startup
+  remains one full parse (~390 ms on that fixture) — the only
+  whole-file read.
+- **Per live entry:** one structural walk (proportional to the entry's
+  size; serves residency and, for shared classes, the wire) + two
+  builder pushes (O(1) placement; `lastAssistantOn` is O(distance to
+  the previous eligible assistant)) + one merge observation
+  (O(unresolved nodes touched), a handful) + one `JSON.stringify` per
+  subscriber.
+- **Wire per entry:** structural bytes for shared classes (the payload
+  went out once, as the `sdkMessage`); the whole entry for session-only
+  classes — attachments are the bulk (16 MB of the 267 MB measured
+  log, docs/specs/session-tracker WORK LOG), sent intact once per
+  subscriber. Named cost; a client cuts them for display if it wants.
+- **Per `get-entries`:** `"uuids"` is a stringify of the uuid list
+  (~2 MB on the 50k fixture), no file read. `"full"` re-reads and
+  re-parses every range: ~the startup cost, on demand — paid once by a
+  TUI at attach (it renders history from these entries) and by
+  `clauctl get-entries` for `format`.
 - **Payload reads:** O(requested bytes), `pread` at recorded ranges.
   The log is append-only (truncation/replacement is a follower
   failure that discards the ranges), so a served range is never stale.
-- **TUI resident:** its own copy of the slim entries + three trees —
-  the same order as the daemon, per attached TUI.
+- **TUI resident:** the complete history entries it fetched + the live
+  entries as received + its SDK-message map + three trees — more than
+  the daemon (it holds payloads for rendering), per attached TUI; a
+  TUI that wants less slims its own copy.
 - **Merge residency:** the live lag — unresolved nodes are ids one
   stream has and the other has not passed (a flush's worth), plus
   `awaitingAnchors`. Scan entries never accumulate (excluded from
   `query`, they resolve as folded). A merge is copied per observation
   (structural sharing of untouched nodes; stream-merge.md Cost). One
-  merge per file in `files`, at most a few files during a switch.
+  merge per file in `sessions`, at most a few files during a switch.
 - **The switch's quiet period:** `SESSION_FILE_QUIET_MS` of follower
   latency on every `/clear`/`/fork`, paid only so `tail --type entries`
   sees the old file's log-only trailing rows; requests on the new file
@@ -1180,7 +1415,7 @@ since}` (`--since` is a uuid cursor, as today), print the snapshot,
 - **Duplicate uuids on the query stream**: the merge model's dedup
   rule; dropped before the hub.
 - **Entries without uuid** (`file-history-snapshot`, `queue-operation`):
-  canonical, emitted as `sessionEntry`, never slimmed, no tree
+  canonical, emitted as `sessionEntry` intact, not retained, no tree
   occurrence, no merge observation.
 - **Malformed log line**: `malformed-line` anomaly, skipped; the
   follower continues. A deterministic parse failure therefore never
@@ -1204,7 +1439,7 @@ since}` (`--since` is a uuid cursor, as today), print the snapshot,
   logs the settle timeout when the old file never delivers what the
   query reported.
 - **Query message for the new file while the old is still tracked**:
-  it folds into `files[new]` and waits there; the scan of the new file
+  it folds into `sessions[new]` and waits there; the scan of the new file
   resolves it. The follower is never behind by more than one switch
   at a time; several pending files switch in order.
 - **Dangling anchor** (a boundary whose anchor never arrives —
@@ -1217,10 +1452,18 @@ since}` (`--since` is a uuid cursor, as today), print the snapshot,
   meanwhile; `finish()` places them as `buildTree` does at end of file
   (criterion 2 covers every prefix).
 - **`compactMetadata`, `cwd`, `gitBranch`, `slug`, uuids, timestamps,
-  block ids** are outside `SLIM_PATHS` and never cut, whatever their
-  length; the builders and set-context validation read only untouched
-  fields. A boundary's summary lives in the summary entry's
-  `message.content`, so it is cut like any message.
+  block ids, `usage`, `model`, `message.id`** are outside
+  `PAYLOAD_PATHS` and always present, whatever their length; the
+  builders and set-context validation read only untouched fields. A
+  boundary's summary lives in the summary entry's `message.content`
+  (a shared class: the summary text reaches subscribers as the
+  `sdkMessage` twin).
+- **A shared-class entry whose twin the client never saw** (client
+  attached after the `sdkMessage`, before the entry; or the CLI
+  dropped it): the client holds a structural entry and no payload. The
+  tree is unaffected; rendering shows an empty payload until the
+  client fetches by uuid — the attach handoff makes this a window of
+  one flush at most.
 - **`get-entries {since}` with an unknown cursor:** error, as
   `canonicalizeEntries` does today. After a switch the cursor is
   resolved against the tracked file's session tracker only.
@@ -1228,8 +1471,11 @@ since}` (`--since` is a uuid cursor, as today), print the snapshot,
 ## Non-goals
 
 - Renaming `SdkSocketClient`/`sdk.sock` or the `sdkMessage` event kind.
-- Per-field truncation marks (`truncatedPaths`) — deferred; the
-  entry-level flag over-fetches at most one entry per expansion.
+- Any truncation or slimming on the daemon side (a display-length cut
+  of attachment bodies is the client's).
+- Deferring a `sessionEntry` until its merge node resolves (the daemon
+  emits on observation; a client that wants resolved-only rendering
+  reads its own fold).
 - Incremental TUI redraw on `contextChanged` (diffing the preserved list
   against the previous path) — the boundary now carries what is needed;
   the redraw itself stays whole.
@@ -1243,6 +1489,21 @@ since}` (`--since` is a uuid cursor, as today), print the snapshot,
   (queued/started/completed per stamped uuid; docs/derisk/uuid-stamping/)
   instead of dequeue inference — noted for later.
 
+## Follow-up work
+
+Not in this spec's phases; each gets its own spec afterwards. Done
+earlier only if it simplifies the work at hand.
+
+- **daemon.ts factoring.** daemon.ts is the composition root and should
+  only wire modules together. Candidates that still carry logic there:
+  the query lifecycle (Query + TurnQueue + reader loop +
+  `teardownQuery`/`restartQuery`/`watchReader`/`daemonStreamDone`, three
+  mutable slots) as a `query-runner.ts` module with `start(resume?)`,
+  `teardown()`, `restart(resume)`, `get query`, `get turnQueue`,
+  `whenEnded()`; and startup classification (agent.json vs
+  spawn-options.json → record + resume id) as a pure function in
+  registry.ts.
+
 # IMPLEMENTATION IDEAS
 
 Phases (each leaves the suite green; the AGENTS.md one-pass bullet is
@@ -1255,21 +1516,23 @@ retired with phase 1):
 2. **Parser ranges + slim + follower split.** `ParsedEntry`,
    `readEntriesAt`, `slimEntry`, `SessionLogFollower` (with
    `whenQuiet`, offset retry, failure conditions) under the unchanged
-   `SessionEntryClient` surface.
-3. **Fold + session tracker.** `AgentEvent`/`AgentState`/`FileState`,
+   `SessionEntryClient` surface. (Done before the redesign; phase 3
+   turns `slimEntry` into `structuralEntry`.)
+3. **Fold + session tracker.** `AgentEvent`/`AgentState`/`SessionState`,
    `excludedFromSession`/`excludedFromQuery` (from the classification
    table; the stream-classification test becomes its fixture),
-   `nextAgentState`, `SessionTracker`,
-   `EventHub.observeSessionEntry`/`whenSettled`/`whenFileSettled`/dedup,
-   anomaly log + bundle, daemon.ts composition (startup scan, the
-   switch incl. the failure rescan, shutdown drain), request handlers
-   served from the session tracker, set-context drain, delete seed.ts
-   and the flush-wait helpers.
-4. **Wire + clients.** `get-entries`/`get-context`/`subscribe` shapes,
-   `SessionSnapshot.truncated`, `ContextSlice`; sdk-server
-   per-variant serialization; `tail`/`prompt` on the agent event stream
-   (delete `AgentObserver`); TUI rolling trees, fetch policy and the
-   anomaly banner; CLI flags; format annotation.
+   `nextAgentState`, `SessionTracker` (structural residency, per-class
+   event shape), `structuralEntry` replacing `slimEntry`, `EventHub`
+   single sink set, `whenSettled`/`whenFileSettled`/dedup, anomaly log
+   - bundle, daemon.ts composition (startup scan, the switch incl. the
+     failure rescan, shutdown drain), request handlers served from the
+     session tracker, set-context drain, delete seed.ts and the
+     flush-wait helpers.
+4. **Wire + clients.** `get-entries`/`get-context` shapes (`payload:
+"uuids" | "full"`, `SessionSnapshot`, `ContextSlice`); `tail`/`prompt`
+   on the agent event stream (delete `AgentObserver`); TUI entry +
+   SDK-message maps, rolling trees, the `queued_command` display row,
+   and the anomaly banner; CLI `--uuids`; format annotation.
 5. **Docs.** `docs/agent-events.md`, session-views.md cross-reference,
    update get-context.md/canonical-session-entry-stream.md/
    daemon-architecture.md status notes, remove the AGENTS.md bullet.
@@ -1277,7 +1540,9 @@ retired with phase 1):
 Notes:
 
 - The dedup check lives in `EventHub.observeSdkMessage` (it needs the
-  tracked file's `byUuid` and the query file's merge) and doubles as
+  tracked file's `index` — read through a `tracker: () =>
+SessionTracker | undefined` dependency, the hub's only contact with
+  the tracker — and the query file's merge) and doubles as
   the classification check. Anomaly reporting is one place: the hub
   reads `anomaly` off each folded state and logs + writes the bundle
   when present; the TUI latches it into the banner, so it needs no new
@@ -1285,23 +1550,24 @@ Notes:
 - The scan-exclusion site in the fold carries the O(n²) rationale
   (merge model, Observations) as a comment; it is the one place a
   reader would otherwise "simplify" by observing scan entries.
-- The bundle's stream trail is a ring of `ANOMALY_TRAIL` (50)
-  `{kind, type, subtype, uuid, session_id}` records kept by the hub
-  (not the fold: it is diagnostics, not state).
+- The bundle's stream trail is a ring of `ANOMALY_CONTEXT_EVENTS` (50)
+  `{kind, type, subtype, uuid, session_id}` records kept by
+  `AnomalyRecorder` (not the fold: it is diagnostics, not state).
 - `whenSettled` timeout value: reuse `CATCHUP_TIMEOUT_MS` (10 s) as
   `SETTLE_TIMEOUT_MS`; it is the same bound with the same meaning.
 - `SESSION_FILE_QUIET_MS` (old-file quiet period before the switch,
   criterion 8): 500 ms to start. Nothing signals that it is too short
   (rows written after the close are lost silently); `tail --type
 entries` across a `/clear` is the only observer.
-- `lastAssistantOn` needs no payload read: slimming cuts strings under
-  `message.content` only, so `message.usage`/`message.model` survive in
-  the slim entries.
+- `lastAssistantOn` needs no entry read: the context tree builder
+  records `{usage, model}` per assistant node at push (phase-1 builder
+  change, done in phase 3 step 1b).
 - The switch holds the request gate exclusively for the scan of the new
   file (the one whole-file read criterion 1 permits after startup); a
   50k-entry scan is ~400 ms, comparable to today's per-request read.
-  Every scanned entry is also broadcast (slim) to subscribers — a
-  snapshot's worth of bytes per subscriber, once per switch.
+  Every scanned entry is also broadcast (per-class shape) to
+  subscribers — a snapshot's worth of bytes per subscriber, once per
+  switch.
 - Leaf-eligibility for `pendingLeaf` is the predicate the fold uses
   for `leaf` today (uuid-bearing, non-meta, non-sidechain / no
   `parent_tool_use_id`, user/assistant).
@@ -1313,6 +1579,44 @@ entries` across a `/clear` is the only observer.
 Each phase keeps its own work log at `docs/specs/session-tracker/phase-N-<name>.md`
 (created when the phase starts); this section holds only the derisk
 summary, cross-phase decisions, and the phase checklist.
+
+## Redesign: payload-free shared entries (2026-09-12)
+
+Full report with evidence and motivation:
+docs/specs/session-tracker/redesign-2026-09-12.md. Decisions (Anton,
+now expressed in the body):
+
+1. Dual stream stays; the file stream is required (attachments are in
+   assistant context and in native preserved lists; the query stream
+   carries no `parentUuid`). No dependence on CLI properties such as
+   honoring stamped uuids.
+2. `sessionEntry` is emitted on observation, never held for
+   resolution; clients fold the merge themselves.
+3. Per-class wire shape: session-only entries intact (attachments
+   whole), shared entries as `structuralEntry` (payload strings
+   emptied; block skeleton, `usage`/`model`/`message.id`,
+   `compactMetadata` kept — the builders read them). Slimming
+   (`SLIM_STRING_LIMIT`, `truncated`, `payload: "slim"`, full/slim
+   sink sets) is deleted; `slim.ts` becomes `structural.ts`.
+4. Trees are a function of the entry stream: live structure == restart
+   structure; the TUI builds from its subscription and never calls
+   `get-context` for `/tree`.
+5. Daemon residency: index (uuid → range + class) + trees; entries are
+   pushed on observation (structure is a function of file order;
+   resolution is the fold's concern) and dropped once consumed;
+   payloads by range only. `get-entries`/`get-context` take `payload:
+"uuids" | "full"`; a subscriber gets `AgentState` and asks for
+   history only if it needs it.
+6. A steered prompt (`queued_command` attachment) is a display-tree
+   user row keyed by the attachment's own uuid — an ordinary
+   in-context node, no relink — live and from history.
+7. Classification fix: `/compact`'s `<local-command-stdout>` `user`
+   entry is shared (query replays it with `isReplay`); the table row
+   and `excludedFromQuery` are corrected.
+8. `sessionEntry.expectsSdkMessage`: the tracker classifies the complete entry
+   once and the fold reads the flag — a structural entry has lost the
+   `message.content` the stdout rule reads, so a subscriber cannot
+   reclassify it.
 
 ## Rewrite on stream-merge (2026-09-10/11)
 
@@ -1331,7 +1635,7 @@ Anton; now expressed in the body):
    `queryLeaf` seeding).
 4. Daemon actions are query observations (`sessionAppended`; not
    dequeue — revised 2026-09-11, below).
-5. Per-file `FileState`; query items routed by `session_id`; a new id
+5. Per-file `SessionState`; query items routed by `session_id`; a new id
    makes its file active at once; the reader never pauses.
 6. Switch = settle + quiet → close → `sessionFileChanged` → scan;
    `system/init` resets nothing.
@@ -1384,8 +1688,8 @@ direction is not checked. A merge reset also clears `pendingLeaf`; a
 follower failure (truncation/replacement only — malformed lines are
 skipped with an anomaly, so a deterministic parse failure cannot loop
 the rescan) takes the exclusive gate at once and replaces the
-`FileState`. `querySessionId`/`fileSessionId` are optional (fresh
-spawn has no file); `files` is a record, not a Map (wire). One anomaly
+`SessionState`. `querySessionId`/`fileSessionId` are optional (fresh
+spawn has no file); `sessions` is a record, not a Map (wire). One anomaly
 per fold, detected by reference; the banner names the daemon dir's
 `anomaly-*.json`. The `/clear` example had the prompt as a query
 observation; fixed.
@@ -1397,7 +1701,7 @@ reset is gone — the only reachable `MergeError` is a same-stream
 repeat, so the failing observation is dropped and nothing else
 changes (the reset's re-armed exclusion made a log-first query copy
 look like a duplicate); the same-file rescan carries
-`pending("query")` and `pendingLeaf` into the fresh `FileState`; a
+`pending("query")` and `pendingLeaf` into the fresh `SessionState`; a
 fresh spawn's first `system/init` runs the gated part only; the hub
 emits `trackerAnomaly {classification}` before dropping the message;
 one switch worker handles failures too (`whenFailed` races the
@@ -1487,7 +1791,8 @@ Tasks:
 
 - [x] Phase 1 rolling builders + per-prefix equivalence test
       (docs/specs/session-tracker/phase-1-rolling-builders.md, 2026-09-11)
-- [ ] Phase 2 parser ranges, slim, follower split
+- [x] Phase 2 parser ranges, slim, follower split
+      (docs/specs/session-tracker/phase-2-parser-ranges-slim-follower.md, 2026-09-11)
 - [ ] Phase 3 fold + session tracker + daemon composition
 - [ ] Phase 4 wire + clients (tail/prompt/TUI/CLI)
 - [ ] Phase 5 docs

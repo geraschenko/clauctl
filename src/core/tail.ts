@@ -27,6 +27,7 @@ import {
   type AgentObservation,
   type AgentObservationState,
 } from "./agent-observer.ts";
+import { leaf } from "./agent-state.ts";
 import { entrySink } from "./entry-sink.ts";
 import {
   booleanFlag,
@@ -140,7 +141,7 @@ export class UntilSettlement {
     ) {
       return false;
     }
-    return this.beginCatchup(seed.sdk.leaf?.uuid);
+    return this.beginCatchup(leaf(seed.sdk)?.uuid);
   }
 
   /** true = settle the stream. */
@@ -161,7 +162,7 @@ export class UntilSettlement {
     ) {
       return false;
     }
-    return this.beginCatchup(state.sdk.leaf?.uuid);
+    return this.beginCatchup(leaf(state.sdk)?.uuid);
   }
 
   /** Clear the deadline timer; call when the stream ends for any reason. */

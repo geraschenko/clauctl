@@ -17,7 +17,7 @@ import type {
   SDKMessage,
   SDKUserMessage,
 } from "@anthropic-ai/claude-agent-sdk";
-import type { MessageDelivery, SdkEvent } from "../sdk-socket.ts";
+import type { MessageDelivery, AgentEvent } from "../sdk-socket.ts";
 
 /** One accepted-but-not-yet-dequeued message in the modeled CLI queue. */
 export interface QueuedMessage {
@@ -40,7 +40,7 @@ export const INITIAL_QUEUE_MODEL_STATE: QueueModelState = {
 export interface QueueTransition {
   state: QueueModelState;
   /** Events to emit, in order, immediately after the triggering occurrence. */
-  events: SdkEvent[];
+  events: AgentEvent[];
 }
 
 /** An acceptance additionally names the id it assigned — the receipt the
@@ -78,7 +78,7 @@ function priorityRank(message: SDKUserMessage): number {
   }
 }
 
-function dequeued(delivery: MessageDelivery, ids: number[]): SdkEvent {
+function dequeued(delivery: MessageDelivery, ids: number[]): AgentEvent {
   return { kind: "userMessageDequeued", delivery, ids };
 }
 
@@ -92,7 +92,7 @@ export function acceptUserMessage(
   isIdle: boolean,
 ): AcceptTransition {
   const id = state.nextId;
-  const queuedEvent: SdkEvent = { kind: "userMessageQueued", id, message };
+  const queuedEvent: AgentEvent = { kind: "userMessageQueued", id, message };
   if (isIdle) {
     return {
       id,

@@ -10,7 +10,7 @@
 
 import type { UUID } from "node:crypto";
 import { once } from "node:events";
-import { closeSync, existsSync, writeSync } from "node:fs";
+import { closeSync, writeSync } from "node:fs";
 import { rm } from "node:fs/promises";
 import { homedir } from "node:os";
 import { type Server } from "node:net";
@@ -29,8 +29,7 @@ import {
   requiredStringFlag,
   type InferFlags,
 } from "../generated/cli.ts";
-import { INITIAL_AGENT_STATE } from "../agent-state.ts";
-import { seedFromEntries } from "../session/seed.ts";
+import { initialAgentState } from "../agent-state.ts";
 import { invariantOptions, settingsSeed } from "../options.ts";
 import {
   agentDirPath,
@@ -43,11 +42,14 @@ import {
   type AgentRecord,
   type AttachmentInfo,
 } from "../registry.ts";
-import { readSessionEntries, sessionFilePath } from "../session/file.ts";
+import { sessionFilePath } from "../session/file.ts";
 import { type CommandContext } from "../generated/targets.ts";
+import { AnomalyRecorder } from "./anomaly-bundle.ts";
 import { EventHub } from "./event-hub.ts";
 import { createRequestHandler } from "./request-handlers.ts";
+import { RwGate } from "./rw-gate.ts";
 import { startSdkServer } from "./sdk-server.ts";
+import { TrackedSessionLog } from "./tracked-session-log.ts";
 import { TurnQueue } from "./turn-queue.ts";
 
 const daemonFlags = {
@@ -214,34 +216,23 @@ async function daemon(this: CommandContext, flags: DaemonFlags): Promise<void> {
   // Observable state (agent-state.ts) is folded by the hub; it is separate
   // from the persisted record — nothing here writes back to agent.json.
   //
-  // The AgentState seed below reads the session file once at startup.
-  // resumeSessionId covers both startup shapes: revival (the last recorded
-  // session) and a fresh `spawn -- --resume` (the wrapped session, which is
-  // in no record yet). Seeding it is what lets get-context serve the
-  // resumed transcript before the first turn — the streaming Query only
-  // initializes (and announces a session) once a prompt is sent.
-  const seedSessionId = resumeSessionId;
-  const seedSessionFile =
-    seedSessionId !== undefined
-      ? sessionFilePath(configDir, record.cwd, seedSessionId as UUID)
-      : undefined;
-  const startupEntries =
-    seedSessionFile !== undefined && existsSync(seedSessionFile)
-      ? readSessionEntries(seedSessionFile)
-      : undefined;
-  const fileSeed =
-    startupEntries !== undefined ? seedFromEntries(startupEntries, log) : {};
-  const events = new EventHub({
+  // The seed carries the per-agent settings only; the session file enters
+  // through the tracked log's startup scan below. resumeSessionId covers
+  // both startup shapes: revival (the last recorded session) and a fresh
+  // `spawn -- --resume` (the wrapped session, which is in no record yet).
+  // Scanning it is what lets get-context serve the resumed transcript
+  // before the first turn — the streaming Query only initializes (and
+  // announces a session) once a prompt is sent.
+  const seedSessionId = resumeSessionId as UUID | undefined;
+  const events: EventHub = new EventHub({
     seed: {
-      ...INITIAL_AGENT_STATE,
-      ...fileSeed,
+      ...initialAgentState(),
       // model and permissionMode report what the NEXT query will use:
-      // explicit persisted options win, then the settings cascade. The
-      // file's last assistant is the remaining model evidence, but a
-      // file-derived permissionMode predicts nothing (mode entries record a
-      // past run's choice, not the next run's default), so it falls back to
-      // the literal default.
-      model: record.persistedOptions.model ?? settings.model ?? fileSeed.model,
+      // explicit persisted options win, then the settings cascade; a
+      // file-derived permissionMode would predict nothing (mode entries
+      // record a past run's choice, not the next run's default), so the
+      // fallback is the literal default.
+      model: record.persistedOptions.model ?? settings.model,
       permissionMode:
         record.persistedOptions.permissionMode ??
         settings.permissionMode ??
@@ -249,10 +240,25 @@ async function daemon(this: CommandContext, flags: DaemonFlags): Promise<void> {
       // Same precedence for effort: an explicit spawn --effort wins.
       effortLevel: record.persistedOptions.effort ?? settings.effortLevel,
       cwd: record.cwd,
-      sessionId: seedSessionId,
+      querySessionId: seedSessionId,
     },
     deliver: (message) => turnQueue.push(message),
+    tracker: () => trackedLog.tracker,
+    log,
+    anomalies: new AnomalyRecorder(agentDir),
   });
+  // Serializes set-context and the session-log switch (writers) against
+  // Query-bound requests and file reads; the shutdown drain takes it last.
+  const gate = new RwGate();
+  const trackedLog: TrackedSessionLog = new TrackedSessionLog({
+    hub: events,
+    gate,
+    sessionFilePath: (sessionId) =>
+      sessionFilePath(configDir, record.cwd, sessionId),
+    onInvalid: log,
+    log,
+  });
+  trackedLog.start(seedSessionId);
 
   // --- stream reader ---------------------------------------------------------
   // What remains of the reader is record bookkeeping plus a trivial loop, and
@@ -372,6 +378,8 @@ async function daemon(this: CommandContext, flags: DaemonFlags): Promise<void> {
         sessionFilePath(configDir, record.cwd, sessionId as UUID),
       teardownQuery,
       restartQuery,
+      gate,
+      trackedLog,
       registerAttachment: (info) => {
         const attachment: AttachmentInfo = {
           ...info,
@@ -414,16 +422,27 @@ async function daemon(this: CommandContext, flags: DaemonFlags): Promise<void> {
       return;
     }
     exiting = true;
-    // Announced before any teardown, so subscribers get the shutdown line
-    // ahead of the socket close (delivery is best-effort — see SdkEvent).
-    events.emit({ kind: "shutdown", reason });
-    claudeQuery.close();
-    turnQueue.close();
-    // Wait for the stream to end before exiting: the SDK's close() SIGTERMs
-    // claude with a SIGKILL escalation timer that dies with this process, so
-    // exiting early could orphan a SIGTERM-ignoring child. The stream ends
-    // when the child is gone.
-    void Promise.allSettled([writeQueue, readerDone]).then(async () => {
+    void (async () => {
+      // Criterion 9: an in-flight set-context or switch completes first;
+      // entries already on disk reach subscribers before the shutdown line,
+      // which precedes the socket close (delivery is best-effort — see
+      // AgentEvent).
+      const release = await gate.awaitExclusive();
+      try {
+        trackedLog.drainVisibleBytes();
+      } catch (error) {
+        log(`shutdown drain failed: ${String(error)}`);
+      }
+      events.emit({ kind: "shutdown", reason });
+      trackedLog.close();
+      release();
+      claudeQuery.close();
+      turnQueue.close();
+      // Wait for the stream to end before exiting: the SDK's close() SIGTERMs
+      // claude with a SIGKILL escalation timer that dies with this process, so
+      // exiting early could orphan a SIGTERM-ignoring child. The stream ends
+      // when the child is gone.
+      await Promise.allSettled([writeQueue, readerDone]);
       sdkServer.close();
       // Clean shutdown clears the attachment list; a crash leaves stale
       // entries, which readers must ignore for non-running agents. Queued
@@ -435,7 +454,7 @@ async function daemon(this: CommandContext, flags: DaemonFlags): Promise<void> {
       await writeQueue.catch(() => undefined);
       await rm(sdkSocketPath(agentDir), { force: true });
       proc.exit(code);
-    });
+    })();
   };
   // Any termination request to the daemon means "shut the agent down".
   // query.close() SIGTERMs the claude subprocess with SIGKILL escalation.

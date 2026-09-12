@@ -9,13 +9,7 @@
 
 import assert from "node:assert/strict";
 import { randomUUID, type UUID } from "node:crypto";
-import {
-  copyFileSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { copyFileSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -25,8 +19,8 @@ import {
   query,
 } from "@anthropic-ai/claude-agent-sdk";
 import {
+  readSessionEntries,
   type SessionEntry,
-  SessionEntryParser,
   sessionFilePath,
 } from "../../src/core/session/file.ts";
 import { UUID_PATTERN } from "../../src/core/uuid.ts";
@@ -169,7 +163,7 @@ async function runSession(): Promise<Capture> {
   }
   assert.ok(sessionId, "no system/init");
   const filePath = sessionFilePath(configDir, cwd, sessionId);
-  const entries = new SessionEntryParser(filePath).push(readFileSync(filePath));
+  const entries = readSessionEntries(filePath);
   rmSync(cwd, { recursive: true, force: true });
   // Diagnostics for a failing run: what the query stream said, next to the file.
   writeFileSync(

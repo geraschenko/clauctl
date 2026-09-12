@@ -111,6 +111,16 @@ export class ContextTreeBuilder {
   private readonly parentMap = new Map<TreeNodeStr, TreeNodeStr | null>();
   private readonly relinkedOccurrencesOf = new Map<UUID, TreeNodeStr[]>();
   private readonly excluded = new Set<UUID>();
+  /** usage/model of every placed non-sidechain assistant, taken at push so
+   *  lastAssistantOn reads no entries (the daemon drops them once
+   *  consumed). */
+  private readonly assistantUsage = new Map<
+    UUID,
+    { usage?: NonNullableUsage; model?: string }
+  >();
+  /** Boundary entries placed so far: what a later occurrence's parent
+   *  check needs once the caller has dropped the entry itself. */
+  private readonly boundaryUuids = new Set<UUID>();
   private leaf: TreeNodeRef | null = null;
   private group: ToolGroup | undefined;
   /** Index into fullTree.nodes of the next node to place. */
@@ -156,9 +166,9 @@ export class ContextTreeBuilder {
   }
 
   /** usage/model of the last non-excluded, non-sidechain assistant on
-   *  contextAt(ref): a parent walk from ref (no memo — exclusion is
-   *  retroactive at group end); O(distance to the previous eligible
-   *  assistant). */
+   *  contextAt(ref): a parent walk from ref over the per-assistant record
+   *  (no memo — exclusion is retroactive at group end); O(distance to the
+   *  previous eligible assistant). */
   lastAssistantOn(
     ref: TreeNodeRef,
   ): { usage?: NonNullableUsage; model?: string } | undefined {
@@ -167,21 +177,11 @@ export class ContextTreeBuilder {
       current !== null;
       current = this.parentMap.get(current) ?? null
     ) {
-      const entry = this.byUuid.get(parseTreeNodeRef(current).uuid);
-      if (
-        entry?.type !== "assistant" ||
-        entry.isSidechain === true ||
-        this.excluded.has(parseTreeNodeRef(current).uuid)
-      ) {
-        continue;
+      const uuid = parseTreeNodeRef(current).uuid;
+      const recorded = this.assistantUsage.get(uuid);
+      if (recorded !== undefined && !this.excluded.has(uuid)) {
+        return recorded;
       }
-      const message = entry.message as SDKAssistantMessage["message"];
-      return {
-        ...(message.usage !== undefined && {
-          usage: toNonNullableUsage(message.usage),
-        }),
-        ...(message.model !== undefined && { model: message.model }),
-      };
     }
     return undefined;
   }
@@ -201,9 +201,11 @@ export class ContextTreeBuilder {
     this.group = undefined;
   }
 
+  /** The entry is read at its raw placement only — every judgement a
+   *  relinked occurrence needs was recorded then — so a caller may drop
+   *  an entry from byUuid once its raw node is consumed. */
   private place(id: TreeNodeStr): void {
     const ref = parseTreeNodeRef(id);
-    const entry = this.entryOf(id);
     let parent = this.fullTree.parentMap.get(id) ?? null;
     if (ref.viaBoundary !== undefined) {
       const occurrences = this.relinkedOccurrencesOf.get(ref.uuid);
@@ -213,6 +215,19 @@ export class ContextTreeBuilder {
         occurrences.push(id);
       }
     } else {
+      const entry = this.entryOf(id);
+      if (entry.type === "assistant" && entry.isSidechain !== true) {
+        const message = entry.message as SDKAssistantMessage["message"];
+        this.assistantUsage.set(ref.uuid, {
+          ...(message.usage !== undefined && {
+            usage: toNonNullableUsage(message.usage),
+          }),
+          ...(message.model !== undefined && { model: message.model }),
+        });
+      }
+      if (entry.subtype === "compact_boundary") {
+        this.boundaryUuids.add(ref.uuid);
+      }
       const groupPredecessor = this.group?.push(entry);
       if (groupPredecessor !== undefined) {
         parent = groupPredecessor;
@@ -221,20 +236,25 @@ export class ContextTreeBuilder {
         this.group =
           entry.type === "assistant" ? new ToolGroup(entry) : undefined;
       }
+      // A result whose call entry is not in the tree (none in the file, or
+      // not before the result) can never be preserved.
+      if (
+        isToolResultEntry(entry) &&
+        (entry.parentUuid == null ||
+          !this.fullTree.parentMap.has(
+            formatTreeNodeRef({ uuid: entry.parentUuid }),
+          ))
+      ) {
+        this.excluded.add(ref.uuid);
+      }
     }
-    if (entry.subtype === "compact_boundary") {
+    if (this.boundaryUuids.has(ref.uuid)) {
       this.leaf = null;
       return;
     }
     if (
-      isToolResultEntry(entry) &&
-      (entry.parentUuid == null || !this.byUuid.has(entry.parentUuid))
-    ) {
-      this.excluded.add(ref.uuid);
-    }
-    if (
       parent !== null &&
-      this.entryOf(parent).subtype === "compact_boundary"
+      this.boundaryUuids.has(parseTreeNodeRef(parent).uuid)
     ) {
       parent = null;
     }

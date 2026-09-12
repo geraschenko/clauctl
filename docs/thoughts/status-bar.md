@@ -1,0 +1,1 @@
+I'd like the status bar below the input box in the TUI to have some more info, like pi has. Specifically, I want to see total spend in dollars (maybe also tokens, split input/output) and cache hit rate.

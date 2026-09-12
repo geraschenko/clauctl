@@ -12,9 +12,10 @@ import { parseJsonlInput } from "../core/generated/read-input.ts";
 import type { CommandContext } from "../core/generated/targets.ts";
 import { isRecord, UsageError } from "../core/generated/util.ts";
 import { LineReader, type Line } from "../core/generated/line-reader.ts";
-import type { SessionEntry } from "../core/session/file.ts";
+import { entriesByUuid, type SessionEntry } from "../core/session/file.ts";
 import type { MessageRecord } from "../core/session/messages.ts";
-import { seedFromEntries } from "../core/session/seed.ts";
+import { buildTree } from "../core/tree/build-tree.ts";
+import { toContextTree } from "../core/tree/context-tree.ts";
 import type { SessionSnapshot } from "../core/tree/nodes.ts";
 import type { TailRecord } from "./types.ts";
 
@@ -263,12 +264,10 @@ const NOT_A_SNAPSHOT =
  * document with an `entries` array (records with a string `type`; uuids are
  * not syntax-checked) and a `leaf` that is null or an object with a string
  * `uuid` (and optional string `viaBoundary`; a missing `leaf` property is a
- * UsageError); or (2) raw session-entry JSONL, leaf derived via the
- * seedFromEntries chain logic — deliberately the last user/assistant
- * occurrence, which can differ from the daemon's chain-tip leaf when a chain
- * ends in a non-conversational entry; for file rendering the conversational
- * cursor is the useful one. Tail-shaped input → cross-pointing UsageError;
- * anything else → generic NOT_A_SNAPSHOT.
+ * UsageError); or (2) raw session-entry JSONL, leaf derived locally as the
+ * context tree's leaf — the same function the daemon computes. Tail-shaped
+ * input → cross-pointing UsageError; anything else → generic
+ * NOT_A_SNAPSHOT.
  */
 export function parseSessionSnapshot(input: string): SessionSnapshot {
   const trimmed = input.trim();
@@ -326,7 +325,10 @@ export function parseSessionSnapshot(input: string): SessionSnapshot {
     });
     return {
       entries,
-      leaf: seedFromEntries(entries, () => {}).leaf ?? null,
+      leaf: toContextTree(
+        buildTree(entries, () => {}),
+        entriesByUuid(entries),
+      ).leaf,
     };
   }
   if (

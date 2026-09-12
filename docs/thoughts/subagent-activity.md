@@ -48,9 +48,14 @@ local session files.
   in the main file, which is why legacy filters exist (seed, message
   mapping). The main agent never sees sidechain entries — it sees the Task
   tool's `tool_result`. Stream-side, subagent traffic carries
-  `parent_tool_use_id` and the agent-state fold already skips it. Viewing
-  subagent activity means reading the `subagents/` files, not filtering the
-  main file.
+  `parent_tool_use_id`; the daemon forwards it to sinks but the
+  agent-state fold skips it — deliberately, since the session tracker
+  (docs/specs/session-tracker.md) merges the query stream with the main
+  file only, and a subagent uuid observed there would never meet its
+  entry. Viewing subagent activity means reading the `subagents/` files,
+  not filtering the main file; tracking subagent state means a merge per
+  subagent file, routed by `parent_tool_use_id`, in the same shape as the
+  main one.
 - **`/btw` (side question)** — the CLI forks the current context
   in-process (`forkOrigin: "btw"`, query source `side_question`), answers
   in the fork, and discards it; nothing enters the main conversation. In the

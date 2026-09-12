@@ -13,6 +13,7 @@
 
 import { randomUUID, type UUID } from "node:crypto";
 import type { NonNullableUsage } from "@anthropic-ai/claude-agent-sdk";
+import { lastUsage } from "../agent-state.ts";
 import {
   invalidRelinkReason,
   isThinkingOnlyEntry,
@@ -21,20 +22,16 @@ import {
   toolCallIdsOf,
   toolGroupMaps,
 } from "../tree/loader.ts";
-import { buildTree } from "../tree/build-tree.ts";
-import { matchPreservedList, toContextTree } from "../tree/context-tree.ts";
+import { matchPreservedList } from "../tree/context-tree.ts";
 import type { SetContextRequest, SetContextResult } from "../sdk-socket.ts";
-import { parseTreeNodeRef, type TreeNodeRef } from "../tree/nodes.ts";
+import { parseTreeNodeRef } from "../tree/nodes.ts";
 import {
   appendSessionEntries,
   buildBoundaryEntries,
   entriesByUuid,
-  readSessionEntries,
   type SessionEntry,
 } from "../session/file.ts";
-import { readEntriesAfterStreamFlush } from "../session/entry-stream.ts";
 import type { RequestHandlerDeps } from "./request-handlers.ts";
-import type { RwGate } from "./rw-gate.ts";
 
 /** compactMetadata.preTokens for a boundary being appended now: the full
  *  context footprint of the last assistant message — input + cache creation
@@ -200,11 +197,12 @@ export function normalizePreservedUuids(
 }
 
 /** The daemon state set-context shares with the rest of request handling:
- *  the reader/writer gate it takes exclusively, and the slot it writes
- *  (query availability after restart failures). The concurrent-set-context policy flag stays at the dispatch
+ *  the settle-then-acquire of the reader/writer gate, taken exclusively,
+ *  and the slot it writes (query availability after a failure past
+ *  teardown). The concurrent-set-context policy flag stays at the dispatch
  *  site — it wraps this handler, not the other way around. */
 export interface SetContextShared {
-  gate: RwGate;
+  acquireSettledExclusive(): Promise<() => void>;
   setQueryAvailable(available: boolean): void;
 }
 
@@ -215,19 +213,7 @@ export function createSetContextHandler(
   const { events } = deps;
 
   return async (parsed: SetContextRequest): Promise<SetContextResult> => {
-    const sessionId = events.agentState.sessionId;
-    if (sessionId === undefined) {
-      throw new Error("set-context: no session yet");
-    }
-
-    const releaseGate = await shared.gate.awaitExclusive();
-    let fileMutated = false;
-    let succeeded = false;
-    // The post-change context tip carried by contextChanged: the value
-    // get-entries' leaf computation reports after the change, set before
-    // the restart (so a durable append broadcasts the right leaf even when
-    // the restart then fails).
-    let changedLeaf: TreeNodeRef | null = null;
+    const releaseGate = await shared.acquireSettledExclusive();
     try {
       // Eligibility, checked under the gate: nothing running, nothing queued,
       // nothing delivered-but-unconfirmed. No implicit waiting — callers can
@@ -242,18 +228,28 @@ export function createSetContextHandler(
           "set-context requires an idle assistant with an empty queue",
         );
       }
-      const filePath = deps.sessionFilePath(sessionId);
-      // A relinked leaf's newest on-disk entry is its boundary, so the flush
-      // wait keys on viaBoundary ?? uuid.
-      const stateLeaf = events.agentState.leaf;
-      const entries = await readEntriesAfterStreamFlush(
-        filePath,
-        stateLeaf === undefined
-          ? undefined
-          : (stateLeaf.viaBoundary ?? stateLeaf.uuid),
+      // The boundary goes into the tracked file and the query resumes it,
+      // so the two must agree; mid-switch there is no one file to change.
+      const sessionId = state.fileSessionId;
+      const tracker = deps.trackedLog.tracker;
+      if (sessionId === undefined || tracker === undefined) {
+        throw new Error("set-context: no session yet");
+      }
+      if (
+        state.querySessionId !== undefined &&
+        state.querySessionId !== sessionId
+      ) {
+        throw new Error("set-context: session switch in progress; retry");
+      }
+      // Validation reads the complete entries by range: pair completion and
+      // thinking-group checks need every entry's tool ids and message id,
+      // which the tracker does not index. A possible optimization is for
+      // SessionTracker to index call/result pairings and message ids so
+      // set-context reads nothing here.
+      const byUuid = entriesByUuid(
+        tracker.payloads(tracker.uuidsAfter(undefined)),
       );
-      const byUuid = entriesByUuid(entries);
-      const contextTree = toContextTree(buildTree(entries, deps.log), byUuid);
+      const contextTree = tracker.contextTree;
 
       // Rewind is sugar for an explicit list (P9 a; see file comment): both
       // forms write a boundary through the same normalization and checks.
@@ -288,26 +284,35 @@ export function createSetContextHandler(
         new Set(),
       )?.branchPoint;
       const built = buildBoundaryEntries({
-        sessionId: sessionId as UUID,
+        sessionId,
         cwd: deps.cwd,
         uuids: normalized.uuids,
         ...(summaryText !== undefined && { summaryText }),
         logicalParentUuid:
           branchPoint === undefined ? null : parseTreeNodeRef(branchPoint).uuid,
-        version: events.agentState.claudeCodeVersion,
-        preTokens: preTokensOf(events.agentState.lastUsage),
+        version: state.claudeCodeVersion,
+        preTokens: preTokensOf(lastUsage(state)),
       });
       await deps.teardownQuery();
-      appendSessionEntries(filePath, built.entries);
-      fileMutated = true;
-
-      // The append is durable, so the contextChanged leaf comes from a
-      // re-read of the file, before the restart, which may fail.
-      const appended = readSessionEntries(filePath);
-      changedLeaf = toContextTree(
-        buildTree(appended, deps.log),
-        entriesByUuid(appended),
-      ).leaf;
+      // Past teardown there is no Query; any failure leaves the daemon
+      // query-unavailable until a later set-context restarts it.
+      try {
+        appendSessionEntries(deps.sessionFilePath(sessionId), built.entries);
+        // Announced before the drain that delivers it: the append is a
+        // query-side observation (the daemon wrote it), which the drain's
+        // session observation then resolves — the tracker pushes the
+        // boundary and emits its contextChanged inside the drain.
+        events.emit({
+          kind: "sessionAppended",
+          uuids: built.entries.map((entry) => entry.uuid as UUID),
+        });
+        deps.trackedLog.drainVisibleBytes();
+      } catch (error) {
+        shared.setQueryAvailable(false);
+        throw new Error(
+          `set-context: append/drain failed; retry set-context: ${String(error)}`,
+        );
+      }
       try {
         await deps.restartQuery(sessionId);
       } catch (error) {
@@ -317,21 +322,10 @@ export function createSetContextHandler(
         );
       }
       shared.setQueryAvailable(true);
-      succeeded = true;
       return normalized.added.length > 0
         ? { ...built.result, added: normalized.added }
         : built.result;
     } finally {
-      // Watchers track file truth: broadcast whenever the file was mutated,
-      // even if the restart then failed; the RPC itself still returns the
-      // error (criterion 7).
-      if (succeeded || fileMutated) {
-        events.emit({
-          kind: "contextChanged",
-          request: parsed,
-          leaf: changedLeaf,
-        });
-      }
       releaseGate();
     }
   };

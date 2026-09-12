@@ -2,8 +2,8 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
 import type { AgentState } from "../core/agent-state.ts";
-import { INITIAL_AGENT_STATE } from "../core/agent-state.ts";
-import type { SdkEvent } from "../core/sdk-socket.ts";
+import { initialAgentState } from "../core/agent-state.ts";
+import type { AgentEvent } from "../core/sdk-socket.ts";
 import { EventFormatter } from "./events.ts";
 import type { MessageFormatOptions, TailRecord } from "./types.ts";
 
@@ -22,10 +22,10 @@ function prompt(text: string): SDKUserMessage {
 }
 
 function snapshotRecord(agentState: Partial<AgentState> = {}): TailRecord {
-  return { snapshot: { ...INITIAL_AGENT_STATE, ...agentState } };
+  return { snapshot: { ...initialAgentState(), ...agentState } };
 }
 
-function event(sdkEvent: SdkEvent): TailRecord {
+function event(sdkEvent: AgentEvent): TailRecord {
   return { event: sdkEvent };
 }
 
@@ -45,12 +45,12 @@ test("snapshot renders a header with the observed fields", () => {
       activity: "idle",
       model: "claude-fable-5",
       permissionMode: "auto",
-      sessionId: "28972c69",
+      querySessionId: "28972c69-0000-4000-8000-000000000000",
     }),
   ]);
   assert.equal(
     output,
-    "[snapshot: idle, model claude-fable-5, permissions auto, session 28972c69]\n",
+    "[snapshot: idle, model claude-fable-5, permissions auto, session 28972c69-0000-4000-8000-000000000000]\n",
   );
 });
 
@@ -165,22 +165,17 @@ test("compact/interrupt/control events render one-liners", () => {
   );
 });
 
-test("contextChanged renders a request one-liner", () => {
+test("contextChanged renders its boundary", () => {
   const output = format([
     event({
       kind: "contextChanged",
-      request: {
-        type: "set-context",
-        rewindTo: { uuid: "28972c69-9dd5-4524-bb56-d8aaeb982094" },
-      },
+      boundary: "28972c69-9dd5-4524-bb56-d8aaeb982094",
       leaf: null,
     }),
   ]);
-  // rewindTo is structured, so the annotation takes the JSON fallback (and
-  // the 80-char annotation truncation).
   assert.equal(
     output,
-    '[context changed: set-context {"rewindTo":{"uuid":"28972c69-9dd5-4524-bb56-d8aae…]\n',
+    "[context changed: boundary 28972c69-9dd5-4524-bb56-d8aaeb982094]\n",
   );
 });
 

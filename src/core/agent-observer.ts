@@ -11,10 +11,9 @@
  * them, then closes the merged stream — the consumer classifies the close.
  */
 
-import { existsSync, watch } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
-import { INITIAL_AGENT_STATE, type AgentState } from "./agent-state.ts";
+import { initialAgentState, type AgentState } from "./agent-state.ts";
 import { AsyncQueue } from "./generated/streaming/async-queue.ts";
 import type {
   StreamClient,
@@ -25,8 +24,8 @@ import { sdkSocketPath, type AgentRecord } from "./registry.ts";
 import {
   connectWithRetry,
   SdkSocketClient,
-  type SdkEvent,
-  type SdkEventSubscription,
+  type AgentEvent,
+  type AgentEventSubscription,
 } from "./sdk-socket.ts";
 import {
   SessionEntryClient,
@@ -34,16 +33,16 @@ import {
   type EntryClientOptions,
   type EntryStreamState,
 } from "./session/entry-stream.ts";
+import {
+  awaitFileExists,
+  SESSION_FILE_TIMEOUT_MS,
+} from "./session/await-file-exists.ts";
 import { projectKey, type SessionEntry } from "./session/file.ts";
 import { SOCKET_CONNECT_DEADLINE_MS } from "./generated/constants.ts";
 
-/** Bound on awaiting a session file's creation (initial open and rollover):
- *  a never-created file fails with a diagnosis rather than hanging. */
-export const SESSION_FILE_TIMEOUT_MS = 10_000;
-
 export type AgentObservation =
   | Readonly<{ source: "entry"; entry: SessionEntry }>
-  | Readonly<{ source: "sdk"; event: SdkEvent }>;
+  | Readonly<{ source: "sdk"; event: AgentEvent }>;
 
 export interface AgentObservationState {
   /** Folded via nextAgentState from the subscription seed. */
@@ -53,7 +52,7 @@ export interface AgentObservationState {
 }
 
 /** The session_id a stream event announces a (possibly new) session with. */
-function announcedSessionId(event: SdkEvent): string | undefined {
+function announcedSessionId(event: AgentEvent): string | undefined {
   return event.kind === "sdkMessage" &&
     event.message.type === "system" &&
     event.message.subtype === "init"
@@ -76,7 +75,7 @@ export class AgentObserver implements StreamClient<
    *  drained entries always reach the consumer. */
   private entryPump: Promise<void> = Promise.resolve();
   private carriedFilter: CanonicalEntryFilter | undefined;
-  private sdkState: AgentState = INITIAL_AGENT_STATE;
+  private sdkState: AgentState = initialAgentState();
   /** Starts empty: a fresh agent has no session file until its first init. */
   private entryState: EntryStreamState = { seenUuids: new Set() };
   private currentSessionId: string | undefined;
@@ -112,7 +111,8 @@ export class AgentObserver implements StreamClient<
       const sdkSubscription = await this.sdkClient.subscribe();
       this.sdkState = sdkSubscription.seed;
       const sessionId =
-        sdkSubscription.seed.sessionId ?? this.agent.sessions.at(-1)?.sessionId;
+        sdkSubscription.seed.querySessionId ??
+        this.agent.sessions.at(-1)?.sessionId;
       if (sessionId !== undefined) {
         await this.openEntryClient(sessionId, this.options);
       } else if (
@@ -154,7 +154,7 @@ export class AgentObserver implements StreamClient<
     this.close();
   }
 
-  private async pumpSdk(subscription: SdkEventSubscription): Promise<void> {
+  private async pumpSdk(subscription: AgentEventSubscription): Promise<void> {
     try {
       for await (const { event, state } of subscription.events) {
         this.sdkState = state;
@@ -252,65 +252,4 @@ export class AgentObserver implements StreamClient<
           );
     return join(projectDir, `${sessionId}.jsonl`);
   }
-}
-
-/** Resolve once filePath exists, by watching its nearest existing ancestor
- *  directory (watch installed before the existence re-check, so a creation
- *  racing the setup is not missed). Bounded by the shared deadline. */
-async function awaitFileExists(
-  filePath: string,
-  timeoutMs: number,
-): Promise<void> {
-  const deadline = Date.now() + timeoutMs;
-  while (!existsSync(filePath)) {
-    let ancestor = dirname(filePath);
-    while (!existsSync(ancestor)) {
-      ancestor = dirname(ancestor);
-    }
-    await awaitDirectoryChange(ancestor, filePath, deadline);
-  }
-}
-
-/** Resolve on any change in `dir` (the outer loop re-checks existence and
- *  re-descends); reject at the deadline. */
-function awaitDirectoryChange(
-  dir: string,
-  filePath: string,
-  deadline: number,
-): Promise<void> {
-  return new Promise((resolve, reject) => {
-    // settle only ever runs after the synchronous setup below: watch and
-    // timer callbacks are asynchronous, and the trailing re-check is last.
-    const settle = (error?: Error): void => {
-      watcher.close();
-      clearTimeout(timer);
-      if (error === undefined) {
-        resolve();
-      } else {
-        reject(error);
-      }
-    };
-    const watcher = watch(dir, () => settle());
-    watcher.on("error", (error) => settle(error));
-    const timer = setTimeout(
-      () =>
-        settle(
-          new Error(
-            `session file ${filePath} did not appear within the deadline`,
-          ),
-        ),
-      Math.max(0, deadline - Date.now()),
-    );
-    // The watch is installed before this re-check, so a creation racing the
-    // setup is not missed. Any progress — the file itself, or a deeper
-    // ancestor than the one being watched — settles; the outer loop
-    // re-derives where to look.
-    let nearest = dirname(filePath);
-    while (!existsSync(nearest)) {
-      nearest = dirname(nearest);
-    }
-    if (nearest !== dir || existsSync(filePath)) {
-      settle();
-    }
-  });
 }

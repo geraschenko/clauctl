@@ -6,13 +6,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, test } from "node:test";
 import type { SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
-import { INITIAL_AGENT_STATE, type AgentState } from "./agent-state.ts";
+import { initialAgentState, type AgentState } from "./agent-state.ts";
 import { RESPONSE_SENT, startSdkServer } from "./daemon/sdk-server.ts";
 import type { StreamEvent } from "./generated/streaming/driver.ts";
 import {
   parseSetContextRequest,
   SdkSocketClient,
-  type SdkEvent,
+  type AgentEvent,
 } from "./sdk-socket.ts";
 
 test("parseSetContextRequest accepts boundary mode with all fields", () => {
@@ -133,12 +133,12 @@ const queryingMessage: SDKUserMessage = {
 
 test("subscribe seeds the client fold and delivers (event, post-fold state) pairs", async () => {
   const socketPath = join(dir, "sdk.sock");
-  const queuedEvent: SdkEvent = {
+  const queuedEvent: AgentEvent = {
     kind: "userMessageQueued",
     id: 1,
     message: queryingMessage,
   };
-  const dequeuedEvent: SdkEvent = {
+  const dequeuedEvent: AgentEvent = {
     kind: "userMessageDequeued",
     delivery: "turn",
     ids: [1],
@@ -153,7 +153,7 @@ test("subscribe seeds the client fold and delivers (event, post-fold state) pair
           JSON.stringify({
             id: request.id,
             ok: true,
-            data: INITIAL_AGENT_STATE,
+            data: initialAgentState(),
           }),
           JSON.stringify({ event: queuedEvent }),
           JSON.stringify({ event: dequeuedEvent }),
@@ -170,10 +170,10 @@ test("subscribe seeds the client fold and delivers (event, post-fold state) pair
       const { seed, events } = await client.subscribe();
       // The seed is the response's state, not the live folded state — the
       // caller's view starts where the queued events advance from.
-      assert.deepEqual(seed, INITIAL_AGENT_STATE);
+      assert.deepEqual(seed, initialAgentState());
       // Both same-chunk events were queued before the promise settled, each
       // with the state after folding it.
-      const pairs: Array<StreamEvent<SdkEvent, AgentState>> = [];
+      const pairs: Array<StreamEvent<AgentEvent, AgentState>> = [];
       for await (const pair of events) {
         pairs.push(pair);
         if (pairs.length === 2) {
@@ -225,7 +225,7 @@ test("hello version mismatch is exposed as versionWarning, match is not", async 
 
 test("socket close drains the events already received", async () => {
   const socketPath = join(dir, "drain.sock");
-  const event: SdkEvent = {
+  const event: AgentEvent = {
     kind: "userMessageQueued",
     id: 1,
     message: queryingMessage,
@@ -238,7 +238,7 @@ test("socket close drains the events already received", async () => {
           JSON.stringify({
             id: request.id,
             ok: true,
-            data: INITIAL_AGENT_STATE,
+            data: initialAgentState(),
           }),
           JSON.stringify({ event }),
           "",
@@ -261,7 +261,7 @@ test("socket close drains the events already received", async () => {
       // was met on the wire report as unmet.
       daemonSocket!.end();
       await client.waitClosed();
-      const drained: Array<StreamEvent<SdkEvent, AgentState>> = [];
+      const drained: Array<StreamEvent<AgentEvent, AgentState>> = [];
       for await (const pair of events) {
         drained.push(pair);
       }

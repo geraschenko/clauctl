@@ -8,9 +8,16 @@
  */
 
 import { randomUUID, type UUID } from "node:crypto";
-import { appendFileSync, readFileSync } from "node:fs";
+import {
+  appendFileSync,
+  closeSync,
+  openSync,
+  readFileSync,
+  readSync,
+} from "node:fs";
 import { join } from "node:path";
 import type { SessionMessage } from "@anthropic-ai/claude-agent-sdk";
+import { err, ok, type Result } from "neverthrow";
 import { LineReader } from "../generated/line-reader.ts";
 import type { SetContextResult } from "../sdk-socket.ts";
 
@@ -91,53 +98,125 @@ export function sessionFilePath(
   return join(configDir, "projects", projectKey(cwd), `${sessionId}.jsonl`);
 }
 
+/** A line's bytes in the file, terminator included. */
+export interface ByteRange {
+  offset: number;
+  length: number;
+}
+
+export interface ParsedEntry {
+  entry: SessionEntry;
+  range: ByteRange;
+}
+
+/** A terminated line that is not a JSON object. */
+export interface MalformedLine {
+  range: ByteRange;
+  /** 1-based, blank lines counted. */
+  lineNumber: number;
+  reason: "not-json" | "not-object";
+}
+
+export function malformedLineMessage(line: MalformedLine): string {
+  return line.reason === "not-json"
+    ? "malformed session file line"
+    : "session file line is not an object";
+}
+
 /** Incremental jsonl entry parser: LineReader splitting (torn suffixes
  *  buffered until their newline arrives — a mid-append read can see a partial
  *  final line, and once the newline is on disk the whole record before it is
  *  too) plus session-file validation. Both writers terminate records with
  *  bare LF; a CRLF file would still parse, since the retained '\r' is JSON
  *  whitespace. A malformed TERMINATED line, or a terminated line whose value
- *  is not an object, is real corruption: silently dropping it would let chain
- *  computation and file mutation proceed against incomplete history, so it
- *  throws instead. */
+ *  is not an object, is real corruption, reported as a `MalformedLine` in
+ *  its file position among the entries; the caller decides (whole-file
+ *  readers throw via `entryOrThrow` — silently dropping it would let chain
+ *  computation and file mutation proceed against incomplete history; a live
+ *  follower reports it and keeps following). Ranges are offsets from the
+ *  first byte ever pushed, so a parser fed from byte zero of a file reports
+ *  file positions. */
 export class SessionEntryParser {
-  private readonly filePath: string;
   private readonly lineReader = new LineReader();
 
-  constructor(filePath: string) {
-    this.filePath = filePath;
-  }
-
-  /** Complete entries terminated within this chunk (prefixed by any retained
-   *  torn suffix). */
-  push(chunk: Buffer): SessionEntry[] {
-    return this.lineReader.push(chunk).map(({ text, lineNumber }) => {
-      let parsed: unknown;
+  /** The lines terminated within this chunk (prefixed by any retained torn
+   *  suffix), in file order. */
+  push(chunk: Buffer): Result<ParsedEntry, MalformedLine>[] {
+    return this.lineReader.push(chunk).map((line) => {
+      const range = { offset: line.byteOffset, length: line.byteLength };
+      const malformed = (reason: MalformedLine["reason"]) =>
+        err({ range, lineNumber: line.lineNumber, reason });
+      let value: unknown;
       try {
-        parsed = JSON.parse(text);
+        value = JSON.parse(line.text);
       } catch {
-        throw new Error(
-          `${this.filePath}:${lineNumber}: malformed session file line`,
-        );
+        return malformed("not-json");
       }
-      if (
-        typeof parsed !== "object" ||
-        parsed === null ||
-        Array.isArray(parsed)
-      ) {
-        throw new Error(
-          `${this.filePath}:${lineNumber}: session file line is not an object`,
-        );
+      if (typeof value !== "object" || value === null || Array.isArray(value)) {
+        return malformed("not-object");
       }
-      return parsed as SessionEntry;
+      return ok({ entry: value as SessionEntry, range });
     });
   }
+}
+
+/** The error a malformed line is for consumers that treat it as corruption. */
+export function malformedLineError(
+  filePath: string,
+  line: MalformedLine,
+): Error {
+  return new Error(
+    `${filePath}:${line.lineNumber}: ${malformedLineMessage(line)}`,
+  );
+}
+
+/** The whole-file readers' corruption policy: a malformed line throws. */
+export function entryOrThrow(
+  filePath: string,
+  line: Result<ParsedEntry, MalformedLine>,
+): ParsedEntry {
+  if (line.isErr()) {
+    throw malformedLineError(filePath, line.error);
+  }
+  return line.value;
 }
 
 /** One push of the whole file; a torn final line stays buffered in the
  *  discarded parser and is therefore skipped. */
 export function readSessionEntries(filePath: string): SessionEntry[] {
-  return new SessionEntryParser(filePath).push(readFileSync(filePath));
+  return new SessionEntryParser()
+    .push(readFileSync(filePath))
+    .map((line) => entryOrThrow(filePath, line).entry);
+}
+
+/** The entries at `ranges` (as reported by SessionEntryParser), each read
+ *  and parsed on its own without touching the rest of the file. One pread
+ *  per range in the caller's order: measured at ~2 µs per range against
+ *  ~7 µs per entry to JSON.parse, so coalescing or sorting ranges would
+ *  not pay. A range that no longer holds exactly one terminated entry line
+ *  is stale (the file was rewritten) and throws, as a malformed line does. */
+export function readEntriesAt(
+  filePath: string,
+  ranges: readonly ByteRange[],
+): SessionEntry[] {
+  const fd = openSync(filePath, "r");
+  try {
+    return ranges.map((range) => {
+      const buffer = Buffer.alloc(range.length);
+      const bytesRead = readSync(fd, buffer, 0, range.length, range.offset);
+      const parsed = new SessionEntryParser()
+        .push(buffer.subarray(0, bytesRead))
+        .map((line) => entryOrThrow(filePath, line));
+      if (parsed.length !== 1) {
+        throw new Error(
+          `${filePath}: byte range ${range.offset}+${range.length} does not hold one entry line`,
+        );
+      }
+      return parsed[0]!.entry;
+    });
+  } finally {
+    closeSync(fd);
+  }
 }
 
 /** Entry lookup by uuid; the FIRST occurrence wins on a duplicate uuid, so

@@ -4,7 +4,7 @@
  * at a fraction of the size — everything pi-core-specific (extensions,
  * session trees, model registry, settings, auth) has no counterpart here.
  * All claude-specificity of *content* lives in sdk-render.ts; this file owns
- * layout, keybindings, and the SdkEvent → component dispatch.
+ * layout, keybindings, and the AgentEvent → component dispatch.
  */
 
 import {
@@ -35,7 +35,7 @@ import type {
   SDKMessage,
   SDKUserMessage,
 } from "@anthropic-ai/claude-agent-sdk";
-import { isIdle, type AgentState } from "../core/agent-state.ts";
+import { isIdle, leaf, type AgentState } from "../core/agent-state.ts";
 import { randomUUID, type UUID } from "node:crypto";
 import { readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -53,7 +53,7 @@ import {
   type SessionSnapshot,
   type TreeNodeRef,
 } from "../core/tree/nodes.ts";
-import type { SdkEvent, SdkSocketClient } from "../core/sdk-socket.ts";
+import type { AgentEvent, SdkSocketClient } from "../core/sdk-socket.ts";
 import { findFd, TuiAutocompleteProvider } from "./autocomplete.ts";
 import { EffortSelectorComponent } from "./components/effort-selector.ts";
 import { FooterComponent } from "./components/footer.ts";
@@ -376,7 +376,7 @@ class InteractiveMode {
    * afterwards), so live output cannot interleave with — or precede — the
    * replayed transcript.
    */
-  private liveEventsDuringReplay: Array<[SdkEvent, AgentState]> | undefined =
+  private liveEventsDuringReplay: Array<[AgentEvent, AgentState]> | undefined =
     [];
 
   /**
@@ -548,12 +548,13 @@ class InteractiveMode {
           ? undefined
           : displayTree.nearestVisibleRow(snapshot.leaf);
       const path = pathToLeaf(displayTree.parentMap, byUuid, leafRow ?? null);
+      const stateLeaf = leaf(this.agentState);
       const { nodes, boundaryMissing } = pathUpToBoundary(
         path,
         byUuid,
-        this.agentState.leaf === undefined
+        stateLeaf === null
           ? undefined
-          : displayTree.nearestVisibleRow(this.agentState.leaf),
+          : displayTree.nearestVisibleRow(stateLeaf),
       );
       // pathToLeaf validated every path uuid against byUuid, so the lookup
       // cannot miss.
@@ -620,7 +621,7 @@ class InteractiveMode {
     this.transcript.appendEntry(entry);
   }
 
-  handleEvent(event: SdkEvent, state: AgentState): void {
+  handleEvent(event: AgentEvent, state: AgentState): void {
     // Terminal and order-independent, so it must not wait out a history
     // replay: the socket may close right behind it, and a buffered shutdown
     // would then misreport as connectionLost.
@@ -673,6 +674,14 @@ class InteractiveMode {
         break;
       case "sdkMessage":
         this.handleSdkMessage(event.message);
+        break;
+      // The session stream drives nothing in the TUI until phase 4 (spec,
+      // IMPLEMENTATION IDEAS: rolling trees, fetch policy, anomaly banner).
+      case "sessionEntry":
+      case "sessionFileChanged":
+      case "scanComplete":
+      case "sessionAppended":
+      case "trackerAnomaly":
         break;
     }
     this.syncActivity();

@@ -1,8 +1,11 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { ReadonlyFooterDataProvider } from "@earendil-works/pi-coding-agent";
+import type { NonNullableUsage } from "@anthropic-ai/claude-agent-sdk";
+import type { UUID } from "node:crypto";
 import {
-  INITIAL_AGENT_STATE,
+  freshSessionState,
+  initialAgentState,
   type AgentState,
 } from "../../core/agent-state.ts";
 import { FooterComponent, formatTokens } from "./footer.ts";
@@ -30,11 +33,21 @@ const usage = {
   output_tokens: 1,
   cache_read_input_tokens: 84_000,
   cache_creation_input_tokens: 1_000,
-} as AgentState["lastUsage"];
+} as NonNullableUsage;
+
+/** `base` with a query file whose last assistant reported `usage`. */
+function withUsage(base: AgentState): AgentState {
+  const sessionId = "aaaaaaaa-0000-4000-8000-000000000001" as UUID;
+  return {
+    ...base,
+    querySessionId: sessionId,
+    sessions: { [sessionId]: { ...freshSessionState(), lastUsage: usage } },
+  };
+}
 
 test("cwd line: ~-abbreviated cwd with the provider's branch", () => {
   const lines = footerLines({
-    ...INITIAL_AGENT_STATE,
+    ...initialAgentState(),
     cwd: `${process.env.HOME}/repo`,
   });
   assert.equal(plain(lines[0]!), "~/repo (main)");
@@ -42,13 +55,12 @@ test("cwd line: ~-abbreviated cwd with the provider's branch", () => {
 
 test("status line: colored mode left, context • model • effort right-aligned", () => {
   const line = footerLines(
-    {
-      ...INITIAL_AGENT_STATE,
+    withUsage({
+      ...initialAgentState(),
       permissionMode: "default",
       model: "claude-opus-4-8",
-      lastUsage: usage,
       effortLevel: "high",
-    },
+    }),
     80,
   )[1]!;
   const text = plain(line);
@@ -61,7 +73,7 @@ test("status line: colored mode left, context • model • effort right-aligned
 
 test("per-mode indicators use claude's glyphs and colors with our labels", () => {
   const modeLine = (mode: AgentState["permissionMode"]): string =>
-    footerLines({ ...INITIAL_AGENT_STATE, permissionMode: mode })[1]!;
+    footerLines({ ...initialAgentState(), permissionMode: mode })[1]!;
   assert.ok(
     modeLine("acceptEdits").includes("\u001b[38;5;147m⏵⏵ accept edits"),
   );
@@ -71,7 +83,7 @@ test("per-mode indicators use claude's glyphs and colors with our labels", () =>
 });
 
 test("unresolved segments: usage/effort omitted, unset mode/model called out", () => {
-  const line = footerLines(INITIAL_AGENT_STATE)[1]!;
+  const line = footerLines(initialAgentState())[1]!;
   const text = plain(line);
   assert.ok(text.startsWith("? unset mode"));
   assert.ok(line.includes("[38;5;220m? unset mode"));
@@ -81,18 +93,16 @@ test("unresolved segments: usage/effort omitted, unset mode/model called out", (
 
 test("1M-suffixed models use the 1M context window", () => {
   const text = plain(
-    footerLines({
-      ...INITIAL_AGENT_STATE,
-      model: "claude-sonnet-5[1m]",
-      lastUsage: usage,
-    })[1]!,
+    footerLines(
+      withUsage({ ...initialAgentState(), model: "claude-sonnet-5[1m]" }),
+    )[1]!,
   );
   assert.ok(text.includes("86k (9%) • claude-sonnet-5[1m]"));
 });
 
 test("no provider: cwd line renders without a branch", () => {
   const footer = new FooterComponent(undefined);
-  footer.setState({ ...INITIAL_AGENT_STATE, cwd: "/srv/work" });
+  footer.setState({ ...initialAgentState(), cwd: "/srv/work" });
   assert.equal(plain(footer.render(80)[0]!), "/srv/work");
 });
 

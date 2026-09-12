@@ -42,7 +42,12 @@ import {
   type SessionSnapshot,
   type TreeNodeRef,
 } from "./tree/nodes.ts";
-import { isUuidPrefix, resolveUuidPrefix, UUID_PATTERN } from "./uuid.ts";
+import {
+  isUuidPrefix,
+  parseUuidPrefixFlag,
+  resolveUuidPrefix,
+  UUID_PATTERN,
+} from "./uuid.ts";
 import { oneOf, UsageError } from "./generated/util.ts";
 import { SOCKET_CONNECT_DEADLINE_MS } from "./generated/constants.ts";
 
@@ -536,6 +541,37 @@ const getContextUsageFlags = {
   ),
 };
 
+const getEntriesFlags = {
+  since: parsedFlag(
+    "Only the entries after this session-entry uuid (any unique prefix)",
+    parseUuidPrefixFlag,
+    "uuid",
+  ),
+};
+
+type GetEntriesFlags = InferFlags<typeof getEntriesFlags>;
+
+async function getEntries(
+  this: CommandContext,
+  flags: GetEntriesFlags,
+): Promise<void> {
+  await withClient(this, async (client) => {
+    const since =
+      flags.since === undefined
+        ? undefined
+        : UUID_PATTERN.test(flags.since)
+          ? (flags.since as UUID)
+          : resolveUuidPrefix(flags.since, await sessionEntryUuids(client));
+    printData(
+      this,
+      await client.request({
+        type: "get-entries",
+        ...(since !== undefined && { since }),
+      }),
+    );
+  });
+}
+
 type GetContextUsageFlags = InferFlags<typeof getContextUsageFlags>;
 
 async function getContextUsage(
@@ -809,10 +845,14 @@ export const sdkRoutes = {
     parameters: { flags: getContextFlags },
     func: getContext,
   }),
-  "get-entries": bareRequestCommand(
-    "print the session snapshot (every jsonl entry, verbatim, plus the current leaf) as one JSON document",
-    { type: "get-entries" },
-  ),
+  "get-entries": commandOneTarget<GetEntriesFlags>({
+    docs: {
+      brief:
+        "print the session snapshot (every jsonl entry, verbatim, plus the current leaf) as one JSON document",
+    },
+    parameters: { flags: getEntriesFlags },
+    func: getEntries,
+  }),
   "set-context": commandOneTarget<SetContextFlags, string[]>({
     docs: {
       brief:

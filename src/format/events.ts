@@ -8,7 +8,7 @@
  */
 
 import type { AgentState } from "../core/agent-state.ts";
-import type { SdkEvent } from "../core/sdk-socket.ts";
+import type { AgentEvent } from "../core/sdk-socket.ts";
 import { userText } from "../tui/sdk-render.ts";
 import {
   annotation,
@@ -29,8 +29,8 @@ function agentStateChunk(
   if (agentState.permissionMode !== undefined) {
     parts.push(`permissions ${agentState.permissionMode}`);
   }
-  if (agentState.sessionId !== undefined) {
-    parts.push(`session ${agentState.sessionId}`);
+  if (agentState.querySessionId !== undefined) {
+    parts.push(`session ${agentState.querySessionId}`);
   }
   const lines = [`[snapshot: ${parts.join(", ")}]`];
   // A snapshot record carries the authoritative queue state; anything
@@ -46,9 +46,9 @@ function agentStateChunk(
   return lines.join("\n");
 }
 
-/** `[label: type detail]` for a request-carrying event (controlApplied,
- * contextChanged): primitive-only payloads print their values space-joined,
- * anything structured falls back to one-line JSON. */
+/** `[label: type detail]` for a request-carrying event (controlApplied):
+ * primitive-only payloads print their values space-joined, anything
+ * structured falls back to one-line JSON. */
 function requestAnnotation(label: string, request: { type: string }): string {
   const { type, ...rest } = request;
   const values = Object.values(rest).filter((value) => value !== undefined);
@@ -68,7 +68,7 @@ function requestAnnotation(label: string, request: { type: string }): string {
 }
 
 function eventChunks(
-  event: SdkEvent,
+  event: AgentEvent,
   formatState: FormatState,
   options: MessageFormatOptions,
 ): string[] {
@@ -106,9 +106,24 @@ function eventChunks(
     case "controlApplied":
       return [requestAnnotation("control", event.request)];
     case "contextChanged":
-      return [requestAnnotation("context changed", event.request)];
+      return [annotation(`context changed: boundary ${event.boundary}`)];
     case "shutdown":
       return [`[agent ${event.reason}]`];
+    // The session stream's rendering is phase 4 (spec, IMPLEMENTATION
+    // IDEAS); until then entries print nothing here — their SDK twins
+    // already render — and the daemon's file events print as annotations.
+    case "sessionEntry":
+      return [];
+    case "sessionFileChanged":
+      return [annotation(`session file: ${event.sessionId}`)];
+    case "scanComplete":
+      return ["[scan complete]"];
+    case "sessionAppended":
+      return [annotation(`appended: ${event.uuids.join(" ")}`)];
+    case "trackerAnomaly":
+      return [
+        annotation(`anomaly ${event.anomaly.kind}: ${event.anomaly.detail}`),
+      ];
     case "sdkMessage": {
       const chunk = formatSdkMessage(event.message, formatState, options);
       return chunk === undefined || chunk === "" ? [] : [chunk];
