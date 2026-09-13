@@ -1,21 +1,22 @@
 /**
  * `clauctl tail` — follow an agent as messages (default), entries, or events
- * (docs/specs/tail-parity.md). Messages and entries come from the session
- * file through the canonical entry stream, composed with sdk.sock by
- * AgentObserver so dormancy, rollover, and settlement are observable facts;
- * events are the raw sdk.sock stream. Formatted by default with the exact
- * renderers `format` uses at default options; canonical JSONL behind
- * `--json`, so finite formatted output is byte-equal to `--json` piped
- * through the matching `clauctl format` subcommand.
+ * (docs/specs/tail-parity.md). A live agent is followed on the daemon's
+ * agent event stream (docs/specs/session-tracker.md, Data flow 6): subscribe,
+ * fetch the snapshot, print it, then print the `sessionEntry` events that
+ * follow it — for messages, completed from their `sdkMessage` twins
+ * (entry-sink.ts). A dormant agent's history is read from its session file.
+ * Formatted by default with the exact renderers `format` uses at default
+ * options; canonical JSONL behind `--json`, so finite formatted output is
+ * byte-equal to `--json` piped through the matching `clauctl format`
+ * subcommand.
  *
- * Settlement (spec "Settlement classification"): a met `--until` (after
- * entry catch-up), an expired `--timeout`, a dormant agent's history end,
+ * Settlement (spec "Settlement classification"): a met `--until` (once the
+ * query file settles), an expired `--timeout`, a dormant agent's history end,
  * and a socket close during a messages/entries follow are graceful — flush
- * and exit 0. Entry-stream failure, a missing `--since` cursor, `--type
- * events` on a dormant agent, an events close with an unmet `--until`, and
- * catch-up expiry exit 1. tail never revives: watching an agent must not
- * restart it, so it checks the daemon pid itself instead of going through
- * ensureAgentRunning.
+ * and exit 0. A missing `--since` cursor, `--type events` on a dormant
+ * agent, an events close with an unmet `--until`, and a settle-wait expiry
+ * exit 1. tail never revives: watching an agent must not restart it, so it
+ * checks the daemon pid itself instead of going through ensureAgentRunning.
  */
 
 import type { UUID } from "node:crypto";
@@ -23,12 +24,13 @@ import { EventFormatter } from "../format/events.ts";
 import { DEFAULT_MESSAGE_FORMAT_OPTIONS } from "../format/messages.ts";
 import type { TailRecord } from "../format/types.ts";
 import {
-  AgentObserver,
-  type AgentObservation,
-  type AgentObservationState,
-} from "./agent-observer.ts";
-import { leaf } from "./agent-state.ts";
-import { entrySink } from "./entry-sink.ts";
+  describeSession,
+  querySession,
+  SETTLE_TIMEOUT_MS,
+  settled,
+  type AgentState,
+} from "./agent-state.ts";
+import { entrySink, LiveEntryFeed } from "./entry-sink.ts";
 import {
   booleanFlag,
   commandOneTarget,
@@ -54,11 +56,13 @@ import {
   sdkSocketPath,
   type AgentRecord,
 } from "./registry.ts";
-import { connectWithRetry } from "./sdk-socket.ts";
+import { sessionEntryUuids } from "./sdk-commands.ts";
 import {
-  canonicalizeEntries,
-  type EntryClientOptions,
-} from "./session/entry-stream.ts";
+  connectWithRetry,
+  type AgentEvent,
+  type GetEntriesResponse,
+} from "./sdk-socket.ts";
+import { canonicalizeEntries } from "./session/entry-stream.ts";
 import { readSessionEntries, type SessionEntry } from "./session/file.ts";
 import { untilMetAtSeed, untilMetByEvent, untilQuietMs } from "./until.ts";
 import { SOCKET_CONNECT_DEADLINE_MS } from "./generated/constants.ts";
@@ -67,11 +71,6 @@ import {
   resolveUuidPrefix,
   UUID_PATTERN,
 } from "./uuid.ts";
-
-/** Bound on the entry catch-up after `--until` fires: the target leaf must
- *  be consumed as an entry observation within this window, or the tail fails
- *  naming it — a flush failure becomes a diagnosis instead of a hang. */
-export const CATCHUP_TIMEOUT_MS = 10_000;
 
 const TAIL_TYPES = ["messages", "entries", "events"] as const;
 type TailType = (typeof TAIL_TYPES)[number];
@@ -95,74 +94,54 @@ const tailFlags = {
 
 type TailFlags = InferFlags<typeof tailFlags>;
 
-/** `--until` settlement with entry catch-up (spec "`--until` settlement and
- *  entry catch-up"): conditions are evaluated on the sdk side of the
- *  observation stream; when one fires, the target leaf is recorded and the
- *  tail settles once that entry has been consumed as an entry observation.
- *  Consumption is tracked here rather than via EntryStreamState.seenUuids —
- *  that set is shared by reference with the file scanner and already holds
- *  every history uuid at seed time, so testing it would settle before the
- *  queued history rendered. Owns the bounded catch-up deadline. Exported for
- *  tests, which inject a short deadline. */
+/** `--until` settlement. A condition is met by one event (turn-end: the
+ *  `result` message), and at that moment the log may still lack the entries
+ *  the condition is about. So the condition latches, and the stream settles
+ *  once the query file is settled — those entries have reached the log, and
+ *  so the output. The wait is bounded by `settleTimeoutMs` (a constructor
+ *  parameter so tests can inject a short one). */
 export class UntilSettlement {
   private readonly condition: UntilCondition | undefined;
-  private readonly describeFile: () => string | undefined;
-  private readonly catchupTimeoutMs: number;
-  private readonly consumedUuids = new Set<UUID>();
-  private conditionMet = false;
-  /** The leaf awaited since the condition fired; unset once nothing is owed. */
-  private target: UUID | undefined;
+  private readonly settleTimeoutMs: number;
+  private latched = false;
+  private lastState: AgentState | undefined;
   private expiryTimer: NodeJS.Timeout | undefined;
   private rejectExpiry: ((error: Error) => void) | undefined;
-  /** Rejects when the catch-up deadline expires; never resolves. Race the
-   *  stream against it. */
+  /** Rejects when the settle wait expires; never resolves. Race the stream
+   *  against it. */
   readonly expiry: Promise<never>;
 
   constructor(
     condition: UntilCondition | undefined,
-    describeFile: () => string | undefined,
-    catchupTimeoutMs = CATCHUP_TIMEOUT_MS,
+    settleTimeoutMs = SETTLE_TIMEOUT_MS,
   ) {
     this.condition = condition;
-    this.describeFile = describeFile;
-    this.catchupTimeoutMs = catchupTimeoutMs;
+    this.settleTimeoutMs = settleTimeoutMs;
     this.expiry = new Promise((_resolve, reject) => {
       this.rejectExpiry = reject;
     });
   }
 
-  /** true = settle immediately: the condition holds with nothing to catch
-   *  up. false with a met condition starts the catch-up — queued history
-   *  drains and renders until the target leaf is consumed. */
-  metAtSeed(seed: AgentObservationState): boolean {
-    if (
-      this.condition === undefined ||
-      !untilMetAtSeed(this.condition, seed.sdk)
-    ) {
-      return false;
-    }
-    return this.beginCatchup(leaf(seed.sdk)?.uuid);
+  /** true = settle immediately: the condition holds at the seed and the
+   *  query file is settled. */
+  metAtSeed(state: AgentState): boolean {
+    return (
+      this.condition !== undefined &&
+      untilMetAtSeed(this.condition, state) &&
+      this.latch(state)
+    );
   }
 
   /** true = settle the stream. */
-  observe(
-    observation: AgentObservation,
-    state: AgentObservationState,
-  ): boolean {
-    if (observation.source === "entry") {
-      if (typeof observation.entry.uuid === "string") {
-        this.consumedUuids.add(observation.entry.uuid);
-      }
-      return this.target !== undefined && this.consumedUuids.has(this.target);
+  observe(event: AgentEvent, state: AgentState): boolean {
+    if (this.latched) {
+      return this.settledAt(state);
     }
-    if (
-      this.conditionMet ||
-      this.condition === undefined ||
-      !untilMetByEvent(this.condition, observation.event, state.sdk)
-    ) {
-      return false;
-    }
-    return this.beginCatchup(leaf(state.sdk)?.uuid);
+    return (
+      this.condition !== undefined &&
+      untilMetByEvent(this.condition, event, state) &&
+      this.latch(state)
+    );
   }
 
   /** Clear the deadline timer; call when the stream ends for any reason. */
@@ -170,40 +149,53 @@ export class UntilSettlement {
     clearTimeout(this.expiryTimer);
   }
 
-  private beginCatchup(target: UUID | undefined): boolean {
-    this.conditionMet = true;
-    if (target === undefined || this.consumedUuids.has(target)) {
+  private latch(state: AgentState): boolean {
+    this.latched = true;
+    if (this.settledAt(state)) {
       return true;
     }
-    this.target = target;
     this.expiryTimer = setTimeout(() => {
+      const last = this.lastState;
+      const file =
+        last?.querySessionId === undefined
+          ? "no query file"
+          : `query file ${last.querySessionId}: ${describeSession(querySession(last))}`;
       this.rejectExpiry?.(
         new Error(
-          `--until condition met, but its target entry ${target} did not ` +
-            `appear in ${this.describeFile() ?? "the session file"} within ` +
-            `${this.catchupTimeoutMs}ms`,
+          `--until condition met, but the log did not settle within ` +
+            `${this.settleTimeoutMs}ms; ${file}`,
         ),
       );
-    }, this.catchupTimeoutMs);
+    }, this.settleTimeoutMs);
     return false;
+  }
+
+  private settledAt(state: AgentState): boolean {
+    this.lastState = state;
+    if (!settled(state)) {
+      return false;
+    }
+    clearTimeout(this.expiryTimer);
+    return true;
   }
 }
 
 /** Finite path for a dormant/archived agent: latest session file, canonical,
  *  through the same sink as the live path. Any `--until` is trivially met (a
  *  dead process is conclusive inactivity), so history is emitted and the
- *  command exits 0. */
+ *  command exits 0. A `--since` prefix resolves against the same file — tail
+ *  never revives, so there is no daemon to ask. */
 function tailDormant(
   context: CommandContext,
   agent: AgentRecord,
   type: "messages" | "entries",
   json: boolean,
-  since: UUID | undefined,
+  sinceFlag: string | undefined,
 ): void {
   const sink = entrySink(context, type, json);
   const sessionFile = agent.sessions.at(-1)?.sessionFile;
   if (sessionFile === undefined) {
-    if (since !== undefined) {
+    if (sinceFlag !== undefined) {
       throw new Error(
         `agent '${agent.id}' has no session file to resolve the since cursor against`,
       );
@@ -211,9 +203,17 @@ function tailDormant(
     sink.end();
     return;
   }
+  const entries = readSessionEntries(sessionFile);
+  const since =
+    sinceFlag === undefined || UUID_PATTERN.test(sinceFlag)
+      ? (sinceFlag as UUID | undefined)
+      : resolveUuidPrefix(
+          sinceFlag,
+          new Set(entries.map((entry) => entry.uuid).filter(hasStringUuid)),
+        );
   let canonical: SessionEntry[];
   try {
-    canonical = canonicalizeEntries(readSessionEntries(sessionFile), since);
+    canonical = canonicalizeEntries(entries, since);
   } catch (error) {
     throw since === undefined
       ? error
@@ -227,41 +227,71 @@ function tailDormant(
   sink.end();
 }
 
-/** Live messages/entries: AgentObserver's merged stream, entries rendered
- *  through the sink, `--until` settled with entry catch-up. A merged-stream
- *  close is graceful unless the observer failed: the daemon exiting is
- *  conclusive idleness, and the observer has already drained the visible
- *  file bytes. */
-async function tailObserved(
+const hasStringUuid = (uuid: unknown): uuid is UUID => typeof uuid === "string";
+
+/** Live messages/entries on the agent event stream: subscribe (events
+ *  buffer), fetch the snapshot, print it, skip the `sessionEntry` events
+ *  queued before the response (they are in the snapshot), then print live
+ *  ones. Entries already printed are not printed again when a later file
+ *  re-persists them (first-wins across a session rollover). A socket close
+ *  is graceful: the daemon exiting is conclusive idleness. */
+async function tailLive(
   context: CommandContext,
   agent: AgentRecord,
   type: "messages" | "entries",
   json: boolean,
-  since: UUID | undefined,
+  sinceFlag: string | undefined,
   condition: UntilCondition | undefined,
   timeoutMs: number | undefined,
 ): Promise<void> {
-  const sink = entrySink(context, type, json);
-  const options: EntryClientOptions = {
-    history: "emit",
-    ...(since !== undefined && { since }),
-  };
-  const observer = new AgentObserver(agent, options);
-  const settlement = new UntilSettlement(
-    condition,
-    () => observer.sessionFilePath,
+  const client = await connectWithRetry(
+    sdkSocketPath(agent.agentDir),
+    SOCKET_CONNECT_DEADLINE_MS,
   );
+  const settlement = new UntilSettlement(condition);
   try {
-    const { outcome } = await Promise.race([
+    // A full --since uuid passes through unchecked (the daemon's cursor
+    // error keeps that job); a prefix resolves against the daemon's uuids.
+    const since =
+      sinceFlag === undefined || UUID_PATTERN.test(sinceFlag)
+        ? (sinceFlag as UUID | undefined)
+        : resolveUuidPrefix(sinceFlag, await sessionEntryUuids(client));
+    const subscription = await client.subscribe();
+    const { data, eventsBefore } = await client.requestWithEventCount({
+      type: "get-entries",
+      payload: "full",
+      ...(since !== undefined && { since }),
+    });
+    const snapshot = data as GetEntriesResponse;
+    const sink = entrySink(context, type, json);
+    for (const entry of snapshot.entries!) {
+      sink.push(entry);
+    }
+    const feed = new LiveEntryFeed(sink, type === "messages");
+    const emittedUuids = new Set<UUID>(snapshot.uuids);
+    let position = 0;
+    await Promise.race([
       runStream(
-        observer,
+        { subscribe: () => Promise.resolve(subscription) },
         {
           onSeed: (seed) => settlement.metAtSeed(seed),
-          onEvent: (observation, state) => {
-            if (observation.source === "entry") {
-              sink.push(observation.entry);
+          onEvent: (event, state) => {
+            position += 1;
+            if (event.kind === "sdkMessage") {
+              feed.recordTwin(event.message);
+            } else if (
+              event.kind === "sessionEntry" &&
+              position > eventsBefore
+            ) {
+              const uuid = event.entry.uuid;
+              if (uuid === undefined || !emittedUuids.has(uuid)) {
+                if (uuid !== undefined) {
+                  emittedUuids.add(uuid);
+                }
+                feed.push(event);
+              }
             }
-            return settlement.observe(observation, state);
+            return settlement.observe(event, state);
           },
           quietMs:
             condition === undefined ? undefined : untilQuietMs(condition),
@@ -270,13 +300,10 @@ async function tailObserved(
       ),
       settlement.expiry,
     ]);
-    if (outcome === "closed" && observer.failure !== undefined) {
-      throw observer.failure;
-    }
-    sink.end();
+    feed.end();
   } finally {
     settlement.dispose();
-    observer.close();
+    client.close();
   }
 }
 
@@ -338,31 +365,6 @@ async function tailEvents(
   }
 }
 
-/** A full `--since` value passes through untouched (no membership check —
- *  the downstream cursor errors keep that job); a prefix resolves against
- *  the latest session file, read directly like the dormant path, because
- *  tail never revives and so cannot ask a daemon for the entries. */
-function resolveSinceCursor(
-  agent: AgentRecord,
-  since: string | undefined,
-): UUID | undefined {
-  if (since === undefined || UUID_PATTERN.test(since)) {
-    return since as UUID | undefined;
-  }
-  const sessionFile = agent.sessions.at(-1)?.sessionFile;
-  if (sessionFile === undefined) {
-    throw new Error(
-      `agent '${agent.id}' has no session file to resolve the since cursor against`,
-    );
-  }
-  const sessionUuids = new Set(
-    readSessionEntries(sessionFile)
-      .map((entry) => entry.uuid)
-      .filter((uuid): uuid is UUID => uuid !== undefined),
-  );
-  return resolveUuidPrefix(since, sessionUuids);
-}
-
 async function tail(this: CommandContext, flags: TailFlags): Promise<void> {
   const type: TailType = flags.type ?? "messages";
   const condition = flags.until;
@@ -376,7 +378,6 @@ async function tail(this: CommandContext, flags: TailFlags): Promise<void> {
     );
   }
   const agent = oneTarget(this);
-  const since = resolveSinceCursor(agent, flags.since);
   if (!isPidAlive(agent.daemonPid)) {
     if (type === "events") {
       const state = (await fileExists(archivedPath(agent.agentDir)))
@@ -388,19 +389,19 @@ async function tail(this: CommandContext, flags: TailFlags): Promise<void> {
           `to revive it first`,
       );
     }
-    tailDormant(this, agent, type, flags.json, since);
+    tailDormant(this, agent, type, flags.json, flags.since);
     return;
   }
   if (type === "events") {
     await tailEvents(this, agent, flags.json, condition, timeoutMs);
     return;
   }
-  await tailObserved(
+  await tailLive(
     this,
     agent,
     type,
     flags.json,
-    since,
+    flags.since,
     condition,
     timeoutMs,
   );

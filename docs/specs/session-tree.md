@@ -71,7 +71,7 @@ The transform, applied to the uuid→entry map (file order) at load time:
    metadata, stop — no transform at all.
 2. The relink rules run only when the metadata boundary IS the last
    boundary (last-wins is total). Resolve `preserved = {anchorUuid?,
-   uuids}` (from the list, or a tail→head walk for `preservedSegment`).
+uuids}` (from the list, or a tail→head walk for `preservedSegment`).
 3. If any preserved uuid names no transcript entry: telemetry, **abort the
    whole transform** (no rewrite, no cut; wire-confirmed p15a — an earlier
    valid boundary is NOT consulted either).
@@ -190,7 +190,7 @@ from the context even when they are the sole dangling tip.
    marker sits on the leaf's visible display row (they legitimately differ
    after a fresh compaction: marker on the summary row, cursor on the
    preserved tip). A leaf on a rootless hidden chain
-   (`nearestVisibleRow` → undefined) renders no marker.
+   (`nearestVisibleNode` → undefined) renders no marker.
 8. Diagnostics: invalid relinks (missing preserved uuid, duplicates
    WITHIN a preserved list, an anchor among the preserved uuids), dangling
    anchors, and parent cycles report
@@ -286,7 +286,7 @@ to the new names).
 **`src/core/tree/loader.ts`** — the loader model. Owns every relink rule.
 
 ```ts
-/** Sink for corrupt-session-file diagnostics. */                 // moved from effective-chain.ts
+/** Sink for corrupt-session-file diagnostics. */ // moved from effective-chain.ts
 export type OnInvalid = (message: string) => void;
 
 /** A compact_boundary entry's relink instruction, mirroring the jsonl
@@ -380,7 +380,7 @@ reformulate onto `loadedContextUuids`:
 - `get-messages.ts` (synthesis window): closed iff a POST-boundary
   user/assistant entry exists that is not the boundary's summary, where
   the summary is identified as `isCompactSummary === true &&
-  parentUuid === lastBoundary.uuid`. Parentage alone cannot identify the
+parentUuid === lastBoundary.uuid`. Parentage alone cannot identify the
   summary: after an empty-uuids wipe the first REAL prompt also parents
   onto the boundary (P10). (Two drafts corrected during implementation —
   "last user/assistant in file order" misread a no-summary boundary with
@@ -440,7 +440,7 @@ export class DisplayTree {
    *  nearest visible ancestor when hidden, undefined when the hidden
    *  chain is rootless (a leaf mapped here renders no marker, matching
    *  filtered-leaf behavior). */
-  nearestVisibleRow(ref: TreeNodeRef): TreeNodeRef | undefined;
+  nearestVisibleNode(ref: TreeNodeRef): TreeNodeRef | undefined;
 }
 
 /** Superseded: the current signature is
@@ -468,11 +468,11 @@ validity via `compactBoundaryOf`/`invalidRelinkReason` without reporting
 - `src/format/tree.ts`: `raw` stays in `FILTER_MODES`; `raw` renders
   `buildTree` output with `~` before the uuid column on `@boundary` rows;
   all other modes render `toDisplayTree(buildTree(...), ...)` with the
-  leaf marker mapped through `nearestVisibleRow` when the leaf row is
+  leaf marker mapped through `nearestVisibleNode` when the leaf row is
   hidden.
 - `src/tui/components/tree-selector.ts`: `TreeSelectorComponent` takes the
   `DisplayTree`; `resolveTreePick(fullTree, entries, entryOf, pick,
-  onInvalid)` implements criterion 5 (boundary undo via
+onInvalid)` implements criterion 5 (boundary undo via
   `loadedContext(entries.slice(0, boundaryIndex))`; summary picks — rows
   identified by `isCompactSummary` + boundary parent — return
   `{kind: "setChain", uuids}` with the fresh-compaction context:

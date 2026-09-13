@@ -11,7 +11,9 @@
 import type { UUID } from "node:crypto";
 import { CanonicalEntryFilter } from "./entry-stream.ts";
 import {
+  compactionMetadata,
   entryToSessionMessage,
+  type CompactionMetadata,
   type SessionEntry,
   type SessionMessageOnWire,
 } from "./file.ts";
@@ -19,7 +21,7 @@ import {
 export type MessageControl =
   | Readonly<{ kind: "model_changed"; from: string; to: string }>
   | Readonly<{ kind: "permission_mode_changed"; from: string; to: string }>
-  | Readonly<{ kind: "compaction"; trigger?: string; preTokens?: number }>
+  | Readonly<{ kind: "compaction" } & CompactionMetadata>
   | Readonly<{ kind: "queued_input"; text: string }>;
 
 export type ControlRecord = Readonly<{
@@ -109,20 +111,8 @@ export class MessageProjector {
         if (entry.subtype !== "compact_boundary") {
           return [];
         }
-        // The boundary fact is never dropped: malformed compactMetadata just
-        // omits the fields that fail to validate.
-        const metadata = entry.compactMetadata as
-          { trigger?: unknown; preTokens?: unknown } | undefined;
         return [
-          control(entry, {
-            kind: "compaction",
-            ...(typeof metadata?.trigger === "string" && {
-              trigger: metadata.trigger,
-            }),
-            ...(typeof metadata?.preTokens === "number" && {
-              preTokens: metadata.preTokens,
-            }),
-          }),
+          control(entry, { kind: "compaction", ...compactionMetadata(entry) }),
         ];
       }
       case "queue-operation": {

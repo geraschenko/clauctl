@@ -36,24 +36,21 @@ import type {
   SDKUserMessage,
 } from "@anthropic-ai/claude-agent-sdk";
 import { isIdle, leaf, type AgentState } from "../core/agent-state.ts";
-import { randomUUID, type UUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { buildTree } from "../core/tree/build-tree.ts";
-import { toContextTree, type ContextTree } from "../core/tree/context-tree.ts";
-import { toDisplayTree } from "../core/tree/display-tree.ts";
 import {
-  entriesByUuid,
   entryToSessionMessage,
+  queuedCommandPrompt,
   type SessionEntry,
 } from "../core/session/file.ts";
-import {
-  pathToLeaf,
-  type SessionSnapshot,
-  type TreeNodeRef,
-} from "../core/tree/nodes.ts";
-import type { AgentEvent, SdkSocketClient } from "../core/sdk-socket.ts";
+import { pathToLeaf, type TreeNodeRef } from "../core/tree/nodes.ts";
+import type {
+  AgentEvent,
+  SdkSocketClient,
+  GetEntriesResponse,
+} from "../core/sdk-socket.ts";
 import { findFd, TuiAutocompleteProvider } from "./autocomplete.ts";
 import { EffortSelectorComponent } from "./components/effort-selector.ts";
 import { FooterComponent } from "./components/footer.ts";
@@ -78,6 +75,7 @@ import {
 } from "./external-editor.ts";
 import { VERSION } from "../core/generated/version.ts";
 import { pathUpToBoundary, releaseDedupeUuid, userText } from "./sdk-render.ts";
+import { SessionModel } from "./session-model.ts";
 import { readSettings, settingsPath } from "./settings.ts";
 import { TranscriptRenderer } from "./transcript.ts";
 import { getEditorTheme, theme, type ThemeColor } from "./theme.ts";
@@ -343,6 +341,9 @@ class InteractiveMode {
    * (they predate the seed).
    */
   private agentState: AgentState;
+  /** Entries, payloads and trees, fed every event in socket order; the
+   *  transcript and `/tree` read it instead of fetching. */
+  private readonly sessionModel: SessionModel;
 
   private readonly chatContainer = new Container();
   private readonly pendingMessages = new PendingMessagesComponent();
@@ -380,13 +381,17 @@ class InteractiveMode {
     [];
 
   /**
-   * Release dedupe (nonempty only during reloadHistory's release loop):
-   * uuids rendered from the replayed path. A buffered event carrying one of
-   * them advances agentState but renders nothing — the flush-synced tree
-   * read can include entries newer than the snapshot leaf, which are also
+   * Release dedupe (defined only during reloadHistory's release loop):
+   * uuids rendered from a replayed path — the attach redraw's, and any
+   * buffered contextChanged's redraw during the loop. A buffered event
+   * carrying one of them advances agentState but renders nothing — the
+   * snapshot can include entries newer than the seed leaf, which are also
    * in the buffer.
    */
-  private replayedUuids = new Set<string>();
+  private replayedUuids: Set<string> | undefined;
+  /** Buffered contextChanged events not yet released; each redraws the
+   *  transcript, superseding the redraws before it. */
+  private pendingContextChanges = 0;
 
   /**
    * One-shot banner dedupe that OUTLIVES the release loop: replayed boundary
@@ -406,8 +411,6 @@ class InteractiveMode {
   /** True from `/model` submit until the supported-models read settles. */
   private modelSelectorPending = false;
   private treeSelector?: TreeSelectorComponent;
-  /** True from `/tree` submit until the get-entries read settles. */
-  private treeSelectorPending = false;
   private effortSelector?: EffortSelectorComponent;
   /** True from `/effort` submit until the supported-models read settles. */
   private effortSelectorPending = false;
@@ -423,6 +426,7 @@ class InteractiveMode {
     this.agentState = seedState;
     this.keybindings = getKeybindings();
     this.transcript = new TranscriptRenderer(this.chatContainer);
+    this.sessionModel = new SessionModel((message) => this.addBanner(message));
     this.done = new Promise((resolve) => {
       this.finish = resolve;
     });
@@ -500,24 +504,48 @@ class InteractiveMode {
   }
 
   /**
-   * (Re)build the transcript from the session snapshot: fetch get-entries,
-   * build the display tree locally, render the root-to-leaf display path
-   * cut at the state fold's leaf row (pathUpToBoundary — the entries after
-   * it arrive as live events), then the delivered-but-unconfirmed prompts,
-   * then release the buffered live events. Called on attach (constructor)
-   * and on every contextChanged (redraw). Each message renders once by
-   * construction — a display path has no duplicates; path-vs-buffer
-   * duplication is deduped separately (replayedUuids, during the release
-   * loop).
-   *
-   * When the leaf is missing from the path, exactly-once is unachievable:
-   * the whole path replays behind a warning banner — unless a buffered
-   * contextChanged is pending, which means this reload is already
-   * superseded (the context change moved the leaf between snapshot and
-   * read; releasing it reloads with the new leaf), so warning would be
-   * spurious.
+   * The attach-time history fetch: `get-entries {payload: "full"}` seeds
+   * the session model (the response's event count is its snapshot cut),
+   * the transcript renders from the session model, then the buffered live
+   * events are released. Path-vs-buffer duplication is deduped by replayedUuids
+   * during the release loop.
    */
   private async reloadHistory(): Promise<void> {
+    this.resetTranscript();
+    this.liveEventsDuringReplay = [];
+    try {
+      const { data, eventsBefore } = await this.client.requestWithEventCount({
+        type: "get-entries",
+        payload: "full",
+      });
+      const snapshot = data as GetEntriesResponse;
+      this.sessionModel.applySnapshot(snapshot.entries!, eventsBefore);
+    } catch (error) {
+      this.addBanner(`history fetch failed: ${String(error)}`);
+      this.sessionModel.applySnapshot([], 0);
+    }
+    const buffered = this.liveEventsDuringReplay ?? [];
+    this.liveEventsDuringReplay = undefined;
+    this.pendingContextChanges = buffered.filter(
+      ([event]) => event.kind === "contextChanged",
+    ).length;
+    const replayed = new Set<string>();
+    this.renderHistory(replayed);
+    this.replayedUuids = replayed;
+    try {
+      for (const [event, state] of buffered) {
+        if (event.kind === "contextChanged") {
+          this.pendingContextChanges -= 1;
+        }
+        this.applyEvent(event, state);
+      }
+    } finally {
+      this.replayedUuids = undefined;
+    }
+    this.ui.requestRender();
+  }
+
+  private resetTranscript(): void {
     this.chatContainer.clear();
     this.transcript = new TranscriptRenderer(this.chatContainer);
     this.transcript.setCwd(this.agentState.cwd);
@@ -525,54 +553,55 @@ class InteractiveMode {
     this.transcript.setCompactSummaryExpanded(this.toolsExpanded);
     this.transcript.setShowThinking(this.showThinking);
     this.replayedBoundaryUuids.clear();
-    this.liveEventsDuringReplay = [];
-    const replayed = new Set<string>();
-    try {
-      const data = await this.client.request({ type: "get-entries" });
-      const snapshot = data as SessionSnapshot;
-      const byUuid = entriesByUuid(snapshot.entries);
-      const fullTree = buildTree(snapshot.entries, (message) =>
-        this.addBanner(message),
+  }
+
+  /**
+   * Render the session model's root-to-leaf display path cut at the state
+   * fold's leaf (pathUpToBoundary), then the delivered-but-unconfirmed
+   * prompts. `replayed` collects the uuids rendered.
+   *
+   * Two leaves because they play different roles. The path runs to the
+   * session model's leaf — the file's tip as far as the model knows —
+   * because pathUpToBoundary keeps the boundary banners and summaries
+   * beyond the cut (their live events render no text) and because a
+   * missing cut falls back to the whole path. The state leaf is the cut:
+   * the buffered live events resume right after it.
+   *
+   * When the state leaf is missing from the path, exactly-once is
+   * unachievable: the whole path replays behind a warning banner — unless a
+   * buffered contextChanged is still pending, whose redraw supersedes this
+   * one (the context change moved the leaf between seed and snapshot), so
+   * warning would be spurious.
+   */
+  private renderHistory(replayed: Set<string>): void {
+    const displayTree = this.sessionModel.displayTree;
+    const byUuid = this.sessionModel.byUuid;
+    // Leaves map to the visible node that carries them (a hidden relinked
+    // leaf renders as its summary's line). A stale leaf maps to itself, so
+    // the raced-leaf handling below still warns.
+    const sessionLeaf = this.sessionModel.leaf;
+    const leafNode =
+      sessionLeaf === null
+        ? undefined
+        : displayTree.nearestVisibleNode(sessionLeaf);
+    const path = pathToLeaf(displayTree.parentMap, byUuid, leafNode ?? null);
+    const stateLeaf = leaf(this.agentState);
+    const { nodes, boundaryMissing } = pathUpToBoundary(
+      path,
+      byUuid,
+      stateLeaf === null
+        ? undefined
+        : displayTree.nearestVisibleNode(stateLeaf),
+    );
+    // pathToLeaf validated every path uuid against byUuid, so the lookup
+    // cannot miss.
+    for (const ref of nodes) {
+      this.renderEntry(byUuid.get(ref.uuid)!, replayed);
+    }
+    if (boundaryMissing && this.pendingContextChanges === 0) {
+      this.addBanner(
+        "history attach point not found; recent messages may be missing or duplicated",
       );
-      const displayTree = toDisplayTree(
-        fullTree,
-        toContextTree(fullTree, byUuid),
-        byUuid,
-      );
-      // History renders the display path: leaves map to the visible row
-      // that carries them (a hidden relinked leaf renders as its summary
-      // row's line). A stale leaf maps to itself, so the raced-leaf
-      // handling below still warns.
-      const leafRow =
-        snapshot.leaf == null
-          ? undefined
-          : displayTree.nearestVisibleRow(snapshot.leaf);
-      const path = pathToLeaf(displayTree.parentMap, byUuid, leafRow ?? null);
-      const stateLeaf = leaf(this.agentState);
-      const { nodes, boundaryMissing } = pathUpToBoundary(
-        path,
-        byUuid,
-        stateLeaf === null
-          ? undefined
-          : displayTree.nearestVisibleRow(stateLeaf),
-      );
-      // pathToLeaf validated every path uuid against byUuid, so the lookup
-      // cannot miss.
-      for (const ref of nodes) {
-        this.renderEntry(byUuid.get(ref.uuid)!, replayed);
-      }
-      if (
-        boundaryMissing &&
-        !this.liveEventsDuringReplay.some(
-          ([event]) => event.kind === "contextChanged",
-        )
-      ) {
-        this.addBanner(
-          "history attach point not found; recent messages may be missing or duplicated",
-        );
-      }
-    } catch (error) {
-      this.addBanner(`history fetch failed: ${String(error)}`);
     }
     // Delivered-but-unconfirmed prompts (the prompt-visibility invariant,
     // agent-state.ts): dequeued before the state snapshot was taken with the
@@ -582,20 +611,6 @@ class InteractiveMode {
     for (const message of this.agentState.deliveredMessages) {
       this.transcript.appendUserTurn(message);
     }
-    const buffered = this.liveEventsDuringReplay ?? [];
-    this.liveEventsDuringReplay = undefined;
-    this.replayedUuids = replayed;
-    try {
-      // A buffered contextChanged re-enters reloadHistory here; its
-      // synchronous prefix re-arms the buffer, so the rest of this loop
-      // feeds the follow-up reload instead of rendering.
-      for (const [event, state] of buffered) {
-        this.handleEvent(event, state);
-      }
-    } finally {
-      this.replayedUuids = new Set();
-    }
-    this.ui.requestRender();
   }
 
   /**
@@ -612,6 +627,10 @@ class InteractiveMode {
         replayed.add(entry.uuid);
         this.replayedBoundaryUuids.add(entry.uuid);
       }
+    } else if (queuedCommandPrompt(entry) !== undefined) {
+      if (entry.uuid !== undefined) {
+        replayed.add(entry.uuid);
+      }
     } else {
       const message = entryToSessionMessage(entry);
       if (message !== undefined) {
@@ -622,6 +641,9 @@ class InteractiveMode {
   }
 
   handleEvent(event: AgentEvent, state: AgentState): void {
+    // The session model sees every event as it arrives — its snapshot cut
+    // is a socket position — while rendering waits out the history replay.
+    this.sessionModel.observe(event);
     // Terminal and order-independent, so it must not wait out a history
     // replay: the socket may close right behind it, and a buffered shutdown
     // would then misreport as connectionLost.
@@ -633,7 +655,19 @@ class InteractiveMode {
       this.liveEventsDuringReplay.push([event, state]);
       return;
     }
+    this.applyEvent(event, state);
+  }
+
+  private applyEvent(event: AgentEvent, state: AgentState): void {
     this.agentState = state;
+    // `anomaly` names the event just folded (agent-state.ts), so reading it
+    // per event shows each anomaly once, whichever event's fold raised it.
+    if (state.anomaly !== undefined) {
+      this.addBanner(
+        `tracker anomaly ${state.anomaly.kind}: ${state.anomaly.detail}`,
+        "warning",
+      );
+    }
     // The switch is rendering-only dispatch; all state effects (footer
     // fields, mode cycle, activity) come from the delivered state above.
     switch (event.kind) {
@@ -644,12 +678,14 @@ class InteractiveMode {
       case "userMessageDequeued":
         // The dequeue's stream position is the correct transcript position;
         // the retained message renders through the same appendUserTurn the
-        // replay path uses.
+        // replay path uses. A steered message renders from its
+        // `queued_command` attachment entry instead (the sessionEntry case),
+        // where history replay finds it too.
         this.pendingMessages.take(event.ids);
         for (const id of event.ids) {
           const message = this.queuedById.get(id);
           this.queuedById.delete(id);
-          if (message !== undefined) {
+          if (message !== undefined && event.delivery !== "steer") {
             this.transcript.appendUserTurn(message);
           }
         }
@@ -668,16 +704,32 @@ class InteractiveMode {
         this.treeSelector?.setWarning(
           "context changed while the tree selector is open",
         );
-        // agentState already holds the new leaf, so the reload cuts the
+        // agentState already holds the new leaf, so the redraw cuts the
         // fresh path at the right occurrence.
-        void this.reloadHistory();
+        this.resetTranscript();
+        this.renderHistory(this.replayedUuids ?? new Set());
         break;
       case "sdkMessage":
         this.handleSdkMessage(event.message);
         break;
-      // The session stream drives nothing in the TUI until phase 4 (spec,
-      // IMPLEMENTATION IDEAS: rolling trees, fetch policy, anomaly banner).
       case "sessionEntry":
+        // The session-only entries with transcript content of their own
+        // (today: the steered prompt); shared entries render from their
+        // sdkMessage twin. Appended at arrival, which trails the query
+        // stream: an entry may land after a later sdkMessage (rare; see
+        // docs/thoughts/transcript-order.md). Release dedupe as in
+        // handleSdkMessage: a buffered event whose entry the replayed path
+        // already rendered renders nothing.
+        if (
+          queuedCommandPrompt(event.entry) !== undefined &&
+          (event.entry.uuid === undefined ||
+            !this.replayedUuids?.has(event.entry.uuid))
+        ) {
+          this.transcript.appendEntry(event.entry);
+        }
+        break;
+      // The rest of the session stream feeds the session model
+      // (handleEvent) and renders nothing itself.
       case "sessionFileChanged":
       case "scanComplete":
       case "sessionAppended":
@@ -694,7 +746,7 @@ class InteractiveMode {
     // before dispatch) but renders nothing — no second banner, no streaming
     // component, no tool-result re-resolution.
     const dedupeUuid = releaseDedupeUuid(message);
-    if (dedupeUuid !== undefined && this.replayedUuids.has(dedupeUuid)) {
+    if (dedupeUuid !== undefined && this.replayedUuids?.has(dedupeUuid)) {
       // A buffered banner event consumed here won't arrive again — release
       // its one-shot entry.
       this.replayedBoundaryUuids.delete(dedupeUuid);
@@ -1035,51 +1087,30 @@ class InteractiveMode {
   }
 
   private openTreeSelector(): void {
-    if (this.treeSelector !== undefined || this.treeSelectorPending) {
+    if (this.treeSelector !== undefined) {
       return;
     }
-    this.treeSelectorPending = true;
-    // .catch (not a rejection handler) so a buildTree throw on a corrupt
-    // session lands in the banner instead of an unhandled rejection.
-    void this.client
-      .request({ type: "get-entries" })
-      .then((data) => {
-        const snapshot = data as SessionSnapshot;
-        const byUuid = entriesByUuid(snapshot.entries);
-        const fullTree = buildTree(snapshot.entries, (message) =>
-          this.addBanner(message),
-        );
-        // The rows come from the display tree; picks resolve on the context
-        // tree (a picked row's parent — e.g. of a post-compaction user row —
-        // is a relinked occurrence the display tree hides).
-        const contextTree = toContextTree(fullTree, byUuid);
-        const displayTree = toDisplayTree(fullTree, contextTree, byUuid);
-        const selector = new TreeSelectorComponent(
-          snapshot.leaf,
-          displayTree,
-          byUuid,
-          (pick) => this.confirmTreePick(contextTree, byUuid, pick),
-          () => this.closeTreeSelector(),
-        );
-        this.treeSelectorPending = false;
-        this.treeSelector = selector;
-        this.statusContainer.addChild(selector);
-        this.ui.setFocus(selector);
-        this.ui.requestRender();
-      })
-      .catch((error: unknown) => {
-        this.treeSelectorPending = false;
-        this.addBanner(`tree fetch failed: ${String(error)}`, "error");
-        this.ui.requestRender();
-      });
+    // The rows come from the session model's display tree, rendered once at
+    // open; picks resolve on the context tree (a picked row's parent — e.g.
+    // of a post-compaction user row — is a relinked occurrence the display
+    // tree hides). The marker is the session model's leaf, not
+    // leaf(agentState): the state's is the query-side leaf, which names an
+    // entry not yet in the tree while the query leads the file.
+    const selector = new TreeSelectorComponent(
+      this.sessionModel.leaf,
+      this.sessionModel.displayTree,
+      this.sessionModel.byUuid,
+      (pick) => this.confirmTreePick(pick),
+      () => this.closeTreeSelector(),
+    );
+    this.treeSelector = selector;
+    this.statusContainer.addChild(selector);
+    this.ui.setFocus(selector);
+    this.ui.requestRender();
   }
 
   /** The selector stays dumb; the busy gate and the request live here. */
-  private confirmTreePick(
-    contextTree: ContextTree,
-    byUuid: ReadonlyMap<UUID, SessionEntry>,
-    pick: TreeNodeRef,
-  ): void {
+  private confirmTreePick(pick: TreeNodeRef): void {
     if (!isIdle(this.agentState)) {
       this.hintText.setText(
         theme.fg("dim", "cannot navigate tree while assistant is busy"),
@@ -1087,7 +1118,11 @@ class InteractiveMode {
       this.ui.requestRender();
       return;
     }
-    const action = resolveTreePick(contextTree, byUuid, pick);
+    const action = resolveTreePick(
+      this.sessionModel.contextTree,
+      this.sessionModel.byUuid,
+      pick,
+    );
     this.closeTreeSelector();
     const request =
       action.rewindTo === null

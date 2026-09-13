@@ -22,13 +22,13 @@ import { EventFormatter } from "./events.ts";
 import {
   decodeFormatInput,
   inputChunks,
-  parseSessionSnapshot,
+  parseSnapshotDocument,
 } from "./input.ts";
 import {
   DEFAULT_MESSAGE_FORMAT_OPTIONS,
   MessageFormatter,
 } from "./messages.ts";
-import { FILTER_MODES, formatSessionSnapshot } from "./tree.ts";
+import { FILTER_MODES, formatSnapshotDocument } from "./tree.ts";
 import type { MessageFormatOptions } from "./types.ts";
 
 function parsePositiveInteger(input: string): number {
@@ -193,7 +193,7 @@ async function formatTree(
 ): Promise<void> {
   const input = await readInputFile(this, file);
   this.process.stdout.write(
-    formatSessionSnapshot(parseSessionSnapshot(input), {
+    formatSnapshotDocument(parseSnapshotDocument(input), {
       filter: flags.filter ?? "conversation",
       width: flags.width ?? DEFAULT_FORMAT_WIDTH,
     }),

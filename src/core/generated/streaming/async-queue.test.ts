@@ -5,6 +5,60 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { AsyncQueue } from "./async-queue.ts";
 
+test("pushedCount counts buffered and directly delivered values without resetting on drain", async () => {
+  const queue = new AsyncQueue<number>();
+  assert.equal(queue.pushedCount, 0);
+  queue.push(1);
+  assert.equal(queue.pushedCount, 1);
+  queue.push(2);
+  assert.equal(queue.pushedCount, 2);
+
+  const iterator = queue[Symbol.asyncIterator]();
+  await iterator.next();
+  await iterator.next();
+  assert.equal(queue.pushedCount, 2);
+
+  const pending = iterator.next();
+  queue.push(3);
+  assert.equal(queue.pushedCount, 3);
+  assert.deepEqual(await pending, { done: false, value: 3 });
+  assert.equal(queue.pushedCount, 3);
+});
+
+test("pushedCount is updated before onPush handlers run", () => {
+  const queue = new AsyncQueue<number>();
+  const observedCounts: number[] = [];
+  queue.onPush(() => {
+    observedCounts.push(queue.pushedCount);
+  });
+  queue.push(1);
+  queue.push(2);
+  assert.deepEqual(observedCounts, [1, 2]);
+});
+
+test("pushedCount survives close and drain and excludes ignored pushes", async () => {
+  const queue = new AsyncQueue<number>();
+  queue.push(1);
+  queue.close();
+  assert.equal(queue.pushedCount, 1);
+  queue.push(2);
+  assert.equal(queue.pushedCount, 1);
+  const iterator = queue[Symbol.asyncIterator]();
+  assert.deepEqual(await iterator.next(), { done: false, value: 1 });
+  assert.equal((await iterator.next()).done, true);
+  assert.equal(queue.pushedCount, 1);
+});
+
+test("pushedCount survives cancellation and excludes ignored pushes", () => {
+  const queue = new AsyncQueue<number>();
+  queue.push(1);
+  queue.push(2);
+  queue.cancel();
+  assert.equal(queue.pushedCount, 2);
+  queue.push(3);
+  assert.equal(queue.pushedCount, 2);
+});
+
 test("values pushed before next() are delivered in order", async () => {
   const queue = new AsyncQueue<number>();
   queue.push(1);

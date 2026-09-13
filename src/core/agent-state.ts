@@ -188,6 +188,17 @@ export const settled = (state: AgentState): boolean => {
   return file === undefined || sessionSettled(file);
 };
 
+/** Bound on any wait for settledness (the daemon's whenSettled, a client's
+ *  `--until` completion): the log has had this long to catch up with the
+ *  query stream. */
+export const SETTLE_TIMEOUT_MS = 10_000;
+
+/** What a file is still waiting on, for settle-timeout diagnostics. */
+export const describeSession = (session: SessionState | undefined): string =>
+  session === undefined
+    ? "no such file"
+    : `pending on query: [${pending(session.merge, "query").join(", ")}]; awaiting anchors: [${session.awaitingAnchors.join(", ")}]`;
+
 const MERGE_STREAMS: readonly MergeStream[] = ["query", "session"];
 
 const EMPTY_MERGE: MergeState<UUID, MergeStream> = createMerge<
@@ -215,8 +226,9 @@ export function freshSessionState(): SessionState {
 const otherStream = (stream: MergeStream): MergeStream =>
   stream === "query" ? "session" : "query";
 
-/** `type/subtype` of a query message or log entry, for anomaly details. */
-function classOf(item: { type?: string; subtype?: string }): string {
+/** `type/subtype` of a query message or log entry, for anomaly details
+ *  and event annotations. */
+export function classOf(item: { type?: string; subtype?: string }): string {
   return item.subtype === undefined
     ? (item.type ?? "?")
     : `${item.type}/${item.subtype}`;
@@ -647,9 +659,9 @@ function foldEvent(state: AgentState, event: AgentEvent): AgentState {
       );
       if (event.delivery === "steer") {
         // Steered messages must not enter deliveredMessages: a steered
-        // message's only transcript record is a queued_command attachment,
-        // which getSessionMessages never returns, so no history read could
-        // take over from the hold.
+        // message's transcript record is its queued_command attachment
+        // entry, which the session stream and the history fetch both
+        // deliver — holding it here would show it twice.
         return { ...state, queuedMessages };
       }
       const byId = new Map(

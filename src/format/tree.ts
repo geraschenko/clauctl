@@ -12,16 +12,17 @@ import type { UUID } from "node:crypto";
 import { buildTree } from "../core/tree/build-tree.ts";
 import { toContextTree } from "../core/tree/context-tree.ts";
 import { toDisplayTree } from "../core/tree/display-tree.ts";
-import { entriesByUuid, type SessionEntry } from "../core/session/file.ts";
+import {
+  entriesByUuid,
+  queuedCommandPrompt,
+  type SessionEntry,
+} from "../core/session/file.ts";
 import {
   formatTreeNodeRef,
-  isFinalAssistantEntry,
   parseTreeNodeRef,
   type ParentMap,
-  type SessionSnapshot,
   type TreeNodeStr,
 } from "../core/tree/nodes.ts";
-import { treeChildren } from "../core/tree/parent-map.ts";
 import { isRecord } from "../core/generated/util.ts";
 import { displayUuid } from "../core/uuid.ts";
 import {
@@ -46,13 +47,13 @@ import {
   hasContentBlock,
   oneLine,
 } from "./generated/text.ts";
+import type { SnapshotDocument } from "./input.ts";
 
 export const FILTER_MODES = [
   "conversation",
   "no-tools",
   "user-only",
   "all",
-  "picker",
   "raw",
 ] as const;
 export type FilterMode = (typeof FILTER_MODES)[number];
@@ -110,6 +111,14 @@ export function isHumanPrompt(entry: SessionEntry): boolean {
   );
 }
 
+/** A prompt the human typed, whichever way the CLI recorded it: a `user`
+ *  entry (submitted idle) or a `queued_command` attachment (steered
+ *  mid-turn). Compact summaries are prompt rows too for the filters, but
+ *  not prompts. */
+function isPromptEntry(entry: SessionEntry): boolean {
+  return isHumanPrompt(entry) || queuedCommandPrompt(entry) !== undefined;
+}
+
 /** `entry.version` (dotted numeric) is older than `version`; a missing or
  *  unparsable version counts as older. */
 function writtenBefore(entry: SessionEntry, version: string): boolean {
@@ -154,12 +163,12 @@ function preOriginHumanPrompt(entry: SessionEntry): boolean {
   );
 }
 
-/** `isFinal` is isFinalAssistantEntry over the occurrence, computed by
- *  callers (collectFinalAssistantIds below); only "picker" reads it. */
+/** "conversation" is also the /tree selector's filter: every row it keeps
+ *  is a valid pick target (a hidden occurrence's pick resolves through
+ *  its nearest visible row). */
 export function passesFilter(
   entry: SessionEntry,
   isCurrentLeaf: boolean,
-  isFinal: boolean,
   filter: FilterMode,
 ): boolean {
   switch (filter) {
@@ -169,7 +178,7 @@ export function passesFilter(
     case "all":
       return true;
     case "user-only":
-      return isHumanPrompt(entry) || entry.isCompactSummary === true;
+      return isPromptEntry(entry) || entry.isCompactSummary === true;
     case "no-tools":
       // The current-leaf exemption applies to the assistant suppression
       // only (pictl parity): a tool_result leaf is still hidden.
@@ -184,11 +193,12 @@ export function passesFilter(
         abnormalStopReason(entry) === undefined
       );
     case "conversation":
-      if (entry.subtype === "compact_boundary") {
+      if (
+        entry.subtype === "compact_boundary" ||
+        isPromptEntry(entry) ||
+        entry.isCompactSummary === true
+      ) {
         return true;
-      }
-      if (entry.type === "user") {
-        return isHumanPrompt(entry) || entry.isCompactSummary === true;
       }
       return (
         entry.type === "assistant" &&
@@ -196,18 +206,6 @@ export function passesFilter(
           abnormalStopReason(entry) !== undefined ||
           isCurrentLeaf)
       );
-    // The /tree selector's fixed filter: every row is a valid pick target.
-    // Restricting assistants to final entries makes assistant rows valid
-    // rewindTo targets in ordinary session shapes; the daemon's file-order
-    // validation remains the authority.
-    case "picker":
-      if (entry.subtype === "compact_boundary") {
-        return true;
-      }
-      if (entry.type === "user") {
-        return isHumanPrompt(entry) || entry.isCompactSummary === true;
-      }
-      return entry.type === "assistant" && isFinal && hasText(entry);
   }
 }
 
@@ -236,6 +234,10 @@ export function entrySummary(
   entry: SessionEntry,
   toolNames: ReadonlyMap<string, string>,
 ): string {
+  const steeredPrompt = queuedCommandPrompt(entry);
+  if (steeredPrompt !== undefined) {
+    return oneLine(steeredPrompt);
+  }
   if (entry.type === "user") {
     if (hasText(entry)) {
       return oneLine(extractTextContent(messageContent(entry)));
@@ -289,27 +291,12 @@ export function entrySummary(
   return entry.subtype === undefined ? type : `${type}: ${entry.subtype}`;
 }
 
-/** Layout ids of the occurrences that are final assistant entries — the
- *  per-tree input `passesFilter`'s "picker" mode needs. */
-export function collectFinalAssistantIds(
-  parentMap: ParentMap,
-  children: ReadonlyMap<TreeNodeStr | null, readonly TreeNodeStr[]>,
-  byUuid: ReadonlyMap<UUID, SessionEntry>,
-): Set<TreeNodeStr> {
-  const finalIds = new Set<TreeNodeStr>();
-  for (const id of parentMap.keys()) {
-    if (isFinalAssistantEntry(id, children, byUuid)) {
-      finalIds.add(id);
-    }
-  }
-  return finalIds;
-}
-
 /** Classifies the entry into the glyphs.ts vocabulary, first match wins:
- *  compact boundary, compact summary, human prompt, tool_result-only user,
- *  other user with text, assistant with a tool_use block, other assistant,
- *  anything else. Lives here (not in glyphs.ts) because it is entry
- *  classification, sharing hasText/toolResultOnly with passesFilter. */
+ *  compact boundary, compact summary, prompt (typed or steered),
+ *  tool_result-only user, other user with text, assistant with a tool_use
+ *  block, other assistant, anything else. Lives here (not in glyphs.ts)
+ *  because it is entry classification, sharing hasText/toolResultOnly with
+ *  passesFilter. */
 export function treeRowGlyph(entry: SessionEntry): string {
   if (entry.subtype === "compact_boundary") {
     return COMPACT_BOUNDARY_GLYPH;
@@ -317,10 +304,10 @@ export function treeRowGlyph(entry: SessionEntry): string {
   if (entry.isCompactSummary === true) {
     return COMPACT_SUMMARY_GLYPH;
   }
+  if (isPromptEntry(entry)) {
+    return USER_GLYPH;
+  }
   if (entry.type === "user") {
-    if (isHumanPrompt(entry)) {
-      return USER_GLYPH;
-    }
     if (toolResultOnly(entry)) {
       return TOOL_RESULT_GLYPH;
     }
@@ -402,8 +389,8 @@ export function treeLines(
  * diagnostics are declared-ignored: interleaving them with the rendered
  * tree would corrupt the output, and invalid relinks still render
  * (un-relinked). */
-export function formatSessionSnapshot(
-  snapshot: SessionSnapshot,
+export function formatSnapshotDocument(
+  snapshot: SnapshotDocument,
   options: TreeFormatOptions,
 ): string {
   const byUuid = entriesByUuid(snapshot.entries);
@@ -421,29 +408,18 @@ export function formatSessionSnapshot(
       byUuid,
     );
     parentMap = displayTree.parentMap;
-    const leafRow =
+    const leafNode =
       snapshot.leaf === null
         ? undefined
-        : displayTree.nearestVisibleRow(snapshot.leaf);
-    currentLeafId = leafRow === undefined ? null : formatTreeNodeRef(leafRow);
+        : displayTree.nearestVisibleNode(snapshot.leaf);
+    currentLeafId = leafNode === undefined ? null : formatTreeNodeRef(leafNode);
   }
   const toolNames = collectToolNames(snapshot.entries);
-  const finalIds = collectFinalAssistantIds(
-    parentMap,
-    treeChildren(parentMap),
-    byUuid,
-  );
   const lines = treeLines(
     parentMap,
     byUuid,
     currentLeafId,
-    (id, entry) =>
-      passesFilter(
-        entry,
-        id === currentLeafId,
-        finalIds.has(id),
-        options.filter,
-      ),
+    (id, entry) => passesFilter(entry, id === currentLeafId, options.filter),
     toolNames,
     false,
   ).map((line) => dagLineText(line, options.width));

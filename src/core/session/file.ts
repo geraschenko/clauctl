@@ -19,7 +19,8 @@ import { join } from "node:path";
 import type { SessionMessage } from "@anthropic-ai/claude-agent-sdk";
 import { err, ok, type Result } from "neverthrow";
 import { LineReader } from "../generated/line-reader.ts";
-import type { SetContextResult } from "../sdk-socket.ts";
+import { isRecord } from "../generated/util.ts";
+import type { SetContextResponse } from "../sdk-socket.ts";
 
 /** One parsed jsonl line, verbatim. Known fields typed, everything else kept. */
 export interface SessionEntry {
@@ -78,6 +79,40 @@ export function entryToSessionMessage(
     }),
     ...(entry.toolUseResult !== undefined && {
       tool_use_result: entry.toolUseResult,
+    }),
+  };
+}
+
+/** The prompt of a steered message: one queued mid-turn and absorbed at
+ *  a tool result is recorded not as a `user` entry but as a
+ *  `queued_command` attachment after that result
+ *  (docs/derisk/uuid-stamping/). Undefined for every other entry. */
+export function queuedCommandPrompt(entry: SessionEntry): string | undefined {
+  return entry.type === "attachment" &&
+    isRecord(entry.attachment) &&
+    entry.attachment.type === "queued_command" &&
+    typeof entry.attachment.prompt === "string"
+    ? entry.attachment.prompt
+    : undefined;
+}
+
+/** The boundary fields `MessageControl`'s compaction variant carries. */
+export interface CompactionMetadata {
+  readonly trigger?: string;
+  readonly preTokens?: number;
+}
+
+/** The validated part of a boundary's `compactMetadata`: the boundary
+ *  fact is never dropped, a malformed field is just omitted. */
+export function compactionMetadata(entry: SessionEntry): CompactionMetadata {
+  const metadata = entry.compactMetadata as
+    { trigger?: unknown; preTokens?: unknown } | undefined;
+  return {
+    ...(typeof metadata?.trigger === "string" && {
+      trigger: metadata.trigger,
+    }),
+    ...(typeof metadata?.preTokens === "number" && {
+      preTokens: metadata.preTokens,
     }),
   };
 }
@@ -267,7 +302,7 @@ export function buildBoundaryEntries(params: {
   /** compactMetadata.preTokens: the context size this boundary supersedes;
    *  0 when unknown. */
   preTokens: number;
-}): { entries: SessionEntry[]; result: SetContextResult } {
+}): { entries: SessionEntry[]; response: SetContextResponse } {
   const boundaryUuid = randomUUID();
   const summaryUuid =
     params.summaryText !== undefined ? randomUUID() : undefined;
@@ -315,7 +350,7 @@ export function buildBoundaryEntries(params: {
   }
   return {
     entries,
-    result: {
+    response: {
       boundaryUuid,
       ...(summaryUuid !== undefined && { summaryUuid }),
     },

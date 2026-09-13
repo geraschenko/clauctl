@@ -321,7 +321,7 @@ so far (`invalidRelinkReason(precedingUuids, boundary)` — see the
 fail-closed divergence in the WORK LOG's 48536d3 round), so the pass
 needs no scan of the entries.
 
-`DisplayTree` (class: `parentMap`, `nearestVisibleRow`) is unchanged.
+`DisplayTree` (class: `parentMap`, `nearestVisibleNode`) is unchanged.
 Deleted from this file: rule 4 (`linearizedGroupParents` — group
 linearization is inline in `toContextTree`) and rule 3
 (pruning): a matched no-summary boundary has no `═` row to prune, a
@@ -719,7 +719,7 @@ stated edge meaning.
   round-4 "dangling parent" case turned out NOT to diverge (both sides
   root the entry), so it is not listed.
 - **Matched no-summary boundary row** is modeled as hidden with parent =
-  branch point, so `nearestVisibleRow(B)` answers the branch point (as
+  branch point, so `nearestVisibleNode(B)` answers the branch point (as
   the old rule-3 behavior did) rather than "unknown".
 
 ## 2026-09-03 — review round 48536d3 (phase B, pre-commit)

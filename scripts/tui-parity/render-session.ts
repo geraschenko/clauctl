@@ -1,6 +1,6 @@
 /**
  * Direct render of a session file: the attach TUI's replay pipeline
- * (readSessionEntries → buildTree + toDisplayTree → nearestVisibleRow →
+ * (readSessionEntries → buildTree + toDisplayTree → nearestVisibleNode →
  * pathToLeaf, cf. interactive-mode.ts replay) fed through the exact
  * TranscriptRenderer the attach TUI uses, without tmux or a live agent.
  * The leaf is the context tree's, matching what get-entries reports for a
@@ -36,11 +36,11 @@ export function renderSessionFile(
   const contextTree = toContextTree(fullTree, byUuid);
   const displayTree = toDisplayTree(fullTree, contextTree, byUuid);
   const leaf = contextTree.leaf;
-  const leafRow =
-    leaf === null ? null : (displayTree.nearestVisibleRow(leaf) ?? null);
+  const leafNode =
+    leaf === null ? null : (displayTree.nearestVisibleNode(leaf) ?? null);
   const container = new Container();
   const renderer = new TranscriptRenderer(container);
-  for (const ref of pathToLeaf(displayTree.parentMap, byUuid, leafRow)) {
+  for (const ref of pathToLeaf(displayTree.parentMap, byUuid, leafNode)) {
     renderer.appendEntry(byUuid.get(ref.uuid)!);
   }
   return container.render(width);

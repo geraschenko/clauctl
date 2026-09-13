@@ -26,12 +26,7 @@ import type {
 import { EventFormatter } from "../format/events.ts";
 import { DEFAULT_MESSAGE_FORMAT_OPTIONS } from "../format/messages.ts";
 import type { TailRecord } from "../format/types.ts";
-import {
-  AgentObserver,
-  type AgentObservation,
-  type AgentObservationState,
-} from "./agent-observer.ts";
-import { entrySink } from "./entry-sink.ts";
+import { entrySink, LiveEntryFeed } from "./entry-sink.ts";
 import {
   booleanFlag,
   commandOneTarget,
@@ -44,7 +39,7 @@ import {
   type InferFlags,
 } from "./generated/cli.ts";
 import { SOCKET_CONNECT_DEADLINE_MS } from "./generated/constants.ts";
-import { runStream, type StreamClient } from "./generated/streaming/driver.ts";
+import { runStream } from "./generated/streaming/driver.ts";
 import { oneTarget, type CommandContext } from "./generated/targets.ts";
 import {
   parseUntilCondition,
@@ -158,12 +153,14 @@ function opensGate(event: AgentEvent, promptId: number | undefined): boolean {
   );
 }
 
-/** Messages/entries leg: AgentObserver (history "skip") + EntrySink +
- *  UntilSettlement, output and condition checks gated by a closure boolean
- *  flipped by our dequeue event. `submitPromptFn` is deferred until after the
- *  subscription is established, so the dequeue cannot be missed. The gate
- *  starts open when it returns no receipt (the `/compact` path). */
-async function promptObserved(
+/** Messages/entries leg: the agent event stream through LiveEntryFeed +
+ *  EntrySink + UntilSettlement, output and condition checks gated by a
+ *  closure boolean flipped by our dequeue event. `submitPromptFn` is
+ *  deferred until after the subscription is established, so the dequeue
+ *  cannot be missed. The gate starts open when it returns no receipt (the
+ *  `/compact` path). `sdkMessage` twins are recorded before the gate too:
+ *  the query side may lead the log across it. */
+async function promptLive(
   context: CommandContext,
   agent: AgentRecord,
   type: "messages" | "entries",
@@ -172,49 +169,44 @@ async function promptObserved(
   condition: UntilCondition,
   timeoutMs: number | undefined,
 ): Promise<void> {
-  const sink = entrySink(context, type, json);
-  const observer = new AgentObserver(agent, { history: "skip" });
-  const settlement = new UntilSettlement(
-    condition,
-    () => observer.sessionFilePath,
+  const client = await connectWithRetry(
+    sdkSocketPath(agent.agentDir),
+    SOCKET_CONNECT_DEADLINE_MS,
   );
+  const feed = new LiveEntryFeed(
+    entrySink(context, type, json),
+    type === "messages",
+  );
+  const settlement = new UntilSettlement(condition);
   let promptId: number | undefined;
   let gateOpen = false;
-  const subscribeThenSubmit: StreamClient<
-    AgentObservation,
-    AgentObservationState
-  > = {
-    subscribe: async () => {
-      const subscription = await observer.subscribe();
-      promptId = await submitPromptFn();
-      gateOpen = promptId === undefined;
-      return subscription;
-    },
-  };
   try {
     const { outcome } = await Promise.race([
       runStream(
-        subscribeThenSubmit,
+        {
+          subscribe: async () => {
+            const subscription = await client.subscribe();
+            promptId = await submitPromptFn();
+            gateOpen = promptId === undefined;
+            return subscription;
+          },
+        },
         {
           // The seed predates our submission by construction: the turn we
           // caused is ahead of it, so the condition is never met at the seed.
           onSeed: () => false,
-          onEvent: (observation, state) => {
+          onEvent: (event, state) => {
+            if (event.kind === "sdkMessage") {
+              feed.recordTwin(event.message);
+            }
             if (!gateOpen) {
-              if (observation.source === "entry") {
-                // Dropped from output, but still recorded as consumed so the
-                // catch-up never waits for an entry that already streamed
-                // past (the steer-path caveat); cannot settle — no condition
-                // has fired before the gate opens.
-                return settlement.observe(observation, state);
-              }
-              gateOpen = opensGate(observation.event, promptId);
+              gateOpen = opensGate(event, promptId);
               return false;
             }
-            if (observation.source === "entry") {
-              sink.push(observation.entry);
+            if (event.kind === "sessionEntry") {
+              feed.push(event);
             }
-            return settlement.observe(observation, state);
+            return settlement.observe(event, state);
           },
           quietMs: untilQuietMs(condition),
         },
@@ -223,17 +215,17 @@ async function promptObserved(
       settlement.expiry,
     ]);
     if (outcome === "closed") {
-      throw observer.failure ?? new Error("stream closed before condition met");
+      throw new Error("stream closed before condition met");
     }
     if (outcome === "timeout") {
       throw new UntilTimeoutError(
         `condition not met within ${timeoutMs! / 1000}s`,
       );
     }
-    sink.end();
+    feed.end();
   } finally {
     settlement.dispose();
-    observer.close();
+    client.close();
   }
 }
 
@@ -349,7 +341,7 @@ async function promptCommand(
     );
     return;
   }
-  await promptObserved(
+  await promptLive(
     this,
     agent,
     type,

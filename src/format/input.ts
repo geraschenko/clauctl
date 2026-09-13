@@ -16,7 +16,7 @@ import { entriesByUuid, type SessionEntry } from "../core/session/file.ts";
 import type { MessageRecord } from "../core/session/messages.ts";
 import { buildTree } from "../core/tree/build-tree.ts";
 import { toContextTree } from "../core/tree/context-tree.ts";
-import type { SessionSnapshot } from "../core/tree/nodes.ts";
+import type { TreeNodeRef } from "../core/tree/nodes.ts";
 import type { TailRecord } from "./types.ts";
 
 export type FormatInput =
@@ -37,7 +37,7 @@ export function inputChunks(
   return createReadStream(file);
 }
 
-function isSessionSnapshotShaped(
+function isSnapshotDocumentShaped(
   document: unknown,
 ): document is Record<string, unknown> & { entries: unknown[] } {
   return isRecord(document) && Array.isArray(document.entries);
@@ -178,7 +178,7 @@ export async function decodeFormatInput(
     } catch {
       throw failure;
     }
-    if (!isSessionSnapshotShaped(document)) {
+    if (!isSnapshotDocumentShaped(document)) {
       throw failure;
     }
     const entries = validateDocumentEntries(document);
@@ -217,7 +217,7 @@ export async function decodeFormatInput(
     // A pretty-printed document's first line (`{`) does not parse alone.
     return await decodeDocument(error as UsageError);
   }
-  if (isSessionSnapshotShaped(parsed)) {
+  if (isSnapshotDocumentShaped(parsed)) {
     // A one-line minified {"entries": [...]} parses as a JSONL record but is
     // snapshot-shaped; route it to document handling.
     return await decodeDocument(crossPointer(first.lineNumber, undefined));
@@ -269,7 +269,15 @@ const NOT_A_SNAPSHOT =
  * input → cross-pointing UsageError; anything else → generic
  * NOT_A_SNAPSHOT.
  */
-export function parseSessionSnapshot(input: string): SessionSnapshot {
+/** What `format tree` renders: the entries and the leaf they are viewed
+ *  from. Not the wire `GetEntriesResponse` — raw JSONL produces it too, and
+ *  the wire's `uuids` carries nothing the renderer needs. */
+export interface SnapshotDocument {
+  entries: SessionEntry[];
+  leaf: TreeNodeRef | null;
+}
+
+export function parseSnapshotDocument(input: string): SnapshotDocument {
   const trimmed = input.trim();
   let document: unknown;
   if (trimmed.startsWith("{")) {
@@ -279,7 +287,7 @@ export function parseSessionSnapshot(input: string): SessionSnapshot {
       document = undefined;
     }
   }
-  if (isSessionSnapshotShaped(document)) {
+  if (isSnapshotDocumentShaped(document)) {
     const entries = validateDocumentEntries(document);
     if (!("leaf" in document)) {
       throw new UsageError(
@@ -294,7 +302,7 @@ export function parseSessionSnapshot(input: string): SessionSnapshot {
         (leaf.viaBoundary === undefined ||
           typeof leaf.viaBoundary === "string"))
     ) {
-      return { entries, leaf: leaf as SessionSnapshot["leaf"] };
+      return { entries, leaf: leaf as TreeNodeRef | null };
     }
     throw new UsageError(
       'session snapshot "leaf" must be null or an object with a string "uuid"',

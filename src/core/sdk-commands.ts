@@ -31,15 +31,17 @@ import { sdkSocketPath } from "./registry.ts";
 import {
   connectWithRetry,
   parseSetContextRequest,
+  type GetContextResponse,
+  type EntryPayload,
   type FlagSettings,
   type SdkRequest,
   type SdkSocketClient,
+  type GetEntriesResponse,
   type SetContextRequest,
 } from "./sdk-socket.ts";
-import type { SessionEntry } from "./session/file.ts";
 import {
+  formatTreeNodeRef,
   resolveTreeNodeRef,
-  type SessionSnapshot,
   type TreeNodeRef,
 } from "./tree/nodes.ts";
 import {
@@ -102,18 +104,22 @@ async function sendRequest(
 /** The current session's entry uuids (one get-entries request) — the
  *  resolution universe for unique uuid prefixes. Prefix acceptance is CLI
  *  ergonomics only: the wire protocol carries full uuids. */
-async function sessionEntryUuids(
+export async function sessionEntryUuids(
   client: SdkSocketClient,
 ): Promise<ReadonlySet<UUID>> {
   const snapshot = (await client.request({
     type: "get-entries",
-  })) as SessionSnapshot;
-  return new Set(
-    snapshot.entries
-      .map((entry) => entry.uuid)
-      .filter((uuid): uuid is UUID => uuid !== undefined),
-  );
+    payload: "uuids",
+  })) as GetEntriesResponse;
+  return new Set(snapshot.uuids);
 }
+
+const payloadFlag = booleanFlag(
+  "Print identities only (no entry payloads); the daemon reads nothing from the session file",
+);
+
+const entryPayload = (uuidsOnly: boolean | undefined): EntryPayload =>
+  uuidsOnly === true ? "uuids" : "full";
 
 /** `text` as a node ref (`<uuid>` or `<uuid>@<boundary-uuid>`, unique
  *  prefixes resolved against `sessionUuids`); a UsageError names `flagName`
@@ -505,6 +511,7 @@ const getContextFlags = {
     "Context at this tree node instead of the current leaf — <uuid> or <uuid>@<boundary-uuid> for an occurrence inside that boundary's context (unique prefixes accepted)",
     "node-ref",
   ),
+  uuids: payloadFlag,
 };
 
 type GetContextFlags = InferFlags<typeof getContextFlags>;
@@ -524,12 +531,17 @@ async function getContext(
               ? new Set()
               : await sessionEntryUuids(client),
           );
-    const entries = (await client.request({
+    const slice = (await client.request({
       type: "get-context",
       ...(at !== undefined && { at }),
-    })) as SessionEntry[];
-    for (const entry of entries) {
-      this.process.stdout.write(`${JSON.stringify(entry)}\n`);
+      payload: entryPayload(flags.uuids),
+    })) as GetContextResponse;
+    const lines =
+      slice.entries === undefined
+        ? slice.refs.map(formatTreeNodeRef)
+        : slice.entries.map((entry) => JSON.stringify(entry));
+    for (const line of lines) {
+      this.process.stdout.write(`${line}\n`);
     }
   });
 }
@@ -547,6 +559,7 @@ const getEntriesFlags = {
     parseUuidPrefixFlag,
     "uuid",
   ),
+  uuids: payloadFlag,
 };
 
 type GetEntriesFlags = InferFlags<typeof getEntriesFlags>;
@@ -566,6 +579,7 @@ async function getEntries(
       this,
       await client.request({
         type: "get-entries",
+        payload: entryPayload(flags.uuids),
         ...(since !== undefined && { since }),
       }),
     );
@@ -840,7 +854,7 @@ export const sdkRoutes = {
   "get-context": commandOneTarget<GetContextFlags>({
     docs: {
       brief:
-        "print the assistant's context (session entries, JSONL) at the current leaf or at --at",
+        "print the assistant's context (session entries, JSONL; node refs with --uuids) at the current leaf or at --at",
     },
     parameters: { flags: getContextFlags },
     func: getContext,
@@ -848,7 +862,7 @@ export const sdkRoutes = {
   "get-entries": commandOneTarget<GetEntriesFlags>({
     docs: {
       brief:
-        "print the session snapshot (every jsonl entry, verbatim, plus the current leaf) as one JSON document",
+        "print the session snapshot (every entry uuid, the entries verbatim unless --uuids, plus the current leaf) as one JSON document",
     },
     parameters: { flags: getEntriesFlags },
     func: getEntries,

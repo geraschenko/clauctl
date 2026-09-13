@@ -33,8 +33,11 @@ import type {
   SDKUserMessage,
   SessionMessage,
 } from "@anthropic-ai/claude-agent-sdk";
-import { entryToSessionMessage } from "../core/session/file.ts";
-import type { SessionEntry } from "../core/session/file.ts";
+import {
+  entryToSessionMessage,
+  queuedCommandPrompt,
+  type SessionEntry,
+} from "../core/session/file.ts";
 import { AssistantMessageComponent } from "./components/assistant-message.ts";
 import { ToolExecutionComponent } from "./components/tool-execution.ts";
 import { UserCommandComponent } from "./components/user-command.ts";
@@ -397,7 +400,9 @@ export class TranscriptRenderer {
    * Replay one history entry through the exact live pipeline: boundary
    * entries render the banner their live compact_boundary event would; user
    * prompts render via appendUserTurn THEN append (tool-result resolution;
-   * result-only messages have no visible views); assistant → append.
+   * result-only messages have no visible views); assistant → append; a
+   * steered prompt's `queued_command` attachment renders as a user turn
+   * (live too — it has no sdkMessage twin).
    * Session-entry metadata that entryToSessionMessage drops (cwd, and later
    * isCompactSummary) is read from the entry here. A SessionMessage carries
    * every field its SDKMessage variant requires, so the cast is a narrowing
@@ -422,6 +427,15 @@ export class TranscriptRenderer {
       typeof entry.content === "string"
     ) {
       for (const view of userTurnViewsFromText(entry.content)) {
+        this.appendUserView(view);
+      }
+      return;
+    }
+    // A steered prompt's only transcript record; it reads as the user turn
+    // it was.
+    const steeredPrompt = queuedCommandPrompt(entry);
+    if (steeredPrompt !== undefined) {
+      for (const view of userTurnViewsFromText(steeredPrompt)) {
         this.appendUserView(view);
       }
       return;

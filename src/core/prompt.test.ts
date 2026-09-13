@@ -3,14 +3,14 @@
  * and --no-query fire-and-forget, the usage errors, the dequeue gate on both
  * the events and messages legs, the ungated /compact path, and the exit-code
  * classification (timeout → 3, close before condition → 1). The harness is
- * tail.test.ts's live-server pattern plus a prompt responder returning the
- * acceptance receipt; the daemon side of the receipt is covered in
- * request-handlers.test.ts.
+ * tail.test.ts's live-server pattern (the fake daemon's session id is "s1")
+ * plus a prompt responder returning the acceptance receipt; the daemon side
+ * of the receipt is covered in request-handlers.test.ts.
  */
 
 import assert from "node:assert/strict";
 import type { UUID } from "node:crypto";
-import { appendFile, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import type { Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -32,7 +32,15 @@ const UUID_A = "00000000-0000-4000-8000-00000000000a" as UUID;
 const UUID_B = "00000000-0000-4000-8000-00000000000b" as UUID;
 const UUID_H = "00000000-0000-4000-8000-00000000000e" as UUID;
 
-const BUSY_STATE: AgentState = { ...initialAgentState(), activity: "working" };
+const SESSION_S1 = "s1" as UUID;
+
+/** Working, with s1 as the query and tracked file. */
+const BUSY_STATE: AgentState = {
+  ...initialAgentState(),
+  activity: "working",
+  querySessionId: SESSION_S1,
+  fileSessionId: SESSION_S1,
+};
 
 const RESULT_EVENT: AgentEvent = {
   kind: "sdkMessage",
@@ -62,8 +70,31 @@ function assistantEvent(uuid: UUID): AgentEvent {
       type: "assistant",
       uuid,
       session_id: "s1",
-      message: { usage: {} },
+      message: { role: "assistant", content: [], usage: {} },
     } as unknown as SDKMessage,
+  };
+}
+
+/** A structural assistant entry: its payload rides on the sdkMessage twin. */
+function assistantEntry(uuid: UUID): SessionEntry {
+  return {
+    type: "assistant",
+    uuid,
+    sessionId: "test-session",
+    message: { role: "assistant", content: [] },
+  };
+}
+
+function entryEvent(
+  entry: SessionEntry,
+  expectsSdkMessage: boolean,
+): AgentEvent {
+  return {
+    kind: "sessionEntry",
+    entry,
+    expectsSdkMessage,
+    leaf: entry.uuid === undefined ? null : { uuid: entry.uuid },
+    awaitingAnchors: [],
   };
 }
 
@@ -85,11 +116,9 @@ async function runCommand(argv: string[]): Promise<CapturedProcess> {
 /**
  * A registry with one live agent (this process is its "daemon") and an
  * sdk.sock server: subscribe is answered with `seed` then `events` in a
- * single chunk (already queued when subscribe resolves, so they are pumped
- * before the separate prompt connection's round trip completes — sdk events
- * deterministically precede any entries `onPrompt` appends); the prompt
- * request is answered by `onPrompt`, which may append live entries to the
- * session file first. `sessionEntries` are on-disk history before the run.
+ * single chunk (already queued when subscribe resolves); the prompt request
+ * is answered by `onPrompt`. `sessionEntries` are on-disk history before
+ * the run.
  */
 async function withPromptAgent(
   options: {
@@ -305,38 +334,24 @@ test("a dequeue without our id does not open the gate; --timeout exits 3", async
 });
 
 test("messages leg renders only our turn's entries, not history", async () => {
-  let appendOurTurn: (() => Promise<void>) | undefined;
   await withPromptAgent(
     {
       seed: BUSY_STATE,
+      // History (UUID_H) is in the snapshot the daemon would serve, never on
+      // the stream; our turn's entries arrive live after the dequeue, the
+      // assistant one structural with its twin ahead of it.
       events: [
         queuedEvent(1, "hi"),
         dequeuedEvent([1]),
+        entryEvent(userEntry(UUID_A, "our user"), false),
         assistantEvent(UUID_B),
+        entryEvent(assistantEntry(UUID_B), true),
         RESULT_EVENT,
       ],
       sessionEntries: [userEntry(UUID_H, "history")],
-      onPrompt: async () => {
-        // The entry scan completed when the observer's subscribe resolved,
-        // before this submission — these land as live entries.
-        await appendOurTurn!();
-        return { id: 1 };
-      },
+      onPrompt: () => Promise.resolve({ id: 1 }),
     },
     async (agentId) => {
-      appendOurTurn = async () => {
-        const sessionFile = join(
-          process.env.CLAUCTL_DIR!,
-          "project",
-          "s1.jsonl",
-        );
-        await appendFile(
-          sessionFile,
-          [userEntry(UUID_A, "our user"), userEntry(UUID_B, "our reply")]
-            .map((entry) => `${JSON.stringify(entry)}\n`)
-            .join(""),
-        );
-      };
       const result = await runCommand([
         "prompt",
         "-t",
@@ -349,8 +364,6 @@ test("messages leg renders only our turn's entries, not history", async () => {
         .split("\n")
         .filter((line) => line !== "")
         .map((line) => (JSON.parse(line) as { uuid?: string }).uuid);
-      // History is skipped; the --until turn-end catch-up holds settlement
-      // open until the leaf announced by the assistant event is consumed.
       assert.deepEqual(uuids, [UUID_A, UUID_B]);
     },
   );

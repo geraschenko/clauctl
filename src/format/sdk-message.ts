@@ -8,11 +8,13 @@
  * output is consumed by LLMs.
  */
 
+import type { UUID } from "node:crypto";
 import type {
   SDKAssistantMessage,
   SDKMessage,
   SDKUserMessage,
 } from "@anthropic-ai/claude-agent-sdk";
+import type { CompactionMetadata } from "../core/session/file.ts";
 import type { RenderAssistant, RenderToolResult } from "../tui/render-types.ts";
 import { renderAssistant, toolResultsOf, userText } from "../tui/sdk-render.ts";
 import {
@@ -32,10 +34,17 @@ export interface FormatState {
   /** Full text of queued prompts, rendered at their dequeue (events mode);
    * seeded from a snapshot record's queued messages. */
   queuedMessages: Map<number, SDKUserMessage>;
+  /** Each `compact_boundary` entry's metadata by boundary uuid, rendered
+   *  at its `contextChanged` (events mode). */
+  boundaryMetadata: Map<UUID, CompactionMetadata>;
 }
 
 export function newFormatState(): FormatState {
-  return { toolNames: new Map(), queuedMessages: new Map() };
+  return {
+    toolNames: new Map(),
+    queuedMessages: new Map(),
+    boundaryMetadata: new Map(),
+  };
 }
 
 const ANNOTATION_CHARS = 80;

@@ -17,7 +17,8 @@ import { join } from "node:path";
 import { test, type TestContext } from "node:test";
 import type { Query, SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
 import { initialAgentState } from "../agent-state.ts";
-import type { SessionSnapshot, TreeNodeRef } from "../tree/nodes.ts";
+import type { GetContextResponse, GetEntriesResponse } from "../sdk-socket.ts";
+import type { TreeNodeRef } from "../tree/nodes.ts";
 import type { PersistedOptions } from "../options.ts";
 import {
   readSessionEntries,
@@ -269,12 +270,13 @@ async function contextUuids(
   f: Fixture,
   at?: TreeNodeRef,
 ): Promise<(UUID | undefined)[]> {
-  const entries = (await f.handle({
+  const slice = (await f.handle({
     type: "get-context",
+    payload: "full",
     ...(at !== undefined && { at }),
     id: "g",
-  })) as SessionEntry[];
-  return entries.map((entry) => entry.uuid);
+  })) as GetContextResponse;
+  return slice.entries!.map((entry) => entry.uuid);
 }
 
 function userMessage(): SDKUserMessage {
@@ -430,7 +432,10 @@ test("an unknown request type (e.g. legacy wait-idle) is rejected, not acknowled
 
 test("get-context with no session returns [] without touching the transcript", async (t) => {
   const f = fixture(t, { withSession: false });
-  assert.deepEqual(await f.handle({ type: "get-context", id: "g1" }), []);
+  assert.deepEqual(
+    await f.handle({ type: "get-context", payload: "full", id: "g1" }),
+    { refs: [], entries: [] },
+  );
 });
 
 test("interrupt returns the SDK queue-survival receipt and emits its event", async (t) => {
@@ -614,15 +619,31 @@ test("after the startup scan, requests read only the byte ranges they serve", as
   );
   let expectedBytes = historyBytes;
   assert.deepEqual(reads(), { wholeFileReads: 0, bytes: expectedBytes });
-  await f.handle({ type: "get-entries", id: "e1" });
+  // Identities are served from the index; only "full" payloads and
+  // explicit uuid fetches read, and only the ranges they serve.
+  await f.handle({ type: "get-entries", payload: "uuids", id: "e0" });
+  await f.handle({ type: "get-context", payload: "uuids", id: "g0" });
+  assert.deepEqual(reads(), { wholeFileReads: 0, bytes: expectedBytes });
+  await f.handle({ type: "get-entries", payload: "full", id: "e1" });
   expectedBytes += historyBytes;
   assert.deepEqual(reads(), { wholeFileReads: 0, bytes: expectedBytes });
-  await f.handle({ type: "get-entries", since: u2.uuid, id: "e2" });
+  await f.handle({
+    type: "get-entries",
+    payload: "full",
+    since: u2.uuid,
+    id: "e2",
+  });
   expectedBytes += lineBytes(a2);
   assert.deepEqual(reads(), { wholeFileReads: 0, bytes: expectedBytes });
-  // get-context serves complete entries in phase 3, so it reads the two
-  // it serves.
-  await f.handle({ type: "get-context", at: { uuid: a1.uuid }, id: "g1" });
+  await f.handle({ type: "get-entries", uuids: [u1.uuid], id: "e3" });
+  expectedBytes += lineBytes(u1);
+  assert.deepEqual(reads(), { wholeFileReads: 0, bytes: expectedBytes });
+  await f.handle({
+    type: "get-context",
+    payload: "full",
+    at: { uuid: a1.uuid },
+    id: "g1",
+  });
   expectedBytes += lineBytes(u1) + lineBytes(a1);
   assert.deepEqual(reads(), { wholeFileReads: 0, bytes: expectedBytes });
   await f.handle({ type: "set-context", uuids: [u2.uuid, a2.uuid], id: "c1" });
@@ -637,10 +658,11 @@ test("get-entries returns every entry verbatim plus the chain-tip leaf", async (
   const { u1, a2 } = linearSession(f);
   const snapshot = (await f.handle({
     type: "get-entries",
+    payload: "full",
     id: "e1",
-  })) as SessionSnapshot;
-  assert.equal(snapshot.entries.length, 4);
-  assert.deepEqual(snapshot.entries[0], u1);
+  })) as GetEntriesResponse;
+  assert.equal(snapshot.entries!.length, 4);
+  assert.deepEqual(snapshot.entries![0], u1);
   assert.deepEqual(snapshot.leaf, { uuid: a2.uuid });
 });
 
@@ -649,13 +671,14 @@ test("get-entries --since returns the canonical entries after the cursor; an unk
   const { a1, u2, a2 } = linearSession(f);
   const snapshot = (await f.handle({
     type: "get-entries",
+    payload: "full",
     since: a1.uuid,
     id: "e1",
-  })) as SessionSnapshot;
+  })) as GetEntriesResponse;
   assert.deepEqual(snapshot.entries, [u2, a2]);
   assert.deepEqual(snapshot.leaf, { uuid: a2.uuid });
   await assert.rejects(
-    f.handle({ type: "get-entries", since: uuid(), id: "e2" }),
+    f.handle({ type: "get-entries", payload: "full", since: uuid(), id: "e2" }),
     /unknown entry uuid/,
   );
 });
@@ -664,9 +687,10 @@ test("get-entries returns an empty snapshot without a session", async (t) => {
   const f = fixture(t, { withSession: false });
   const snapshot = (await f.handle({
     type: "get-entries",
+    payload: "full",
     id: "e1",
-  })) as SessionSnapshot;
-  assert.deepEqual(snapshot, { entries: [], leaf: null });
+  })) as GetEntriesResponse;
+  assert.deepEqual(snapshot, { uuids: [], entries: [], leaf: null });
 });
 
 // --- set-context validation ------------------------------------------------
@@ -855,8 +879,9 @@ test("rewind on the active chain appends a no-summary boundary listing the conte
   assert.deepEqual(await contextUuids(f), [u1.uuid, a1.uuid]);
   const snapshot = (await f.handle({
     type: "get-entries",
+    payload: "full",
     id: "t1",
-  })) as SessionSnapshot;
+  })) as GetEntriesResponse;
   assert.deepEqual(snapshot.leaf, {
     uuid: a1.uuid,
     viaBoundary: result.boundaryUuid,
@@ -973,8 +998,9 @@ test("rewind to an abandoned branch appends a no-summary boundary", async (t) =>
   // entries).
   const snapshot = (await f.handle({
     type: "get-entries",
+    payload: "full",
     id: "t1",
-  })) as SessionSnapshot;
+  })) as GetEntriesResponse;
   assert.deepEqual(snapshot.leaf, {
     uuid: a2a.uuid,
     viaBoundary: result.boundaryUuid,
@@ -1096,8 +1122,9 @@ test("get-context default equals the context at the get-entries leaf", async (t)
   });
   const snapshot = (await f.handle({
     type: "get-entries",
+    payload: "full",
     id: "t1",
-  })) as SessionSnapshot;
+  })) as GetEntriesResponse;
   assert.notEqual(snapshot.leaf, null);
   assert.deepEqual(await contextUuids(f), [u1.uuid, a1.uuid]);
   assert.deepEqual(await contextUuids(f, snapshot.leaf!), [u1.uuid, a1.uuid]);
@@ -1130,13 +1157,19 @@ test("get-context --at rejects an occurrence absent from the context tree", asyn
   await assert.rejects(
     f.handle({
       type: "get-context",
+      payload: "full",
       at: { uuid: a1.uuid, viaBoundary: uuid() },
       id: "g1",
     }),
     /not a context-tree occurrence/,
   );
   await assert.rejects(
-    f.handle({ type: "get-context", at: { uuid: uuid() }, id: "g2" }),
+    f.handle({
+      type: "get-context",
+      payload: "full",
+      at: { uuid: uuid() },
+      id: "g2",
+    }),
     /not a context-tree occurrence/,
   );
 });
@@ -1158,12 +1191,12 @@ test("get-context returns isMeta and system entries verbatim", async (t) => {
   };
   const meta = { ...userEntry(duration.uuid, sid, "<meta>"), isMeta: true };
   f.writeEntries([u1, a1, duration, meta]);
-  assert.deepEqual(await f.handle({ type: "get-context", id: "g1" }), [
-    u1,
-    a1,
-    duration,
-    meta,
-  ]);
+  const slice = (await f.handle({
+    type: "get-context",
+    payload: "full",
+    id: "g1",
+  })) as GetContextResponse;
+  assert.deepEqual(slice.entries, [u1, a1, duration, meta]);
 });
 
 // Re-persisted copies (a legal file shape; see cli-history-repersistence
@@ -1286,16 +1319,18 @@ test("while a context change is in flight, Query-bound requests error and reads 
     /context change in progress/,
   );
   let entriesResolved = false;
-  const read = f.handle({ type: "get-entries", id: "e1" }).then((entries) => {
-    entriesResolved = true;
-    return entries;
-  });
+  const read = f
+    .handle({ type: "get-entries", payload: "full", id: "e1" })
+    .then((entries) => {
+      entriesResolved = true;
+      return entries;
+    });
   await new Promise((resolve) => setImmediate(resolve));
   assert.equal(entriesResolved, false); // reads wait for the gate
 
   releaseTeardown();
   await setContext;
-  assert.equal(((await read) as SessionSnapshot).entries.length, 5);
+  assert.equal(((await read) as GetEntriesResponse).entries!.length, 5);
 });
 
 test("set-context drains in-flight Query operations before teardown", async (t) => {
@@ -1357,8 +1392,13 @@ test("restart failure leaves the daemon query-unavailable until a set-context su
     /query restart failed; retry set-context/,
   );
   assert.equal(
-    ((await f.handle({ type: "get-entries", id: "e1" })) as SessionSnapshot)
-      .entries.length,
+    (
+      (await f.handle({
+        type: "get-entries",
+        payload: "full",
+        id: "e1",
+      })) as GetEntriesResponse
+    ).entries!.length,
     5,
   );
   // A subsequent set-context reconstructs the Query.
@@ -1407,8 +1447,9 @@ test("contextChanged.leaf equals the post-change get-entries leaf (explicit list
   });
   const appendSnapshot = (await appendFixture.handle({
     type: "get-entries",
+    payload: "full",
     id: "g1",
-  })) as SessionSnapshot;
+  })) as GetEntriesResponse;
   const appendEvent = lastContextChanged(appendFixture);
   assert.notEqual(appendEvent.leaf, null);
   assert.notEqual(appendEvent.leaf!.viaBoundary, undefined);
@@ -1423,8 +1464,9 @@ test("contextChanged.leaf equals the post-change get-entries leaf (explicit list
   })) as { boundaryUuid: UUID };
   const rewindSnapshot = (await rewindFixture.handle({
     type: "get-entries",
+    payload: "full",
     id: "g1",
-  })) as SessionSnapshot;
+  })) as GetEntriesResponse;
   const rewindEvent = lastContextChanged(rewindFixture);
   assert.deepEqual(rewindEvent.leaf, {
     uuid: a1.uuid,
@@ -1468,8 +1510,9 @@ test("viaBoundary rewind to a preserved member lists that occurrence's context",
   assert.deepEqual(event.leaf, { uuid: a1.uuid, viaBoundary: appended.uuid });
   const snapshot = (await f.handle({
     type: "get-entries",
+    payload: "full",
     id: "g1",
-  })) as SessionSnapshot;
+  })) as GetEntriesResponse;
   assert.deepEqual(snapshot.leaf, event.leaf);
 });
 
@@ -1511,8 +1554,9 @@ test("viaBoundary rewind into a superseded boundary's chain appends a prefix bou
   assert.deepEqual(event.leaf, { uuid: a1.uuid, viaBoundary: appended.uuid });
   const snapshot = (await f.handle({
     type: "get-entries",
+    payload: "full",
     id: "g1",
-  })) as SessionSnapshot;
+  })) as GetEntriesResponse;
   assert.deepEqual(snapshot.leaf, event.leaf);
 });
 
@@ -1599,8 +1643,9 @@ test("empty-uuids set-context appends a keep-nothing boundary; contextChanged ca
   assert.equal(event.leaf, null);
   const snapshot = (await f.handle({
     type: "get-entries",
+    payload: "full",
     id: "g1",
-  })) as SessionSnapshot;
+  })) as GetEntriesResponse;
   assert.equal(snapshot.leaf, null);
   // A null leaf has no context.
   assert.deepEqual(await contextUuids(f), []);

@@ -1,8 +1,9 @@
 /*
  * tail's session-file paths (docs/specs/tail-parity.md): dormant history,
- * live follow through AgentObserver, --until entry catch-up, session
- * rollover, and byte-equivalence of formatted output with `--json | format`.
- * The events paths stay in stream-commands.test.ts.
+ * live follow on the agent event stream (docs/specs/session-tracker.md, Data
+ * flow 6), --until settlement, session rollover dedup, and byte-equivalence
+ * of formatted output with `--json | format`. The events paths stay in
+ * stream-commands.test.ts. The fake daemon's session id is "s1".
  */
 
 import assert from "node:assert/strict";
@@ -16,6 +17,7 @@ import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import {
   freshSessionState,
   initialAgentState,
+  nextAgentState,
   type AgentState,
 } from "./agent-state.ts";
 import { app } from "./app.ts";
@@ -23,7 +25,7 @@ import { RESPONSE_SENT, startSdkServer } from "./daemon/sdk-server.ts";
 import { runCliApp } from "./generated/cli.ts";
 import { fakeProcess, type CapturedProcess } from "./generated/test-util.ts";
 import { sdkSocketPath, writeAgentRecord } from "./registry.ts";
-import type { AgentEvent } from "./sdk-socket.ts";
+import type { AgentEvent, GetEntriesResponse } from "./sdk-socket.ts";
 import type { SessionEntry } from "./session/file.ts";
 import { UntilSettlement } from "./tail.ts";
 
@@ -32,46 +34,42 @@ const UUID_B = "00000000-0000-4000-8000-00000000000b" as UUID;
 const UUID_C = "00000000-0000-4000-8000-00000000000c" as UUID;
 const UUID_MISSING = "00000000-0000-4000-8000-0000000000ff" as UUID;
 
-const BUSY_STATE: AgentState = { ...initialAgentState(), activity: "working" };
+const SESSION_S1 = "s1" as UUID;
+const SESSION_S2 = "s2" as UUID;
 
-/** `base` with its query file's leaf at `uuid` (the fake daemon's session
- *  id is "s1"). */
+/** The fake daemon tracking file s1 as the query file. */
+function withFile(base: AgentState): AgentState {
+  return { ...base, querySessionId: SESSION_S1, fileSessionId: SESSION_S1 };
+}
+
+const IDLE_STATE = withFile(initialAgentState());
+const BUSY_STATE = withFile({ ...initialAgentState(), activity: "working" });
+
+/** `base` with its query file's leaf at `uuid`. */
 function withLeaf(base: AgentState, uuid: UUID): AgentState {
-  const sessionId = "s1" as UUID;
   return {
     ...base,
-    querySessionId: sessionId,
-    sessions: { [sessionId]: { ...freshSessionState(), treeLeaf: { uuid } } },
+    sessions: {
+      [SESSION_S1]: { ...freshSessionState(), treeLeaf: { uuid } },
+    },
   };
 }
 
-const RESULT_EVENT: AgentEvent = {
-  kind: "sdkMessage",
-  message: { type: "result" } as unknown as SDKMessage,
-};
-
-function initEvent(sessionId: string): AgentEvent {
+function resultEvent(sessionId: UUID): AgentEvent {
   return {
     kind: "sdkMessage",
-    message: {
-      type: "system",
-      subtype: "init",
-      session_id: sessionId,
-      model: "test-model",
-      cwd: "/tmp",
-      permissionMode: "default",
-      claude_code_version: "0.0.0",
-    } as unknown as SDKMessage,
+    message: { type: "result", session_id: sessionId } as unknown as SDKMessage,
   };
 }
 
-function assistantEvent(uuid: UUID): AgentEvent {
+function assistantEvent(uuid: UUID, sessionId: UUID): AgentEvent {
   return {
     kind: "sdkMessage",
     message: {
       type: "assistant",
       uuid,
-      message: { usage: {} },
+      session_id: sessionId,
+      message: { role: "assistant", content: [], usage: {} },
     } as unknown as SDKMessage,
   };
 }
@@ -85,10 +83,44 @@ function userEntry(uuid: UUID, text: string): SessionEntry {
   };
 }
 
+/** A structural assistant entry: its payload rides on the sdkMessage twin. */
+function assistantEntry(uuid: UUID): SessionEntry {
+  return {
+    type: "assistant",
+    uuid,
+    sessionId: "test-session",
+    message: { role: "assistant", content: [] },
+  };
+}
+
+function entryEvent(
+  entry: SessionEntry,
+  expectsSdkMessage: boolean,
+): AgentEvent {
+  return {
+    kind: "sessionEntry",
+    entry,
+    expectsSdkMessage,
+    leaf: entry.uuid === undefined ? null : { uuid: entry.uuid },
+    awaitingAnchors: [],
+  };
+}
+
+function fileChangedEvent(sessionId: UUID): AgentEvent {
+  return { kind: "sessionFileChanged", sessionId };
+}
+
 async function runCommand(argv: string[]): Promise<CapturedProcess> {
   const capture = fakeProcess(process.env);
   await runCliApp(app, argv, capture.proc);
   return capture;
+}
+
+function outputUuids(capture: CapturedProcess): (string | undefined)[] {
+  return capture.stdout
+    .split("\n")
+    .filter((line) => line !== "")
+    .map((line) => (JSON.parse(line) as { uuid?: string }).uuid);
 }
 
 interface SessionSpec {
@@ -108,12 +140,30 @@ async function writeSessionFiles(
   }
 }
 
+/** The fake daemon's `get-entries` answer: the latest session's entries
+ *  after `since` (all of them when absent), every uuid, no leaf. */
+function snapshotOf(
+  sessions: SessionSpec[],
+  since: unknown,
+): GetEntriesResponse {
+  const entries = sessions.at(-1)?.entries ?? [];
+  const uuids = entries.map((entry) => entry.uuid!);
+  if (since === undefined) {
+    return { uuids, entries, leaf: null };
+  }
+  const index = uuids.indexOf(since as UUID);
+  if (index === -1) {
+    throw new Error(`since cursor ${String(since)} not found`);
+  }
+  return { uuids, entries: entries.slice(index + 1), leaf: null };
+}
+
 /**
  * A registry with one agent whose session files exist on disk. `live`
  * additionally makes this process the daemon and stands up an sdk.sock server
- * answering subscribe with `seed` then `events` in a single chunk (already
- * queued when subscribe resolves), optionally hanging up. `onDiskOnly`
- * sessions exist as files but not in the agent record — rollover targets.
+ * answering subscribe with `seed`, and the `"full"` get-entries with a
+ * snapshot of the latest session file followed by `events` in the same chunk
+ * (queued after the response, so they are live), optionally hanging up.
  */
 async function withTailAgent(
   options: {
@@ -122,7 +172,6 @@ async function withTailAgent(
     events?: AgentEvent[];
     hangUp?: boolean;
     sessions: SessionSpec[];
-    onDiskOnly?: SessionSpec[];
   },
   fn: (agentId: string, projectDir: string) => Promise<void>,
 ): Promise<void> {
@@ -134,7 +183,6 @@ async function withTailAgent(
   await mkdir(agentDir);
   await mkdir(projectDir);
   await writeSessionFiles(projectDir, options.sessions);
-  await writeSessionFiles(projectDir, options.onDiskOnly ?? []);
   await writeAgentRecord({
     id: "abcdef",
     createdAt: "2026-01-01T00:00:00.000Z",
@@ -152,13 +200,16 @@ async function withTailAgent(
   const server = options.live
     ? startSdkServer(sdkSocketPath(agentDir), (request, connection) => {
         if (request.type === "subscribe") {
+          return Promise.resolve(options.seed ?? IDLE_STATE);
+        }
+        if (request.type === "get-entries" && "payload" in request) {
+          const snapshot = snapshotOf(options.sessions, request.since);
+          if (request.payload === "uuids") {
+            return Promise.resolve({ uuids: snapshot.uuids, leaf: null });
+          }
           connection.write(
             [
-              JSON.stringify({
-                id: request.id,
-                ok: true,
-                data: options.seed ?? initialAgentState(),
-              }),
+              JSON.stringify({ id: request.id, ok: true, data: snapshot }),
               ...(options.events ?? []).map((event) =>
                 JSON.stringify({ event }),
               ),
@@ -200,11 +251,7 @@ test("dormant messages: formatted output equals --json piped through format", as
   await withTailAgent({ live: false, sessions }, async (agentId) => {
     const json = await runCommand(["tail", "-t", agentId, "--json"]);
     assert.equal(json.proc.exitCode, 0);
-    const uuids = json.stdout
-      .split("\n")
-      .filter((line) => line !== "")
-      .map((line) => (JSON.parse(line) as { uuid?: string }).uuid);
-    assert.deepEqual(uuids, [UUID_A, UUID_B]);
+    assert.deepEqual(outputUuids(json), [UUID_A, UUID_B]);
 
     const formatted = await runCommand(["tail", "-t", agentId]);
     assert.equal(formatted.proc.exitCode, 0);
@@ -259,11 +306,7 @@ test("--since resolves a unique uuid prefix; ambiguity and bad syntax error", as
       "aa1",
     ]);
     assert.equal(resolved.proc.exitCode, 0);
-    const uuids = resolved.stdout
-      .split("\n")
-      .filter((line) => line !== "")
-      .map((line) => (JSON.parse(line) as { uuid?: string }).uuid);
-    assert.deepEqual(uuids, [UUID_P2]);
+    assert.deepEqual(outputUuids(resolved), [UUID_P2]);
 
     const ambiguous = await runCommand([
       "tail",
@@ -315,7 +358,7 @@ test("dormant --type events is an error; --since with events is a usage error", 
   });
 });
 
-test("live messages --timeout 0 drains queued history before the deadline", async () => {
+test("live messages --timeout 0 prints the snapshot before the deadline", async () => {
   const sessions = [
     {
       sessionId: "s1",
@@ -332,15 +375,11 @@ test("live messages --timeout 0 drains queued history before the deadline", asyn
       "0",
     ]);
     assert.equal(result.proc.exitCode, 0);
-    const uuids = result.stdout
-      .split("\n")
-      .filter((line) => line !== "")
-      .map((line) => (JSON.parse(line) as { uuid?: string }).uuid);
-    assert.deepEqual(uuids, [UUID_A, UUID_B]);
+    assert.deepEqual(outputUuids(result), [UUID_A, UUID_B]);
   });
 });
 
-test("live messages --since replays only entries after the cursor", async () => {
+test("live messages --since prints only entries after the cursor", async () => {
   const sessions = [
     {
       sessionId: "s1",
@@ -359,15 +398,36 @@ test("live messages --since replays only entries after the cursor", async () => 
       "0",
     ]);
     assert.equal(result.proc.exitCode, 0);
-    const uuids = result.stdout
-      .split("\n")
-      .filter((line) => line !== "")
-      .map((line) => (JSON.parse(line) as { uuid?: string }).uuid);
-    assert.deepEqual(uuids, [UUID_B]);
+    assert.deepEqual(outputUuids(result), [UUID_B]);
   });
 });
 
-test("--until turn-end on an idle agent emits history and exits", async () => {
+test("live --since resolves a uuid prefix through the daemon's uuids", async () => {
+  const UUID_P1 = "aa111111-0000-4000-8000-000000000001" as UUID;
+  const UUID_P2 = "aa222222-0000-4000-8000-000000000002" as UUID;
+  const sessions = [
+    {
+      sessionId: "s1",
+      entries: [userEntry(UUID_P1, "first"), userEntry(UUID_P2, "second")],
+    },
+  ];
+  await withTailAgent({ live: true, sessions }, async (agentId) => {
+    const result = await runCommand([
+      "tail",
+      "-t",
+      agentId,
+      "--json",
+      "--since",
+      "aa1",
+      "--timeout",
+      "0",
+    ]);
+    assert.equal(result.proc.exitCode, 0);
+    assert.deepEqual(outputUuids(result), [UUID_P2]);
+  });
+});
+
+test("--until turn-end on an idle agent prints the snapshot and exits", async () => {
   const sessions = [
     {
       sessionId: "s1",
@@ -375,15 +435,8 @@ test("--until turn-end on an idle agent emits history and exits", async () => {
     },
   ];
   await withTailAgent(
-    {
-      live: true,
-      seed: withLeaf(initialAgentState(), UUID_B),
-      sessions,
-    },
+    { live: true, seed: withLeaf(IDLE_STATE, UUID_B), sessions },
     async (agentId) => {
-      // The condition is met at the idle seed, which must not bypass
-      // history: catch-up drains the queued entries through the seed leaf
-      // before settling (spec "`--until` settlement and entry catch-up").
       const result = await runCommand([
         "tail",
         "-t",
@@ -393,11 +446,7 @@ test("--until turn-end on an idle agent emits history and exits", async () => {
         "turn-end",
       ]);
       assert.equal(result.proc.exitCode, 0);
-      const uuids = result.stdout
-        .split("\n")
-        .filter((line) => line !== "")
-        .map((line) => (JSON.parse(line) as { uuid?: string }).uuid);
-      assert.deepEqual(uuids, [UUID_A, UUID_B]);
+      assert.deepEqual(outputUuids(result), [UUID_A, UUID_B]);
     },
   );
 });
@@ -423,18 +472,19 @@ test("socket close during a messages follow is conclusive idleness", async () =>
   );
 });
 
-test("--until settles only after the target leaf is consumed as an entry", async () => {
-  const sessions = [
-    {
-      sessionId: "s1",
-      entries: [userEntry(UUID_A, "first"), userEntry(UUID_B, "second")],
-    },
-  ];
+test("--until settles only once the query file has caught up", async () => {
+  const sessions = [{ sessionId: "s1", entries: [userEntry(UUID_A, "first")] }];
   await withTailAgent(
     {
       live: true,
-      seed: withLeaf(BUSY_STATE, UUID_B),
-      events: [RESULT_EVENT],
+      seed: BUSY_STATE,
+      // The result meets the condition while B is pending on the query
+      // stream; the sessionEntry for B settles the file and the stream.
+      events: [
+        assistantEvent(UUID_B, SESSION_S1),
+        resultEvent(SESSION_S1),
+        entryEvent(assistantEntry(UUID_B), true),
+      ],
       sessions,
     },
     async (agentId) => {
@@ -447,38 +497,34 @@ test("--until settles only after the target leaf is consumed as an entry", async
         "turn-end",
       ]);
       assert.equal(result.proc.exitCode, 0);
-      const uuids = result.stdout
-        .split("\n")
-        .filter((line) => line !== "")
-        .map((line) => (JSON.parse(line) as { uuid?: string }).uuid);
-      // The condition fired at the result, but the queued history through the
-      // target leaf still rendered before settlement.
-      assert.deepEqual(uuids, [UUID_A, UUID_B]);
+      assert.deepEqual(outputUuids(result), [UUID_A, UUID_B]);
+      const reply = JSON.parse(result.stdout.split("\n")[1]!) as {
+        message: { usage?: unknown };
+      };
+      // The structural entry was completed from its twin's payload.
+      assert.deepEqual(reply.message.usage, {});
     },
   );
 });
 
-test("rollover switches files and carries first-wins dedup", async () => {
+test("rollover: an entry re-persisted by the new file is not printed again", async () => {
   const sessions = [
     {
       sessionId: "s1",
       entries: [userEntry(UUID_A, "first"), userEntry(UUID_B, "second")],
     },
   ];
-  // s2 re-persists UUID_B (suppressed by the carried filter) then adds UUID_C.
-  const onDiskOnly = [
-    {
-      sessionId: "s2",
-      entries: [userEntry(UUID_B, "second again"), userEntry(UUID_C, "third")],
-    },
-  ];
   await withTailAgent(
     {
       live: true,
       seed: BUSY_STATE,
-      events: [initEvent("s2"), assistantEvent(UUID_C), RESULT_EVENT],
+      events: [
+        fileChangedEvent(SESSION_S2),
+        entryEvent(userEntry(UUID_B, "second again"), false),
+        entryEvent(userEntry(UUID_C, "third"), false),
+        resultEvent(SESSION_S1),
+      ],
       sessions,
-      onDiskOnly,
     },
     async (agentId) => {
       const result = await runCommand([
@@ -492,32 +538,23 @@ test("rollover switches files and carries first-wins dedup", async () => {
         "turn-end",
       ]);
       assert.equal(result.proc.exitCode, 0);
-      const uuids = result.stdout
-        .split("\n")
-        .filter((line) => line !== "")
-        .map((line) => (JSON.parse(line) as { uuid?: string }).uuid);
-      assert.deepEqual(uuids, [UUID_A, UUID_B, UUID_C]);
+      assert.deepEqual(outputUuids(result), [UUID_A, UUID_B, UUID_C]);
     },
   );
 });
 
-test("UntilSettlement's catch-up deadline expires naming the target and file", async () => {
-  const settlement = new UntilSettlement(
-    { kind: "turn-end" },
-    () => "/tmp/session.jsonl",
-    50,
-  );
+test("UntilSettlement's settle deadline expires describing the query file", async () => {
+  const settlement = new UntilSettlement({ kind: "turn-end" }, 50);
   try {
-    const settled = settlement.metAtSeed({
-      sdk: withLeaf(initialAgentState(), UUID_MISSING),
-      entries: { seenUuids: new Set() },
-    });
-    // Idle at the seed, so the condition holds, but the leaf has not been
-    // consumed as an entry observation: catch-up begins instead of settling.
-    assert.equal(settled, false);
+    // B is observed on the query stream only: the file has not caught up.
+    const unsettled = nextAgentState(
+      BUSY_STATE,
+      assistantEvent(UUID_B, SESSION_S1),
+    );
+    assert.equal(settlement.observe(resultEvent(SESSION_S1), unsettled), false);
     await assert.rejects(settlement.expiry, (error: Error) => {
-      assert.match(error.message, new RegExp(UUID_MISSING));
-      assert.match(error.message, /session\.jsonl/);
+      assert.match(error.message, /did not settle within 50ms/);
+      assert.match(error.message, new RegExp(UUID_B));
       return true;
     });
   } finally {

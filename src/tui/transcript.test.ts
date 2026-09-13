@@ -290,6 +290,27 @@ test("appendEntry skips meta and sidechain entries", () => {
   assert.equal(container.children.length, 0);
 });
 
+test("appendEntry renders a queued_command attachment as the user turn it was; other attachments render nothing", () => {
+  const { renderer, container } = makeRenderer();
+  renderer.appendEntry(
+    sessionEntry({
+      type: "attachment",
+      uuid: "q1",
+      attachment: { type: "queued_command", prompt: "also say QUEUED" },
+    }),
+  );
+  assert.match(renderedText(container), /❯ also say QUEUED/);
+  const rendered = container.children.length;
+  renderer.appendEntry(
+    sessionEntry({
+      type: "attachment",
+      uuid: "r1",
+      attachment: { type: "total_tokens_reminder" },
+    }),
+  );
+  assert.equal(container.children.length, rendered);
+});
+
 test("conversation_reset clears the transcript and shows a banner", () => {
   const { renderer, container } = makeRenderer();
   renderer.append(assistantMessage([{ type: "text", text: "old content" }]));

@@ -7,15 +7,16 @@ import type {
   SDKMessage,
   SDKUserMessage,
 } from "@anthropic-ai/claude-agent-sdk";
-import { initialAgentState, settled, type AgentState } from "../agent-state.ts";
+import {
+  initialAgentState,
+  SETTLE_TIMEOUT_MS,
+  settled,
+  type AgentState,
+} from "../agent-state.ts";
 import type { AgentEvent } from "../sdk-socket.ts";
 import type { SessionEntry } from "../session/file.ts";
 import { AnomalyRecorder } from "./anomaly-bundle.ts";
-import {
-  EventHub,
-  SETTLE_TIMEOUT_MS,
-  type EventHubOptions,
-} from "./event-hub.ts";
+import { EventHub, type EventHubOptions } from "./event-hub.ts";
 import { SessionTracker } from "./session-tracker.ts";
 import { tempDir } from "../../test-support/temp-dir.ts";
 

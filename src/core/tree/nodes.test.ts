@@ -5,7 +5,6 @@ import { entriesByUuid, type SessionEntry } from "../session/file.ts";
 import { treeChildren } from "./parent-map.ts";
 import {
   formatTreeNodeRef,
-  isFinalAssistantEntry,
   parseTreeNodeRef,
   pathToLeaf,
   resolveTreeNodeRef,
@@ -177,74 +176,4 @@ test("treeChildren inverts the parent relation, roots under null", () => {
     formatTreeNodeRef(childB),
   ]);
   assert.equal(children.get(formatTreeNodeRef(childA)), undefined);
-});
-
-function assistantEntry(apiMessageId: string | undefined): SessionEntry {
-  return {
-    uuid: uuid(),
-    type: "assistant",
-    ...(apiMessageId !== undefined && { message: { id: apiMessageId } }),
-  };
-}
-
-/** Occurrence ids + lookups for a single chain of entries (each parenting
- *  the previous), all occurrences raw unless viaBoundary is given. */
-function chainFixture(
-  entries: SessionEntry[],
-  viaBoundary?: UUID,
-): {
-  ids: string[];
-  children: Map<string | null, string[]>;
-  byUuid: Map<UUID, SessionEntry>;
-} {
-  const refs = entries.map((entry): TreeNodeRef => ({
-    uuid: entry.uuid!,
-    ...(viaBoundary !== undefined && { viaBoundary }),
-  }));
-  const tree = treeOf(
-    refs.map((ref, index) => ({
-      ref,
-      parent: index === 0 ? null : refs[index - 1]!,
-    })),
-  );
-  return {
-    ids: refs.map(formatTreeNodeRef),
-    children: treeChildren(tree),
-    byUuid: entriesByUuid(entries),
-  };
-}
-
-test("isFinalAssistantEntry: same-message.id child means non-final", () => {
-  const thinking = assistantEntry("msg_1");
-  const text = assistantEntry("msg_1");
-  const { ids, children, byUuid } = chainFixture([thinking, text]);
-  assert.ok(!isFinalAssistantEntry(ids[0]!, children, byUuid));
-  assert.ok(isFinalAssistantEntry(ids[1]!, children, byUuid));
-
-  const followedUp = chainFixture([
-    assistantEntry("msg_1"),
-    assistantEntry("msg_2"),
-  ]);
-  assert.ok(
-    isFinalAssistantEntry(
-      followedUp.ids[0]!,
-      followedUp.children,
-      followedUp.byUuid,
-    ),
-  );
-});
-
-test("isFinalAssistantEntry: non-assistant false, missing message.id final", () => {
-  const user = chainFixture([{ uuid: uuid(), type: "user" }]);
-  assert.ok(!isFinalAssistantEntry(user.ids[0]!, user.children, user.byUuid));
-  const bare = chainFixture([assistantEntry(undefined)]);
-  assert.ok(isFinalAssistantEntry(bare.ids[0]!, bare.children, bare.byUuid));
-});
-
-test("isFinalAssistantEntry over via occurrences uses relink-chain children", () => {
-  const thinking = assistantEntry("msg_1");
-  const text = assistantEntry("msg_1");
-  const { ids, children, byUuid } = chainFixture([thinking, text], uuid());
-  assert.ok(!isFinalAssistantEntry(ids[0]!, children, byUuid));
-  assert.ok(isFinalAssistantEntry(ids[1]!, children, byUuid));
 });

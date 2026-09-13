@@ -3,7 +3,7 @@
 > Status: **IMPLEMENTED** (2026-09-02; review round 49c77d5 and the TUI glyph unification follow-up done 2026-09-03; suite + presubmit green; awaiting Anton's review and commit)
 > (2026-09-02). Phase A of the tree-presentation effort; phases B
 > (explicit-playlist boundary display) and C (`set-context --rewind-to X
-> <uuids…>`) are specced in `docs/specs/context-tree.md` (written; its
+<uuids…>`) are specced in `docs/specs/context-tree.md` (written; its
 > review proceeds in parallel). Supersedes the layout half of `docs/specs/format-tree.md`
 > and `docs/specs/flat-tree-sync-handoff.md`. Sources:
 > `docs/thoughts/tree-presentation.md`, `docs/session-views.md`,
@@ -40,7 +40,7 @@ filter, including `raw`) and `/tree`.
    renderdag's `~` terminator under it). No leaf marker. A leaf that is
    not itself a visible row (hidden by the display tree or by the filter)
    ends the chain at its nearest visible ancestor.
-3. `/tree` shows exactly the lines of `format tree --filter picker` with
+3. `/tree` shows exactly the lines of `format tree --filter conversation` with
    uuids omitted; connector-only lines are not selectable and navigation
    skips them.
 4. `src/format/generated/tree-layout.ts`, `flat-tree.ts`, `flat-tree.test.ts`
@@ -97,10 +97,13 @@ column: `1 2 3 4 ═B □S 5`. In `raw` mode the block appears right after `S`:
 uuid column) dims the glyph instead.
 
 Glyphs are the transcript's gutter glyphs, so a reader who knows the TUI
-reads the tree without a legend: `❯` user text, `●` assistant text, `▸`
+reads the tree without a legend: `❯` a prompt (human `user` text, or a
+steered prompt's `queued_command` attachment), `●` assistant text, `▸`
 assistant entry containing a `tool_use` block (it "plays" the command), `⤷`
 tool_result-only user entry; plus tree-only `═` compact boundary, `□`
-compact summary, `·` anything else (attachment, system, unknown). The
+compact summary, `·` anything else (other attachments, system, unknown).
+The `queued_command` attachment is a prompt row for every filter that
+keeps human prompts, and its label is the prompt text. The
 transcript currently draws tool calls as `●` and results as `⎿` (Claude
 Code parity); switching it to `▸`/`⤷` is an intentional parity break, done
 as the follow-up in Non-goals.
@@ -250,8 +253,8 @@ export function treeLines(
 
 `formatSessionSnapshot`: `raw` → `buildTree` output, else
 `toDisplayTree(fullTree, entries).parentMap` with the leaf mapped through
-`nearestVisibleRow` (as today); `passes` = `passesFilter(entry, isLeaf,
-finalIds.has(id), filter)`; output = `treeLines(...).map(line =>
+`nearestVisibleNode` (as today); `passes` = `passesFilter(entry, isLeaf,
+filter)`; output = `treeLines(...).map(line =>
 dagLineText(line, width))` + `[cursor: <leaf uuid|null>]`.
 
 ### `src/tui/components/tree-selector.ts`
@@ -267,7 +270,7 @@ private selectedLine = 0;               // index into lines; always a line with 
 ```
 
 The constructor computes `treeLines(parentMap, byUuid, currentLeafId,
-passes, toolNames, true)` once, with `passes` = the picker filter. Search
+passes, toolNames, true)` once, with `passes` = the conversation filter. Search
 does not re-render: `applyFilter` sets `lines` to `treeLines` when the
 query is empty, else to the lines with a `rowId` whose label contains
 every search token — a flat list, rendered without connectors as
@@ -313,7 +316,7 @@ current width).
   filler lines under the leaf (`├─┬─╮`, pad, `~` terminator, pad), the
   children shifted right.
 - A leaf that is not a visible row — a relinked occurrence in display
-  mode (mapped through `nearestVisibleRow` before `treeLines`), or a row
+  mode (mapped through `nearestVisibleNode` before `treeLines`), or a row
   the filter rejects (`user-only` with an assistant leaf; resolved inside
   `treeLines`) — ends the active chain at its nearest visible ancestor,
   which gets the column-0 reservation. A rootless hidden chain yields no
@@ -396,7 +399,7 @@ Type design: no new symbols. Import sites: `tool-execution.ts`
   line").
 - Column inheritance: in `graph_to_row_shape.nextRowShape`, the node's
   column is emptied and each parent takes `columnsFindEmpty(columns,
-  column)` in feed order, so the first-fed child inherits the column.
+column)` in feed order, so the first-fed child inherits the column.
   `reserve()` pins one column per node — not usable for a chain.
 - Reserving column 0 below the leaf: the leaf's column is emptied inside
   the same `nextRowShape` call that places its children, so `reserve()`

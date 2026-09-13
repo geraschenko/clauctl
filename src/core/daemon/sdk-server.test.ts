@@ -20,11 +20,14 @@ test("respond survives an unserializable payload and the daemon keeps serving", 
     const client = await SdkSocketClient.connect(socketPath);
     try {
       await assert.rejects(
-        client.request({ type: "get-entries" }),
+        client.request({ type: "get-entries", payload: "full" }),
         /response serialization failed/,
       );
       // The failure was per-response: the connection and server still work.
-      assert.equal(await client.request({ type: "get-context" }), "ok");
+      assert.equal(
+        await client.request({ type: "get-context", payload: "full" }),
+        "ok",
+      );
     } finally {
       client.close();
     }

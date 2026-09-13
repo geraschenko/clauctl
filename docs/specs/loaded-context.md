@@ -144,8 +144,7 @@ export function expandParallelToolGroups(
 // src/core/daemon/set-context.ts (co-located with its only caller)
 
 export type NormalizePreservedUuidsResult =
-  | { ok: true; uuids: UUID[]; added: UUID[] }
-  | { ok: false; reason: string };
+  { ok: true; uuids: UUID[]; added: UUID[] } | { ok: false; reason: string };
 
 /** Normalize or reject a requested preserved list against the file. Checks
  *  in order: relink validity — duplicates and uuids naming no file
@@ -217,7 +216,7 @@ export function pathToLeaf(
 export function pathUpToBoundary(
   path: TreeNodeRef[],
   byUuid: Map<UUID, SessionEntry>,
-  leafRow: TreeNodeRef | undefined,
+  leafNode: TreeNodeRef | undefined,
 ): { nodes: TreeNodeRef[]; boundaryMissing: boolean };
 
 // src/tui/transcript.ts: appendPathNode(node: PathNode) becomes

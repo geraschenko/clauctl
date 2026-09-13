@@ -1,9 +1,9 @@
 # Phase 3: fold + session tracker + daemon composition
 
 > Work log for phase 3 of docs/specs/session-tracker.md (IMPLEMENTATION
-> IDEAS, "Fold + session tracker"). Status: **steps 0, 1b, 1–8 done;
-> review rounds 4a15f24 (committed as f0f5137) and f0f5137 addressed
-> (uncommitted)** (2026-09-13);
+> IDEAS, "Fold + session tracker"). Status: **complete** (2026-09-13;
+> review round f0f5137's changes uncommitted); phase 4 continues in
+> phase-4-wire-clients.md;
 > **redesigned 2026-09-12** before step 1 — read redesign-2026-09-12.md
 > first (its WORK LOG records step 1b).
 

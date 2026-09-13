@@ -251,12 +251,12 @@ export function toolResultsOf(message: SDKUserMessage): RenderToolResult[] {
 export function pathUpToBoundary(
   path: TreeNodeRef[],
   byUuid: ReadonlyMap<UUID, SessionEntry>,
-  leafRow: TreeNodeRef | undefined,
+  leafNode: TreeNodeRef | undefined,
 ): { nodes: TreeNodeRef[]; boundaryMissing: boolean } {
-  if (leafRow === undefined) {
+  if (leafNode === undefined) {
     return { nodes: path, boundaryMissing: false };
   }
-  const matchIndex = path.findIndex((ref) => treeNodeRefsEqual(ref, leafRow));
+  const matchIndex = path.findIndex((ref) => treeNodeRefsEqual(ref, leafNode));
   if (matchIndex === -1) {
     return { nodes: path, boundaryMissing: true };
   }

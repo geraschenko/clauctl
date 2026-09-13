@@ -23,7 +23,7 @@ import {
   toolGroupMaps,
 } from "../tree/loader.ts";
 import { matchPreservedList } from "../tree/context-tree.ts";
-import type { SetContextRequest, SetContextResult } from "../sdk-socket.ts";
+import type { SetContextRequest, SetContextResponse } from "../sdk-socket.ts";
 import { parseTreeNodeRef } from "../tree/nodes.ts";
 import {
   appendSessionEntries,
@@ -209,10 +209,10 @@ export interface SetContextShared {
 export function createSetContextHandler(
   deps: RequestHandlerDeps,
   shared: SetContextShared,
-): (parsed: SetContextRequest) => Promise<SetContextResult> {
+): (parsed: SetContextRequest) => Promise<SetContextResponse> {
   const { events } = deps;
 
-  return async (parsed: SetContextRequest): Promise<SetContextResult> => {
+  return async (parsed: SetContextRequest): Promise<SetContextResponse> => {
     const releaseGate = await shared.acquireSettledExclusive();
     try {
       // Eligibility, checked under the gate: nothing running, nothing queued,
@@ -323,8 +323,8 @@ export function createSetContextHandler(
       }
       shared.setQueryAvailable(true);
       return normalized.added.length > 0
-        ? { ...built.result, added: normalized.added }
-        : built.result;
+        ? { ...built.response, added: normalized.added }
+        : built.response;
     } finally {
       releaseGate();
     }

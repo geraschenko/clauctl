@@ -165,17 +165,52 @@ test("compact/interrupt/control events render one-liners", () => {
   );
 });
 
-test("contextChanged renders its boundary", () => {
+test("contextChanged renders its boundary, with the metadata of a seen boundary entry", () => {
+  const boundary = "28972c69-9dd5-4524-bb56-d8aaeb982094";
+  const unseen = "aaaaaaaa-0000-4000-8000-000000000000";
+  const output = format([
+    event({ kind: "contextChanged", boundary: unseen, leaf: null }),
+    event({
+      kind: "sessionEntry",
+      entry: {
+        type: "system",
+        subtype: "compact_boundary",
+        uuid: boundary,
+        compactMetadata: { trigger: "manual", preTokens: 1234 },
+      },
+      expectsSdkMessage: true,
+      leaf: { uuid: boundary },
+      awaitingAnchors: [],
+    }),
+    event({ kind: "contextChanged", boundary, leaf: { uuid: boundary } }),
+  ]);
+  assert.equal(
+    output,
+    `[context changed: boundary ${unseen}]\n\n` +
+      `[entry ${boundary} system/compact_boundary sdk twin leaf ${boundary}]\n\n` +
+      `[context changed: boundary ${boundary}, manual, 1234 preTokens]\n`,
+  );
+});
+
+test("sessionEntry renders identity only, untruncated", () => {
+  const uuid = "bbbbbbbb-0000-4000-8000-000000000000";
+  const leaf = "cccccccc-0000-4000-8000-000000000000";
   const output = format([
     event({
-      kind: "contextChanged",
-      boundary: "28972c69-9dd5-4524-bb56-d8aaeb982094",
-      leaf: null,
+      kind: "sessionEntry",
+      entry: {
+        type: "attachment",
+        uuid,
+        attachment: { type: "queued_command", prompt: "x".repeat(200) },
+      },
+      expectsSdkMessage: false,
+      leaf: { uuid: leaf },
+      awaitingAnchors: [],
     }),
   ]);
   assert.equal(
     output,
-    "[context changed: boundary 28972c69-9dd5-4524-bb56-d8aaeb982094]\n",
+    `[entry ${uuid} attachment session-only leaf ${leaf}]\n`,
   );
 });
 

@@ -7,8 +7,9 @@
  * preserves when it arrived.
  */
 
-import type { AgentState } from "../core/agent-state.ts";
+import { classOf, type AgentState } from "../core/agent-state.ts";
 import type { AgentEvent } from "../core/sdk-socket.ts";
+import { compactionMetadata } from "../core/session/file.ts";
 import { userText } from "../tui/sdk-render.ts";
 import {
   annotation,
@@ -105,15 +106,38 @@ function eventChunks(
       return ["[interrupt sent]"];
     case "controlApplied":
       return [requestAnnotation("control", event.request)];
-    case "contextChanged":
-      return [annotation(`context changed: boundary ${event.boundary}`)];
+    case "contextChanged": {
+      const metadata = formatState.boundaryMetadata.get(event.boundary);
+      const parts = [
+        `boundary ${event.boundary}`,
+        ...(metadata?.trigger === undefined ? [] : [metadata.trigger]),
+        ...(metadata?.preTokens === undefined
+          ? []
+          : [`${metadata.preTokens} preTokens`]),
+      ];
+      return [`[context changed: ${parts.join(", ")}]`];
+    }
     case "shutdown":
       return [`[agent ${event.reason}]`];
-    // The session stream's rendering is phase 4 (spec, IMPLEMENTATION
-    // IDEAS); until then entries print nothing here — their SDK twins
-    // already render — and the daemon's file events print as annotations.
-    case "sessionEntry":
-      return [];
+    // Identity only: a shared entry's payload prints at its sdkMessage
+    // twin, and no session-only entry has a rendering yet (a steered
+    // prompt prints at its userMessageDequeued; an attachment the harness
+    // injects into the context is a candidate). Two uuids exceed the
+    // annotation width, and nothing here is free text that needs
+    // truncating.
+    case "sessionEntry": {
+      const entry = event.entry;
+      if (entry.subtype === "compact_boundary" && entry.uuid !== undefined) {
+        formatState.boundaryMetadata.set(entry.uuid, compactionMetadata(entry));
+      }
+      const parts = [
+        `entry ${entry.uuid ?? "?"}`,
+        classOf(entry),
+        event.expectsSdkMessage ? "sdk twin" : "session-only",
+        `leaf ${event.leaf?.uuid ?? "none"}`,
+      ];
+      return [`[${parts.join(" ")}]`];
+    }
     case "sessionFileChanged":
       return [annotation(`session file: ${event.sessionId}`)];
     case "scanComplete":

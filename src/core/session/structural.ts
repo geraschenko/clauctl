@@ -6,6 +6,7 @@
  * A projection, not a truncation: no length limit, no mark.
  */
 
+import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import type { SessionEntry } from "./file.ts";
 
 /** The leaves that carry payload, measured over real logs (spec WORK LOG).
@@ -151,4 +152,25 @@ export function structuralEntry(entry: SessionEntry): SessionEntry {
     return entry;
   }
   return emptyAt(entry, PAYLOAD_TRIE) as SessionEntry;
+}
+
+/** The inverse for a shared-class entry: the structural entry with the
+ *  payload its query twin carries — the API message is the same object on
+ *  both sides, and a user twin's `tool_use_result` is the entry's
+ *  `toolUseResult`. Twins of other kinds carry nothing to graft. */
+export function completedEntry(
+  entry: SessionEntry,
+  twin: SDKMessage,
+): SessionEntry {
+  if (twin.type !== "user" && twin.type !== "assistant") {
+    return entry;
+  }
+  return {
+    ...entry,
+    message: twin.message,
+    ...(twin.type === "user" &&
+      twin.tool_use_result !== undefined && {
+        toolUseResult: twin.tool_use_result,
+      }),
+  };
 }

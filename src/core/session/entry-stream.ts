@@ -1,8 +1,7 @@
 /**
- * The canonical session-entry subscription (docs/specs/
- * canonical-session-entry-stream.md): a StreamClient over one existing
- * session file, driven by the generated runStream exactly like the sdk.sock
- * client, plus the pure canonical-filtering core shared by finite reads.
+ * The session log follower (docs/specs/session-tracker.md, "Log follower")
+ * and the canonical-filtering core shared by the daemon's tracker and the
+ * finite reads (dormant tail, `format`).
  *
  * Canonical entries are the file's raw append sequence after FIRST-WINS uuid
  * deduplication: the first occurrence of a uuid supplies both position and
@@ -22,40 +21,16 @@ import {
   type FSWatcher,
 } from "node:fs";
 import { AsyncQueue } from "../generated/streaming/async-queue.ts";
-import type {
-  StreamClient,
-  StreamEvent,
-  StreamSubscription,
-} from "../generated/streaming/driver.ts";
 import {
-  malformedLineError,
   SessionEntryParser,
   type MalformedLine,
   type ParsedEntry,
   type SessionEntry,
 } from "./file.ts";
 
-/** Fold state derivable from entries alone. */
-export interface EntryStreamState {
-  /** The resumable cursor: uuid of the newest first-occurrence uuid-bearing
-   *  entry at or before this state's position in the stream — undefined at file
-   *  start. */
-  readonly leaf?: UUID;
-  /** Every uuid observed in the file, including uuids before `since`. Monotone;
-   * a live view of the client's dedup set shared by reference, not a per-event
-   * snapshot: a retained state object sees later additions. Membership tests
-   * can at worst fire a condition slightly early; acceptable because copying
-   * per event would be O(uuids) per entry. */
-  readonly seenUuids: ReadonlySet<UUID>;
-}
-
-export type EntryClientOptions =
-  | { readonly history: "emit"; readonly since?: UUID }
-  | { readonly history: "skip" };
-
 /** The stateful first-wins/`since` filter shared by canonicalizeEntries, the
- *  client's scan-and-follow loop, and the `format` input pipeline, so
- *  canonical semantics cannot diverge.
+ *  daemon's session tracker, and the `format` input pipeline, so canonical
+ *  semantics cannot diverge.
  *  `leaf` advances on every first-occurrence uuid-bearing entry — including
  *  ones suppressed as pre-cursor — so once the cursor is consumed it equals
  *  the cursor itself, and thereafter tracks emitted entries. An entry whose
@@ -359,161 +334,6 @@ export class SessionLogFollower {
         return;
       }
       line.match(this.onEntry, this.onMalformedLine);
-    }
-  }
-}
-
-/** StreamClient over one existing session file: a CanonicalEntryFilter and
- *  event queue composed on a SessionLogFollower. The follower scans
- *  [0, historyEnd) before subscribe() resolves — also under "skip", to seed
- *  first-wins dedup and retain a torn suffix — queueing the extent's
- *  canonical entries as events under "emit"; then follows appends. One event
- *  per canonical entry, paired with its post-fold state; the seed is the
- *  emission-start state. One subscribe() per client. */
-export class SessionEntryClient implements StreamClient<
-  SessionEntry,
-  EntryStreamState
-> {
-  private readonly filePath: string;
-  private readonly options: EntryClientOptions;
-  private readonly events = new AsyncQueue<
-    StreamEvent<SessionEntry, EntryStreamState>
-  >();
-  private readonly follower: SessionLogFollower;
-  /** False while the initial extent is scanned under history "skip". */
-  private emitting: boolean;
-  /** Public so a cross-file follower (AgentObserver) can carry it into the
-   *  next file's client for first-wins dedup across a session rollover. */
-  readonly filter: CanonicalEntryFilter;
-  private streamFailure: Error | undefined;
-  private subscribed = false;
-  private closed = false;
-
-  /** `filter` is the rollover carry-over; defaults to the client's own. An
-   *  external filter cannot be combined with a `since` cursor — the filter
-   *  already consumed its cursor in the previous file. */
-  constructor(
-    filePath: string,
-    options: EntryClientOptions,
-    filter?: CanonicalEntryFilter,
-  ) {
-    if (
-      filter !== undefined &&
-      options.history === "emit" &&
-      options.since !== undefined
-    ) {
-      throw new Error(
-        "SessionEntryClient: an external filter cannot be combined with a since cursor",
-      );
-    }
-    this.filePath = filePath;
-    this.options = options;
-    this.emitting = options.history === "emit";
-    this.filter =
-      filter ??
-      new CanonicalEntryFilter(
-        options.history === "emit" ? options.since : undefined,
-      );
-    // A malformed terminated line is corruption for this consumer: chain
-    // computation and file mutation must not proceed against incomplete
-    // history.
-    this.follower = new SessionLogFollower(
-      filePath,
-      ({ entry }) => this.accept(entry),
-      (line) => this.fail(malformedLineError(filePath, line)),
-      (error) => this.fail(error),
-    );
-  }
-
-  /** Why the event queue closed, when not a clean close(): truncation,
-   *  replacement, watcher error, or a malformed terminated line. undefined
-   *  while healthy or after a clean close(). */
-  get failure(): Error | undefined {
-    return this.streamFailure;
-  }
-
-  /** Rejects on a missing/unreadable file, a malformed terminated line in
-   *  the initial extent, or a `since` cursor absent from that extent (no
-   *  partial output). */
-  async subscribe(): Promise<
-    StreamSubscription<SessionEntry, EntryStreamState>
-  > {
-    if (this.subscribed) {
-      throw new Error("SessionEntryClient allows one subscribe() per client");
-    }
-    this.subscribed = true;
-    try {
-      const since =
-        this.options.history === "emit" ? this.options.since : undefined;
-      // A carried filter arrives with the previous file's leaf; under "emit"
-      // this file's entries follow as events, so the seed precedes them.
-      const leafBeforeScan = this.filter.leaf;
-      this.follower.start();
-      if (this.streamFailure !== undefined) {
-        throw this.streamFailure;
-      }
-      if (this.filter.cursorPending) {
-        throw new Error(
-          `since cursor ${since} does not match any entry in ${this.filePath}`,
-        );
-      }
-      const seed: EntryStreamState = {
-        leaf: this.emitting ? (since ?? leafBeforeScan) : this.filter.leaf,
-        seenUuids: this.filter.seenUuids,
-      };
-      this.emitting = true;
-      return { seed, events: this.events };
-    } catch (error) {
-      this.close();
-      throw error;
-    }
-  }
-
-  /** Release the watcher and file handle; closes the event queue. Idempotent.
-   *  Commands call it in `finally`, exactly as tail closes its sdk.sock
-   *  client. */
-  close(): void {
-    if (this.closed) {
-      return;
-    }
-    this.closed = true;
-    this.follower.close();
-    this.events.close();
-  }
-
-  /** Synchronously consume any bytes appended since the last read. The final
-   *  drain when the daemon socket closes: entries flushed just before the
-   *  close may not have woken the follower yet, and after close() no wake
-   *  ever will. A failure is recorded as `failure`, not thrown. */
-  drainVisibleBytes(): void {
-    try {
-      this.follower.drainVisibleBytes();
-    } catch {
-      // routed through onFailure → fail()
-    }
-  }
-
-  private fail(error: unknown): void {
-    if (this.closed) {
-      return;
-    }
-    this.streamFailure =
-      error instanceof Error ? error : new Error(String(error));
-    this.close();
-  }
-
-  /** Filter, and (when emitting) push the canonical entry paired with its
-   *  post-fold state. */
-  private accept(entry: SessionEntry): void {
-    const accepted = this.filter.accept(entry);
-    if (accepted !== undefined && this.emitting) {
-      this.events.push({
-        event: accepted,
-        state: {
-          leaf: this.filter.leaf,
-          seenUuids: this.filter.seenUuids,
-        },
-      });
     }
   }
 }

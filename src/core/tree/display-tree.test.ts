@@ -138,12 +138,12 @@ test("up_to compaction of a linear conversation renders linearly (criterion 2)",
   // The hidden relinked rows display as the summary row.
   for (const hiddenUuid of [e3.uuid, e4.uuid]) {
     assert.deepEqual(
-      display.nearestVisibleRow({ uuid: hiddenUuid, viaBoundary: b.uuid }),
+      display.nearestVisibleNode({ uuid: hiddenUuid, viaBoundary: b.uuid }),
       { uuid: summaryUuid },
     );
   }
   // A visible ref displays as itself.
-  assert.deepEqual(display.nearestVisibleRow({ uuid: e5.uuid }), {
+  assert.deepEqual(display.nearestVisibleNode({ uuid: e5.uuid }), {
     uuid: e5.uuid,
   });
 });
@@ -199,7 +199,7 @@ test("stacked compactions render as one straight line (criterion 2)", () => {
     [e6.uuid, b2.uuid, s2Uuid],
   ] as const) {
     assert.deepEqual(
-      display.nearestVisibleRow({
+      display.nearestVisibleNode({
         uuid: hiddenUuid,
         viaBoundary: boundaryUuid,
       }),
@@ -229,7 +229,7 @@ test("from-shape rewind with summary and a new turn: the summary forks off the r
   // so it is not an up_to summary boundary); T, under the hidden block in
   // the full tree, displays under the branch point.
   assert.equal(parentMap.has(x.uuid), false);
-  assert.deepEqual(display.nearestVisibleRow({ uuid: x.uuid }), {
+  assert.deepEqual(display.nearestVisibleNode({ uuid: x.uuid }), {
     uuid: e2.uuid,
   });
   assert.equal(parentMap.get(t.uuid), e2.uuid);
@@ -265,14 +265,14 @@ test("boundary rewind with no summary and no new turn is invisible (criterion 3)
   );
   // The leaf ref 2@X displays as visible row 2 for the marker.
   assert.deepEqual(
-    display.nearestVisibleRow({ uuid: e2.uuid, viaBoundary: x.uuid }),
+    display.nearestVisibleNode({ uuid: e2.uuid, viaBoundary: x.uuid }),
     { uuid: e2.uuid },
   );
   assert.deepEqual(
-    display.nearestVisibleRow({ uuid: e1.uuid, viaBoundary: x.uuid }),
+    display.nearestVisibleNode({ uuid: e1.uuid, viaBoundary: x.uuid }),
     { uuid: e2.uuid },
   );
-  assert.deepEqual(display.nearestVisibleRow({ uuid: x.uuid }), {
+  assert.deepEqual(display.nearestVisibleNode({ uuid: x.uuid }), {
     uuid: e2.uuid,
   });
 });
@@ -303,10 +303,10 @@ test("stacked pure rewinds have no rows", () => {
       [e2.uuid, e1.uuid],
     ],
   );
-  assert.deepEqual(display.nearestVisibleRow({ uuid: x1.uuid }), {
+  assert.deepEqual(display.nearestVisibleNode({ uuid: x1.uuid }), {
     uuid: e2.uuid,
   });
-  assert.deepEqual(display.nearestVisibleRow({ uuid: x2.uuid }), {
+  assert.deepEqual(display.nearestVisibleNode({ uuid: x2.uuid }), {
     uuid: e1.uuid,
   });
 });
@@ -348,11 +348,11 @@ test("a native /compact after a tail-rewind boundary hangs under the rewound tip
     ],
   );
   assert.deepEqual(
-    display.nearestVisibleRow({ uuid: e2.uuid, viaBoundary: x.uuid }),
+    display.nearestVisibleNode({ uuid: e2.uuid, viaBoundary: x.uuid }),
     { uuid: e2.uuid },
   );
   assert.deepEqual(
-    display.nearestVisibleRow({ uuid: e2.uuid, viaBoundary: c.uuid }),
+    display.nearestVisibleNode({ uuid: e2.uuid, viaBoundary: c.uuid }),
     { uuid: summaryUuid },
   );
 });
@@ -423,7 +423,9 @@ test("a duplicated boundary uuid is first-wins even when the first copy is metad
       [bUuid, e2.uuid],
     ],
   );
-  assert.deepEqual(display.nearestVisibleRow({ uuid: bUuid }), { uuid: bUuid });
+  assert.deepEqual(display.nearestVisibleNode({ uuid: bUuid }), {
+    uuid: bUuid,
+  });
 });
 
 // --- parallel-group linearization (via the context tree) ---------------------
@@ -560,7 +562,7 @@ test("a rootless hidden chain displays no row", () => {
   const entries = [e1, b];
   const display = displayTreeOf(entries, () => {});
   assert.equal(
-    display.nearestVisibleRow({ uuid: e1.uuid, viaBoundary: b.uuid }),
+    display.nearestVisibleNode({ uuid: e1.uuid, viaBoundary: b.uuid }),
     undefined,
   );
 });
@@ -621,11 +623,11 @@ test("rewind-and-append shows the extension as relinked rows under the branch po
   // branch point.
   for (const entry of [e1!, e2!, e3!, e4!]) {
     assert.deepEqual(
-      display.nearestVisibleRow({ uuid: entry.uuid, viaBoundary: b.uuid }),
+      display.nearestVisibleNode({ uuid: entry.uuid, viaBoundary: b.uuid }),
       { uuid: e4!.uuid },
     );
   }
-  assert.deepEqual(display.nearestVisibleRow({ uuid: b.uuid }), {
+  assert.deepEqual(display.nearestVisibleNode({ uuid: b.uuid }), {
     uuid: e4!.uuid,
   });
 });
@@ -719,7 +721,7 @@ test("a boundary can branch off a visible relinked row (criterion 6)", () => {
   );
   assert.equal(display.parentMap.has(b2.uuid), false);
   assert.deepEqual(
-    display.nearestVisibleRow({ uuid: e7!.uuid, viaBoundary: b2.uuid }),
+    display.nearestVisibleNode({ uuid: e7!.uuid, viaBoundary: b2.uuid }),
     {
       uuid: e7!.uuid,
       viaBoundary: b.uuid,

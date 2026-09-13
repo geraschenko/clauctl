@@ -344,7 +344,7 @@ query messages own it until the log catches up.
    entries then `finish()`ed yields a `parentMap` equal to
    `buildTree(prefix)`; likewise `ContextTreeBuilder` (`parentMap`,
    `excluded`, `leaf`) against `toContextTree` and `DisplayTreeBuilder`
-   (`parentMap`, `nearestVisibleRow` for every occurrence) against
+   (`parentMap`, `nearestVisibleNode` for every occurrence) against
    `toDisplayTree` — the per-prefix check docs/specs/get-context.md
    deferred to "the rolling builder". The per-prefix sequence is
    `session.pushAll(prefix); session.finish(); context.push();
@@ -526,7 +526,7 @@ P.last@B}` (the last preserved occurrence). `Q: S` (the compaction
   `/cost` assistant message `c`; `c` is in the `index` and has no merge
   node → dropped before the merge.
 - TUI start: `subscribe` (events buffer), then `get-entries {payload:
-"full"}` → `SessionSnapshot {entries, leaf}`; every `sessionEntry`
+"full"}` → `GetEntriesResponse {entries, leaf}`; every `sessionEntry`
   event received before the response is folded but not pushed into the
   tree (the snapshot contains it — see Data flow 6); no gap, no replay
   in `subscribe`. Live from then on: an assistant message arrives as
@@ -1192,22 +1192,22 @@ export class AnomalyRecorder {
 
 ```ts
 | { type: "subscribe"; attachment?: SubscribeAttachment }              // unchanged
-| { type: "get-entries"; payload: "uuids" | "full"; since?: UUID }   // → SessionSnapshot
+| { type: "get-entries"; payload: "uuids" | "full"; since?: UUID }   // → GetEntriesResponse
 | { type: "get-entries"; uuids: UUID[] }                              // → SessionEntry[] complete, requested order
-| { type: "get-context"; at?: TreeNodeRef; payload: "uuids" | "full" } // → ContextSlice
+| { type: "get-context"; at?: TreeNodeRef; payload: "uuids" | "full" } // → GetContextResponse
 
 /** `payload: "uuids"`: `uuids` only, no file read; `"full"`: the
  *  complete entries in file order (readEntriesAt over the ranges). */
-export interface SessionSnapshot {
+export interface GetEntriesResponse {
   uuids: UUID[];
   entries?: SessionEntry[];
   leaf: TreeNodeRef | null;
 }
 /** Same convention: `refs` always (context order), `entries` for "full". */
-export interface ContextSlice { refs: TreeNodeRef[]; entries?: SessionEntry[] }
+export interface GetContextResponse { refs: TreeNodeRef[]; entries?: SessionEntry[] }
 ```
 
-`SetContextResult` is unchanged (`boundaryUuid`). sdk-server serializes
+`SetContextResponse` (formerly `SetContextResult`) is unchanged (`boundaryUuid`). sdk-server serializes
 whatever event the sink receives, synchronously (the complete entry is
 not retained afterwards). A subscriber gets the `AgentState` with its
 subscription and asks for history only if it wants it: `get-entries`
@@ -1529,13 +1529,14 @@ retired with phase 1):
      session tracker, set-context drain, delete seed.ts and the
      flush-wait helpers.
 4. **Wire + clients.** `get-entries`/`get-context` shapes (`payload:
-"uuids" | "full"`, `SessionSnapshot`, `ContextSlice`); `tail`/`prompt`
+"uuids" | "full"`, `GetEntriesResponse`, `GetContextResponse`); `tail`/`prompt`
    on the agent event stream (delete `AgentObserver`); TUI entry +
    SDK-message maps, rolling trees, the `queued_command` display row,
    and the anomaly banner; CLI `--uuids`; format annotation.
 5. **Docs.** `docs/agent-events.md`, session-views.md cross-reference,
    update get-context.md/canonical-session-entry-stream.md/
    daemon-architecture.md status notes, remove the AGENTS.md bullet.
+   Also need to update docs/claude-agent-sdk.md to clearly explain how we produce a unified subscription with good observation properties; see docs/thoughts/cleanup.md (note: this cleanup file will be deleted, so do not leave any permanent referrences to it)
 
 Notes:
 
@@ -1793,8 +1794,10 @@ Tasks:
       (docs/specs/session-tracker/phase-1-rolling-builders.md, 2026-09-11)
 - [x] Phase 2 parser ranges, slim, follower split
       (docs/specs/session-tracker/phase-2-parser-ranges-slim-follower.md, 2026-09-11)
-- [ ] Phase 3 fold + session tracker + daemon composition
-- [ ] Phase 4 wire + clients (tail/prompt/TUI/CLI)
+- [x] Phase 3 fold + session tracker + daemon composition
+      (docs/specs/session-tracker/phase-3-fold-session-tracker.md, 2026-09-13)
+- [x] Phase 4 wire + clients (tail/prompt/TUI/CLI)
+      (docs/specs/session-tracker/phase-4-wire-clients.md, 2026-09-13)
 - [ ] Phase 5 docs
 
 _Work log entries go here_

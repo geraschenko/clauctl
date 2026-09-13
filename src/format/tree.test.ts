@@ -3,12 +3,11 @@ import type { UUID } from "node:crypto";
 import { test } from "node:test";
 import { buildTree } from "../core/tree/build-tree.ts";
 import { toContextTree } from "../core/tree/context-tree.ts";
-import type { SessionSnapshot } from "../core/tree/nodes.ts";
 import { entriesByUuid, type SessionEntry } from "../core/session/file.ts";
+import type { SnapshotDocument } from "./input.ts";
 import {
-  formatSessionSnapshot,
+  formatSnapshotDocument,
   isHumanPrompt,
-  passesFilter,
   treeLines,
   type TreeFormatOptions,
 } from "./tree.ts";
@@ -65,10 +64,10 @@ function assistantEntry(
 }
 
 function render(
-  input: SessionSnapshot,
+  input: SnapshotDocument,
   options: Partial<TreeFormatOptions> = {},
 ): string {
-  return formatSessionSnapshot(input, {
+  return formatSnapshotDocument(input, {
     filter: options.filter ?? "conversation",
     width: options.width ?? 120,
   });
@@ -79,7 +78,7 @@ function render(
 // these pin its actual output.
 
 test("a fork renders chronologically with the active chain in column 0", () => {
-  const input: SessionSnapshot = {
+  const input: SnapshotDocument = {
     entries: [
       userEntry(uuid(1), "Start"),
       assistantEntry(uuid(2), "First branch", uuid(1)),
@@ -103,7 +102,7 @@ test("a fork renders chronologically with the active chain in column 0", () => {
 // column 0 is reserved below it (terminator + padding), both branches
 // move right.
 test("a leaf with children keeps column 0 empty below it", () => {
-  const input: SessionSnapshot = {
+  const input: SnapshotDocument = {
     entries: [
       userEntry(uuid(1), "Start"),
       assistantEntry(uuid(2), "First branch", uuid(1)),
@@ -148,7 +147,7 @@ test("multiple roots: the active root is column 0", () => {
 
 test("a boundary and its summary render off the active path", () => {
   const boundaryUuid = uuid(3);
-  const input: SessionSnapshot = {
+  const input: SnapshotDocument = {
     entries: [
       userEntry(uuid(1), "Set up the build"),
       assistantEntry(uuid(2), "Build green", uuid(1)),
@@ -187,7 +186,7 @@ test("a boundary and its summary render off the active path", () => {
 /** Summary-less boundary preserving [1, 2] — a pure rewind to 2 — with
  *  the leaf on the relinked occurrence: the boundary reproduces raw 2's
  *  context, so it has no display row. */
-function hiddenBoundarySession(): SessionSnapshot {
+function hiddenBoundarySession(): SnapshotDocument {
   const boundaryUuid = uuid(3);
   return {
     entries: [
@@ -270,7 +269,7 @@ test("a compacted session renders linear with the chain ending on the summary", 
     throw new Error(`unexpected onInvalid: ${message}`);
   };
   const entries = [start, reply, boundary, summary];
-  const input: SessionSnapshot = {
+  const input: SnapshotDocument = {
     entries,
     leaf: toContextTree(
       buildTree(entries, failOnInvalid),
@@ -289,7 +288,7 @@ test("a compacted session renders linear with the chain ending on the summary", 
 
 /** The spec's up_to example: a compaction mid-way through a linear
  *  conversation with a follow-up turn. */
-function upToSession(): SessionSnapshot {
+function upToSession(): SnapshotDocument {
   const boundary: SessionEntry = {
     uuid: uuid(6),
     parentUuid: null,
@@ -301,7 +300,7 @@ function upToSession(): SessionSnapshot {
       preservedMessages: { anchorUuid: uuid(3), uuids: [uuid(4), uuid(5)] },
     },
   };
-  const input: SessionSnapshot = {
+  const input: SnapshotDocument = {
     entries: [
       userEntry(uuid(1), "Start"),
       assistantEntry(uuid(2), "First reply", uuid(1)),
@@ -361,7 +360,7 @@ test("raw mode shows the up_to block connected under its summary row", () => {
 // with no `~`.
 test("a from-shape summary row renders under the rewind target without ~", () => {
   const boundaryUuid = uuid(6);
-  const input: SessionSnapshot = {
+  const input: SnapshotDocument = {
     entries: [
       userEntry(uuid(1), "Start"),
       assistantEntry(uuid(2), "First reply", uuid(1)),
@@ -404,7 +403,7 @@ test("a from-shape summary row renders under the rewind target without ~", () =>
 
 // --- filters --------------------------------------------------------------------
 
-function toolSession(): SessionSnapshot {
+function toolSession(): SnapshotDocument {
   const toolUse: SessionEntry = {
     uuid: uuid(2),
     parentUuid: uuid(1),
@@ -505,7 +504,7 @@ test("all shows every node, with the tool call and result glyphs", () => {
 });
 
 test("conversation hides isMeta user entries", () => {
-  const input: SessionSnapshot = {
+  const input: SnapshotDocument = {
     entries: [
       { ...nonHumanUserEntry(uuid(1), "meta text"), isMeta: true },
       userEntry(uuid(2), "real text", uuid(1)),
@@ -521,7 +520,7 @@ test("conversation hides isMeta user entries", () => {
 /** A 2.1.258 session as the CLI writes a `/compact` invocation: the command
  *  echo and its stdout are user entries with text and no `origin`; the
  *  summary is admitted by isCompactSummary. */
-function commandEchoSession(): SessionSnapshot {
+function commandEchoSession(): SnapshotDocument {
   return {
     entries: [
       userEntry(uuid(1), "Start"),
@@ -741,7 +740,7 @@ test("summary: boundary token count and generic types", () => {
 // --- width, edge cases ------------------------------------------------------------
 
 test("width truncates the whole rendered line", () => {
-  const input: SessionSnapshot = {
+  const input: SnapshotDocument = {
     entries: [userEntry(uuid(1), "a question that runs well past the width")],
     leaf: { uuid: uuid(1) },
   };
@@ -760,7 +759,7 @@ test("an empty snapshot renders just the cursor line", () => {
 });
 
 test("a leaf matching no occurrence renders no chain but keeps the cursor", () => {
-  const input: SessionSnapshot = {
+  const input: SnapshotDocument = {
     entries: [userEntry(uuid(1), "hello")],
     leaf: { uuid: uuid(9) },
   };
@@ -777,83 +776,39 @@ test("a duplicated raw uuid renders once, silently (first-wins)", () => {
   );
 });
 
-// --- picker filter -----------------------------------------------------------
-
-test("picker keeps human prompts, final assistants with text, boundaries and summaries", () => {
-  const thinking: SessionEntry = {
-    uuid: uuid(2),
-    parentUuid: uuid(1),
-    type: "assistant",
-    message: {
-      role: "assistant",
-      id: "msg_1",
-      content: [{ type: "text", text: "draft" }],
-    },
-  };
-  const final: SessionEntry = {
+test("a steered prompt's queued_command attachment is a ❯ row with the prompt as label", () => {
+  const steered: SessionEntry = {
     uuid: uuid(3),
     parentUuid: uuid(2),
-    type: "assistant",
-    message: {
-      role: "assistant",
-      id: "msg_1",
-      content: [{ type: "text", text: "answer" }],
+    type: "attachment",
+    attachment: {
+      type: "queued_command",
+      prompt: "also say\nQUEUED",
+      source_uuid: uuid(9),
     },
   };
-  const toolResult: SessionEntry = {
+  const otherAttachment: SessionEntry = {
     uuid: uuid(4),
     parentUuid: uuid(3),
-    type: "user",
-    message: {
-      role: "user",
-      content: [{ type: "tool_result", tool_use_id: "t1", content: "ok" }],
-    },
+    type: "attachment",
+    attachment: { type: "total_tokens_reminder" },
   };
-  const boundary: SessionEntry = {
-    uuid: uuid(5),
-    parentUuid: uuid(4),
-    type: "system",
-    subtype: "compact_boundary",
-  };
-  const summary: SessionEntry = {
-    ...nonHumanUserEntry(uuid(6), "recap", uuid(5)),
-    isCompactSummary: true,
-  };
-  const echo = nonHumanUserEntry(
-    uuid(7),
-    "<command-name>/x</command-name>",
-    uuid(6),
-  );
-  const input: SessionSnapshot = {
+  const input: SnapshotDocument = {
     entries: [
       userEntry(uuid(1), "ask"),
-      thinking,
-      final,
-      toolResult,
-      boundary,
-      summary,
-      echo,
+      assistantEntry(uuid(2), "working", uuid(1)),
+      steered,
+      otherAttachment,
+      assistantEntry(uuid(5), "done", uuid(4)),
     ],
-    leaf: { uuid: uuid(4) },
+    leaf: { uuid: uuid(5) },
   };
-  const rows = render(input, { filter: "picker" }).split("\n").slice(0, -2);
-  const shown = (n: number): boolean =>
-    rows.some((row) => row.includes(`0000000${n}`));
-  // The non-final same-message.id assistant, the tool_result-only user
-  // (even as the leaf) and the command echo are hidden.
-  assert.deepEqual([1, 2, 3, 4, 5, 6, 7].filter(shown), [1, 3, 5, 6]);
-});
-
-test("picker has no current-leaf exemption", () => {
-  const systemLeaf: SessionEntry = {
-    uuid: uuid(1),
-    type: "system",
-    subtype: "turn_duration",
-  };
-  assert.ok(!passesFilter(systemLeaf, true, false, "picker"));
-  assert.ok(
-    !passesFilter(nonHumanUserEntry(uuid(1), "echo"), true, false, "picker"),
-  );
+  for (const filter of ["conversation", "user-only"] as const) {
+    const rows = render(input, { filter }).split("\n");
+    assert.ok(rows.includes("❯  00000003 also say QUEUED"), filter);
+    assert.ok(!rows.some((row) => row.includes("00000004")), filter);
+  }
+  assert.ok(render(input, { filter: "all" }).includes("·  00000004"));
 });
 
 // --- treeLines (the /tree rendering) ----------------------------------------------

@@ -4,23 +4,18 @@ import type {
   SDKUserMessage,
 } from "@anthropic-ai/claude-agent-sdk";
 import {
-  sessionSettled,
+  describeSession,
   isIdle,
   nextAgentState,
+  SETTLE_TIMEOUT_MS,
+  sessionSettled,
   settled,
   type AgentState,
-  type SessionState,
 } from "../agent-state.ts";
 import type { AgentEvent } from "../sdk-socket.ts";
-import { pending } from "../stream-merge.ts";
 import type { AnomalyRecorder } from "./anomaly-bundle.ts";
 import * as QueueModel from "./queue-model.ts";
 import type { SessionTracker } from "./session-tracker.ts";
-
-/** Bound on a settle wait — the same bound, with the same meaning, as
- *  tail's CATCHUP_TIMEOUT_MS: the log has had this long to catch up with
- *  the query stream. */
-export const SETTLE_TIMEOUT_MS = 10_000;
 
 export interface EventHubOptions {
   /**
@@ -55,11 +50,6 @@ interface SettleWaiter {
   readonly reject: (error: Error) => void;
   readonly timer: NodeJS.Timeout;
 }
-
-const describeSession = (session: SessionState | undefined): string =>
-  session === undefined
-    ? "no such file"
-    : `pending on query: [${pending(session.merge, "query").join(", ")}]; awaiting anchors: [${session.awaitingAnchors.join(", ")}]`;
 
 /**
  * The daemon's only mutable object for observable state — the single point

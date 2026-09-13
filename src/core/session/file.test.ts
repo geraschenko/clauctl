@@ -183,7 +183,7 @@ test("buildBoundaryEntries with summary, anchor summary (up_to shape)", () => {
   const sessionId = uuid();
   const uuids = [uuid(), uuid()];
   const leaf = uuid();
-  const { entries, result } = buildBoundaryEntries({
+  const { entries, response } = buildBoundaryEntries({
     sessionId,
     cwd: "/work",
     uuids,
@@ -198,7 +198,7 @@ test("buildBoundaryEntries with summary, anchor summary (up_to shape)", () => {
   assert.equal(boundary.subtype, "compact_boundary");
   assert.equal(boundary.parentUuid, null);
   assert.equal(boundary.logicalParentUuid, leaf);
-  assert.equal(boundary.uuid, result.boundaryUuid);
+  assert.equal(boundary.uuid, response.boundaryUuid);
   assert.equal(boundary.sessionId, sessionId);
   assert.equal(boundary.cwd, "/work");
   const metadata = boundary.compactMetadata as {
@@ -211,18 +211,18 @@ test("buildBoundaryEntries with summary, anchor summary (up_to shape)", () => {
     (boundary.compactMetadata as { preTokens: number }).preTokens,
     12345,
   );
-  assert.equal(metadata.preservedMessages.anchorUuid, result.summaryUuid);
+  assert.equal(metadata.preservedMessages.anchorUuid, response.summaryUuid);
   assert.deepEqual(metadata.preservedMessages.uuids, uuids);
   assert.deepEqual(metadata.preservedMessages.allUuids, uuids);
   assert.equal(summary.type, "user");
-  assert.equal(summary.uuid, result.summaryUuid);
-  assert.equal(summary.parentUuid, result.boundaryUuid);
+  assert.equal(summary.uuid, response.summaryUuid);
+  assert.equal(summary.parentUuid, response.boundaryUuid);
   assert.equal(summary.isCompactSummary, true);
   assert.deepEqual(summary.message, { role: "user", content: "the summary" });
 });
 
 test("buildBoundaryEntries without summary writes only the boundary", () => {
-  const { entries, result } = buildBoundaryEntries({
+  const { entries, response } = buildBoundaryEntries({
     sessionId: uuid(),
     cwd: "/work",
     uuids: [uuid()],
@@ -233,11 +233,11 @@ test("buildBoundaryEntries without summary writes only the boundary", () => {
   assert.equal(entries.length, 1);
   // An unobserved version falls back to the recipe's proven constant.
   assert.equal(entries[0]!.version, "2.1.211");
-  assert.equal(result.summaryUuid, undefined);
+  assert.equal(response.summaryUuid, undefined);
   const metadata = entries[0]!.compactMetadata as {
     preservedMessages: { anchorUuid: UUID };
   };
-  assert.equal(metadata.preservedMessages.anchorUuid, result.boundaryUuid);
+  assert.equal(metadata.preservedMessages.anchorUuid, response.boundaryUuid);
 });
 
 test("appendSessionEntries round-trips through readSessionEntries", () => {

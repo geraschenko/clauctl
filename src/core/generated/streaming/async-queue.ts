@@ -14,6 +14,11 @@
  * values" — whatever is already queued is still delivered. `cancel()` is the
  * consumer saying "I'm done" — queued values are dropped.
  *
+ * `pushedCount` is the read-only total of accepted pushes, including values
+ * delivered directly to a waiting consumer. It starts at zero and never
+ * resets when values are drained or cancelled; pushes after close/cancel
+ * are ignored and do not count.
+ *
  * The hard requirement is that the consumer can cancel *while parked on
  * `next()`*: runStream cancels from a quiet or deadline timer that fires
  * while its pump awaits the next event. That rules out the two obvious
@@ -35,12 +40,18 @@ export class AsyncQueue<T> implements AsyncIterable<T> {
   private waiter: ((result: IteratorResult<T>) => void) | undefined;
   private readonly pushHandlers = new Set<() => void>();
   private closed = false;
+  private acceptedPushes = 0;
+
+  get pushedCount(): number {
+    return this.acceptedPushes;
+  }
 
   /** Ignored once closed or cancelled. */
   push(value: T): void {
     if (this.closed) {
       return;
     }
+    this.acceptedPushes += 1;
     const waiter = this.waiter;
     if (waiter === undefined) {
       this.queue.push(value);

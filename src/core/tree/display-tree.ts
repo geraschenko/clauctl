@@ -44,7 +44,7 @@ export class DisplayTree {
    *  nearest visible ancestor when hidden, undefined when the hidden chain
    *  is rootless (a leaf mapped here renders no marker, matching
    *  filtered-leaf behavior). */
-  nearestVisibleRow(ref: TreeNodeRef): TreeNodeRef | undefined {
+  nearestVisibleNode(ref: TreeNodeRef): TreeNodeRef | undefined {
     const mapped = this.visibleRowOf.get(formatTreeNodeRef(ref));
     if (mapped === undefined) {
       return ref;

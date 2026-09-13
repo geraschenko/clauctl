@@ -10,9 +10,9 @@
  * sibling module set-context.ts (boundary/rewind semantics).
  */
 
+import type { UUID } from "node:crypto";
 import type { Query, SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
 import { settled } from "../agent-state.ts";
-import type { SessionSnapshot } from "../tree/nodes.ts";
 import { settingsSeed, type PersistedOptions } from "../options.ts";
 import type { SessionEntry } from "../session/file.ts";
 import {
@@ -23,11 +23,16 @@ import {
   runRead,
 } from "../sdk-passthrough.ts";
 import {
+  ENTRY_PAYLOADS,
   parseSetContextRequest,
+  type GetContextResponse,
+  type EntryPayload,
+  isGetEntriesByUuids,
   type SdkControlApplied,
   type SdkControlMutation,
   type SdkRequestRecord,
   type SdkResponse,
+  type GetEntriesResponse,
   type SubscribeAttachment,
 } from "../sdk-socket.ts";
 import type { EventHub } from "./event-hub.ts";
@@ -97,6 +102,15 @@ async function appliedRequest(
       effortLevel: persisted.effort ?? settings.effortLevel ?? null,
     },
   };
+}
+
+function parseEntryPayload(value: unknown): EntryPayload {
+  if (!ENTRY_PAYLOADS.includes(value as EntryPayload)) {
+    throw new Error(
+      `payload must be one of ${ENTRY_PAYLOADS.join("/")}, got ${JSON.stringify(value)}`,
+    );
+  }
+  return value as EntryPayload;
 }
 
 /** Requests served from the tracker (spec, Data flow 4/5): settle outside
@@ -248,31 +262,39 @@ export function createRequestHandler(
       }
       case "get-context":
       case "get-entries": {
+        // The socket casts untrusted JSON: the payload selector is checked
+        // before anything is served.
+        const includeEntries =
+          !isGetEntriesByUuids(request) &&
+          parseEntryPayload(request.payload) === "full";
         // No tracker: nothing announced or scanned yet (a fresh agent, or a
         // resume whose file is missing) — nothing to serve.
         const release = await acquireSettled(events, () => gate.awaitShared());
         try {
           const tracker = deps.trackedLog.tracker;
+          const entriesFor = (uuids: readonly UUID[]): SessionEntry[] =>
+            tracker === undefined ? [] : tracker.payloads(uuids);
+          if (isGetEntriesByUuids(request)) {
+            return entriesFor(request.uuids);
+          }
           if (request.type === "get-entries") {
-            const snapshot: SessionSnapshot =
-              tracker === undefined
-                ? { entries: [], leaf: null }
-                : {
-                    entries: tracker.payloads(
-                      tracker.uuidsAfter(request.since),
-                    ),
-                    leaf: tracker.leaf,
-                  };
+            const uuids = tracker?.uuidsAfter(request.since) ?? [];
+            const snapshot: GetEntriesResponse = {
+              uuids: [...uuids],
+              ...(includeEntries && { entries: entriesFor(uuids) }),
+              leaf: tracker?.leaf ?? null,
+            };
             return snapshot;
           }
           const tip = request.at ?? tracker?.leaf ?? null;
-          if (tracker === undefined || tip === null) {
-            const empty: SessionEntry[] = [];
-            return empty;
-          }
-          return tracker.payloads(
-            tracker.contextAt(tip).map((ref) => ref.uuid),
-          );
+          const refs = tip === null ? [] : (tracker?.contextAt(tip) ?? []);
+          const slice: GetContextResponse = {
+            refs: [...refs],
+            ...(includeEntries && {
+              entries: entriesFor(refs.map((ref) => ref.uuid)),
+            }),
+          };
+          return slice;
         } finally {
           release();
         }

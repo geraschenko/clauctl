@@ -1,6 +1,6 @@
 /**
  * The `/tree` picker: the session tree rendered exactly as `clauctl format
- * tree --filter picker` renders it (shared treeLines, uuids omitted), with
+ * tree --filter conversation` renders it (shared treeLines, uuids omitted), with
  * pi-style search and navigation over the row lines. Pick semantics
  * (resolveTreePick) live here too; interactive-mode owns the busy gate and
  * the set-context request.
@@ -27,11 +27,9 @@ import {
   type TreeNodeRef,
   type TreeNodeStr,
 } from "../../core/tree/nodes.ts";
-import { treeChildren } from "../../core/tree/parent-map.ts";
 import { dagLineText, type DagLine } from "../../format/dag-lines.ts";
 import { extractTextContent } from "../../format/generated/text.ts";
 import {
-  collectFinalAssistantIds,
   collectToolNames,
   isHumanPrompt,
   passesFilter,
@@ -150,7 +148,7 @@ function isPrintable(data: string): boolean {
 export class TreeSelectorComponent extends Container implements Focusable {
   focused = false;
 
-  /** The whole picker-filtered tree, rendered once. */
+  /** The whole conversation-filtered tree, rendered once. */
   private readonly treeLines: readonly DagLine[];
   /** Display-tree parent relation (layout ids), for
    *  nearest-visible-ancestor selection recovery when search hides the
@@ -179,21 +177,15 @@ export class TreeSelectorComponent extends Container implements Focusable {
     const parentMap = displayTree.parentMap;
     // A hidden leaf occurrence's row is its nearest visible row (a rootless
     // hidden chain → no active chain, matching filtered-leaf behavior).
-    const leafRow =
-      leaf === null ? undefined : displayTree.nearestVisibleRow(leaf);
+    const leafNode =
+      leaf === null ? undefined : displayTree.nearestVisibleNode(leaf);
     const currentLeafId =
-      leafRow === undefined ? null : formatTreeNodeRef(leafRow);
-    const finalIds = collectFinalAssistantIds(
-      parentMap,
-      treeChildren(parentMap),
-      byUuid,
-    );
+      leafNode === undefined ? null : formatTreeNodeRef(leafNode);
     this.treeLines = treeLines(
       parentMap,
       byUuid,
       currentLeafId,
-      (id, entry) =>
-        passesFilter(entry, id === currentLeafId, finalIds.has(id), "picker"),
+      (id, entry) => passesFilter(entry, id === currentLeafId, "conversation"),
       collectToolNames([...byUuid.values()]),
       true,
     );
@@ -212,8 +204,8 @@ export class TreeSelectorComponent extends Container implements Focusable {
   /**
    * Recompute the shown lines: the rendered tree when the query is empty,
    * else the row lines whose label contains every search token. The
-   * current-leaf exemption is part of the picker filter only — a search
-   * that doesn't match the leaf hides it (pi parity).
+   * current-leaf exemption is part of the filter only — a search that
+   * doesn't match the leaf hides it (pi parity).
    */
   private applyFilter(): void {
     const selected = this.lines[this.selectedLine];

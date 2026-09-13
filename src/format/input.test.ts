@@ -3,7 +3,7 @@ import { test } from "node:test";
 import { UsageError } from "../core/generated/util.ts";
 import {
   decodeFormatInput,
-  parseSessionSnapshot,
+  parseSnapshotDocument,
   type FormatInput,
 } from "./input.ts";
 
@@ -225,27 +225,28 @@ test("classification and iteration pull chunks lazily", async () => {
 });
 
 test("parseSessionSnapshot accepts a pretty-printed snapshot document", () => {
-  const snapshot = parseSessionSnapshot(SNAPSHOT_DOCUMENT);
+  const snapshot = parseSnapshotDocument(SNAPSHOT_DOCUMENT);
   assert.equal(snapshot.entries.length, 1);
   assert.deepEqual(snapshot.leaf, { uuid: "u1" });
   assert.equal(
-    parseSessionSnapshot('{"entries": [], "leaf": null}').leaf,
+    parseSnapshotDocument('{"entries": [], "leaf": null}').leaf,
     null,
   );
 });
 
 test("parseSessionSnapshot validates the leaf and entry shapes", () => {
-  assert.throws(() => parseSessionSnapshot('{"entries": []}'), UsageError);
+  assert.throws(() => parseSnapshotDocument('{"entries": []}'), UsageError);
   assert.throws(
-    () => parseSessionSnapshot('{"entries": [], "leaf": 3}'),
+    () => parseSnapshotDocument('{"entries": [], "leaf": 3}'),
     UsageError,
   );
   assert.throws(
-    () => parseSessionSnapshot('{"entries": [], "leaf": {"viaBoundary": "b"}}'),
+    () =>
+      parseSnapshotDocument('{"entries": [], "leaf": {"viaBoundary": "b"}}'),
     UsageError,
   );
   assert.throws(
-    () => parseSessionSnapshot('{"entries": [{"foo": 1}], "leaf": null}'),
+    () => parseSnapshotDocument('{"entries": [{"foo": 1}], "leaf": null}'),
     UsageError,
   );
 });
@@ -263,7 +264,7 @@ test("parseSessionSnapshot derives the leaf from raw session JSONL", () => {
     type: "assistant",
     message: { role: "assistant", content: [] },
   });
-  const snapshot = parseSessionSnapshot(`${user}\n${assistant}\n`);
+  const snapshot = parseSnapshotDocument(`${user}\n${assistant}\n`);
   assert.equal(snapshot.entries.length, 2);
   assert.deepEqual(snapshot.leaf, {
     uuid: "00000002-0000-4000-8000-000000000000",
@@ -272,15 +273,15 @@ test("parseSessionSnapshot derives the leaf from raw session JSONL", () => {
 
 test("parseSessionSnapshot points the other shapes at their subcommands", () => {
   assert.throws(
-    () => parseSessionSnapshot(`${TAIL_LINE}\n`),
+    () => parseSnapshotDocument(`${TAIL_LINE}\n`),
     (error: unknown) =>
       error instanceof UsageError &&
       error.message.includes("clauctl format events"),
   );
-  assert.throws(() => parseSessionSnapshot("not json"), UsageError);
+  assert.throws(() => parseSnapshotDocument("not json"), UsageError);
   // Old get-tree documents get the generic error, not a special case.
   assert.throws(
-    () => parseSessionSnapshot('{"tree": [], "leaf": null}'),
+    () => parseSnapshotDocument('{"tree": [], "leaf": null}'),
     (error: unknown) =>
       error instanceof UsageError &&
       error.message.includes("not a session snapshot"),

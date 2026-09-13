@@ -31,18 +31,6 @@ export interface TreeNodeRef {
  *  depth ~5000. ParentMap and TreeNodeStr are defined in parent-map.ts and
  *  re-exported above so tree consumers need only this module. */
 
-/** get-entries response: every file entry verbatim, plus the daemon-computed
- *  context tip resolved to its occurrence in these entries. Entries lacking
- *  a uuid (file-history-snapshot, queue-operation) get no tree occurrence
- *  and are visible in `entries` only. */
-export interface SessionSnapshot {
-  entries: SessionEntry[];
-  /** The current-leaf occurrence — where the next turn attaches: the tip
-   *  of loadedContext over the file. Null when the session has no chain
-   *  entries. */
-  leaf: TreeNodeRef | null;
-}
-
 /** "<uuid>" or "<uuid>@<viaBoundary>" ("@" cannot appear in a uuid). */
 export function formatTreeNodeRef(ref: TreeNodeRef): TreeNodeStr {
   return ref.viaBoundary === undefined
@@ -102,7 +90,7 @@ export function resolveTreeNodeRef(
 
 /** Structural equality (uuid + viaBoundary); undefined equals undefined.
  *  Needed because refs are produced independently (the state fold,
- *  set-context, seedFromEntries, wire deserialization), so `===` reference
+ *  set-context, the session model, wire deserialization), so `===` reference
  *  equality never holds between them. */
 export function treeNodeRefsEqual(
   a: TreeNodeRef | undefined,
@@ -150,31 +138,4 @@ export function pathToLeaf(
   }
   path.reverse();
   return path;
-}
-
-function apiMessageIdOf(entry: SessionEntry | undefined): string | undefined {
-  return (entry?.message as { id?: string } | undefined)?.id;
-}
-
-/** No child of this occurrence continues the same assistant API message
- *  (shares message.id) — the entry is a valid rewindTo target. False for
- *  non-assistant entries. */
-export function isFinalAssistantEntry(
-  id: TreeNodeStr,
-  children: ReadonlyMap<TreeNodeStr | null, readonly TreeNodeStr[]>,
-  byUuid: ReadonlyMap<UUID, SessionEntry>,
-): boolean {
-  const entry = byUuid.get(parseTreeNodeRef(id).uuid);
-  if (entry?.type !== "assistant") {
-    return false;
-  }
-  const apiMessageId = apiMessageIdOf(entry);
-  if (apiMessageId === undefined) {
-    return true;
-  }
-  const childIds = children.get(id) ?? [];
-  return !childIds.some(
-    (child) =>
-      apiMessageIdOf(byUuid.get(parseTreeNodeRef(child).uuid)) === apiMessageId,
-  );
 }

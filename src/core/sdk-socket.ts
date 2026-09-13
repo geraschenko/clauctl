@@ -223,12 +223,35 @@ export type SetContextRequest =
 
 /** Response data for set-context. summaryUuid absent whenever no summary
  *  entry was written. */
-export interface SetContextResult {
+export interface SetContextResponse {
   boundaryUuid: UUID;
   summaryUuid?: UUID;
   /** Uuids normalization inserted into the preserved list (omitted when
    *  nothing was added). */
   added?: UUID[];
+}
+
+/** What a read of entries carries back: identities only (no file read),
+ *  or the complete entries (readEntriesAt over their ranges). */
+export type EntryPayload = "uuids" | "full";
+
+export const ENTRY_PAYLOADS: readonly EntryPayload[] = ["uuids", "full"];
+
+/** get-entries response. `entries` is present for `payload: "full"`: the
+ *  complete entries in file order, one per uuid. */
+export interface GetEntriesResponse {
+  uuids: UUID[];
+  entries?: SessionEntry[];
+  /** The current-leaf occurrence — where the next turn attaches. Null
+   *  when the session has no chain entries. */
+  leaf: TreeNodeRef | null;
+}
+
+/** get-context response: the context as occurrences in context order;
+ *  `entries` (same order) present for `payload: "full"`. */
+export interface GetContextResponse {
+  refs: TreeNodeRef[];
+  entries?: SessionEntry[];
 }
 
 function assertUuid(value: unknown, label: string): UUID {
@@ -305,6 +328,23 @@ export function parseSetContextRequest(
   };
 }
 
+export interface GetEntriesSnapshotRequest {
+  type: "get-entries";
+  payload: EntryPayload;
+  since?: UUID;
+}
+
+/** Payload lookup for known uuids: no snapshot, no payload selector. */
+export interface GetEntriesByUuidsRequest {
+  type: "get-entries";
+  uuids: UUID[];
+}
+
+export const isGetEntriesByUuids = (
+  request: SdkRequest,
+): request is GetEntriesByUuidsRequest =>
+  request.type === "get-entries" && "uuids" in request;
+
 export type SdkRequest =
   | {
       type: "prompt";
@@ -318,18 +358,21 @@ export type SdkRequest =
   // No history replay — a subscriber starts at "now" and folds from there
   // (agent-state.ts).
   | { type: "subscribe"; attachment?: SubscribeAttachment }
-  // Response data: SessionEntry[] — the assistant context at `at` (an
+  // Response data: GetContextResponse — the assistant context at `at` (an
   // occurrence of the context tree), or at the current leaf when absent;
-  // `[]` with no session or a null leaf. Derived from the transcript file
-  // via the context tree, not from the Query, so it is not an SdkControlRead.
-  | { type: "get-context"; at?: TreeNodeRef }
-  // Response data: SessionSnapshot — every canonical jsonl line of the
-  // current session (after the `since` cursor when given; an unknown cursor
-  // is an error), verbatim, plus the current-leaf occurrence. Clients build
-  // the tree locally (build-tree.ts); a nested wire representation would
-  // overflow JSON.stringify on long sessions.
-  | { type: "get-entries"; since?: UUID }
-  // Response data: SetContextResult.
+  // empty with no session or a null leaf. Derived from the tracked file via
+  // the context tree, not from the Query, so it is not an SdkControlRead.
+  | { type: "get-context"; at?: TreeNodeRef; payload: EntryPayload }
+  // Response data: GetEntriesResponse — every canonical entry of the current
+  // session (after the `since` cursor when given; an unknown cursor is an
+  // error) plus the current-leaf occurrence. Clients build the tree locally
+  // (build-tree.ts); a nested wire representation would overflow
+  // JSON.stringify on long sessions.
+  | GetEntriesSnapshotRequest
+  // Response data: SessionEntry[] — these entries complete, in requested
+  // order; an unknown uuid is an error.
+  | GetEntriesByUuidsRequest
+  // Response data: SetContextResponse.
   | SetContextRequest
   | SdkControlMutation
   | SdkControlRead;
@@ -345,8 +388,16 @@ export type SdkResponse =
   | { id: string; ok: true; data?: unknown }
   | { id: string; ok: false; error: string };
 
+/** A response paired with the subscription queue's pushed count at its
+ *  line. Events and responses share one wire, so the response is a cut of
+ *  the event stream: the first `eventsBefore` events precede it. */
+interface PositionedResponse {
+  response: SdkResponse;
+  eventsBefore: number;
+}
+
 interface PendingRequest {
-  resolve: (response: SdkResponse) => void;
+  resolve: (response: PositionedResponse) => void;
   reject: (error: Error) => void;
 }
 
@@ -485,28 +536,42 @@ export class SdkSocketClient {
       if (record.id === this.subscribeRequestId && response.ok) {
         this.foldedState = response.data as AgentState;
       }
-      pending.resolve(response);
+      pending.resolve({
+        response,
+        eventsBefore: this.events?.pushedCount ?? 0,
+      });
     }
   }
 
   /** Send a request; resolves with the response data, throws on daemon error. */
   async request(request: SdkRequest): Promise<unknown> {
-    const response = await this.sendRequest(request).response;
+    return (await this.requestWithEventCount(request)).data;
+  }
+
+  /** request() plus how many subscription events were queued before the
+   *  response line — the snapshot handoff point (spec Data flow 6): a
+   *  subscriber that fetched a snapshot after subscribing knows the first
+   *  `eventsBefore` queued events are in the snapshot and later ones are
+   *  not. Zero when not subscribed. */
+  async requestWithEventCount(
+    request: SdkRequest,
+  ): Promise<{ data: unknown; eventsBefore: number }> {
+    const { response, eventsBefore } = await this.sendRequest(request).response;
     if (!response.ok) {
       throw new Error(`daemon rejected ${request.type}: ${response.error}`);
     }
-    return response.data;
+    return { data: response.data, eventsBefore };
   }
 
   private sendRequest(request: SdkRequest): {
     id: string;
-    response: Promise<SdkResponse>;
+    response: Promise<PositionedResponse>;
   } {
     if (this.closed) {
       throw new Error("sdk socket closed");
     }
     const id = `clauctl-${++this.requestCounter}`;
-    const response = new Promise<SdkResponse>((resolve, reject) => {
+    const response = new Promise<PositionedResponse>((resolve, reject) => {
       this.pending.set(id, { resolve, reject });
       this.socket.write(`${JSON.stringify({ ...request, id })}\n`);
     });
@@ -544,7 +609,7 @@ export class SdkSocketClient {
     this.subscribeRequestId = id;
     let result: SdkResponse;
     try {
-      result = await response;
+      ({ response: result } = await response);
     } catch (error) {
       // Pending requests reject with the generic close error; without a seed
       // there is no subscription to hand back, so name that specifically.
