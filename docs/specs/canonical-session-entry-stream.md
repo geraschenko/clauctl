@@ -1,6 +1,6 @@
 # Canonical session-entry stream
 
-> Status: **implemented, awaiting owner review of the implementation**;
+> Status: **implemented; `seed.ts` and `SessionEntryClient` were later replaced by docs/specs/session-tracker.md.**;
 > replaces the earlier draft of the same name.
 > This is Spec 1 from
 > [prompt-tail-parity-overview.md](prompt-tail-parity-overview.md). It defines
@@ -169,9 +169,10 @@ export type EntryClientOptions =
  *  follows appends incrementally from the retained byte offset. One event
  *  per canonical entry, paired with its post-fold state; the seed is the
  *  emission-start state. One subscribe() per client. */
-export class SessionEntryClient
-  implements StreamClient<SessionEntry, EntryStreamState>
-{
+export class SessionEntryClient implements StreamClient<
+  SessionEntry,
+  EntryStreamState
+> {
   constructor(filePath: string, options: EntryClientOptions);
   /** Rejects on a missing/unreadable file, a malformed terminated line in
    *  the initial extent, or a `since` cursor absent from that extent (no

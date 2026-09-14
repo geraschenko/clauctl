@@ -1,6 +1,6 @@
 # Spec: `_tui` — the sdk.sock-client terminal UI
 
-> Status: **phase-3 spec** (grown from the original scaffold). Read
+> Status: **implemented.** (grown from the original scaffold). Read
 > `docs/overview.md` and `docs/specs/phase-2-sdk-sock-protocol.md` first — the
 > TUI is a pure client of the protocol that phase built. Corresponds to
 > "Phase 5 — TUI" in `docs/implementation-plan.md`.
@@ -99,15 +99,26 @@ export type RenderBlock =
   | { type: "text"; text: string }
   | { type: "thinking"; thinking: string }
   | { type: "toolCall"; id: string; name: string; arguments: unknown };
-export interface RenderAssistant { content: RenderBlock[]; }
-export interface RenderToolResult { toolCallId: string; content: string; isError: boolean; }
+export interface RenderAssistant {
+  content: RenderBlock[];
+}
+export interface RenderToolResult {
+  toolCallId: string;
+  content: string;
+  isError: boolean;
+}
 
 // sdk-render.ts — pure, unit-testable without a terminal.
 // The streaming unit is one assistant API message (a turn contains several);
 // a StreamingMessage is created at each stream_event message_start.
-export interface StreamingMessage { partial: RenderAssistant; /* per-block accumulation state */ }
+export interface StreamingMessage {
+  partial: RenderAssistant; /* per-block accumulation state */
+}
 export function beginMessage(): StreamingMessage;
-export function foldStreamEvent(streaming: StreamingMessage, event: BetaRawMessageStreamEvent): StreamingMessage;
+export function foldStreamEvent(
+  streaming: StreamingMessage,
+  event: BetaRawMessageStreamEvent,
+): StreamingMessage;
 export function renderAssistant(message: SDKAssistantMessage): RenderAssistant;
 export function toolResultsOf(message: SDKUserMessage): RenderToolResult[];
 export function userText(message: SDKUserMessage): string;

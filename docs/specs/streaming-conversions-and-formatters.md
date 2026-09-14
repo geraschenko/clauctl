@@ -1,6 +1,6 @@
 # Streaming conversions and formatters
 
-> Status: **approved, awaiting implementation**.
+> Status: **implemented.**
 > This is Spec 2 from
 > [prompt-tail-parity-overview.md](prompt-tail-parity-overview.md). It defines
 > the canonical message/control record types, the entry→message projection,
@@ -542,7 +542,7 @@ encountered.
 - **Snapshot-document input to `format events` no longer points at
   `format tree`**: the document decodes to kind `entries` (its provenance is
   not tracked), so `format events` rejects it with "use `clauctl format
-  messages` or `clauctl format entries`" — correct guidance now that both
+messages` or `clauctl format entries`" — correct guidance now that both
   accept the document, but a wording change from today's `format tree`
   pointer.
 - **Torn-only input is `empty`, document parse tried first**: input with no
@@ -559,7 +559,7 @@ encountered.
 
 - [x] 2026-07-30: Review round 1 (commit 3cef841) addressed. Renamed
       `JsonlDecoder`/`src/core/jsonl.ts` → `LineReader`/`src/core/
-      line-reader.ts` (`Line` record type) — the class never touches JSON.
+    line-reader.ts` (`Line` record type) — the class never touches JSON.
       Controls now always carry their source entry's uuid when it has one
       (the `includeUuid` boolean and the compaction-only rule are gone; the
       type-design comment above is updated) — a model_changed control shares
@@ -568,7 +568,7 @@ encountered.
       pipeline: a `projectEntries` async generator (filter → projector) turns
       entries input into the message stream, and one loop drives the
       formatter regardless of input kind. Owner's direct edits kept: `format
-      entries` width default 100, error-wording tweaks.
+    entries` width default 100, error-wording tweaks.
 - [x] 2026-07-30: Review round 2 (commit a3d85e6) + pictl ca69c08 dedupe.
       `projectEntries` moved from format/command.ts to core/session/
       messages.ts next to `MessageProjector` — it is the canonical

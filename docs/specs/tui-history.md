@@ -1,5 +1,7 @@
 # TUI history: get-messages RPC and transcript replay on attach
 
+> Status: **implemented; history replay now comes from get-entries over the socket (docs/specs/session-tracker.md), and get-messages became get-context (docs/specs/get-context.md).**
+
 # SPEC
 
 ## Problem

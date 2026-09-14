@@ -6,8 +6,13 @@ clauctl's architecture is built on. Many of these are under-documented or
 undocumented upstream; they were established by reading the SDK's shipped
 type definitions and by direct experiment (see [`derisk/`](derisk/) for the
 experiments), against `@anthropic-ai/claude-agent-sdk` 0.3.x in mid-2026 —
-they are empirical, and SDK upgrades can invalidate them. If clauctl does something in a roundabout way, the reason is
-usually on this page.
+they are empirical, and SDK upgrades can invalidate them. If clauctl does
+something in a roundabout way, the reason is usually on this page; what
+clauctl does about each fact is in [`socket-interface.md`](socket-interface.md)
+and the deep dives it links.
+
+Each fact notes what pins it: a test under `tests/sdk/` that runs against
+the live SDK, or a derisk experiment only (no regression test).
 
 ## The `claude` binary is the real authority
 
@@ -44,8 +49,17 @@ structured JSON, not terminal bytes.
 
 Consequences: whoever holds the SDK connection is the _only_ party talking
 to the agent (hence clauctl's daemon-owns-the-connection architecture), and
-there is no stock `claude` TUI to attach to (hence clauctl's own TUI,
-rendered into a pty).
+there is no stock `claude` TUI to attach to (hence clauctl's own TUI).
+
+## An unset `permissionMode` overrides the settings files
+
+`query()` with `permissionMode` unset spawns the CLI with
+`--permission-mode default`, overriding `permissions.defaultMode` from every
+settings file: inside the SDK the flag is
+`permissionMode ?? (internal.resolvePermissionModeInCli ? undefined : "default")`
+and the internal switch is never set for public callers. The daemon
+therefore resolves the settings cascade itself and always passes the mode
+explicitly. Pinned by `tests/sdk/permission-mode.test.ts`.
 
 ## Session ids roll over in place
 
@@ -59,7 +73,9 @@ rendered into a pty).
   resumable.
 
 This is why a clauctl agent id is not a session id: one agent spans a
-sequence of session ids, tracked in `agent.json`.
+sequence of session ids, tracked in `agent.json`, and why the socket has a
+`sessionFileChanged` event. Pinned by
+`derisk/clear-vs-session-experiment/` only.
 
 ## Transcripts are files, and they are readable
 
@@ -69,7 +85,7 @@ Each session id has an append-only transcript JSONL at
 character replaced by `-`. Entries have uuids and parent uuids, forming a
 tree; the conversation is a path through it.
 
-Two quirks matter:
+Three quirks matter:
 
 - **Repersisted duplicates.** The CLI sometimes rewrites entries it has
   already written (e.g. re-persisting dropped-from-context history around
@@ -80,37 +96,42 @@ Two quirks matter:
   position and content, so each entry is emitted exactly once; for
   reconstructing what claude will actually load, the loader model
   ([`src/core/tree/loader.ts`](../src/core/tree/loader.ts)) is
-  **last**-wins, mirroring claude's own uuid-keyed loading.
+  **last**-wins, mirroring claude's own uuid-keyed loading. Pinned by
+  experiment only.
 - **Compact boundaries.** Compaction writes a `compact_boundary` entry that
   splices a summarized prefix out of the effective context. Reconstructing
   "what the model currently sees" means following boundary links, not just
   walking parent pointers. clauctl's context surgery (`set-context`) writes
-  the same kind of boundary entry the CLI itself uses.
+  the same kind of boundary entry the CLI itself uses; the loading model it
+  relies on is `derisk/compact-boundary-injection/FINDINGS.md`, pinned by
+  `tests/sdk/compact-boundary-suite.test.ts`.
+- **`getSessionMessages()` is not the context.** This module-level SDK
+  function returns the user/assistant chain, but not attachment entries.
+  [`session-views.md`](session-views.md) explains what clauctl reads
+  instead; [`socket-interface.md`](socket-interface.md) has more details on
+  why we don't use `getSessionMessages`.
 
-clauctl leans on these files heavily: session history for `tail`,
-`get-entries`, and the TUI's replay ultimately comes from the transcript, not
-from asking the SDK. The intended division of labor: the daemon reads the
-transcript and serves it over `sdk.sock`, and clients of the daemon — the TUI
-included — replay history through `get-entries` rather than touching the
-files. Direct file access is meant to be limited to the daemon and
-`AgentObserver`
-([`src/core/agent-observer.ts`](../src/core/agent-observer.ts)) — the merged
-events-plus-entries subscription that `tail` and `prompt` are built on, which
-also works on dormant agents that have no daemon to ask. `AgentObserver` is
-essentially the observation interface we wish the SDK had provided.
+The file is the durable record and the daemon follows it live; the query
+stream is Claude's live view. Neither is complete and they are not
+synchronized — the file lags the stream by a flush — which is the problem
+[`stream-merging.md`](stream-merging.md) solves. The classification of which
+stream carries which entry class lives there, pinned by
+`tests/sdk/stream-classification.test.ts`.
 
 ## The live stream omits user prompts
 
 The SDK's message stream does not echo the user messages you feed in, and
-prompts injected while a turn is running ("steering") never appear in the
-SDK's own transcript queries. A client that wants to display the full
-conversation — including what was just typed — cannot get it from the stream
-alone. clauctl's daemon therefore tracks prompt visibility itself; see
-[`user-message-tracking.md`](user-message-tracking.md).
+prompts injected while a turn is running ("steering") appear in the file
+only as a `queued_command` attachment. The CLI's prompt queue
+(enqueue/dequeue/reorder) is likewise invisible live. A client that wants to
+display the full conversation — including what was just typed — cannot get
+it from the stream alone; the daemon models the queue itself
+([`user-message-tracking.md`](user-message-tracking.md)). Pinned by
+`tests/sdk/stream-classification.test.ts` (a stamped `SDKUserMessage.uuid`
+becomes the file's user entry; a steer surfaces only as the attachment).
 
-This generalizes: the event stream served on `sdk.sock` is a superset of the
-SDK's. Every Claude Agent SDK message is forwarded verbatim (as `sdkMessage`
-events), and clauctl adds the events we determined a client needs to
-accurately maintain `AgentState` — the queue events
-(`userMessageQueued`/`userMessageDequeued`), `compactSent`, `interruptSent`,
-`contextChanged`, and `controlApplied`.
+## Hooks never reach the query stream
+
+`hook_*` messages exist in `sdk.d.ts` but have never been observed on the
+query stream or in the file; hooks run, and only their effects are visible.
+Pinned by `tests/sdk/stream-classification.test.ts`.

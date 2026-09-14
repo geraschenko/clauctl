@@ -1,5 +1,7 @@
 # wait and tail --until
 
+> Status: **implemented.**
+
 # SPEC
 
 ## Problem
@@ -101,7 +103,7 @@ time.
 ## Success criteria
 
 1. On an idle agent, `clauctl query -t <agent> "..." && clauctl wait -t
-   <agent> --until turn-end` returns after that turn's `result`, never
+<agent> --until turn-end` returns after that turn's `result`, never
    before, and never hangs when the turn already finished before `wait`
    subscribed. (On an already-busy agent, `turn-end` means the first `result`
    after the seed — possibly an earlier turn's; waiting out the whole queue
@@ -127,7 +129,7 @@ time.
    zero, huge, and non-finite durations), met-at-seed and met-by-event for
    each condition, and the driver's quiet-timer, deadline, closed-socket,
    post-settlement-suppression, and hook-exception behavior. `clauctl wait
-   --help` works (route is registered).
+--help` works (route is registered).
 10. `npm run presubmit` passes.
 
 ## Type design
@@ -319,7 +321,7 @@ Flag helpers (`parsedFlag`, `requiredParsedFlag`, `secondsFlag`,
   check-or-enqueue on the daemon's fold) applies equally to a subscribed
   client, which is why the request can be deleted rather than kept alongside.
 - Condition met at seed: `wait` exits 0 without waiting for events; `tail
-  --until` prints the snapshot line and exits with no event lines.
+--until` prints the snapshot line and exits with no event lines.
 - Socket events racing the subscribe response: `runStream` gates event
   processing on the seed (the pre-snapshot buffering currently in tail.ts
   moves into the driver), so `onSeed` always runs before any `onEvent` and
@@ -368,6 +370,7 @@ Flag helpers (`parsedFlag`, `requiredParsedFlag`, `secondsFlag`,
   `leafTreeNodeRef` in the snapshot, post-change leaves on `contextChanged`).
   A cursor record becomes necessary only alongside formatted output that
   omits uuids (the `--type` spec).
+
 - **`--type` / `--json` formatted output** — later spec; the raw JSONL stream
   is tail's only mode here. `StreamHandler` accommodates a stateful formatted
   printer without interface changes.

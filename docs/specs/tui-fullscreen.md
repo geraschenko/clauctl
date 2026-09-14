@@ -1,5 +1,7 @@
 # TUI Fullscreen Mode (pi-tui 0.84.2)
 
+> Status: **implemented.**
+
 # SPEC
 
 ## Problem statement
@@ -156,6 +158,7 @@ satisfy it; `Editor` and `Loader` constructors are unchanged in 0.84.2).
   (same visual order as today's flat mount). The `ScrollView` wraps
   `chatContainer` persistently; `reloadHistory`'s `chatContainer.clear()`
   keeps working unchanged because the container instance is never replaced.
+
 - Input: `TuiAltScreen` registers its own viewport input listener in its
   constructor (before our `handleGlobalKey` listener), so fullscreen
   navigation keys are consumed there; search enter/escape/ctrl+g are only
@@ -259,8 +262,9 @@ use `git show v0.84.2:<path>`). Key files:
   ```
 
   `copySelection: async (text) => { try { await copyToClipboard(text);
-  return true; } catch { return false; } }` with `copyToClipboard` imported
+return true; } catch { return false; } }` with `copyToClipboard` imported
   from `@earendil-works/pi-coding-agent` (already exported there).
+
 - `tui.altScreen.searchNext/searchPrevious/searchClose` are gated on the
   search overlay being _focused_; `tui.altScreen.search` (ctrl+shift+f) is
   global. `getConflicts()` inspects only user-configured bindings, so the

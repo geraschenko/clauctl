@@ -1,6 +1,6 @@
 # Spec: TUI input features — slash commands, completion, @-files, permission mode
 
-> Status: **draft**. Builds on `docs/specs/tui.md` (phase 3): the TUI is a pure
+> Status: **implemented.** Builds on `docs/specs/tui.md` (phase 3): the TUI is a pure
 > `sdk.sock` client. This phase adds the input-side affordances: a completion
 > popup for slash commands (including skills) and `@` file insertion, a local
 > `/model` command, and permission-mode display + cycling.
@@ -144,7 +144,11 @@ export function findFd(): string | null; // PATH lookup: fd, then fdfind
 export class TuiAutocompleteProvider implements AutocompleteProvider {
   // cwd null (snapshot from a pre-extension daemon) disables @ completion
   // the same way a missing fd does, minus the hint.
-  constructor(cwd: string | null, fdPath: string | null, onAtWithoutFd: () => void);
+  constructor(
+    cwd: string | null,
+    fdPath: string | null,
+    onAtWithoutFd: () => void,
+  );
   setCommands(commands: SlashCommand[]): void; // merges local /model, /context
   // getSuggestions / applyCompletion / shouldTriggerFileCompletion /
   // triggerCharacters delegate to an inner CombinedAutocompleteProvider
@@ -229,7 +233,7 @@ unconditionally.
   this pattern.
 - **fd flags** (what `CombinedAutocompleteProvider` runs):
   `fd --base-directory <cwd> --max-results 100 --type f --type d --follow
-  --hidden --exclude .git <pattern>`, `--full-path` when the query contains
+--hidden --exclude .git <pattern>`, `--full-path` when the query contains
   `/`; results re-ranked (exact filename 100 / prefix 80 / name-substring 50 /
   path-substring 30 / +10 dir), top 20 shown.
 - **Trigger characters**: pi-tui's Editor keeps its default `["@", "#"]`

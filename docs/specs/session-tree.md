@@ -1,6 +1,6 @@
 # Spec: session tree — loader model, full tree, display tree
 
-> Status: **approved for implementation** (reviewer pass + owner
+> Status: **implemented.** (reviewer pass + owner
 > decisions resolved, 2026-07-22; see WORK LOG). Supersedes
 > `docs/specs/boundary-display-linearization.md` (whose user-facing goals
 > carry over, but whose mechanism was built on a guessed loader model) and

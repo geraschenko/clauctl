@@ -1,6 +1,6 @@
 # Spec: Convenience commands — `format` and `completion`
 
-> Status: **scaffold** — sparse; few decisions made yet. Read `docs/overview.md`
+> Status: **implemented.** Originally sparse; few decisions made yet. Read `docs/overview.md`
 > first. Mirror pictl's equivalents where they exist.
 >
 > **`format` is superseded by `docs/specs/format.md`**; only `completion`

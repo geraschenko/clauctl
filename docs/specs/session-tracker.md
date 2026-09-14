@@ -6,7 +6,7 @@
 > docs/specs/session-tracker/redesign-2026-09-12.md), awaiting Anton's
 > review.** Follow-up to
 > docs/specs/get-context.md (its Cost section anticipated this) and
-> docs/thoughts/get-entries-caching.md. Derisk rounds and the rewrite's
+> docs/thoughts/old/get-entries-caching.md. Derisk rounds and the rewrite's
 > decision record are in the WORK LOG.
 
 # SPEC
@@ -166,18 +166,8 @@ other stream passes them.
 
 ### Classification table (which streams carry an id)
 
-| side    | class                                                                                                                                                              | other side                                                                                                                                                                               | evidence                                                     |
-| ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------ |
-| query   | `assistant`                                                                                                                                                        | session `assistant`, or session `system/local_command` (slash-command output; same uuid, different class)                                                                                | captures, probe                                              |
-| query   | `user` (tool results, compaction summary)                                                                                                                          | session `user`                                                                                                                                                                           | captures, probe                                              |
-| query   | `system/compact_boundary`                                                                                                                                          | session `system/compact_boundary`                                                                                                                                                        | live compact, probe                                          |
-| query   | `result`, `system/init`, `system/status`, `system/thinking_tokens`, `stream_event`, `tool_progress`, `rate_limit_event`, task/notification/session_state, `hook_*` | none (query-only)                                                                                                                                                                        | probe (`hook_*` never observed on either stream)             |
-| session | `assistant`, `user` tool results / summaries, `system/compact_boundary`, `system/local_command`                                                                    | query (above)                                                                                                                                                                            | probe                                                        |
-| session | `user` prompts (ours and the CLI's `<command-name>` entries)                                                                                                       | none (session-only): the query stream never echoes a prompt; clauctl does not stamp `SDKUserMessage.uuid` (the CLI would persist it — docs/derisk/uuid-stamping/ — but see Observations) | docs/derisk/uuid-stamping/                                   |
-| session | `user` `<local-command-stdout>` (a slash command's output logged as a `user` entry, never `isMeta`; `/compact`'s "Compacted")                                      | query `user` with `isReplay: true` (the CLI replays the entry to the SDK consumer)                                                                                                       | captures 2/2 (2026-09-11); 349 files: 4519/4519 non-`isMeta` |
-| session | local-command input entries: `<local-command-caveat>` (`isMeta`), `<command-name>` (not `isMeta`; carries the stamped uuid when we stamp)                          | none (session-only)                                                                                                                                                                      | probe; 349 files                                             |
-| session | `attachment`, `system/{stop_hook_summary, turn_duration, api_error, away_summary, informational, model_*_fallback}`                                                | none (session-only); `turn_duration`/`api_error` not yet observed                                                                                                                        | probe (`stop_hook_summary`, `attachment`), 349 files         |
-| —       | uuid-less log classes (`last-prompt`, `queue-operation`, `mode`, `permission-mode`, `ai-title`, `file-history-*`, `agent-*`, `atis-latch`, …)                      | never enter the merge                                                                                                                                                                    | 349 files                                                    |
+The table itself lives in docs/stream-merging.md (moved there in
+phase 5; this spec cites it).
 
 Evidence: SDK 0.3.258 `sdk.d.ts` (every `SDKMessage` variant carries
 `uuid`; optional only on host-pushed `SDKUserMessage`); 349 real
@@ -1533,10 +1523,15 @@ retired with phase 1):
    on the agent event stream (delete `AgentObserver`); TUI entry +
    SDK-message maps, rolling trees, the `queued_command` display row,
    and the anomaly banner; CLI `--uuids`; format annotation.
-5. **Docs.** `docs/agent-events.md`, session-views.md cross-reference,
-   update get-context.md/canonical-session-entry-stream.md/
-   daemon-architecture.md status notes, remove the AGENTS.md bullet.
-   Also need to update docs/claude-agent-sdk.md to clearly explain how we produce a unified subscription with good observation properties; see docs/thoughts/cleanup.md (note: this cleanup file will be deleted, so do not leave any permanent referrences to it)
+5. **Docs.** `docs/socket-interface.md` (the interface and its
+   observability philosophy) and `docs/stream-merging.md` (deep dive:
+   the classification table moves there); session-views.md takes the
+   tree-maintenance discussion; docs/claude-agent-sdk.md brought up to
+   date: references to the deleted `AgentObserver` removed, links to
+   the new docs, anything covered in depth elsewhere trimmed to a
+   pointer, "tested by" pointers into tests/sdk/; status headers on
+   every completed spec; remove the AGENTS.md one-pass bullet. Plan and
+   log: docs/specs/session-tracker/phase-5-docs.md.
 
 Notes:
 

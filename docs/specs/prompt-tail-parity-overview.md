@@ -1,6 +1,6 @@
 # Prompt/tail parity roadmap
 
-> Status: **planning overview**, not an implementation-ready spec. This document
+> Status: **implemented (all three specs landed).** Not an implementation-ready spec. This document
 > records the cross-cutting ontology, settled command behavior, constraints, and
 > proposed sequence of follow-up specs. Each phase below gets its own spec and
 > review before implementation. Return here when beginning a later phase so its

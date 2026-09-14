@@ -9,7 +9,7 @@
 
 ## Code Quality
 
-- Read files in full before wide-ranging changes, before editing files you have not fully inspected, and when asked to investigate or audit. Do not rely on search snippets for broad changes.
+- Read files in full before wide-ranging changes, before editing files you have not fully inspected, and when asked to investigate or audit. Do not rely on search snippets for broad changes. Prefer your Read tool with offset and limit over `sed -n`.
 - No `any` unless absolutely necessary.
 - Inline single-line helpers that have only one call site.
 - Check node_modules for external API types; don't guess.
@@ -24,7 +24,7 @@
 ## Naming and References
 
 - Name things by their semantic role, so the name is comprehensible without external context. Never name after an arbitrary ordering (`rule4Parent` bad, `linearizedGroupParent` good).
-- Long-lived variables (fields, module state) are named after their type when the type has a name: `sessionModel: SessionModel`, never `model`. A generic word (`model`, `state`, `data`) collides with the other things it could mean in this codebase (the assistant model, `QueueModel`, `AgentState`).
+- Long-lived variables (fields, module state) are named after their type when possible: `sessionModel: SessionModel`, never `model`. A generic word (`model`, `state`, `data`) collides with the other things it could mean in this codebase (the assistant model, `QueueModel`, `AgentState`).
 - Use the repo's established terminology; do not coin synonyms for concepts that already have names (a boundary's list of kept uuids is its "preserved uuids").
 - Shorthand references in comments and test names (probe ids like `p20`, pipeline stage numbers) must be locally resolvable: define the pointer once in the file's header comment and write "…; see file comment" at each use site.
 - Minified identifiers from decompiled code belong only in the derisk findings docs, never in product code or comments.

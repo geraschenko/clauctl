@@ -1,5 +1,7 @@
 # `clauctl attach` runs the TUI directly
 
+> Status: **implemented.**
+
 Supersedes docs/specs/attach.md (the daemon-hosted-TUI architecture this
 spec removes).
 
@@ -115,9 +117,9 @@ imports `attach` from here; app.ts imports `attachRoute` from here.
 
 ```ts
 export type InteractiveOutcome =
-  | { kind: "detached" }                 // app.detach pressed
+  | { kind: "detached" } // app.detach pressed
   | { kind: "shutdown"; reason: string } // daemon shutdown event received
-  | { kind: "connectionLost" };          // socket closed unannounced
+  | { kind: "connectionLost" }; // socket closed unannounced
 
 export async function runInteractive(
   client: SdkSocketClient,

@@ -1,5 +1,7 @@
 # Loaded context truth, preserved-uuids normalization, and parallel-call display
 
+> Status: **implemented; the per-request rebuild described here is replaced by the rolling builders of docs/specs/session-tracker.md.**
+
 Successor to the retired work queue (next.md); derisk evidence lives in
 docs/derisk/compact-boundary-injection/FINDINGS.md (probe ids like p18,
 p19 cite it) and the loader model in docs/specs/session-tree.md.

@@ -1,6 +1,6 @@
 # Spec: get-context — the context tree as the one source of context and leaf
 
-> Status: **IMPLEMENTED 2026-09-07; awaiting review**. Follow-up to
+> Status: **implemented (2026-09-07).** Follow-up to
 > docs/specs/context-tree.md (phase C review round 70ab34e). Derisk
 > discussion rounds are summarized in the WORK LOG.
 
@@ -74,7 +74,7 @@ Wanted:
    isMeta, `system`, and `attachment` entries on the path are present with
    their file fields; `clauctl get-context | clauctl format messages`
    renders as `format messages` over entries does. `format tree --filter
-   all` renders isMeta rows with the meta glyph; the default filters hide
+all` renders isMeta rows with the meta glyph; the default filters hide
    them as today.
 6. Every `/tree` pick is a rewind to a context-tree occurrence (or the
    empty context): a real user prompt (`userWithText`) → its context-tree
@@ -100,7 +100,7 @@ boundary B, preserved `[u1 a1 u2]`, anchor = B):
 - `get-context --at a2` → `[u1, a1, u2, a2]`; `--at u2` → `[u1, a1, u2]`
   (the raw occurrence); `--at u2@B` → the same list as the default.
 - `get-context --at 0000…` → error `contextAt: 0000… is not a
-  context-tree occurrence`.
+context-tree occurrence`.
 
 Native `/compact` with summary S (up_to, preserved `[u2 a2]`): default
 tip `a2@B`; `get-context` → `[S, u2, a2]`. Summary or boundary pick in
@@ -173,7 +173,7 @@ export interface SetContextShared {
 // contextRefs = tree.contextAt(tree.leaf) (empty when leaf is null);
 // lastAssistantMessage and leaf derive from it as today, under the
 // stream fold's eligibility filter (the seed bridges the file into
-// stream-shaped state; docs/thoughts/get-entries-caching.md).
+// stream-shaped state; docs/thoughts/old/get-entries-caching.md (implemented by docs/specs/session-tracker.md)).
 
 // src/tui/components/tree-selector.ts (amended in review; see WORK LOG)
 /** A pick is always a rewind; null = the empty context. */
@@ -243,7 +243,7 @@ over the whole file (two O(n) passes, two maps), the same price the TUI
 pays client-side per `get-entries`. Concentrated in the daemon on chatty
 pollers. The boundary pick builds a second context tree over a prefix — a
 user action, negligible. The rolling-daemon follow-up
-(docs/thoughts/get-entries-caching.md) caches exactly `entries`, `byUuid`,
+(docs/thoughts/old/get-entries-caching.md (implemented by docs/specs/session-tracker.md)) caches exactly `entries`, `byUuid`,
 and the context tree; `leaf` as a per-row assignment is what that cache
 maintains incrementally.
 
@@ -282,10 +282,10 @@ maintains incrementally.
 - Changing `entryToSessionMessage` (its isMeta/isSidechain filter is a
   presentation choice for stream-shaped consumers, revisited separately).
 - Relaxing `agentState.leaf`'s stream-derived eligibility
-  (docs/thoughts/get-entries-caching.md, "Two streams, one leaf").
+  (docs/thoughts/old/get-entries-caching.md (implemented by docs/specs/session-tracker.md), "Two streams, one leaf").
 - Retiring `loadedContext` altogether — after the ground-truth check
   replaces it as oracle.
-- Daemon-side cached trees (docs/thoughts/get-entries-caching.md) — next.
+- Daemon-side cached trees (docs/thoughts/old/get-entries-caching.md (implemented by docs/specs/session-tracker.md)) — next.
 - `/btw` side questions and subagent activity views
   (docs/thoughts/subagent-activity.md).
 - A `get-messages` alias.
@@ -339,7 +339,7 @@ maintains incrementally.
 
 1. Seed leaf keeps the stream fold's eligibility filter (the seed bridges
    file → stream-shaped state); relaxing it is deferred to the two-streams
-   discussion in docs/thoughts/get-entries-caching.md.
+   discussion in docs/thoughts/old/get-entries-caching.md (implemented by docs/specs/session-tracker.md).
 2. get-context returns verbatim `SessionEntry[]`, no projection: which
    system/attachment/isMeta entries reach the API is empirical (stage 5);
    `entryToSessionMessage` (TUI replay, MessageProjector, format input

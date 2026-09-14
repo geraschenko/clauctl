@@ -1,6 +1,6 @@
 # Spec: Phase 1 — Lifecycle Core (initial implementation)
 
-> Status: **ready to implement.** Read `docs/overview.md` first, then the broader
+> Status: **implemented.** Read `docs/overview.md` first, then the broader
 > `docs/specs/lifecycle-and-sdk-commands.md` (this doc is the implementation-ready
 > carve-out of that scaffold's lifecycle half). Grounded against pictl's `src/core/`
 > and the SDK `Options`/`Query` types at **0.3.195**.
@@ -109,10 +109,13 @@ so an SDK bump that adds or removes a field **breaks the build until it is
 classified** — this is the RISK-6 tripwire.
 
 ```ts
-type OptionBucket = 'persist' | 'code' | 'invariant' | 'respawn';
-const OPTION_BUCKETS: Record<keyof Options, OptionBucket> = { /* every field */ };
-type PersistedOptionKey =
-  { [K in keyof Options]: (typeof OPTION_BUCKETS)[K] extends 'persist' ? K : never }[keyof Options];
+type OptionBucket = "persist" | "code" | "invariant" | "respawn";
+const OPTION_BUCKETS: Record<keyof Options, OptionBucket> = {/* every field */};
+type PersistedOptionKey = {
+  [K in keyof Options]: (typeof OPTION_BUCKETS)[K] extends "persist"
+    ? K
+    : never;
+}[keyof Options];
 type PersistedOptions = Pick<Options, PersistedOptionKey>;
 ```
 
@@ -212,9 +215,12 @@ evidence; `queueDepth` = our own echo bookkeeping, since the SDK never echoes us
 turns back).
 
 ```ts
-type AssistantActivity = 'idle' | 'pending' | 'working' | 'compacting';
-interface AssistantState { activity: AssistantActivity; queueDepth: number; }
-const isBusy = (s: AssistantState) => s.activity !== 'idle' || s.queueDepth > 0;
+type AssistantActivity = "idle" | "pending" | "working" | "compacting";
+interface AssistantState {
+  activity: AssistantActivity;
+  queueDepth: number;
+}
+const isBusy = (s: AssistantState) => s.activity !== "idle" || s.queueDepth > 0;
 
 // The augmented event stream (DECISION-6): every SDK message, plus the events the
 // SDK should emit so an observer can follow what is happening. The tracker consumes
@@ -223,12 +229,15 @@ type SdkEvent =
   // A runnable turn was injected. `priority` as sent (absent = idle-time default);
   // `now` while busy means the current turn's terminating `result` arrives early —
   // the tracker needs this, and observers can't apply the placement rule without it.
-  | { kind: 'turnAccepted'; priority?: 'now' | 'later' }
-  | { kind: 'compactSent' }       // /compact issued while Idle
-  | { kind: 'interruptSent' }
-  | { kind: 'sdkMessage'; message: SDKMessage };
+  | { kind: "turnAccepted"; priority?: "now" | "later" }
+  | { kind: "compactSent" } // /compact issued while Idle
+  | { kind: "interruptSent" }
+  | { kind: "sdkMessage"; message: SDKMessage };
 
-function nextAssistantState(state: AssistantState, event: SdkEvent): AssistantState;  // pure
+function nextAssistantState(
+  state: AssistantState,
+  event: SdkEvent,
+): AssistantState; // pure
 ```
 
 Transitions (pinned empirically by this spike; integrates the echo-placement
@@ -398,7 +407,7 @@ needs `set-model`/`set-permission-mode` to mutate runtime state before the kill.
   the queue — evidence cited inline); Phase 2's `EchoedUserMessage` gains
   `delivery: "turn" | "steer"`. (4) **Shared pictl files are now generated**:
   `scripts/sync-from-pictl.mjs` produces `src/core/generated/{cli,completion,
-  targets,util,version}.ts` from pictl's canonical copies (rename + import rewrite
+targets,util,version}.ts` from pictl's canonical copies (rename + import rewrite
   - prettier + DO-NOT-MODIFY header); presubmit runs `--check` so drift fails the
     build. Also: derisk capture files excluded from treefmt (raw evidence); `q`
     renamed `claudeQuery`. Verified end-to-end with one haiku turn (spawn → query →

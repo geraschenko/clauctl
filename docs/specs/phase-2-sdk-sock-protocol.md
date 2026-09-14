@@ -1,6 +1,6 @@
 # Spec: Phase 2 — the full `sdk.sock` protocol
 
-> Status: **approved design, ready to implement.** Carved out of
+> Status: **implemented.** Carved out of
 > `lifecycle-and-sdk-commands.md` (which remains the decision record for
 > DECISION-4/5/6 and the echo-placement FINDINGS); where the two disagree, this
 > doc wins — each deviation is called out inline with its rationale.
@@ -105,7 +105,7 @@ Model transitions:
 
 - **Accept while idle** — the message runs immediately: emit
   `userMessageQueued` + `userMessageDequeued` back-to-back (`delivery:
-  "turn"`, or `"append"` for a `shouldQuery: false` message).
+"turn"`, or `"append"` for a `shouldQuery: false` message).
 - **Accept while busy** — emit `userMessageQueued` only. A `next`/default
   message is _demotable_ (subject to the CLI's demote-vs-execute fork); `now`
   and `later` are not.
@@ -183,7 +183,7 @@ with `shouldQuery === true` (only those predict a future `result`):
   follows the rule above). `interruptSent`, `controlApplied` → state
   unchanged.
 - Invariant: `activity === "idle"` ⇒ Q === 0 (entries with `shouldQuery ===
-  false` may remain queued while idle).
+false` may remain queued while idle).
 
 ### daemon.log shrink
 
@@ -294,11 +294,26 @@ export type TurnPriority = "now" | "next" | "later";
 /** Query mutations except interrupt; each maps 1:1 to a Query method and emits controlApplied. */
 export type SdkControlMutation =
   | { type: "set-permission-mode"; mode: PermissionMode }
-  | { type: "set-mcp-permission-mode-override"; serverName: string; mode: "default" | "auto" | null }
+  | {
+      type: "set-mcp-permission-mode-override";
+      serverName: string;
+      mode: "default" | "auto" | null;
+    }
   | { type: "set-model"; model?: string }
-  | { type: "set-max-thinking-tokens"; maxThinkingTokens: number | null; thinkingDisplay?: "summarized" | "omitted" | null }
-  | { type: "apply-flag-settings"; settings: { [K in keyof Settings]?: Settings[K] | null } }
-  | { type: "update-settings"; source: "localSettings"; settings: Record<string, unknown> }
+  | {
+      type: "set-max-thinking-tokens";
+      maxThinkingTokens: number | null;
+      thinkingDisplay?: "summarized" | "omitted" | null;
+    }
+  | {
+      type: "apply-flag-settings";
+      settings: { [K in keyof Settings]?: Settings[K] | null };
+    }
+  | {
+      type: "update-settings";
+      source: "localSettings";
+      settings: Record<string, unknown>;
+    }
   | { type: "set-mcp-servers"; servers: Record<string, McpServerConfig> }
   | { type: "toggle-mcp-server"; serverName: string; enabled: boolean }
   | { type: "reconnect-mcp-server"; serverName: string }
@@ -319,10 +334,20 @@ export type SdkControlRead =
   | { type: "get-context-usage"; detail?: "summary" | "full" }
   | { type: "usage" }
   | { type: "account-info" }
-  | { type: "read-file"; path: string; maxBytes?: number; encoding?: "utf-8" | "base64" };
+  | {
+      type: "read-file";
+      path: string;
+      maxBytes?: number;
+      encoding?: "utf-8" | "base64";
+    };
 
 export type SdkRequest =
-  | { type: "query"; content: string | ContentBlockParam[]; priority?: TurnPriority; shouldQuery?: false }
+  | {
+      type: "query";
+      content: string | ContentBlockParam[];
+      priority?: TurnPriority;
+      shouldQuery?: false;
+    }
   | { type: "interrupt" }
   | { type: "wait-idle" }
   | { type: "subscribe" }
@@ -366,14 +391,20 @@ export interface AssistantState {
 
 export const INITIAL_ASSISTANT_STATE: AssistantState;
 export const isBusy: (state: AssistantState) => boolean;
-export function nextAssistantState(state: AssistantState, event: SdkEvent): AssistantState;
+export function nextAssistantState(
+  state: AssistantState,
+  event: SdkEvent,
+): AssistantState;
 ```
 
 `src/core/queue-model.ts` (new, replacing nothing — the CLI-queue model; pure,
 unit-tested):
 
 ```ts
-import type { SDKMessage, SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
+import type {
+  SDKMessage,
+  SDKUserMessage,
+} from "@anthropic-ai/claude-agent-sdk";
 import type { SdkEvent } from "./sdk-socket.ts";
 
 /** One accepted-but-not-yet-dequeued message in the modeled CLI queue. */
@@ -438,7 +469,10 @@ interface SdkConnection {
 
 function startSdkServer(
   socketPath: string,
-  handleRequest: (request: SdkRequestRecord, connection: SdkConnection) => Promise<unknown>,
+  handleRequest: (
+    request: SdkRequestRecord,
+    connection: SdkConnection,
+  ) => Promise<unknown>,
 ): Server;
 ```
 
@@ -497,7 +531,7 @@ above. `nextAssistantState` consumes the queued/dequeued events instead of
    result, with no extra `result` for it.
 3. The demote-vs-execute fork is correct: a default-priority `query` sent
    during a tool-less busy turn yields a `userMessageDequeued { delivery:
-   "turn" }` after the busy turn's `result`, and a concurrent
+"turn" }` after the busy turn's `result`, and a concurrent
    `archive --timeout` (wait-idle) does not fire between the two turns.
 4. Merge accounting is correct (unit-tested): two `later` messages queued
    while busy produce one `userMessageDequeued` carrying both ids, and the
@@ -568,7 +602,7 @@ encountered.
   the **queue model**. Anton rejected the emit-echo-before-trigger ordering
   inversion (conceptually backwards); working his fold-deferral idea through
   led to acceptance-time events plus explicit dequeues: `userMessageQueued
-  { id, message }` at acceptance, `userMessageDequeued { delivery, ids }`
+{ id, message }` at acceptance, `userMessageDequeued { delivery, ids }`
   after the trigger, with daemon-assigned ids making cross-priority dequeue
   order unambiguous. "Echo" terminology purged (it wrongly implied insertion
   point). Fold reworked to track queued entries; `result` → pending iff
@@ -594,7 +628,6 @@ encountered.
   live success-criteria walkthrough (1–3, 5–9).
 
   ## Implementation-Time Decisions
-
   - **`RESPONSE_SENT` sentinel for subscribe**: the server's generic respond
     path runs in a microtask after the handler resolves; an event emitted in
     that window would hit the wire before the response line. The subscribe
@@ -614,7 +647,7 @@ encountered.
 - 2026-07-06 (Anton's second review round, a702d57): `QueuedEntry.querying`
   renamed to `shouldQuery` (the SDK's own term, normalized to a defaulted
   boolean). `QueuedMessage.demotable` replaced by a derived `isDemotable(
-  message)` — valid because every queue-resident entry was accepted while
+message)` — valid because every queue-resident entry was accepted while
   busy, so demotability reduces to priority alone; the invariant is stated at
   the function.
 

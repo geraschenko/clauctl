@@ -1,5 +1,7 @@
 # SDK expectation tests and the permission-mode cascade fix
 
+> Status: **implemented.**
+
 # SPEC
 
 ## Problem
@@ -86,8 +88,14 @@ export function assertVersions(): { sdk: string };
  * access token is within 15 min of expiry. `settings`, when given, is
  * written as settings.json.
  */
-export function makeConfigDir(caseName: string, settings?: Record<string, unknown>): string;
-export function baseEnv(configDir: string, extra?: Record<string, string>): NodeJS.ProcessEnv;
+export function makeConfigDir(
+  caseName: string,
+  settings?: Record<string, unknown>,
+): string;
+export function baseEnv(
+  configDir: string,
+  extra?: Record<string, string>,
+): NodeJS.ProcessEnv;
 ```
 
 Module-scope side effect moves with it: `process.env.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC = "1"`
@@ -173,7 +181,7 @@ Config:
     CLI resolves `auto` / `acceptEdits`. Confirms the CLI cascade is intact;
     only the forced flag is in the way.
   - Captured SDK argv: `[--output-format stream-json, --verbose,
-    --input-format stream-json, --max-turns 1, --permission-mode default]`.
+--input-format stream-json, --max-turns 1, --permission-mode default]`.
   - Bundle: `HL=bne??(e?.resolvePermissionModeInCli?void 0:"default")` where
     `e` is the `{isSingleUserTurn}` internal arg of the query builder.
 - Test shape: a string prompt ("reply with the single word ok") so the SDK

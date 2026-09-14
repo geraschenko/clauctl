@@ -1,5 +1,7 @@
 # Daemon Architecture: Unified AgentState Fold + Directory Restructure
 
+> Status: **implemented; the state model here predates docs/specs/session-tracker.md (the session-file leg of the fold) and docs/specs/attach-direct-tui.md (no tty service). Living description: docs/socket-interface.md.**
+
 # SPEC
 
 ## Problem

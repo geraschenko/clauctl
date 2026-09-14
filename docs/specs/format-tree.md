@@ -4,7 +4,7 @@
 > by the renderdag DAG rendering of `docs/specs/tree-presentation.md`;
 > filters and `entrySummary` remain as specified here.
 
-> Status: **implemented, awaiting review.** Follow-up to
+> Status: **implemented; superseded (layout) by docs/specs/tree-presentation.md.** Follow-up to
 > `docs/specs/format.md` (which deferred `format tree`) and
 > `docs/specs/session-tree-and-set-context.md` (which shipped `get-tree`).
 > Prerequisite: the pictl-side tree-layout extraction
@@ -179,7 +179,10 @@ export interface LayoutNode<P> {
   readonly children: readonly LayoutNode<P>[];
   readonly payload: P;
 }
-export interface TreeGutter { readonly position: number; readonly show: boolean; }
+export interface TreeGutter {
+  readonly position: number;
+  readonly show: boolean;
+}
 export interface FlatLayoutNode<P> {
   readonly node: LayoutNode<P>;
   readonly indent: number;
@@ -221,9 +224,9 @@ TUI-side; nothing here renders differently to accommodate them.
 
 ```ts
 export interface TreeNode {
-  entry: SessionEntry;   // was entryUuid; the SessionTree entries record is deleted
+  entry: SessionEntry; // was entryUuid; the SessionTree entries record is deleted
   children: TreeNode[];
-  viaBoundary?: UUID;    // unchanged; set by the boundary substructure
+  viaBoundary?: UUID; // unchanged; set by the boundary substructure
 }
 export interface SessionTree {
   tree: TreeNode[];
@@ -244,7 +247,12 @@ check with the get-messages case (calls `effectiveChain`).
 **`src/format/tree.ts`** (clauctl-specific rendering):
 
 ```ts
-export const FILTER_MODES = ["conversation", "no-tools", "user-only", "all"] as const;
+export const FILTER_MODES = [
+  "conversation",
+  "no-tools",
+  "user-only",
+  "all",
+] as const;
 export type FilterMode = (typeof FILTER_MODES)[number];
 export interface TreeFormatOptions {
   filter: FilterMode;
@@ -259,7 +267,10 @@ export interface TreeFormatOptions {
  * synced layout: `flattenVisibleTree` throws on duplicates, so an adapter
  * bug fails loudly. Entry summaries and filters are private helpers here
  * (split into a filter.ts later only if another subcommand grows filtering). */
-export function formatSessionTree(input: SessionTree, options: TreeFormatOptions): string;
+export function formatSessionTree(
+  input: SessionTree,
+  options: TreeFormatOptions,
+): string;
 ```
 
 **`src/format/input.ts`**:

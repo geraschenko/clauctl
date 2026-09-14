@@ -1,5 +1,7 @@
 # Adopt the shared stream engine from pictl
 
+> Status: **implemented.**
+
 # SPEC
 
 ## Problem
@@ -248,8 +250,8 @@ encountered.
   green against pictl HEAD. `npm run presubmit` passes (401 tests; the
   usual first-run treefmt reformat). Live smoke test in an isolated
   `CLAUCTL_DIR`: seed-met `wait --until idle` 0 in ~0.6s, `tail --until
-  no-activity:1 --timeout 5` exit 0, busy `tail --until idle --timeout
-  0.2` exit 3, `query` + `wait --until turn-end` exit 0, polite archive,
+no-activity:1 --timeout 5` exit 0, busy `tail --until idle --timeout
+0.2` exit 3, `query` + `wait --until turn-end` exit 0, polite archive,
   dormant-agent `wait --until no-activity:5` immediate exit 0.
 
 ## Implementation-Time Decisions
@@ -308,7 +310,7 @@ encountered.
   `docs/specs/tui-keybindings.md`; `sdk-socket.ts` auto-merged. Resolved
   by composing both sides: main's keybindings preamble, 5-arg
   `InteractiveMode` constructor, and `keybindings.matches(data,
-  "app.interrupt")`/`!selectorOpen` structure, with this branch's
+"app.interrupt")`/`!selectorOpen` structure, with this branch's
   `isIdle` rename and `[SdkEvent, AgentState]` pair delivery
   (`handleEvent(event, state)`, pair-typed subscribe-window buffer).
   Keybindings spec doc took main's side (HEAD was a treefmt repad).

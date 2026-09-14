@@ -1,5 +1,7 @@
 # TUI rendering parity
 
+> Status: **implemented.**
+
 Successor to `docs/specs/tui-parity.md` (which delivered the capture
 harness). This spec implements the rendering changes themselves.
 
@@ -163,7 +165,10 @@ handling and the replay dedupe bookkeeping (`replayedUuids`,
 `scripts/tui-parity/render-session.ts` (new):
 
 ```ts
-export function renderSessionFile(sessionFilePath: string, width: number): string[];
+export function renderSessionFile(
+  sessionFilePath: string,
+  width: number,
+): string[];
 ```
 
 Pipeline (the daemon's actual seeding path, cf.
@@ -320,7 +325,7 @@ reverse-engineering of claude's classifier (approved divergence):
   folds (readOnly: false), even though claude sometimes folds
   read-only-looking bash commands.
 - The run renders as one line — `Thought for Ns, read 2 files, searched
-  for 1 pattern` — thinking duration from session-entry timestamp deltas
+for 1 pattern` — thinking duration from session-entry timestamp deltas
   when available, else omitted. A streaming component never folds; it may
   retro-fold once finalized (its result arrives non-error).
 - Fold lines exist only while BOTH toggles are collapsed; either
@@ -840,7 +845,7 @@ matches claude byte-for-byte. Pieces landed:
 - Empirical tag findings (fixtures in the tests): command tags appear in
   BOTH orders (name-first and message-first) with whitespace between;
   bash output is one message `<bash-stdout>…</bash-stdout>
-  <bash-stderr>…</bash-stderr>`; the CLI escapes exactly `<` and `>`
+<bash-stderr>…</bash-stderr>`; the CLI escapes exactly `<` and `>`
   (raw `&` appears unescaped in captured output), so unescaping is the
   single pass `&lt;`/`&gt;` on extracted tag contents;
   `<local-command-caveat>` renders nothing; context tags: only

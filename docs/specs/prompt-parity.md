@@ -1,5 +1,7 @@
 # SPEC: prompt parity
 
+> Status: **implemented; `AgentObserver` was later replaced by the daemon's agent event stream (docs/specs/session-tracker.md).**
+
 ## Problem statement
 
 `clauctl query` is fire-and-forget: it submits a turn and exits, and the
@@ -157,9 +159,14 @@ export function entrySink(
 // src/core/prompt.ts (new; queryCommand, imageBlock, IMAGE_MEDIA_TYPES move
 // here from sdk-commands.ts)
 const promptFlags = {
-  type, json, until, timeout,          // tail's flag builders
-  detach,                              // booleanFlag, alias -d
-  priority, image, noQuery,            // carried over from query
+  type,
+  json,
+  until,
+  timeout, // tail's flag builders
+  detach, // booleanFlag, alias -d
+  priority,
+  image,
+  noQuery, // carried over from query
 };
 
 async function promptCommand(
@@ -317,7 +324,7 @@ encountered.
 
 - **`submitPromptFn` callback instead of a `promptId` parameter.**
   `promptObserved`/`promptEvents` take `submitPromptFn: () => Promise<number
-  | undefined>` rather than the spec's pre-computed `promptId`: runStream owns
+| undefined>` rather than the spec's pre-computed `promptId`: runStream owns
   calling `subscribe()`, so a pre-computed receipt would have forced
   submission before the subscription existed, violating
   subscribe-before-submit. The legs wrap the client so `subscribe()` runs

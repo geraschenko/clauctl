@@ -1,6 +1,6 @@
 # Spec: Lifecycle & SDK-passthrough commands (v1)
 
-> Status: **scaffold** — captures decisions made so far; to be completed by a
+> Status: **implemented.** Originally captures decisions made so far; to be completed by a
 > fresh agent. Read `docs/overview.md` first. The **lifecycle half is carved out
 > into `phase-1-lifecycle-core.md`** (implementation-ready, supersedes this doc for
 > Phase 1), and the **`sdk.sock` protocol half into
@@ -271,7 +271,7 @@ This refines the earlier "idle = saw `result` + no queued turn" into the Idle-vs
 - **Use the SDK-bundled `claude` binary**, not the system one (don't override
   `pathToClaudeCodeExecutable` to a system path). The pinned SDK version then fixes
   both the wrapper and the CLI behavior. `spawn` also sets `includePartialMessages:
-  true` (needed for echo-placement boundary detection — see below).
+true` (needed for echo-placement boundary detection — see below).
 
 ### Success criteria
 

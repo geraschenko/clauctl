@@ -1,5 +1,7 @@
 # Tail parity
 
+> Status: **implemented; `AgentObserver` and `SessionEntryClient` were later replaced by the daemon's agent event stream (docs/specs/session-tracker.md).**
+
 > Spec 3 of the prompt/tail parity effort
 > ([prompt-tail-parity-overview.md](prompt-tail-parity-overview.md)). Builds on
 > the canonical entry stream (Spec 1,
@@ -194,9 +196,10 @@ export interface AgentObservationState {
   readonly entries: EntryStreamState;
 }
 
-export class AgentObserver
-  implements StreamClient<AgentObservation, AgentObservationState>
-{
+export class AgentObserver implements StreamClient<
+  AgentObservation,
+  AgentObservationState
+> {
   constructor(agent: AgentRecord, options: EntryClientOptions);
   /** Connects and subscribes sdk.sock first (no init can be missed), resolves
    *  the session file (seed sessionId matched against the record's sessions,

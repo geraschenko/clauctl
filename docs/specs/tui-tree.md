@@ -1,6 +1,6 @@
 # Spec: TUI `/tree` and context-aware history
 
-> Status: **approved for implementation** (Anton, 2026-07-18, after three
+> Status: **implemented; `seedFromEntries`, `isFinalAssistantEntry` and the no-write rewind were later removed by docs/specs/session-tracker.md.** (Anton, 2026-07-18, after three
 > review rounds + fresh-context reviewer approval; see WORK LOG).
 > Follow-up to `docs/specs/session-tree-and-set-context.md`
 > (set-context + get-tree), `docs/specs/boundary-substructure.md` (viaBoundary
@@ -56,7 +56,7 @@ their own rows).
   the current leaf _occurrence_ of the session tree. Stream user/assistant
   messages fold it as a raw ref (`{uuid}`, today's semantics); a
   `contextChanged` event now carries the new leaf (`leaf: TreeNodeRef |
-  null`, the file-truth effective tip; `null` after an empty-context reset
+null`, the file-truth effective tip; `null` after an empty-context reset
   unsets the field), so the folded leaf is correct immediately after a
   set-context instead of naming a dropped entry. This is also the natural
   cursor representation for later cursor work.
@@ -237,18 +237,31 @@ it. `buildTree` stays in build-tree.ts — construction needs the relink
 machinery.)
 
 ```ts
-export interface TreeNodeRef { uuid: UUID; viaBoundary?: UUID } // moved
-export interface TreeNode { /* moved verbatim */ }
-export interface SessionTree { /* moved verbatim */ }
+export interface TreeNodeRef {
+  uuid: UUID;
+  viaBoundary?: UUID;
+} // moved
+export interface TreeNode {
+  /* moved verbatim */
+}
+export interface SessionTree {
+  /* moved verbatim */
+}
 
 /** "<uuid>" or "<uuid>@<viaBoundary>" ("@" cannot appear in a uuid). */
 export function formatTreeNodeRef(ref: TreeNodeRef): string;
 /** Inverse of formatTreeNodeRef; throws on malformed input. */
 export function parseTreeNodeRef(text: string): TreeNodeRef;
 /** Structural equality (uuid + viaBoundary); undefined equals undefined. */
-export function treeNodeRefsEqual(a: TreeNodeRef | undefined, b: TreeNodeRef | undefined): boolean;
+export function treeNodeRefsEqual(
+  a: TreeNodeRef | undefined,
+  b: TreeNodeRef | undefined,
+): boolean;
 /** Root-first path to the leaf occurrence; [] when leaf is null or absent. */
-export function pathToLeaf(tree: TreeNode[], leaf: TreeNodeRef | null): TreeNode[];
+export function pathToLeaf(
+  tree: TreeNode[],
+  leaf: TreeNodeRef | null,
+): TreeNode[];
 /** No child of this occurrence continues the same assistant API message
  *  (shares message.id) — the entry is a valid rewindTo target. */
 export function isFinalAssistantEntry(node: TreeNode): boolean;
@@ -319,7 +332,9 @@ wire type; `synthesizeMessages` keeps its chain loop and delegates the mapping)
 export type SessionMessageOnWire = SessionMessage & { timestamp?: string };
 /** The SDK's entry→SessionMessage mapping (user/assistant only;
  *  isMeta/isSidechain excluded; parent_tool_use_id/parent_agent_id null). */
-export function entryToSessionMessage(entry: SessionEntry): SessionMessageOnWire | undefined;
+export function entryToSessionMessage(
+  entry: SessionEntry,
+): SessionMessageOnWire | undefined;
 ```
 
 **`src/format/tree.ts`** — export the existing `entrySummary`,
@@ -339,11 +354,18 @@ export type TreePickAction =
  *  editorText = the user text; boundary pick → nearest assistant ancestor,
  *  no editorText (undoes the boundary); no assistant ancestor → newRoot
  *  (sent as {uuids: []}). */
-export function resolveTreePick(tree: SessionTree, pick: TreeNodeRef): TreePickAction;
+export function resolveTreePick(
+  tree: SessionTree,
+  pick: TreeNodeRef,
+): TreePickAction;
 
 export class TreeSelectorComponent extends Container implements Focusable {
-  focused: boolean;   // Focusable, as in ModelSelectorComponent
-  constructor(tree: SessionTree, onSelect: (pick: TreeNodeRef) => void, onCancel: () => void);
+  focused: boolean; // Focusable, as in ModelSelectorComponent
+  constructor(
+    tree: SessionTree,
+    onSelect: (pick: TreeNodeRef) => void,
+    onCancel: () => void,
+  );
   handleInput(data: string): void;
   /** Persistent warning line for contextChanged-while-open. */
   setWarning(text: string): void;
@@ -361,7 +383,8 @@ occurrences after the match — `viaBoundary` occurrences always replay):
 
 ```ts
 export function pathUpToBoundary(
-  path: TreeNode[], leaf: TreeNodeRef | undefined,
+  path: TreeNode[],
+  leaf: TreeNodeRef | undefined,
 ): { nodes: TreeNode[]; boundaryMissing: boolean };
 ```
 
@@ -498,7 +521,7 @@ interception + `openTreeSelector()`; busy-gated confirm; `Editor.setText` for
   `contextChanged` reloads again naturally.
 - **Selector rendering**: pi renders selection as an inverse-video line; use
   `theme` for the highlight and render `formatTreeNodeLine(flatNode,
-  toolNames, width)` for the text. Width comes from the component render
+toolNames, width)` for the text. Width comes from the component render
   contract (pi-tui components receive width at render); recompute lines per
   render, state is just `flatNodes`/search/selection like pi's TreeList.
   Selection preservation across search changes: keep the selected ref if
@@ -691,8 +714,7 @@ encountered.
      old get-messages cut as a TRANSITIONAL shim — increment 6 replaces it.
      Everything is uncommitted on `format` (Anton has not asked for commits).
 - 2026-07-18 (implementation, session 2): increments 6–7 done; presubmit
-  green (check + eslint + treefmt + 311 tests). Completed:
-  6. TUI history: `pathUpToBoundary(path, leaf)` in sdk-render.ts replaces
+  green (check + eslint + treefmt + 311 tests). Completed: 6. TUI history: `pathUpToBoundary(path, leaf)` in sdk-render.ts replaces
   the deleted `historyUpToBoundary` AND `historyToSdkMessages` (its one
   other caller was the deleted loadHistory; format/messages.ts's comment
   reference updated). Occurrence-exact cut; raw-only drop after the
@@ -711,8 +733,7 @@ encountered.
   stream_event/system-compact_boundary messages whose uuid is in
   `replayedUuids` fold but render nothing. sdk-render tests replaced
   with 6 pathUpToBoundary tests (occurrence match, raw drop, carve-out
-  order, boundary-without-relinks drop, undefined leaf, missing leaf).
-  7. /tree: `src/tui/components/tree-selector.ts` — `resolveTreePick`
+  order, boundary-without-relinks drop, undefined leaf, missing leaf). 7. /tree: `src/tui/components/tree-selector.ts` — `resolveTreePick`
   (pathToLeaf to the pick + backwards assistant walk; editorText from
   extractTextContent, omitted when empty) and `TreeSelectorComponent`
   (render(width) override: header, windowed rows via the shared

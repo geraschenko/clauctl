@@ -1,5 +1,7 @@
 # Session Snapshot and Tree
 
+> Status: **implemented; the get-entries shape and the no-write rewind were later changed by docs/specs/session-tracker.md.**
+
 Supersedes the `get-tree` portions of
 [session-tree-and-set-context.md](session-tree-and-set-context.md).
 
@@ -292,7 +294,7 @@ use it.)
   (with a structural carve-out: viaBoundary occurrences, boundaries,
   summaries always replay since they never stream). The only user-facing
   surface that exposes post-leaf entries is tree rendering (`/tree`, `format
-  tree`), where showing them is the point:
+tree`), where showing them is the point:
   navigating back with a no-write rewind and then forward again requires
   the abandoned tail in the snapshot. Hence verbatim entries + the
   override-aware leaf computation carried over from get-tree.

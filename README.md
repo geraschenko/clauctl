@@ -8,14 +8,6 @@ agents _simultaneously_, each on their own terms. Humans attach a terminal UI,
 and agents/scripts get ergonomic access to the Claude Agent SDK's full
 control surface.
 
-Plain `claude` is a great interactive UI, but the agent lives and dies with your
-terminal, and nothing else can drive the session while you're in it. The Claude
-Agent SDK makes claude programmable, but hands you a single in-process
-connection — lifecycle, durability across restarts, observation, multi-client
-access, and any UI are yours to build. `clauctl` is that harness, prebuilt: it
-turns claude sessions into durable background agents that humans, scripts, and
-other agents can address and observe at the same time.
-
 `clauctl` is meant to be minimal and composable. Its main components and
 associated subcommands are:
 
@@ -35,8 +27,8 @@ associated subcommands are:
   human-readable by default, `--json` for machines. See
   [Getting fancy](#getting-fancy-with-clauctl-prompttailformat).
 - **TUI access** with `attach`. clauctl ships its own interactive terminal UI;
-  the daemon keeps it running whether or not anyone is attached, and any
-  number of terminals can attach to the same screen.
+  the agent keeps running whether or not any TUI is attached, and any number of
+  terminals can attach to the same agent.
 
 (`clauctl` is the sibling of [`pictl`](https://github.com/geraschenko/pictl),
 which does the same job for [pi](https://pi.dev) agents.)
@@ -66,17 +58,16 @@ claude and log in once).
 
 ## Quickstart
 
-**Start an agent** and make it the default target for subsequent commands.
-Run this from the directory the agent should work in (or pass `--cwd PATH`):
+**Start an agent** and attach this terminal to its TUI. Run this from the
+directory the agent should work in (or pass `--cwd PATH`):
 
 ```sh
-export CLAUCTL_TARGET="$(clauctl spawn -- --permission-mode auto)"
-echo "$CLAUCTL_TARGET"
+clauctl spawn -a -- --permission-mode auto
 ```
 
-- If you don't set `$CLAUCTL_TARGET`, commands that require a target need
-  `--target PREFIX` or `-t PREFIX`. Any unique prefix of the agent id is
-  accepted.
+- Detach with `ctrl+]`. Detaching does not stop the agent; `clauctl attach`
+  reattaches. Multiple terminals can attach at once, each with its own
+  independent TUI.
 - Agents get your normal claude settings (default model, permission mode,
   CLAUDE.md, MCP servers, …); claude-style flags after `--` override them,
   e.g. `clauctl spawn -- --model opus`. `clauctl resolve-settings` shows what
@@ -90,22 +81,18 @@ echo "$CLAUCTL_TARGET"
   from the session id — one agent can span many sessions, e.g. across
   `/clear`).
 
-**Attach to the TUI** in another terminal if you want to follow along
-interactively (recommended):
+**Pick the agent as the default target** in another terminal: `clauctl list`
+shows every agent's id, and any unique prefix of it works as a target.
 
 ```sh
-clauctl attach -t <PREFIX_OF_CLAUCTL_TARGET>
+clauctl list
+export CLAUCTL_TARGET=<ID>
 ```
 
-- The second terminal doesn't inherit `$CLAUCTL_TARGET`, so pass `-t` with
-  any unique prefix of the id printed by `spawn`.
-- Detach with `ctrl+]`. Detaching does not stop the agent, and the TUI keeps
-  running in the daemon while nobody is attached.
-- Multiple terminals can attach at once; they share one screen, sized to the
-  smallest attached terminal (like tmux).
+- If you don't set `$CLAUCTL_TARGET`, commands that require a target need
+  `--target PREFIX` or `-t PREFIX`.
 
-**Send commands** to the agent from the first terminal (or wherever you've
-set `CLAUCTL_TARGET`):
+**Send commands** to the agent from that terminal and watch the TUI react:
 
 ```sh
 clauctl prompt "Say hello. Keep it short"
@@ -260,10 +247,7 @@ summary (`--summary`). Run `clauctl set-context -H` for the full story.
 ## Further reading
 
 - **How does clauctl work?** See [`docs/architecture.md`](docs/architecture.md)
-  for the agent registry, the daemon, the `sdk.sock` and `tty.sock` protocols,
-  and how clauctl expects to interact with other programs.
-- **Why is it built this way?** See
-  [`docs/claude-agent-sdk.md`](docs/claude-agent-sdk.md) for the empirical
-  facts about claude and its SDK that the design is built on.
+  for the agent registry, the daemon, the `sdk.sock` protocol, and how clauctl
+  expects to interact with other programs.
 - For all available subcommands, run `clauctl --help-all`. Subcommands have
   their own help info, e.g. `clauctl format entries --help`.

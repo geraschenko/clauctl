@@ -1,6 +1,6 @@
 # Spec: TUI rendering parity with native claude
 
-> Status: **approved spec, not yet implemented**. Read `docs/specs/tui.md`
+> Status: **implemented.** Read `docs/specs/tui.md`
 > first — this spec builds a comparison harness _around_ the TUI that spec
 > describes, plus the process for closing rendering differences it surfaces.
 
@@ -86,9 +86,9 @@ harness phase.
 import type { Options } from "@anthropic-ai/claude-agent-sdk";
 
 export interface Scenario {
-  name: string;            // slug; output filenames and workdir derive from it
-  description: string;     // which rendering features it exercises
-  prompts: string[];       // sent sequentially via SDK query(), each awaited to completion
+  name: string; // slug; output filenames and workdir derive from it
+  description: string; // which rendering features it exercises
+  prompts: string[]; // sent sequentially via SDK query(), each awaited to completion
   options?: Partial<Options>; // SDK overrides (model, maxThinkingTokens, …)
 }
 export const scenarios: Scenario[];
@@ -102,7 +102,7 @@ export interface GeneratedSession {
   scenario: string;
   sessionId: string;
   cwd: string;
-  claudeVersion: string;   // provenance: which bundled version produced it
+  claudeVersion: string; // provenance: which bundled version produced it
 }
 // writes out/manifest.json: GeneratedSession[]
 ```
@@ -113,7 +113,7 @@ export function resolveBundledClaude(): string;
 // → node_modules/@anthropic-ai/claude-agent-sdk-<platform>-<arch>/claude
 
 export interface CaptureTarget {
-  command: string[];       // claude --resume <id>, or the clauctl spawn/attach sequence
+  command: string[]; // claude --resume <id>, or the clauctl spawn/attach sequence
   cwd: string;
 }
 // Launches the target in a fresh tmux session `cols` wide, polls
@@ -184,9 +184,9 @@ capture to confirm the diff closed.
   `out/sessions/` is kept only as a manual-recovery point (e.g. a prompt
   accidentally typed into a corpus session during triage).
 - ~~The exact clauctl-side command sequence~~ **Resolved**: `spawn --cwd
-  <workdir> --id <uuid> -- --resume <sessionId>` (outside the pane; exits
+<workdir> --id <uuid> -- --resume <sessionId>` (outside the pane; exits
   when sdk.sock is ready), `attach -t <uuid>` inside the pane, `archive -t
-  <uuid>` for cleanup. Verified none of these steps mutate the session file.
+<uuid>` for cleanup. Verified none of these steps mutate the session file.
   No tension with the point above: the daemon's streaming Query never
   initializes before the first turn (exactly the blocker below), so its
   wrapped `--resume` never reaches the interactive CLI's first-open
@@ -393,7 +393,7 @@ provides.
   per-project MCP servers or history, and trust state for the harness
   workdirs is re-recorded by the dialog-dismissal loop anyway.
 - **Real-session capture** (2026-07-17, per review): `capture.ts --session
-  <id-or-jsonl-path>` imports a COPY of a real session into the isolated
+<id-or-jsonl-path>` imports a COPY of a real session into the isolated
   config dir (cwd read from the session's own entries; bare ids searched
   under the real `~/.claude/projects`) and runs the same capture/diff as a
   scenario, as `out/session-<id8>.*`. The original file is never opened by
