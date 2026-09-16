@@ -1,0 +1,972 @@
+{
+  "sdk": "0.3.258",
+  "sessionId": "88977188-97b9-4887-842c-965763698125",
+  "stamped": {
+    "A": "0161d9ff-4683-417f-96d2-45819e0e8466",
+    "S1": "61ec9639-6ff0-499e-a404-d915fa43bdb5",
+    "S2": "11354830-b6f7-4b48-8f14-ffefa4e18ddb",
+    "S3": "850f1f28-58d0-418b-851b-14716116f188",
+    "C": "ccea8796-85ab-4c1f-b853-63b01779ad53",
+    "T1": "9d71f39d-0bd6-4f22-8acc-cdd851cab976",
+    "T2": "7699ad04-a2c3-4d31-9629-66f7b680b8e6",
+    "T3": "98222376-5e2a-40d8-8f9d-5c716c772e1a",
+    "D1": "47acdd1e-562d-418f-b16a-037c0d1ccb69",
+    "D2": "5161a800-a938-4653-9db4-13dfa5187d7a",
+    "D3": "c0c10fa1-ad96-49b3-9c8a-8e84ddfa977f",
+    "E1": "6e4c7e31-d4c0-41d8-9c30-91fd6cb2e259",
+    "E2": "ecffce53-7d1a-4149-b681-90c5c371ba4d",
+    "E3": "05259672-59bc-4b72-95b6-4f65ed5dac96",
+    "F": "6e2b6302-2b62-4dc3-9f27-a617de1aeda7",
+    "M1": "f1a757b4-5180-49de-a00a-9fb555f57518",
+    "M2": "39342e61-be00-4bb2-8e66-fb9e2cad1d08",
+    "M3": "d79cba80-1e55-4355-9187-e38e0a884563",
+    "G": "9050c0c9-8fcb-48c6-a9b2-81048f3b58e9",
+    "G1": "ca93cf2d-848f-4b17-bc70-0f21cc5b823b",
+    "G2": "8f403daf-8a68-49fb-8481-109b893f21db",
+    "G3": "e18fc19f-7926-43e6-b655-2cf5978a52f1",
+    "I": "da7a0632-e9a9-45f6-a333-1f9361beaf68",
+    "H1": "598d7da4-c314-4fff-b26c-8f3663b218f0",
+    "H2": "ea0b6c7f-4664-4ba2-99e9-a6bd497f5bf6",
+    "H3": "55ee00fe-9d9f-48b9-b6b0-ca6de9186e90",
+    "K": "13f276a7-9988-481d-a9fa-44be232f0d6e",
+    "K1": "4db9e832-36a9-47f5-9533-7cb24d154035",
+    "K2": "9ea0d00f-821d-4dfd-873e-dfe9ad1b7212",
+    "K3": "5dddfe92-02a6-4932-9c3a-8da3ef5c5cc4",
+    "K4": "0170ba88-b40c-43ea-858b-e301cc913330"
+  },
+  "idleAppendLifecycle": {
+    "D1": "completed",
+    "D2": "completed"
+  },
+  "fileEntries": [
+    {
+      "type": "queue-operation",
+      "operation": "enqueue"
+    },
+    {
+      "type": "queue-operation",
+      "operation": "dequeue"
+    },
+    {
+      "type": "user",
+      "uuid": "A",
+      "text": "Run `sleep 4` as a Bash tool call, then reply with the single word DONE."
+    },
+    {
+      "type": "attachment",
+      "uuid": "246aad15",
+      "attachment": "deferred_tools_delta"
+    },
+    {
+      "type": "attachment",
+      "uuid": "96be3e9b",
+      "attachment": "agent_listing_delta"
+    },
+    {
+      "type": "attachment",
+      "uuid": "32e54773",
+      "attachment": "skill_listing"
+    },
+    {
+      "type": "attachment",
+      "uuid": "3018a649",
+      "attachment": "total_tokens_reminder"
+    },
+    {
+      "type": "queue-operation",
+      "operation": "enqueue"
+    },
+    {
+      "type": "queue-operation",
+      "operation": "enqueue"
+    },
+    {
+      "type": "queue-operation",
+      "operation": "enqueue"
+    },
+    {
+      "type": "user",
+      "uuid": "b61bd399",
+      "text": "[{\"tool_use_id\":\"toolu_01CwbHjUeGhneMHW7apVUM9s\",\"type\":\"tool_result\",\"content\":\"(Bash completed with no output)\",\"is_error\":false}]"
+    },
+    {
+      "type": "attachment",
+      "uuid": "783b18cf",
+      "attachment": "queued_command",
+      "source_uuid": "S1",
+      "text": "{\"type\":\"queued_command\",\"prompt\":\"Steer one: also say ONE.\",\"source_uuid\":\"61ec9639-6ff0-499e-a404-d915fa43bdb5\",\"commandMode\":\"prompt\",\"timestamp\":\"2026-09-17T01:15:19.991Z\"}"
+    },
+    {
+      "type": "attachment",
+      "uuid": "6ddd0df3",
+      "attachment": "queued_command",
+      "source_uuid": "S2",
+      "text": "{\"type\":\"queued_command\",\"prompt\":\"Steer two: also say TWO.\",\"source_uuid\":\"11354830-b6f7-4b48-8f14-ffefa4e18ddb\",\"commandMode\":\"prompt\",\"timestamp\":\"2026-09-17T01:15:19.991Z\"}"
+    },
+    {
+      "type": "attachment",
+      "uuid": "9a6c8a76",
+      "attachment": "queued_command",
+      "source_uuid": "S3",
+      "text": "{\"type\":\"queued_command\",\"prompt\":\"Steer three: also say THREE.\",\"source_uuid\":\"850f1f28-58d0-418b-851b-14716116f188\",\"commandMode\":\"prompt\",\"timestamp\":\"2026-09-17T01:15:19.991Z\"}"
+    },
+    {
+      "type": "attachment",
+      "uuid": "31493e5e",
+      "attachment": "deferred_tools_delta"
+    },
+    {
+      "type": "attachment",
+      "uuid": "963cec09",
+      "attachment": "mcp_instructions_delta"
+    },
+    {
+      "type": "queue-operation",
+      "operation": "remove",
+      "reason": "absorbed_mid_turn"
+    },
+    {
+      "type": "queue-operation",
+      "operation": "remove",
+      "reason": "absorbed_mid_turn"
+    },
+    {
+      "type": "queue-operation",
+      "operation": "remove",
+      "reason": "absorbed_mid_turn"
+    },
+    {
+      "type": "attachment",
+      "uuid": "677b0872",
+      "attachment": "total_tokens_reminder"
+    },
+    {
+      "type": "queue-operation",
+      "operation": "enqueue"
+    },
+    {
+      "type": "queue-operation",
+      "operation": "dequeue"
+    },
+    {
+      "type": "user",
+      "uuid": "C",
+      "text": "Write the numbers 1 through 60 in words, separated by commas, nothing else."
+    },
+    {
+      "type": "attachment",
+      "uuid": "0c108b7d",
+      "attachment": "total_tokens_reminder"
+    },
+    {
+      "type": "queue-operation",
+      "operation": "enqueue"
+    },
+    {
+      "type": "queue-operation",
+      "operation": "enqueue"
+    },
+    {
+      "type": "queue-operation",
+      "operation": "enqueue"
+    },
+    {
+      "type": "queue-operation",
+      "operation": "dequeue"
+    },
+    {
+      "type": "queue-operation",
+      "operation": "dequeue"
+    },
+    {
+      "type": "queue-operation",
+      "operation": "dequeue"
+    },
+    {
+      "type": "user",
+      "uuid": "T3",
+      "text": "Turn one: reply with the word ALPHA.\nTurn two: reply with the word BETA.\nTurn three: reply with the word GAMMA."
+    },
+    {
+      "type": "attachment",
+      "uuid": "430991f2",
+      "attachment": "total_tokens_reminder"
+    },
+    {
+      "type": "queue-operation",
+      "operation": "enqueue"
+    },
+    {
+      "type": "queue-operation",
+      "operation": "dequeue"
+    },
+    {
+      "type": "user",
+      "uuid": "D1",
+      "text": "Append one: note the word DELTA."
+    },
+    {
+      "type": "queue-operation",
+      "operation": "enqueue"
+    },
+    {
+      "type": "queue-operation",
+      "operation": "dequeue"
+    },
+    {
+      "type": "user",
+      "uuid": "D2",
+      "text": "Append two: note the word EPSILON."
+    },
+    {
+      "type": "queue-operation",
+      "operation": "enqueue"
+    },
+    {
+      "type": "queue-operation",
+      "operation": "dequeue"
+    },
+    {
+      "type": "user",
+      "uuid": "D3",
+      "text": "Turn: reply with the two words you were told to note."
+    },
+    {
+      "type": "attachment",
+      "uuid": "4577619e",
+      "attachment": "total_tokens_reminder"
+    },
+    {
+      "type": "queue-operation",
+      "operation": "enqueue"
+    },
+    {
+      "type": "queue-operation",
+      "operation": "dequeue"
+    },
+    {
+      "type": "queue-operation",
+      "operation": "enqueue"
+    },
+    {
+      "type": "queue-operation",
+      "operation": "enqueue"
+    },
+    {
+      "type": "user",
+      "uuid": "E1",
+      "text": "Append three: note the word ZETA."
+    },
+    {
+      "type": "queue-operation",
+      "operation": "dequeue"
+    },
+    {
+      "type": "user",
+      "uuid": "E2",
+      "text": "Append four: note the word ETA."
+    },
+    {
+      "type": "queue-operation",
+      "operation": "dequeue"
+    },
+    {
+      "type": "user",
+      "uuid": "E3",
+      "text": "Turn: reply with the two words you were just told to note."
+    },
+    {
+      "type": "attachment",
+      "uuid": "a91d366e",
+      "attachment": "total_tokens_reminder"
+    },
+    {
+      "type": "queue-operation",
+      "operation": "enqueue"
+    },
+    {
+      "type": "queue-operation",
+      "operation": "dequeue"
+    },
+    {
+      "type": "user",
+      "uuid": "F",
+      "text": "Run `sleep 4` as a Bash tool call, then reply with the single word DONE."
+    },
+    {
+      "type": "attachment",
+      "uuid": "84d839d5",
+      "attachment": "total_tokens_reminder"
+    },
+    {
+      "type": "queue-operation",
+      "operation": "enqueue"
+    },
+    {
+      "type": "queue-operation",
+      "operation": "enqueue"
+    },
+    {
+      "type": "queue-operation",
+      "operation": "enqueue"
+    },
+    {
+      "type": "user",
+      "uuid": "ef129637",
+      "text": "[{\"tool_use_id\":\"toolu_01Vx3fL6gVt9xZicTyZ6Uwda\",\"type\":\"tool_result\",\"content\":\"(Bash completed with no output)\",\"is_error\":false}]"
+    },
+    {
+      "type": "attachment",
+      "uuid": "a6a12f3a",
+      "attachment": "total_tokens_reminder"
+    },
+    {
+      "type": "queue-operation",
+      "operation": "dequeue"
+    },
+    {
+      "type": "user",
+      "uuid": "M1",
+      "text": "Later one: reply with the word THETA."
+    },
+    {
+      "type": "attachment",
+      "uuid": "f6acf7f5",
+      "attachment": "total_tokens_reminder"
+    },
+    {
+      "type": "queue-operation",
+      "operation": "dequeue"
+    },
+    {
+      "type": "user",
+      "uuid": "M2",
+      "text": "Later two: note the word IOTA."
+    },
+    {
+      "type": "queue-operation",
+      "operation": "dequeue"
+    },
+    {
+      "type": "user",
+      "uuid": "M3",
+      "text": "Later three: reply with the word KAPPA."
+    },
+    {
+      "type": "attachment",
+      "uuid": "ff547afd",
+      "attachment": "total_tokens_reminder"
+    },
+    {
+      "type": "queue-operation",
+      "operation": "enqueue"
+    },
+    {
+      "type": "queue-operation",
+      "operation": "dequeue"
+    },
+    {
+      "type": "user",
+      "uuid": "G",
+      "text": "Run `sleep 4` as a Bash tool call, then reply with the single word DONE."
+    },
+    {
+      "type": "attachment",
+      "uuid": "faab0ad3",
+      "attachment": "task_reminder"
+    },
+    {
+      "type": "attachment",
+      "uuid": "88fa7125",
+      "attachment": "total_tokens_reminder"
+    },
+    {
+      "type": "queue-operation",
+      "operation": "enqueue"
+    },
+    {
+      "type": "queue-operation",
+      "operation": "enqueue"
+    },
+    {
+      "type": "queue-operation",
+      "operation": "enqueue"
+    },
+    {
+      "type": "user",
+      "uuid": "2a772335",
+      "text": "[{\"tool_use_id\":\"toolu_01Uv9eb1bfZ2tKVsXVFiZrkA\",\"type\":\"tool_result\",\"content\":\"(Bash completed with no output)\",\"is_error\":false}]"
+    },
+    {
+      "type": "attachment",
+      "uuid": "8480f289",
+      "attachment": "total_tokens_reminder"
+    },
+    {
+      "type": "queue-operation",
+      "operation": "dequeue"
+    },
+    {
+      "type": "queue-operation",
+      "operation": "dequeue"
+    },
+    {
+      "type": "queue-operation",
+      "operation": "dequeue"
+    },
+    {
+      "type": "user",
+      "uuid": "G3",
+      "text": "Later four: reply with the word LAMBDA.\nLater five: reply with the word MU.\nLater six: reply with the word NU."
+    },
+    {
+      "type": "attachment",
+      "uuid": "242523f2",
+      "attachment": "total_tokens_reminder"
+    },
+    {
+      "type": "queue-operation",
+      "operation": "enqueue"
+    },
+    {
+      "type": "queue-operation",
+      "operation": "dequeue"
+    },
+    {
+      "type": "user",
+      "uuid": "I",
+      "text": "Write the numbers 1 through 60 in words, separated by commas, nothing else."
+    },
+    {
+      "type": "attachment",
+      "uuid": "c25656e1",
+      "attachment": "total_tokens_reminder"
+    },
+    {
+      "type": "queue-operation",
+      "operation": "enqueue"
+    },
+    {
+      "type": "queue-operation",
+      "operation": "enqueue"
+    },
+    {
+      "type": "queue-operation",
+      "operation": "enqueue"
+    },
+    {
+      "type": "queue-operation",
+      "operation": "dequeue"
+    },
+    {
+      "type": "user",
+      "uuid": "H1",
+      "text": "Turn four: reply with the word XI."
+    },
+    {
+      "type": "attachment",
+      "uuid": "ebc81990",
+      "attachment": "total_tokens_reminder"
+    },
+    {
+      "type": "queue-operation",
+      "operation": "dequeue"
+    },
+    {
+      "type": "user",
+      "uuid": "H2",
+      "text": "Note the word OMICRON."
+    },
+    {
+      "type": "queue-operation",
+      "operation": "dequeue"
+    },
+    {
+      "type": "user",
+      "uuid": "H3",
+      "text": "Turn five: reply with the word PI."
+    },
+    {
+      "type": "attachment",
+      "uuid": "4005fed6",
+      "attachment": "total_tokens_reminder"
+    },
+    {
+      "type": "queue-operation",
+      "operation": "enqueue"
+    },
+    {
+      "type": "queue-operation",
+      "operation": "dequeue"
+    },
+    {
+      "type": "user",
+      "uuid": "K",
+      "text": "Run `sleep 4` as a Bash tool call, then reply with the single word DONE."
+    },
+    {
+      "type": "attachment",
+      "uuid": "c9c706ed",
+      "attachment": "total_tokens_reminder"
+    },
+    {
+      "type": "queue-operation",
+      "operation": "enqueue"
+    },
+    {
+      "type": "queue-operation",
+      "operation": "enqueue"
+    },
+    {
+      "type": "queue-operation",
+      "operation": "enqueue"
+    },
+    {
+      "type": "queue-operation",
+      "operation": "enqueue"
+    },
+    {
+      "type": "user",
+      "uuid": "741fed7a",
+      "text": "[{\"tool_use_id\":\"toolu_01BMQYJh8WRsbZFncMnbV3wQ\",\"type\":\"tool_result\",\"content\":\"(Bash completed with no output)\",\"is_error\":false}]"
+    },
+    {
+      "type": "attachment",
+      "uuid": "51b18006",
+      "attachment": "total_tokens_reminder"
+    },
+    {
+      "type": "queue-operation",
+      "operation": "dequeue"
+    },
+    {
+      "type": "queue-operation",
+      "operation": "dequeue"
+    },
+    {
+      "type": "user",
+      "uuid": "K2",
+      "text": "Later seven: reply with the word RHO.\nLater eight: reply with the word SIGMA."
+    },
+    {
+      "type": "attachment",
+      "uuid": "f31a1ef7",
+      "attachment": "total_tokens_reminder"
+    },
+    {
+      "type": "queue-operation",
+      "operation": "dequeue"
+    },
+    {
+      "type": "user",
+      "uuid": "K3",
+      "text": "Note the word TAU."
+    },
+    {
+      "type": "queue-operation",
+      "operation": "dequeue"
+    },
+    {
+      "type": "user",
+      "uuid": "K4",
+      "text": "Later nine: reply with the word UPSILON."
+    },
+    {
+      "type": "attachment",
+      "uuid": "60dc70aa",
+      "attachment": "total_tokens_reminder"
+    }
+  ],
+  "commandLifecycle": [
+    {
+      "command": "A",
+      "state": "queued"
+    },
+    {
+      "command": "A",
+      "state": "started"
+    },
+    {
+      "command": "S1",
+      "state": "queued"
+    },
+    {
+      "command": "S2",
+      "state": "queued"
+    },
+    {
+      "command": "S3",
+      "state": "queued"
+    },
+    {
+      "command": "S1",
+      "state": "started"
+    },
+    {
+      "command": "S2",
+      "state": "started"
+    },
+    {
+      "command": "S3",
+      "state": "started"
+    },
+    {
+      "command": "S1",
+      "state": "completed"
+    },
+    {
+      "command": "S2",
+      "state": "completed"
+    },
+    {
+      "command": "S3",
+      "state": "completed"
+    },
+    {
+      "command": "A",
+      "state": "completed"
+    },
+    {
+      "command": "C",
+      "state": "queued"
+    },
+    {
+      "command": "C",
+      "state": "started"
+    },
+    {
+      "command": "T1",
+      "state": "queued"
+    },
+    {
+      "command": "T2",
+      "state": "queued"
+    },
+    {
+      "command": "T3",
+      "state": "queued"
+    },
+    {
+      "command": "C",
+      "state": "completed"
+    },
+    {
+      "command": "T1",
+      "state": "started"
+    },
+    {
+      "command": "T2",
+      "state": "started"
+    },
+    {
+      "command": "T3",
+      "state": "started"
+    },
+    {
+      "command": "T1",
+      "state": "completed"
+    },
+    {
+      "command": "T2",
+      "state": "completed"
+    },
+    {
+      "command": "T3",
+      "state": "completed"
+    },
+    {
+      "command": "D1",
+      "state": "queued"
+    },
+    {
+      "command": "D1",
+      "state": "started"
+    },
+    {
+      "command": "D1",
+      "state": "completed"
+    },
+    {
+      "command": "D2",
+      "state": "queued"
+    },
+    {
+      "command": "D2",
+      "state": "started"
+    },
+    {
+      "command": "D2",
+      "state": "completed"
+    },
+    {
+      "command": "D3",
+      "state": "queued"
+    },
+    {
+      "command": "D3",
+      "state": "started"
+    },
+    {
+      "command": "D3",
+      "state": "completed"
+    },
+    {
+      "command": "E1",
+      "state": "queued"
+    },
+    {
+      "command": "E1",
+      "state": "started"
+    },
+    {
+      "command": "E2",
+      "state": "queued"
+    },
+    {
+      "command": "E3",
+      "state": "queued"
+    },
+    {
+      "command": "E1",
+      "state": "completed"
+    },
+    {
+      "command": "E2",
+      "state": "started"
+    },
+    {
+      "command": "E2",
+      "state": "completed"
+    },
+    {
+      "command": "E3",
+      "state": "started"
+    },
+    {
+      "command": "F",
+      "state": "queued"
+    },
+    {
+      "command": "E3",
+      "state": "completed"
+    },
+    {
+      "command": "F",
+      "state": "started"
+    },
+    {
+      "command": "M1",
+      "state": "queued"
+    },
+    {
+      "command": "M2",
+      "state": "queued"
+    },
+    {
+      "command": "M3",
+      "state": "queued"
+    },
+    {
+      "command": "F",
+      "state": "completed"
+    },
+    {
+      "command": "M1",
+      "state": "started"
+    },
+    {
+      "command": "M1",
+      "state": "completed"
+    },
+    {
+      "command": "M2",
+      "state": "started"
+    },
+    {
+      "command": "M2",
+      "state": "completed"
+    },
+    {
+      "command": "M3",
+      "state": "started"
+    },
+    {
+      "command": "M3",
+      "state": "completed"
+    },
+    {
+      "command": "G",
+      "state": "queued"
+    },
+    {
+      "command": "G",
+      "state": "started"
+    },
+    {
+      "command": "G1",
+      "state": "queued"
+    },
+    {
+      "command": "G2",
+      "state": "queued"
+    },
+    {
+      "command": "G3",
+      "state": "queued"
+    },
+    {
+      "command": "G",
+      "state": "completed"
+    },
+    {
+      "command": "G1",
+      "state": "started"
+    },
+    {
+      "command": "G2",
+      "state": "started"
+    },
+    {
+      "command": "G3",
+      "state": "started"
+    },
+    {
+      "command": "G1",
+      "state": "completed"
+    },
+    {
+      "command": "G2",
+      "state": "completed"
+    },
+    {
+      "command": "G3",
+      "state": "completed"
+    },
+    {
+      "command": "I",
+      "state": "queued"
+    },
+    {
+      "command": "I",
+      "state": "started"
+    },
+    {
+      "command": "H1",
+      "state": "queued"
+    },
+    {
+      "command": "H2",
+      "state": "queued"
+    },
+    {
+      "command": "H3",
+      "state": "queued"
+    },
+    {
+      "command": "I",
+      "state": "completed"
+    },
+    {
+      "command": "H1",
+      "state": "started"
+    },
+    {
+      "command": "H1",
+      "state": "completed"
+    },
+    {
+      "command": "H2",
+      "state": "started"
+    },
+    {
+      "command": "H2",
+      "state": "completed"
+    },
+    {
+      "command": "H3",
+      "state": "started"
+    },
+    {
+      "command": "H3",
+      "state": "completed"
+    },
+    {
+      "command": "K",
+      "state": "queued"
+    },
+    {
+      "command": "K",
+      "state": "started"
+    },
+    {
+      "command": "K1",
+      "state": "queued"
+    },
+    {
+      "command": "K2",
+      "state": "queued"
+    },
+    {
+      "command": "K3",
+      "state": "queued"
+    },
+    {
+      "command": "K4",
+      "state": "queued"
+    },
+    {
+      "command": "K",
+      "state": "completed"
+    },
+    {
+      "command": "K1",
+      "state": "started"
+    },
+    {
+      "command": "K2",
+      "state": "started"
+    },
+    {
+      "command": "K1",
+      "state": "completed"
+    },
+    {
+      "command": "K2",
+      "state": "completed"
+    },
+    {
+      "command": "K3",
+      "state": "started"
+    },
+    {
+      "command": "K3",
+      "state": "completed"
+    },
+    {
+      "command": "K4",
+      "state": "started"
+    },
+    {
+      "command": "K4",
+      "state": "completed"
+    }
+  ],
+  "queryUserMessages": [
+    {
+      "uuid": "b61bd399",
+      "text": "[{\"tool_use_id\":\"toolu_01CwbHjUeGhneMHW7apVUM9s\",\"type\":\"tool_result\",\"content\":\"(Bash completed with no output)\",\"is_error\":false}]"
+    },
+    {
+      "uuid": "ef129637",
+      "text": "[{\"tool_use_id\":\"toolu_01Vx3fL6gVt9xZicTyZ6Uwda\",\"type\":\"tool_result\",\"content\":\"(Bash completed with no output)\",\"is_error\":false}]"
+    },
+    {
+      "uuid": "2a772335",
+      "text": "[{\"tool_use_id\":\"toolu_01Uv9eb1bfZ2tKVsXVFiZrkA\",\"type\":\"tool_result\",\"content\":\"(Bash completed with no output)\",\"is_error\":false}]"
+    },
+    {
+      "uuid": "741fed7a",
+      "text": "[{\"tool_use_id\":\"toolu_01BMQYJh8WRsbZFncMnbV3wQ\",\"type\":\"tool_result\",\"content\":\"(Bash completed with no output)\",\"is_error\":false}]"
+    }
+  ]
+}

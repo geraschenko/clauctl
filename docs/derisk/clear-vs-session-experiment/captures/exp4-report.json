@@ -1,0 +1,443 @@
+{
+  "sdk": "0.3.258",
+  "sessionIds": [
+    "3f940dd8-0e9d-4e51-8d85-b61956c11e5b",
+    "82e5cc62-c9ce-4c63-8ebc-f986110b1f2b"
+  ],
+  "stamped": {
+    "A": "d00cfb84-c980-48ed-9522-c2b40f470e7c",
+    "CLEAR": "134c3be1-80ed-4c1a-b59c-e89758a4df47",
+    "B": "c924cd06-da2e-417c-a0e4-f6dcabf3bc1e",
+    "C": "4a243253-0565-43b9-a0c2-ebb4fcd22ede"
+  },
+  "stream": [
+    {
+      "type": "command_lifecycle",
+      "session": "S1",
+      "command": "A",
+      "state": "queued"
+    },
+    {
+      "type": "command_lifecycle",
+      "session": "S1",
+      "command": "A",
+      "state": "started"
+    },
+    {
+      "type": "system/init",
+      "session": "S1"
+    },
+    {
+      "type": "system/status",
+      "session": "S1"
+    },
+    {
+      "type": "system/thinking_tokens",
+      "session": "S1"
+    },
+    {
+      "type": "system/thinking_tokens",
+      "session": "S1"
+    },
+    {
+      "type": "system/thinking_tokens",
+      "session": "S1"
+    },
+    {
+      "type": "system/thinking_tokens",
+      "session": "S1"
+    },
+    {
+      "type": "system/thinking_tokens",
+      "session": "S1"
+    },
+    {
+      "type": "system/thinking_tokens",
+      "session": "S1"
+    },
+    {
+      "type": "system/thinking_tokens",
+      "session": "S1"
+    },
+    {
+      "type": "system/thinking_tokens",
+      "session": "S1"
+    },
+    {
+      "type": "system/thinking_tokens",
+      "session": "S1"
+    },
+    {
+      "type": "system/thinking_tokens",
+      "session": "S1"
+    },
+    {
+      "type": "system/thinking_tokens",
+      "session": "S1"
+    },
+    {
+      "type": "system/thinking_tokens",
+      "session": "S1"
+    },
+    {
+      "type": "assistant",
+      "session": "S1"
+    },
+    {
+      "type": "assistant",
+      "session": "S1"
+    },
+    {
+      "type": "rate_limit_event",
+      "session": "S1"
+    },
+    {
+      "type": "result/success",
+      "session": "S1"
+    },
+    {
+      "type": "command_lifecycle",
+      "session": "S1",
+      "command": "A",
+      "state": "completed"
+    },
+    {
+      "type": "command_lifecycle",
+      "session": "S1",
+      "command": "CLEAR",
+      "state": "queued"
+    },
+    {
+      "type": "command_lifecycle",
+      "session": "S1",
+      "command": "B",
+      "state": "queued"
+    },
+    {
+      "type": "command_lifecycle",
+      "session": "S1",
+      "command": "CLEAR",
+      "state": "started"
+    },
+    {
+      "type": "conversation_reset",
+      "session": "S1",
+      "new_conversation_id": "b9bf4674"
+    },
+    {
+      "type": "system/init",
+      "session": "S2"
+    },
+    {
+      "type": "result/success",
+      "session": "S2"
+    },
+    {
+      "type": "command_lifecycle",
+      "session": "S2",
+      "command": "CLEAR",
+      "state": "completed"
+    },
+    {
+      "type": "command_lifecycle",
+      "session": "S2",
+      "command": "B",
+      "state": "started"
+    },
+    {
+      "type": "system/init",
+      "session": "S2"
+    },
+    {
+      "type": "system/status",
+      "session": "S2"
+    },
+    {
+      "type": "system/thinking_tokens",
+      "session": "S2"
+    },
+    {
+      "type": "system/thinking_tokens",
+      "session": "S2"
+    },
+    {
+      "type": "system/thinking_tokens",
+      "session": "S2"
+    },
+    {
+      "type": "system/thinking_tokens",
+      "session": "S2"
+    },
+    {
+      "type": "system/thinking_tokens",
+      "session": "S2"
+    },
+    {
+      "type": "system/thinking_tokens",
+      "session": "S2"
+    },
+    {
+      "type": "system/thinking_tokens",
+      "session": "S2"
+    },
+    {
+      "type": "system/thinking_tokens",
+      "session": "S2"
+    },
+    {
+      "type": "system/thinking_tokens",
+      "session": "S2"
+    },
+    {
+      "type": "system/thinking_tokens",
+      "session": "S2"
+    },
+    {
+      "type": "system/thinking_tokens",
+      "session": "S2"
+    },
+    {
+      "type": "system/thinking_tokens",
+      "session": "S2"
+    },
+    {
+      "type": "system/thinking_tokens",
+      "session": "S2"
+    },
+    {
+      "type": "system/thinking_tokens",
+      "session": "S2"
+    },
+    {
+      "type": "system/thinking_tokens",
+      "session": "S2"
+    },
+    {
+      "type": "system/thinking_tokens",
+      "session": "S2"
+    },
+    {
+      "type": "system/thinking_tokens",
+      "session": "S2"
+    },
+    {
+      "type": "system/thinking_tokens",
+      "session": "S2"
+    },
+    {
+      "type": "system/thinking_tokens",
+      "session": "S2"
+    },
+    {
+      "type": "system/thinking_tokens",
+      "session": "S2"
+    },
+    {
+      "type": "system/thinking_tokens",
+      "session": "S2"
+    },
+    {
+      "type": "system/thinking_tokens",
+      "session": "S2"
+    },
+    {
+      "type": "system/thinking_tokens",
+      "session": "S2"
+    },
+    {
+      "type": "system/thinking_tokens",
+      "session": "S2"
+    },
+    {
+      "type": "system/thinking_tokens",
+      "session": "S2"
+    },
+    {
+      "type": "system/thinking_tokens",
+      "session": "S2"
+    },
+    {
+      "type": "system/thinking_tokens",
+      "session": "S2"
+    },
+    {
+      "type": "system/thinking_tokens",
+      "session": "S2"
+    },
+    {
+      "type": "system/thinking_tokens",
+      "session": "S2"
+    },
+    {
+      "type": "assistant",
+      "session": "S2"
+    },
+    {
+      "type": "assistant",
+      "session": "S2"
+    },
+    {
+      "type": "result/success",
+      "session": "S2"
+    },
+    {
+      "type": "command_lifecycle",
+      "session": "S2",
+      "command": "B",
+      "state": "completed"
+    },
+    {
+      "type": "command_lifecycle",
+      "session": "S2",
+      "command": "C",
+      "state": "queued"
+    },
+    {
+      "type": "command_lifecycle",
+      "session": "S2",
+      "command": "C",
+      "state": "started"
+    },
+    {
+      "type": "system/init",
+      "session": "S2"
+    },
+    {
+      "type": "system/status",
+      "session": "S2"
+    },
+    {
+      "type": "system/thinking_tokens",
+      "session": "S2"
+    },
+    {
+      "type": "system/thinking_tokens",
+      "session": "S2"
+    },
+    {
+      "type": "system/thinking_tokens",
+      "session": "S2"
+    },
+    {
+      "type": "system/thinking_tokens",
+      "session": "S2"
+    },
+    {
+      "type": "system/thinking_tokens",
+      "session": "S2"
+    },
+    {
+      "type": "system/thinking_tokens",
+      "session": "S2"
+    },
+    {
+      "type": "system/thinking_tokens",
+      "session": "S2"
+    },
+    {
+      "type": "system/thinking_tokens",
+      "session": "S2"
+    },
+    {
+      "type": "system/thinking_tokens",
+      "session": "S2"
+    },
+    {
+      "type": "system/thinking_tokens",
+      "session": "S2"
+    },
+    {
+      "type": "system/thinking_tokens",
+      "session": "S2"
+    },
+    {
+      "type": "system/thinking_tokens",
+      "session": "S2"
+    },
+    {
+      "type": "system/thinking_tokens",
+      "session": "S2"
+    },
+    {
+      "type": "assistant",
+      "session": "S2"
+    },
+    {
+      "type": "assistant",
+      "session": "S2"
+    },
+    {
+      "type": "result/success",
+      "session": "S2"
+    },
+    {
+      "type": "command_lifecycle",
+      "session": "S2",
+      "command": "C",
+      "state": "completed"
+    }
+  ],
+  "files": {
+    "S1": [
+      {
+        "type": "queue-operation",
+        "operation": "enqueue"
+      },
+      {
+        "type": "queue-operation",
+        "operation": "dequeue"
+      },
+      {
+        "type": "user",
+        "uuid": "A",
+        "text": "Reply ALPHA."
+      },
+      {
+        "type": "queue-operation",
+        "operation": "enqueue"
+      },
+      {
+        "type": "queue-operation",
+        "operation": "dequeue"
+      },
+      {
+        "type": "queue-operation",
+        "operation": "enqueue"
+      }
+    ],
+    "S2": [
+      {
+        "type": "user",
+        "uuid": "5d719791",
+        "text": "<local-command-caveat>Caveat: The messages below were genera"
+      },
+      {
+        "type": "user",
+        "uuid": "CLEAR",
+        "text": "<command-name>/clear</command-name>\n            <command-mes"
+      },
+      {
+        "type": "queue-operation",
+        "operation": "dequeue"
+      },
+      {
+        "type": "user",
+        "uuid": "B",
+        "text": "Reply BETA."
+      },
+      {
+        "type": "queue-operation",
+        "operation": "enqueue"
+      },
+      {
+        "type": "queue-operation",
+        "operation": "dequeue"
+      },
+      {
+        "type": "user",
+        "uuid": "C",
+        "text": "Reply GAMMA."
+      }
+    ]
+  }
+}

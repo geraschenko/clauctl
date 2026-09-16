@@ -13,7 +13,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
-import { initialAgentState, type AgentState } from "./agent-state.ts";
+import {
+  initialAgentState,
+  type AgentState,
+} from "./agent-state/agent-state.ts";
 import { app } from "./app.ts";
 import {
   RESPONSE_SENT,

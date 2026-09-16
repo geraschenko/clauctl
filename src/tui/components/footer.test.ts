@@ -7,7 +7,7 @@ import {
   freshSessionState,
   initialAgentState,
   type AgentState,
-} from "../../core/agent-state.ts";
+} from "../../core/agent-state/agent-state.ts";
 import { FooterComponent, formatTokens } from "./footer.ts";
 
 const provider: ReadonlyFooterDataProvider = {

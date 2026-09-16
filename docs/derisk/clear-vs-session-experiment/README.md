@@ -82,7 +82,7 @@ How this experiment was actually run, so a future reader can reproduce or trust 
 - We drove the real, already-authenticated system `claude` binary (`~/.local/bin/claude`,
   model `claude-opus-4-8`) in programmatic stream-json mode via the TypeScript Claude Agent
   SDK's streaming-input API: a single long-lived `query({ prompt: <AsyncIterable of
-  SDKUserMessage> })` call whose returned `Query` is an async generator of `SDKMessage`s.
+SDKUserMessage> })` call whose returned `Query` is an async generator of `SDKMessage`s.
 - The harness (`exp.mjs`, inlined in this directory) hand-rolls the async iterable with a
   `resolveNext`/`pending` queue and advances to the next user message only when it sees a
   `result` message — so each turn is fully drained before the next prompt is sent, and the
@@ -135,10 +135,35 @@ response" rather than a surprising duplicate. Our JS harness reads every turn in
 reader `receive_messages()` would show the repeated inits on the Rust side too. (Older `claude`
 versions may have behaved differently.)
 
+### Follow-up: where does a prompt queued behind `/clear` land? (exp4, SDK 0.3.258)
+
+`docs/specs/query-pending-list.md` attributes a dequeued prompt to the fold's
+`querySessionId`, which only moves at the new session's `system/init`. If the `/clear`
+turn's `result` (the dequeue signal) could precede that init, a prompt queued behind
+`/clear` would be attributed to the old session while its entry lands in the new file.
+`exp4-prompt-across-clear.mjs` runs turn A, then pushes stamped `/clear` and B back to
+back (so B is queued while the reset runs), then C. Stream order and per-file placement
+are in `captures/exp4-report.json`; pinned by `tests/sdk/clear-session.test.ts`.
+
+Stream order across the reset turn: `command_lifecycle CLEAR started` →
+`conversation_reset` (old session_id; `new_conversation_id` is a third id, matching
+neither session) → `system/init` (S2) → `result` (S2) → `command_lifecycle CLEAR
+completed` → `B started` → `init` (S2) → … So the new init precedes the reset turn's
+result: B is dequeued after `querySessionId` has moved, and its entry is in S2's file.
+
+But the `/clear` prompt itself is dequeued on S1 (it was idle-submitted while S1 was
+current), while its `<command-name>/clear</command-name>` user entry is written to S2's
+file (after a `<local-command-caveat>` entry). S1's file records only the enqueue of
+CLEAR, no dequeue and no user entry. A fold that puts the reset command's dequeued prompt
+on S1's query pending list therefore never sees S1 settle.
+
 ## Files
 
 - `exp.mjs` — the `/clear` + `/new` harness (run as `node exp.mjs /clear clear` and
   `node exp.mjs /new new`).
+- `exp4-prompt-across-clear.mjs` — stamped prompt queued behind `/clear`;
+  `captures/exp4-S1.jsonl`, `exp4-S2.jsonl` (both session files), `exp4-events.jsonl`
+  (full query stream), `exp4-report.json` (slimmed order + per-file user/queue entries).
 - `exp2-singlesession.mjs` — single-session follow-up, no slash command, no `session_id` field.
 - `exp3-sessionid.mjs` — single-session follow-up that adds `session_id:"default"` per message.
 - `captures/out-clear.json`, `out-new.json` — slimmed message logs for each slash-command run
@@ -174,3 +199,8 @@ versions may have behaved differently.)
   on that list.
 - Top-line conclusion: agent id MUST be separate from session id. One clauctl agent spans a
   sequence of session_ids over its lifetime.
+- (exp4) `conversation_reset.new_conversation_id` is NOT the new transcript's id; only the
+  following `init` is. The new init precedes the reset turn's `result`, so a prompt queued
+  behind `/clear` is dequeued after the rollover and lands in the new file. The reset command's
+  own user entry also lands in the new file, although the command was dequeued from the old
+  session — the one prompt whose query-side observation and file-side entry disagree on session.

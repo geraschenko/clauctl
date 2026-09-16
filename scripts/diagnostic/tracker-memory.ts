@@ -11,7 +11,7 @@ import type { UUID } from "node:crypto";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
-import { initialAgentState } from "../../src/core/agent-state.ts";
+import { initialAgentState } from "../../src/core/agent-state/agent-state.ts";
 import { AnomalyRecorder } from "../../src/core/daemon/anomaly-bundle.ts";
 import { EventHub } from "../../src/core/daemon/event-hub.ts";
 import { RwGate } from "../../src/core/daemon/rw-gate.ts";

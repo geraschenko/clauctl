@@ -3,7 +3,7 @@ import { randomUUID, type UUID } from "node:crypto";
 import { appendFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
-import { initialAgentState } from "../agent-state.ts";
+import { initialAgentState } from "../agent-state/agent-state.ts";
 import type { AgentEvent } from "../protocol.ts";
 import { SessionLogFollower } from "../session/entry-stream.ts";
 import type { SessionEntry } from "../session/file.ts";

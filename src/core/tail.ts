@@ -29,7 +29,7 @@ import {
   SETTLE_TIMEOUT_MS,
   settled,
   type AgentState,
-} from "./agent-state.ts";
+} from "./agent-state/agent-state.ts";
 import { entrySink, LiveEntryFeed } from "./entry-sink.ts";
 import {
   booleanFlag,

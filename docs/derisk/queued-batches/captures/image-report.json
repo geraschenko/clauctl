@@ -1,0 +1,81 @@
+{
+  "sdk": "0.3.258",
+  "sessionId": "14ad8c2b-f2bd-49c1-b77d-a0c8778db5a8",
+  "stamped": {
+    "C": "adb44ff0-504e-4792-b9f9-73e3087b33de",
+    "J1": "95b575f4-b8c2-4eee-842e-536b92652d53",
+    "J2": "6b1e658d-7298-4158-8c18-2dd5b6d18ada",
+    "J3": "884e89fb-a954-4801-92c6-43acc7ad8ce3",
+    "D": "d5dc3b12-bdb7-4392-b414-8ce5f7e9aa7a",
+    "L1": "53b46713-fd9a-465a-ba90-147c233c4e76",
+    "L2": "13bdaaeb-61b3-4cf5-8813-b0c0682aeecf"
+  },
+  "userEntries": [
+    {
+      "uuid": "C",
+      "content": "Write the numbers 1 through 60 in words, separated by commas, nothing else."
+    },
+    {
+      "uuid": "J3",
+      "content": [
+        {
+          "type": "text",
+          "text": "Reply ALPHA."
+        },
+        {
+          "type": "image",
+          "source": {
+            "type": "base64",
+            "media_type": "image/png",
+            "data": "<png>"
+          }
+        },
+        {
+          "type": "text",
+          "text": "What colour is this? Reply BETA."
+        },
+        {
+          "type": "text",
+          "text": "Reply GAMMA."
+        }
+      ]
+    },
+    {
+      "uuid": "D",
+      "content": "Write the numbers 1 through 60 in words, separated by commas, nothing else."
+    },
+    {
+      "uuid": "L2",
+      "content": [
+        {
+          "type": "image",
+          "source": {
+            "type": "base64",
+            "media_type": "image/png",
+            "data": "<png>"
+          }
+        },
+        {
+          "type": "text",
+          "text": "What colour is this? Reply DELTA."
+        },
+        {
+          "type": "text",
+          "text": "Reply EPSILON."
+        }
+      ]
+    },
+    {
+      "uuid": "676659fe",
+      "content": [
+        {
+          "type": "tool_result",
+          "content": "Permission to use Read has been denied because Claude Code is running in don't ask mode. IMPORTANT: You *may* attempt to accomplish this action using other tools that might naturally be used to accomplish this goal, e.g. using head instead of cat. But you *should not* attempt to work around this denial in malicious ways, e.g. do not use your ability to run tests to execute non-test actions. You should only try to work around this restriction in reasonable ways that do not attempt to bypass the intent behind this denial. If you believe this capability is essential to complete the user's request, STOP and explain to the user what you were trying to do and why you need this permission. Let the user decide how to proceed.",
+          "is_error": true,
+          "tool_use_id": "toolu_01DsnTZKXJWAwhM4E4mZqAwN"
+        }
+      ]
+    }
+  ],
+  "results": 4
+}

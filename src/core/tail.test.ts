@@ -19,7 +19,7 @@ import {
   initialAgentState,
   nextAgentState,
   type AgentState,
-} from "./agent-state.ts";
+} from "./agent-state/agent-state.ts";
 import { app } from "./app.ts";
 import {
   RESPONSE_SENT,

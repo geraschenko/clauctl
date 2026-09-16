@@ -35,7 +35,11 @@ import type {
   SDKMessage,
   SDKUserMessage,
 } from "@anthropic-ai/claude-agent-sdk";
-import { isIdle, leaf, type AgentState } from "../core/agent-state.ts";
+import {
+  isIdle,
+  leaf,
+  type AgentState,
+} from "../core/agent-state/agent-state.ts";
 import { randomUUID } from "node:crypto";
 import { readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";

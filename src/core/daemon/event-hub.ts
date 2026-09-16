@@ -11,7 +11,7 @@ import {
   sessionSettled,
   settled,
   type AgentState,
-} from "../agent-state.ts";
+} from "../agent-state/agent-state.ts";
 import type { AgentEvent } from "../protocol.ts";
 import type { AnomalyRecorder } from "./anomaly-bundle.ts";
 import * as QueueModel from "./queue-model.ts";

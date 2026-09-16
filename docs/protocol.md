@@ -52,7 +52,7 @@ turn's `result`, the `stream_event`s), and we do not try.
 - **Snapshot, then fold.** `subscribe` answers with the daemon's
   `AgentState` and streams every later event. The client applies
   `nextAgentState(state, event)` — the fold exported by
-  [`src/core/agent-state.ts`](../src/core/agent-state.ts) — to each event.
+  [`src/core/agent-state/agent-state.ts`](../src/core/agent-state/agent-state.ts) — to each event.
   The daemon maintains its own state with the same function over the same
   stream, so a subscriber's state is the daemon's, not an approximation of
   it. There is no client-side state model to drift.
@@ -260,7 +260,7 @@ socket.
   daemon and the TUI keep them.
 - [`claude-agent-sdk.md`](claude-agent-sdk.md) — the empirical facts about
   the SDK and the CLI the above is built on.
-- Code: `src/core/protocol.ts` (protocol), `src/core/agent-state.ts`
+- Code: `src/core/protocol.ts` (protocol), `src/core/agent-state/agent-state.ts`
   (fold), `src/core/daemon/event-hub.ts` (broadcast and settlement),
   `src/core/daemon/session-tracker.ts` (the resident file view),
   `src/core/session/entry-stream.ts` (the follower),

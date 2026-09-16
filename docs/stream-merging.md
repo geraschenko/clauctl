@@ -62,7 +62,7 @@ under `docs/derisk/stream-classification/` and `docs/derisk/uuid-stamping/`.
 relative order of shared uuids on both streams, and is where a new row
 goes when an anomaly report adds one.
 
-In code the table is two predicates in `src/core/agent-state.ts`:
+In code the table is two predicates in `src/core/agent-state/classification.ts`:
 `excludedFromSession(message)` and `excludedFromQuery(entry)`. The `user`
 rule is the subtle one: a `user` entry is shared iff it has a
 `tool_result` block, is a compaction summary, or its content starts with

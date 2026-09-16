@@ -1,7 +1,7 @@
 # Why the daemon tracks user prompts itself
 
 > Design rationale for `queuedMessages`, `deliveredMessages`, and the
-> transcript leaf in `AgentState` (src/core/agent-state.ts, which states
+> transcript leaf in `AgentState` (src/core/agent-state/agent-state.ts, which states
 > the invariant in code; this doc holds the full rationale), and for the known
 > limitations we accepted. The queue events are one leg of the event stream
 > described in `docs/protocol.md`. Grounded in the echo-placement experiments

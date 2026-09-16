@@ -8,7 +8,7 @@ import {
   initialAgentState,
   settled,
   type TrackerAnomaly,
-} from "../agent-state.ts";
+} from "../agent-state/agent-state.ts";
 import type { AgentEvent } from "../protocol.ts";
 import type { SessionEntry } from "../session/file.ts";
 import { tempDir } from "../../test-support/temp-dir.ts";

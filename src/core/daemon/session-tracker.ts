@@ -8,7 +8,7 @@
  */
 
 import type { UUID } from "node:crypto";
-import { excludedFromQuery } from "../agent-state.ts";
+import { excludedFromQuery } from "../agent-state/agent-state.ts";
 import type { AgentEvent } from "../protocol.ts";
 import {
   readEntriesAt,

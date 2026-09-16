@@ -12,7 +12,7 @@
 
 import type { UUID } from "node:crypto";
 import type { Query, SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
-import { settled } from "../agent-state.ts";
+import { settled } from "../agent-state/agent-state.ts";
 import { settingsSeed, type PersistedOptions } from "../options.ts";
 import type { SessionEntry } from "../session/file.ts";
 import {

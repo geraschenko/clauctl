@@ -18,7 +18,7 @@
  *   the stream driver's quiet timer, never by an event.
  */
 
-import { isIdle, type AgentState } from "./agent-state.ts";
+import { isIdle, type AgentState } from "./agent-state/agent-state.ts";
 import { makeUntilCheckers } from "./generated/until-engine.ts";
 import type { AgentEvent } from "./protocol.ts";
 

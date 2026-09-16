@@ -11,6 +11,18 @@ export default tseslint.config(
         "error",
         { argsIgnorePattern: "^_", varsIgnorePattern: "^_" },
       ],
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              group: ["**/agent-state/*", "!**/agent-state/agent-state.ts"],
+              message:
+                "Import agent-state/agent-state.ts; the siblings are implementation.",
+            },
+          ],
+        },
+      ],
     },
   },
 );

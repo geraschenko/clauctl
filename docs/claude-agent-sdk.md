@@ -74,8 +74,17 @@ explicitly. Pinned by `tests/sdk/permission-mode.test.ts`.
 
 This is why a clauctl agent id is not a session id: one agent spans a
 sequence of session ids, tracked in `agent.json`, and why the socket has a
-`sessionFileChanged` event. Pinned by
-`derisk/clear-vs-session-experiment/` only.
+`sessionFileChanged` event.
+
+The reset turn on the query stream: `conversation_reset` (old session id;
+its `new_conversation_id` is **not** the new transcript id) → `init` with
+the new id → the reset turn's `result`. So a prompt queued behind `/clear`
+is dequeued after the rollover and its entry lands in the new file; the
+reset command's own entry lands in the new file too, although it was
+dequeued from the old session. Pinned by `tests/sdk/clear-session.test.ts`
+(evidence: `derisk/clear-vs-session-experiment/`, exp4). If the
+`new_conversation_id` assertion ever fails, the "wait for `init`" rollover
+detection in the daemon can be revisited.
 
 ## Transcripts are files, and they are readable
 
@@ -129,6 +138,23 @@ it from the stream alone; the daemon models the queue itself
 ([`user-message-tracking.md`](user-message-tracking.md)). Pinned by
 `tests/sdk/stream-classification.test.ts` (a stamped `SDKUserMessage.uuid`
 becomes the file's user entry; a steer surfaces only as the attachment).
+
+## Queued prompts coalesce by run
+
+When several prompts wait in the CLI's queue, the file records them by
+placement: a prompt absorbed into a running turn (a "steer") is always its
+own `queued_command` attachment; an append (`shouldQuery: false`) is
+always its own `user` entry; and within a same-priority bucket, a maximal
+run of consecutive querying prompts becomes **one** `\n`-joined `user`
+entry whose uuid is the run's **last** member (the other members' uuids
+never reach the file); if any member has block-form content, the entry is
+instead one block array — strings lifted to text blocks, arrays spliced,
+no separator. The CLI dequeues one run per `result`. This is the
+rule the daemon's queue model
+([`user-message-tracking.md`](user-message-tracking.md)) has to mirror.
+Pinned by
+`tests/sdk/queued-batches.test.ts`; evidence in
+[`derisk/queued-batches/`](derisk/queued-batches/README.md).
 
 ## Hooks never reach the query stream
 

@@ -13,7 +13,7 @@
 
 import { randomUUID, type UUID } from "node:crypto";
 import type { NonNullableUsage } from "@anthropic-ai/claude-agent-sdk";
-import { lastUsage } from "../agent-state.ts";
+import { lastUsage } from "../agent-state/agent-state.ts";
 import {
   invalidRelinkReason,
   isThinkingOnlyEntry,

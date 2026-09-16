@@ -18,7 +18,7 @@ import {
   initialAgentState,
   nextAgentState,
   settled,
-} from "./agent-state.ts";
+} from "./agent-state/agent-state.ts";
 import type { AgentEvent } from "./protocol.ts";
 import { hasUuid, readSessionEntries } from "./session/file.ts";
 

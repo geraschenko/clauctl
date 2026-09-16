@@ -16,7 +16,7 @@ import { syncBuiltinESMExports } from "node:module";
 import { join } from "node:path";
 import { test, type TestContext } from "node:test";
 import type { Query, SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
-import { initialAgentState } from "../agent-state.ts";
+import { initialAgentState } from "../agent-state/agent-state.ts";
 import type { GetContextResponse, GetEntriesResponse } from "../protocol.ts";
 import type { TreeNodeRef } from "../tree/nodes.ts";
 import type { PersistedOptions } from "../options.ts";

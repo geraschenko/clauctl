@@ -16,9 +16,9 @@ import {
   querySession,
   settled,
 } from "./agent-state.ts";
-import type { AgentEvent } from "./protocol.ts";
-import type { SessionEntry } from "./session/file.ts";
-import { hasPending, pending } from "./stream-merge.ts";
+import type { AgentEvent } from "../protocol.ts";
+import type { SessionEntry } from "../session/file.ts";
+import { hasPending, pending } from "../stream-merge.ts";
 
 const SESSION_A = "aaaaaaaa-0000-0000-0000-000000000001" as const;
 const SESSION_B = "bbbbbbbb-0000-0000-0000-000000000002" as const;

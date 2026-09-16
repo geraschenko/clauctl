@@ -71,7 +71,7 @@ messages, model/permission/tool state, and usage.
 
 It is maintained by a single pure fold function, `nextAgentState(state, event)`,
 exported from the same module that defines the wire types
-([`src/core/agent-state.ts`](../src/core/agent-state.ts)). The daemon folds
+([`src/core/agent-state/agent-state.ts`](../src/core/agent-state/agent-state.ts)). The daemon folds
 every event before broadcasting it; every subscriber folds the identical
 function over the events it receives. There is no separate client-side state
 model to drift out of sync.
@@ -210,7 +210,7 @@ attachable.
 
 - exact protocol definition: [`src/core/protocol.ts`](../src/core/protocol.ts);
 - exact `agent.json` schema: [`src/core/registry.ts`](../src/core/registry.ts);
-- the state fold: [`src/core/agent-state.ts`](../src/core/agent-state.ts);
+- the state fold: [`src/core/agent-state/agent-state.ts`](../src/core/agent-state/agent-state.ts);
 - the protocol and its philosophy: [`protocol.md`](protocol.md);
 - merging the SDK stream with the session file: [`stream-merging.md`](stream-merging.md);
 - the three views of a session: [`session-views.md`](session-views.md);

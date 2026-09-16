@@ -12,7 +12,7 @@ import type {
   NonNullableUsage,
   SDKAssistantMessage,
 } from "@anthropic-ai/claude-agent-sdk";
-import { toNonNullableUsage } from "../agent-state.ts";
+import { toNonNullableUsage } from "../agent-state/agent-state.ts";
 import { hasUuid, type SessionEntry, type UuidEntry } from "../session/file.ts";
 import { finishedTreeView, type FullTreeView } from "./build-tree.ts";
 import {

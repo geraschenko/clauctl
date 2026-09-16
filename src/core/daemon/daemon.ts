@@ -29,7 +29,7 @@ import {
   requiredStringFlag,
   type InferFlags,
 } from "../generated/cli.ts";
-import { initialAgentState } from "../agent-state.ts";
+import { initialAgentState } from "../agent-state/agent-state.ts";
 import { invariantOptions, settingsSeed } from "../options.ts";
 import {
   agentDirPath,

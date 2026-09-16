@@ -22,7 +22,7 @@ import {
   nextAgentState,
   type AgentState,
   type TrackerAnomaly,
-} from "./agent-state.ts";
+} from "./agent-state/agent-state.ts";
 import type { SessionEntry } from "./session/file.ts";
 import { AsyncQueue } from "./generated/streaming/async-queue.ts";
 import type {

@@ -7,7 +7,7 @@
  * preserves when it arrived.
  */
 
-import { classOf, type AgentState } from "../core/agent-state.ts";
+import { classOf, type AgentState } from "../core/agent-state/agent-state.ts";
 import type { AgentEvent } from "../core/protocol.ts";
 import { compactionMetadata } from "../core/session/file.ts";
 import { userText } from "../tui/sdk-render.ts";

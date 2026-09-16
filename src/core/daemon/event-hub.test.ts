@@ -12,7 +12,7 @@ import {
   SETTLE_TIMEOUT_MS,
   settled,
   type AgentState,
-} from "../agent-state.ts";
+} from "../agent-state/agent-state.ts";
 import type { AgentEvent } from "../protocol.ts";
 import type { SessionEntry } from "../session/file.ts";
 import { AnomalyRecorder } from "./anomaly-bundle.ts";

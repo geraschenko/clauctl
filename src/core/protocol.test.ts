@@ -6,7 +6,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, test } from "node:test";
 import type { SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
-import { initialAgentState, type AgentState } from "./agent-state.ts";
+import {
+  initialAgentState,
+  type AgentState,
+} from "./agent-state/agent-state.ts";
 import {
   RESPONSE_SENT,
   startProtocolServer,

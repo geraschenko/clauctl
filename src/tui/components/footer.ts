@@ -26,7 +26,7 @@ import {
   initialAgentState,
   lastUsage,
   type AgentState,
-} from "../../core/agent-state.ts";
+} from "../../core/agent-state/agent-state.ts";
 import { claudeStyle } from "../claude-style.ts";
 
 /** Copied from pi's footer.ts (exported there but not through the package
