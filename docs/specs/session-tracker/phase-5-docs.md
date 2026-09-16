@@ -1,10 +1,10 @@
 # Phase 5: docs
 
 > Work log for phase 5 of docs/specs/session-tracker.md (IMPLEMENTATION
-> IDEAS, "Docs"). Status: **all edits made; the four new/rewritten docs
-> (socket-interface, stream-merging, session-views, claude-agent-sdk) are in
-> review iterations with Anton**; the "sdk socket" → protocol rename is
-> applied (2026-09-15).
+> IDEAS, "Docs"). Status: **DONE 2026-09-16** — the four new/rewritten
+> docs (protocol, stream-merging, session-views, claude-agent-sdk),
+> audit.md, the "sdk socket" → protocol rename and the `socket` filename
+> (0.2.0) are all in; deferred items are listed under Decisions.
 
 Unlike phases 1–4 the unit of work is a document, not a code step, so
 this log is a file → verdict → action table, the agreed outline of the
@@ -248,10 +248,8 @@ docs/thoughts/fold-resolved-events.md (deferred; a separate spec).
 From review round 95069a7:
 
 - `clauctl` `/fork` command (none exists in programmatic mode). See docs/thoughts/fork.md
-- `docs/audit.md`: how the attach/detach audit works.
-- Confirming a delivered prompt by identity rather than by a later
-  emission (stamping `SDKUserMessage.uuid`; `derisk/uuid-stamping/`), which
-  would close the interrupt limitation in user-message-tracking.md.
+- Confirming a delivered prompt by identity (stamping
+  `SDKUserMessage.uuid`): docs/thoughts/delivered-prompt-identity.md.
 
 ## WORK LOG
 
@@ -312,3 +310,8 @@ From review round 95069a7:
   tests re-derived for the 7-byte suffix, docs); version bumped to 0.2.0.
   Live agents started by 0.1.x need a restart (archive stops them via the
   no-protocol path).
+- 2026-09-15: docs/audit.md written (from the code and pictl's
+  auditing-and-attach-tracking spec; linked from architecture.md);
+  docs/thoughts/delivered-prompt-identity.md sketches the identity-based
+  confirmation follow-up. `src/core/generated/audit.ts` cites
+  `docs/specs/auditing-and-attach-tracking.md`, which exists only in pictl.

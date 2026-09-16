@@ -106,4 +106,5 @@ entry stream delivers live and `get-entries` returns in replay.
   by "this prompt's entry arrived", because nothing ties a delivered prompt
   to the entry the CLI writes for it. Stamping `SDKUserMessage.uuid` would
   provide that tie — the CLI persists it as the entry's uuid
-  (`docs/derisk/uuid-stamping/`) — but clauctl does not stamp today.
+  (`docs/derisk/uuid-stamping/`) — but clauctl does not stamp today
+  (sketch: `docs/thoughts/delivered-prompt-identity.md`).

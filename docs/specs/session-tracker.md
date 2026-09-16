@@ -1,10 +1,11 @@
 # Spec: session tracker — the daemon follows the session log and merges it into the agent event stream
 
-> Status: **DRAFT, rewritten on top of docs/specs/stream-merge.md
-> (2026-09-11); reviewer-approved at round 13; redesigned 2026-09-12
-> (payload-free shared entries, no slimming; WORK LOG "Redesign" and
-> docs/specs/session-tracker/redesign-2026-09-12.md), awaiting Anton's
-> review.** Follow-up to
+> Status: **COMPLETED 2026-09-16 — all five phases implemented (phase
+> logs under docs/specs/session-tracker/).** Rewritten on top of
+> docs/specs/stream-merge.md (2026-09-11); reviewer-approved at round 13;
+> redesigned 2026-09-12 (payload-free shared entries, no slimming; WORK
+> LOG "Redesign" and docs/specs/session-tracker/redesign-2026-09-12.md).
+> Follow-up to
 > docs/specs/get-context.md (its Cost section anticipated this) and
 > docs/thoughts/old/get-entries-caching.md. Derisk rounds and the rewrite's
 > decision record are in the WORK LOG.
@@ -1793,6 +1794,7 @@ Tasks:
       (docs/specs/session-tracker/phase-3-fold-session-tracker.md, 2026-09-13)
 - [x] Phase 4 wire + clients (tail/prompt/TUI/CLI)
       (docs/specs/session-tracker/phase-4-wire-clients.md, 2026-09-13)
-- [ ] Phase 5 docs
+- [x] Phase 5 docs
+      (docs/specs/session-tracker/phase-5-docs.md, 2026-09-16)
 
 _Work log entries go here_

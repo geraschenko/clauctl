@@ -97,7 +97,8 @@ one that wants a terminal view runs `clauctl attach` in a pty it owns.
 Detach is the remappable `app.detach` keybinding (default
 `ctrl+]`) and leaves the agent running. Attachers identify themselves in
 their `subscribe` request (`attachment: { pid, client }`), so the daemon
-records live attachments in `agent.json` and audits attach/detach events —
+records live attachments in `agent.json` and audits attach/detach events
+([`audit.md`](audit.md)) —
 the connection close counts as detach, catching killed attachers. Observers
 like `tail` subscribe without an attachment and stay invisible.
 
@@ -214,4 +215,5 @@ attachable.
 - merging the SDK stream with the session file: [`stream-merging.md`](stream-merging.md);
 - the three views of a session: [`session-views.md`](session-views.md);
 - what Claude and its SDK actually do: [`claude-agent-sdk.md`](claude-agent-sdk.md);
-- prompt tracking: [`user-message-tracking.md`](user-message-tracking.md).
+- prompt tracking: [`user-message-tracking.md`](user-message-tracking.md);
+- who did what to an agent: [`audit.md`](audit.md).
