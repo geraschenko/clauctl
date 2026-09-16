@@ -23,7 +23,7 @@ range.
 - `src/core/options.ts` exhaustively classifies `keyof Options`. A new or removed
   option must be deliberately classified; never weaken that compile-time tripwire.
 - The full `Query` control surface is intentionally exposed. Its churn zone is
-  `src/core/sdk-socket.ts`, `src/core/sdk-passthrough.ts`, and
+  `src/core/protocol.ts`, `src/core/sdk-passthrough.ts`, and
   `src/core/sdk-commands.ts`. Every new method must be exposed or have an explicit
   exclusion rationale at the mapping site.
 - Message-shape changes can affect `src/core/agent-state.ts`,

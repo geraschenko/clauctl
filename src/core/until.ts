@@ -20,7 +20,7 @@
 
 import { isIdle, type AgentState } from "./agent-state.ts";
 import { makeUntilCheckers } from "./generated/until-engine.ts";
-import type { AgentEvent } from "./sdk-socket.ts";
+import type { AgentEvent } from "./protocol.ts";
 
 export const { untilMetAtSeed, untilMetByEvent, untilQuietMs } =
   makeUntilCheckers<AgentEvent, AgentState>({

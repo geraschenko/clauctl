@@ -2,7 +2,7 @@
  * The daemon side of the SDK passthrough: the mapping from wire-level control
  * requests to `Query` method calls, plus the DECISION-5 persistence rules.
  * Everything that must change when the SDK's `Query` control interface changes
- * is confined to three sibling files — sdk-socket.ts (wire types), this file
+ * is confined to three sibling files — protocol.ts (wire types), this file
  * (daemon dispatch), and sdk-commands.ts (CLI) — so daemon.ts and the state
  * machines never name individual Query methods.
  */
@@ -13,8 +13,8 @@ import type {
   FlagSettings,
   SdkControlMutation,
   SdkControlRead,
-  SdkRequest,
-} from "./sdk-socket.ts";
+  ProtocolRequest,
+} from "./protocol.ts";
 
 const EFFORT_LEVELS: ReadonlySet<string> = new Set([
   "low",
@@ -44,7 +44,7 @@ const MUTATION_TYPES: Record<SdkControlMutation["type"], true> = {
 };
 
 export function isControlMutation(
-  request: SdkRequest,
+  request: ProtocolRequest,
 ): request is SdkControlMutation {
   // hasOwn, not `in`: the wire type is untrusted, and inherited property
   // names ("constructor", "toString") must not classify as known.
@@ -64,7 +64,9 @@ const READ_TYPES: Record<SdkControlRead["type"], true> = {
   "read-file": true,
 };
 
-export function isControlRead(request: SdkRequest): request is SdkControlRead {
+export function isControlRead(
+  request: ProtocolRequest,
+): request is SdkControlRead {
   // hasOwn, not `in`: see isControlMutation.
   return Object.hasOwn(READ_TYPES, request.type);
 }

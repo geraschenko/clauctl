@@ -1,6 +1,6 @@
 /**
- * Request *semantics* for sdk.sock: what each request type means, done to the
- * daemon's moving parts. The neighboring seams: sdk-server.ts is transport
+ * Request *semantics* of the clauctl protocol: what each request type means, done to the
+ * daemon's moving parts. The neighboring seams: protocol-server.ts is transport
  * (framing, hello, response routing) and knows nothing about request types;
  * event-hub.ts is state and knows nothing about requests; this module turns
  * one into effects on the other. Deliberately a shallow relocation of the
@@ -30,14 +30,14 @@ import {
   isGetEntriesByUuids,
   type SdkControlApplied,
   type SdkControlMutation,
-  type SdkRequestRecord,
-  type SdkResponse,
+  type ProtocolRequestRecord,
+  type ProtocolResponse,
   type GetEntriesResponse,
   type SubscribeAttachment,
-} from "../sdk-socket.ts";
+} from "../protocol.ts";
 import type { EventHub } from "./event-hub.ts";
 import type { RwGate } from "./rw-gate.ts";
-import { RESPONSE_SENT, type SdkConnection } from "./sdk-server.ts";
+import { RESPONSE_SENT, type ProtocolConnection } from "./protocol-server.ts";
 import { createSetContextHandler } from "./set-context.ts";
 import type { TrackedSessionLog } from "./tracked-session-log.ts";
 import type { TurnQueue } from "./turn-queue.ts";
@@ -132,7 +132,10 @@ async function acquireSettled(
 
 export function createRequestHandler(
   deps: RequestHandlerDeps,
-): (request: SdkRequestRecord, connection: SdkConnection) => Promise<unknown> {
+): (
+  request: ProtocolRequestRecord,
+  connection: ProtocolConnection,
+) => Promise<unknown> {
   const { events, gate } = deps;
   // The gate serializes set-context (the writer) against everything
   // Query-bound. Request dispatch is deliberately concurrent, so an idle
@@ -172,7 +175,9 @@ export function createRequestHandler(
     return gate.tryShared();
   };
 
-  const controlApplied = async (record: SdkRequestRecord): Promise<void> => {
+  const controlApplied = async (
+    record: ProtocolRequestRecord,
+  ): Promise<void> => {
     // The rest-over-a-union needs the cast; the payload is the request as
     // received, minus the transport id.
     const { id: _id, ...request } = record as SdkControlMutation & {
@@ -198,8 +203,8 @@ export function createRequestHandler(
   let mutationChain: Promise<unknown> = Promise.resolve();
 
   return async (
-    request: SdkRequestRecord,
-    connection: SdkConnection,
+    request: ProtocolRequestRecord,
+    connection: ProtocolConnection,
   ): Promise<unknown> => {
     switch (request.type) {
       case "prompt": {
@@ -231,7 +236,7 @@ export function createRequestHandler(
             message: { role: "user", content },
             parent_tool_use_id: null,
             // Absent origin fails closed at strict isHuman() trust gates
-            // (Origin declaration); sdk.sock prompt requests are user input.
+            // (Origin declaration); socket prompt requests are user input.
             origin: { kind: "human" },
             ...(request.priority !== undefined && {
               priority: request.priority,
@@ -337,7 +342,7 @@ export function createRequestHandler(
         // The generic respond path runs in a later microtask — an event
         // emitted in between would hit the wire before the response — so this
         // handler writes its own response and returns RESPONSE_SENT.
-        const response: SdkResponse = {
+        const response: ProtocolResponse = {
           id: request.id,
           ok: true,
           data: events.agentState,

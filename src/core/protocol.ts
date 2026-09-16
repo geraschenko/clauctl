@@ -1,6 +1,6 @@
 /**
- * The `sdk.sock` protocol and its client: newline-delimited JSON over a unix
- * socket. Three record shapes flow daemon→client, distinguished structurally:
+ * The clauctl protocol (spoken over the agent's `socket` file) and its client:
+ * newline-delimited JSON over a unix socket. Three record shapes flow daemon→client, distinguished structurally:
  * the hello (first line on connect, so clients can validate they are talking
  * to a clauctl daemon), responses (have an `id`), and pushed events (`{ event:
  * AgentEvent }`, only on connections that sent `subscribe`).
@@ -32,8 +32,8 @@ import type {
 import type { TreeNodeRef } from "./tree/nodes.ts";
 import { UUID_PATTERN } from "./uuid.ts";
 
-export const SDK_SOCKET_PROTOCOL = "clauctl-sdk-socket";
-export const SDK_SOCKET_VERSION = 1;
+export const PROTOCOL_NAME = "clauctl-protocol";
+export const PROTOCOL_VERSION = 1;
 
 export type MessageDelivery = "turn" | "steer" | "append";
 
@@ -341,11 +341,11 @@ export interface GetEntriesByUuidsRequest {
 }
 
 export const isGetEntriesByUuids = (
-  request: SdkRequest,
+  request: ProtocolRequest,
 ): request is GetEntriesByUuidsRequest =>
   request.type === "get-entries" && "uuids" in request;
 
-export type SdkRequest =
+export type ProtocolRequest =
   | {
       type: "prompt";
       content: string | ContentBlockParam[];
@@ -382,9 +382,9 @@ export interface AgentEventRecord {
   event: AgentEvent;
 }
 
-export type SdkRequestRecord = SdkRequest & { id: string };
+export type ProtocolRequestRecord = ProtocolRequest & { id: string };
 
-export type SdkResponse =
+export type ProtocolResponse =
   | { id: string; ok: true; data?: unknown }
   | { id: string; ok: false; error: string };
 
@@ -392,7 +392,7 @@ export type SdkResponse =
  *  line. Events and responses share one wire, so the response is a cut of
  *  the event stream: the first `eventsBefore` events precede it. */
 interface PositionedResponse {
-  response: SdkResponse;
+  response: ProtocolResponse;
   eventsBefore: number;
 }
 
@@ -405,7 +405,7 @@ interface PendingRequest {
  *  event, plus the queue of (event, post-fold state) pairs. */
 export type AgentEventSubscription = StreamSubscription<AgentEvent, AgentState>;
 
-export class SdkSocketClient {
+export class ProtocolClient {
   private readonly socket: Socket;
   private readonly pending = new Map<string, PendingRequest>();
   private readonly closedPromise: Promise<void>;
@@ -435,7 +435,7 @@ export class SdkSocketClient {
     this.closedPromise = new Promise((resolve) => {
       socket.on("close", () => {
         this.closed = true;
-        const error = new Error("sdk socket closed");
+        const error = new Error("agent socket closed");
         for (const pending of this.pending.values()) {
           pending.reject(error);
         }
@@ -449,7 +449,7 @@ export class SdkSocketClient {
   }
 
   /** Connect and consume the hello record; rejects on a non-clauctl socket. */
-  static async connect(socketPath: string): Promise<SdkSocketClient> {
+  static async connect(socketPath: string): Promise<ProtocolClient> {
     const socket = await new Promise<Socket>((resolve, reject) => {
       const s = connect(socketPath);
       s.once("connect", () => {
@@ -459,7 +459,7 @@ export class SdkSocketClient {
       s.once("error", reject);
     });
 
-    const client = new SdkSocketClient(socket);
+    const client = new ProtocolClient(socket);
     socket.on("error", () => socket.destroy());
 
     let helloSeen = false;
@@ -498,7 +498,7 @@ export class SdkSocketClient {
 
     socket.on("close", () => {
       if (!helloSeen) {
-        rejectHello(new Error("sdk socket closed before hello"));
+        rejectHello(new Error("agent socket closed before hello"));
       }
     });
 
@@ -532,7 +532,7 @@ export class SdkSocketClient {
       record.id === undefined ? undefined : this.pending.get(record.id);
     if (pending) {
       this.pending.delete(record.id!);
-      const response = record as unknown as SdkResponse;
+      const response = record as unknown as ProtocolResponse;
       if (record.id === this.subscribeRequestId && response.ok) {
         this.foldedState = response.data as AgentState;
       }
@@ -544,7 +544,7 @@ export class SdkSocketClient {
   }
 
   /** Send a request; resolves with the response data, throws on daemon error. */
-  async request(request: SdkRequest): Promise<unknown> {
+  async request(request: ProtocolRequest): Promise<unknown> {
     return (await this.requestWithEventCount(request)).data;
   }
 
@@ -554,7 +554,7 @@ export class SdkSocketClient {
    *  `eventsBefore` queued events are in the snapshot and later ones are
    *  not. Zero when not subscribed. */
   async requestWithEventCount(
-    request: SdkRequest,
+    request: ProtocolRequest,
   ): Promise<{ data: unknown; eventsBefore: number }> {
     const { response, eventsBefore } = await this.sendRequest(request).response;
     if (!response.ok) {
@@ -563,12 +563,12 @@ export class SdkSocketClient {
     return { data: response.data, eventsBefore };
   }
 
-  private sendRequest(request: SdkRequest): {
+  private sendRequest(request: ProtocolRequest): {
     id: string;
     response: Promise<PositionedResponse>;
   } {
     if (this.closed) {
-      throw new Error("sdk socket closed");
+      throw new Error("agent socket closed");
     }
     const id = `clauctl-${++this.requestCounter}`;
     const response = new Promise<PositionedResponse>((resolve, reject) => {
@@ -598,7 +598,7 @@ export class SdkSocketClient {
     attachment?: SubscribeAttachment,
   ): Promise<AgentEventSubscription> {
     if (this.events !== undefined) {
-      throw new Error("sdk socket client is already subscribed");
+      throw new Error("protocol client is already subscribed");
     }
     const events = new AsyncQueue<StreamEvent<AgentEvent, AgentState>>();
     this.events = events;
@@ -607,14 +607,14 @@ export class SdkSocketClient {
       ...(attachment !== undefined && { attachment }),
     });
     this.subscribeRequestId = id;
-    let result: SdkResponse;
+    let result: ProtocolResponse;
     try {
       ({ response: result } = await response);
     } catch (error) {
       // Pending requests reject with the generic close error; without a seed
       // there is no subscription to hand back, so name that specifically.
       throw this.closed
-        ? new Error("sdk socket closed before the subscribe seed")
+        ? new Error("agent socket closed before the subscribe seed")
         : error;
     }
     if (!result.ok) {
@@ -647,22 +647,22 @@ function validateHello(line: string): {
       protocol?: string;
       version?: number;
     };
-    if (hello.type !== "hello" || hello.protocol !== SDK_SOCKET_PROTOCOL) {
+    if (hello.type !== "hello" || hello.protocol !== PROTOCOL_NAME) {
       return {
         error: new Error(
-          `not a clauctl sdk socket (got ${line.slice(0, 100)})`,
+          `not a clauctl agent socket (got ${line.slice(0, 100)})`,
         ),
       };
     }
-    if (hello.version !== SDK_SOCKET_VERSION) {
+    if (hello.version !== PROTOCOL_VERSION) {
       return {
-        versionWarning: `sdk socket protocol version ${hello.version}, expected ${SDK_SOCKET_VERSION} — daemon and client builds differ`,
+        versionWarning: `clauctl protocol version ${hello.version}, expected ${PROTOCOL_VERSION} — daemon and client builds differ`,
       };
     }
     return {};
   } catch {
     return {
-      error: new Error("first record on sdk socket was not valid JSON"),
+      error: new Error("first record on agent socket was not valid JSON"),
     };
   }
 }
@@ -676,12 +676,12 @@ function validateHello(line: string): {
 export async function connectWithRetry(
   socketPath: string,
   deadlineMs: number,
-): Promise<SdkSocketClient> {
+): Promise<ProtocolClient> {
   const deadline = Date.now() + deadlineMs;
   let delay = 50;
   while (true) {
     try {
-      const client = await SdkSocketClient.connect(socketPath);
+      const client = await ProtocolClient.connect(socketPath);
       // CLI consumers all connect through here; the TUI connects directly
       // and banners the warning instead (stderr would land under its
       // alternate screen).

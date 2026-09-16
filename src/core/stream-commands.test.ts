@@ -1,5 +1,5 @@
 /*
- * End-to-end settlement behavior of the sdk.sock stream commands: what
+ * End-to-end settlement behavior of the protocol stream commands: what
  * `tail --type events --json` and `wait` print and exit with for each
  * runStream outcome. Driven through the real `app` so the exit-code mapping
  * (UntilTimeoutError → 3) is part of what is under test. The session-file
@@ -15,11 +15,14 @@ import { test } from "node:test";
 import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import { initialAgentState, type AgentState } from "./agent-state.ts";
 import { app } from "./app.ts";
-import { RESPONSE_SENT, startSdkServer } from "./daemon/sdk-server.ts";
+import {
+  RESPONSE_SENT,
+  startProtocolServer,
+} from "./daemon/protocol-server.ts";
 import { runCliApp } from "./generated/cli.ts";
 import { fakeProcess, type CapturedProcess } from "./generated/test-util.ts";
-import { sdkSocketPath, writeAgentRecord } from "./registry.ts";
-import type { AgentEvent } from "./sdk-socket.ts";
+import { agentSocketPath, writeAgentRecord } from "./registry.ts";
+import type { AgentEvent } from "./protocol.ts";
 
 /** Not idle, so `--until turn-end` is unmet at the seed and the commands
  *  actually watch the stream. */
@@ -39,7 +42,7 @@ async function runCommand(argv: string[]): Promise<CapturedProcess> {
 
 /**
  * Stand up a registry holding one live agent (this process is its "daemon")
- * plus an sdk.sock server that answers subscribe with `seed`, then writes
+ * plus a protocol server that answers subscribe with `seed`, then writes
  * `events` and optionally hangs up — the whole reply in a single chunk, so
  * the events are already queued when subscribe resolves.
  */
@@ -65,8 +68,8 @@ async function withAgent<T>(
     agentDir,
   });
   let daemonSocket: Socket | undefined;
-  const server = startSdkServer(
-    sdkSocketPath(agentDir),
+  const server = startProtocolServer(
+    agentSocketPath(agentDir),
     (request, connection) => {
       if (request.type === "subscribe") {
         connection.write(
@@ -125,7 +128,7 @@ test("tail prints the snapshot before the event that satisfies --until", async (
 });
 
 // The queue-level backlog case (close observed while the event is still
-// queued) is covered in sdk-socket.test.ts; here the daemon hangs up in the
+// queued) is covered in protocol.test.ts; here the daemon hangs up in the
 // same breath, which the consumer wins outright.
 test("an event delivered as the daemon hangs up still satisfies --until", async () => {
   await withAgent(BUSY_STATE, [RESULT_EVENT], true, async (agentId) => {

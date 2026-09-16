@@ -17,7 +17,7 @@ import { join } from "node:path";
 import { test, type TestContext } from "node:test";
 import type { Query, SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
 import { initialAgentState } from "../agent-state.ts";
-import type { GetContextResponse, GetEntriesResponse } from "../sdk-socket.ts";
+import type { GetContextResponse, GetEntriesResponse } from "../protocol.ts";
 import type { TreeNodeRef } from "../tree/nodes.ts";
 import type { PersistedOptions } from "../options.ts";
 import {
@@ -27,9 +27,9 @@ import {
 } from "../session/file.ts";
 import type {
   AgentEvent,
-  SdkRequestRecord,
+  ProtocolRequestRecord,
   SubscribeAttachment,
-} from "../sdk-socket.ts";
+} from "../protocol.ts";
 import { AnomalyRecorder } from "./anomaly-bundle.ts";
 import { EventHub } from "./event-hub.ts";
 import {
@@ -37,7 +37,7 @@ import {
   type RequestHandlerDeps,
 } from "./request-handlers.ts";
 import { RwGate } from "./rw-gate.ts";
-import { RESPONSE_SENT, type SdkConnection } from "./sdk-server.ts";
+import { RESPONSE_SENT, type ProtocolConnection } from "./protocol-server.ts";
 import { TrackedSessionLog } from "./tracked-session-log.ts";
 import type { TurnQueue } from "./turn-queue.ts";
 import { tempDir } from "../../test-support/temp-dir.ts";
@@ -123,8 +123,8 @@ function summaryEntry(
 
 interface Fixture {
   handle: (
-    request: SdkRequestRecord,
-    connection?: SdkConnection,
+    request: ProtocolRequestRecord,
+    connection?: ProtocolConnection,
   ) => Promise<unknown>;
   events: EventHub;
   pushed: SDKUserMessage[];
@@ -339,7 +339,7 @@ test("subscribe writes its own response carrying events.agentState", async (t) =
   const f = fixture(t);
   f.events.deliverUserMessage(userMessage());
   const written: string[] = [];
-  const connection: SdkConnection = {
+  const connection: ProtocolConnection = {
     write: (line) => written.push(line),
     onClose: () => {},
   };
@@ -366,7 +366,7 @@ test("subscribe writes its own response carrying events.agentState", async (t) =
 test("subscribe with an attachment registers it and deregisters on connection close", async (t) => {
   const f = fixture(t);
   const closers: Array<() => void> = [];
-  const connection: SdkConnection = {
+  const connection: ProtocolConnection = {
     write: () => {},
     onClose: (callback) => closers.push(callback),
   };
@@ -394,7 +394,7 @@ test("subscribe with an attachment registers it and deregisters on connection cl
 test("subscribe rejects a malformed attachment before any side effect", async (t) => {
   const f = fixture(t);
   const written: string[] = [];
-  const connection: SdkConnection = {
+  const connection: ProtocolConnection = {
     write: (line) => written.push(line),
     onClose: () => {},
   };
@@ -404,7 +404,7 @@ test("subscribe rejects a malformed attachment before any side effect", async (t
         type: "subscribe",
         attachment: { pid: "not-a-number", client: 7 },
         id: "s1",
-      } as unknown as SdkRequestRecord,
+      } as unknown as ProtocolRequestRecord,
       connection,
     ),
     /attachment must be \{ pid: number, client: string \}/,
@@ -419,13 +419,19 @@ test("subscribe rejects a malformed attachment before any side effect", async (t
 test("an unknown request type (e.g. legacy wait-idle) is rejected, not acknowledged", async (t) => {
   const f = fixture(t);
   await assert.rejects(
-    f.handle({ type: "wait-idle", id: "w1" } as unknown as SdkRequestRecord),
+    f.handle({
+      type: "wait-idle",
+      id: "w1",
+    } as unknown as ProtocolRequestRecord),
     /unknown request type: wait-idle/,
   );
   // Inherited property names must not classify as known request types (the
   // type tables are consulted with hasOwn, not `in`).
   await assert.rejects(
-    f.handle({ type: "constructor", id: "w2" } as unknown as SdkRequestRecord),
+    f.handle({
+      type: "constructor",
+      id: "w2",
+    } as unknown as ProtocolRequestRecord),
     /unknown request type: constructor/,
   );
 });
@@ -530,7 +536,7 @@ test("apply-flag-settings rejects an unknown effortLevel; no controlApplied is e
       type: "apply-flag-settings",
       settings: { effortLevel: "superduper" },
       id: "f1",
-    } as unknown as SdkRequestRecord),
+    } as unknown as ProtocolRequestRecord),
     /invalid effortLevel "superduper"; valid: low, medium, high, xhigh, max/,
   );
   assert.equal(applied, 0);

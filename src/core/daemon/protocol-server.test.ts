@@ -3,21 +3,21 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, test } from "node:test";
-import { SdkSocketClient } from "../sdk-socket.ts";
-import { startSdkServer } from "./sdk-server.ts";
+import { ProtocolClient } from "../protocol.ts";
+import { startProtocolServer } from "./protocol-server.ts";
 
-const dir = mkdtempSync(join(tmpdir(), "clauctl-sdk-server-"));
+const dir = mkdtempSync(join(tmpdir(), "clauctl-protocol-server-"));
 after(() => rmSync(dir, { recursive: true, force: true }));
 
 test("respond survives an unserializable payload and the daemon keeps serving", async () => {
-  const socketPath = join(dir, "sdk.sock");
+  const socketPath = join(dir, "socket");
   const cyclic: Record<string, unknown> = {};
   cyclic.self = cyclic;
-  const server = startSdkServer(socketPath, (request) =>
+  const server = startProtocolServer(socketPath, (request) =>
     Promise.resolve(request.type === "get-entries" ? cyclic : "ok"),
   );
   try {
-    const client = await SdkSocketClient.connect(socketPath);
+    const client = await ProtocolClient.connect(socketPath);
     try {
       await assert.rejects(
         client.request({ type: "get-entries", payload: "full" }),

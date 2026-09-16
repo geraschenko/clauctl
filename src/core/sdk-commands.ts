@@ -5,7 +5,7 @@
  * lives in prompt.ts.
  *
  * Every subcommand takes the agent as --target (reviving a dormant agent
- * transparently), sends one request over the agent's sdk.sock, and prints the
+ * transparently), sends one request over the agent's socket, and prints the
  * response data as JSON if there is any.
  */
 
@@ -27,18 +27,18 @@ import {
 import { oneTarget, type CommandContext } from "./generated/targets.ts";
 import { ensureAgentRunning } from "./lifecycle.ts";
 import { parseMcpConfig } from "./options.ts";
-import { sdkSocketPath } from "./registry.ts";
+import { agentSocketPath } from "./registry.ts";
 import {
   connectWithRetry,
   parseSetContextRequest,
   type GetContextResponse,
   type EntryPayload,
   type FlagSettings,
-  type SdkRequest,
-  type SdkSocketClient,
+  type ProtocolRequest,
+  type ProtocolClient,
   type GetEntriesResponse,
   type SetContextRequest,
-} from "./sdk-socket.ts";
+} from "./protocol.ts";
 import {
   formatTreeNodeRef,
   resolveTreeNodeRef,
@@ -67,11 +67,11 @@ const PERMISSION_MODES = [
  *  resolution needs a get-entries before the real request). */
 async function withClient<T>(
   context: CommandContext,
-  fn: (client: SdkSocketClient) => Promise<T>,
+  fn: (client: ProtocolClient) => Promise<T>,
 ): Promise<T> {
   const agent = await ensureAgentRunning(oneTarget(context).id);
   const client = await connectWithRetry(
-    sdkSocketPath(agent.agentDir),
+    agentSocketPath(agent.agentDir),
     SOCKET_CONNECT_DEADLINE_MS,
   );
   try {
@@ -83,7 +83,7 @@ async function withClient<T>(
 
 async function requestData(
   context: CommandContext,
-  request: SdkRequest,
+  request: ProtocolRequest,
 ): Promise<unknown> {
   return withClient(context, (client) => client.request(request));
 }
@@ -96,7 +96,7 @@ function printData(context: CommandContext, data: unknown): void {
 
 async function sendRequest(
   context: CommandContext,
-  request: SdkRequest,
+  request: ProtocolRequest,
 ): Promise<void> {
   printData(context, await requestData(context, request));
 }
@@ -105,7 +105,7 @@ async function sendRequest(
  *  resolution universe for unique uuid prefixes. Prefix acceptance is CLI
  *  ergonomics only: the wire protocol carries full uuids. */
 export async function sessionEntryUuids(
-  client: SdkSocketClient,
+  client: ProtocolClient,
 ): Promise<ReadonlySet<UUID>> {
   const snapshot = (await client.request({
     type: "get-entries",
@@ -141,7 +141,7 @@ function resolveNodeRefText(
 /** A target-taking subcommand whose request needs no arguments. */
 function bareRequestCommand(
   brief: string,
-  request: SdkRequest,
+  request: ProtocolRequest,
   audited?: true,
 ) {
   return commandOneTarget({

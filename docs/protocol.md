@@ -1,16 +1,15 @@
-TDC: should this be called clauctl-protocol.md or protocol.md instead? I feel like focusing on the fact that the protocol is executed over a socket is missing the point a bit. Changing this will required rewriting things in several other places. I think we should rename "sdk socket" to "clauctl socket". Originally, "sdk" referred to the claude agent sdk, because I thought it would be sufficient. But I had to add in a bunch of "daemon bookkeeping" messages to make it usable, and now we also include session messages, so the term "sdk" is now confusing. Let's update the names in file names, classes, interfaces, variables, documentation first. Then we can also change the path "sdk.sock" to just "sock", but that will require restarting all my live clauctl instances and bumping the minor version, so I'd like to do that later.
+# The clauctl protocol
 
-# The socket interface
-
-Purpose: what `sdk.sock` offers a client and the philosophy behind it. The
+Purpose: what the protocol an agent speaks on its `socket` file offers a client
+and the philosophy behind it. The
 protocol's working definition is
-[`src/core/sdk-socket.ts`](../src/core/sdk-socket.ts); this page explains
+[`src/core/protocol.ts`](../src/core/protocol.ts); this page explains
 what the types mean and why the interface has the shape it has. Read
 [`architecture.md`](architecture.md) first for where the socket sits.
 
-## What sdk.sock is
+## What the protocol is
 
-`sdk.sock` is the observation and control interface we wish the Claude Agent
+The clauctl protocol is the observation and control interface we wish the Claude Agent
 SDK provided. The SDK gives the daemon a `Query`: an async iterator of
 `SDKMessage`s plus control methods. That is almost enough to _drive_ an agent
 (`set-context` needs a session-file write the SDK has no method for) and not
@@ -261,7 +260,7 @@ socket.
   daemon and the TUI keep them.
 - [`claude-agent-sdk.md`](claude-agent-sdk.md) — the empirical facts about
   the SDK and the CLI the above is built on.
-- Code: `src/core/sdk-socket.ts` (protocol), `src/core/agent-state.ts`
+- Code: `src/core/protocol.ts` (protocol), `src/core/agent-state.ts`
   (fold), `src/core/daemon/event-hub.ts` (broadcast and settlement),
   `src/core/daemon/session-tracker.ts` (the resident file view),
   `src/core/session/entry-stream.ts` (the follower),

@@ -19,7 +19,7 @@ import {
   nextAgentState,
   settled,
 } from "./agent-state.ts";
-import type { AgentEvent } from "./sdk-socket.ts";
+import type { AgentEvent } from "./protocol.ts";
 import { hasUuid, readSessionEntries } from "./session/file.ts";
 
 const CAPTURES = new URL(

@@ -3,7 +3,7 @@
  * (docs/specs/prompt-parity.md), rendered by exactly the machinery tail uses.
  * The observation stream is subscribed before the input is submitted (a fast
  * turn cannot be missed), submission happens on a separate short-lived
- * sdk.sock connection, and output plus `--until` evaluation are gated on the
+ * socket connection, and output plus `--until` evaluation are gated on the
  * `userMessageDequeued` event carrying the acceptance receipt's queue id —
  * so a busy agent's unrelated activity is not mistaken for our turn.
  * `/compact` bypasses the queue model (the receipt is undefined), so its
@@ -51,8 +51,8 @@ import {
 } from "./generated/until-engine.ts";
 import { UsageError } from "./generated/util.ts";
 import { ensureAgentRunning } from "./lifecycle.ts";
-import { sdkSocketPath, type AgentRecord } from "./registry.ts";
-import { connectWithRetry, type AgentEvent } from "./sdk-socket.ts";
+import { agentSocketPath, type AgentRecord } from "./registry.ts";
+import { connectWithRetry, type AgentEvent } from "./protocol.ts";
 import { UntilSettlement } from "./tail.ts";
 import { untilMetByEvent, untilQuietMs } from "./until.ts";
 
@@ -121,7 +121,7 @@ async function submitPrompt(
   const content: string | ContentBlockParam[] =
     images.length === 0 ? text : [...images, { type: "text", text }];
   const client = await connectWithRetry(
-    sdkSocketPath(agent.agentDir),
+    agentSocketPath(agent.agentDir),
     SOCKET_CONNECT_DEADLINE_MS,
   );
   try {
@@ -170,7 +170,7 @@ async function promptLive(
   timeoutMs: number | undefined,
 ): Promise<void> {
   const client = await connectWithRetry(
-    sdkSocketPath(agent.agentDir),
+    agentSocketPath(agent.agentDir),
     SOCKET_CONNECT_DEADLINE_MS,
   );
   const feed = new LiveEntryFeed(
@@ -229,7 +229,7 @@ async function promptLive(
   }
 }
 
-/** Events leg: a plain sdk.sock subscription with the same gate. No seed
+/** Events leg: a plain socket subscription with the same gate. No seed
  *  snapshot and no cursor — the window opens at our dequeue event, inclusive
  *  (`tail --type events` is the snapshot-bearing surface). */
 async function promptEvents(
@@ -241,7 +241,7 @@ async function promptEvents(
   timeoutMs: number | undefined,
 ): Promise<void> {
   const client = await connectWithRetry(
-    sdkSocketPath(agent.agentDir),
+    agentSocketPath(agent.agentDir),
     SOCKET_CONNECT_DEADLINE_MS,
   );
   const formatter = json
@@ -285,7 +285,7 @@ async function promptEvents(
       timeoutMs,
     );
     if (outcome === "closed") {
-      throw new Error("sdk socket closed before condition met");
+      throw new Error("agent socket closed before condition met");
     }
     if (outcome === "timeout") {
       throw new UntilTimeoutError(

@@ -19,7 +19,7 @@ match claude pixel-exactly where that would mean forking a pi component.
 3. **Pi-inspired.** When the upstream component is entangled with pi's
    in-process state (e.g. its footer needs pi's `AgentSession`), keep pi's
    structure, naming, and call-site shapes, and re-wire only the data.
-4. **Custom code**, only where pi has no counterpart (e.g. sdk.sock event
+4. **Custom code**, only where pi has no counterpart (e.g. protocol event
    folding).
 
 ## Rules for ported files
@@ -36,7 +36,7 @@ match claude pixel-exactly where that would mean forking a pi component.
   cancels); conflicts land as `.rej` files for manual resolution against each
   file's intentional-differences list.
 - `theme.ts` intentionally exposes pi's theme call-site API (`theme.fg/bg/
-  bold/italic/…`, `getMarkdownTheme`) over a fixed dark palette, so ported
+bold/italic/…`, `getMarkdownTheme`) over a fixed dark palette, so ported
   code keeps its pi shape verbatim. Extend the palette rather than changing
   the API.
 

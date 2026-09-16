@@ -29,7 +29,7 @@ read of the assistant's context (`get-context`, the daemon's `leaf`, the
 `contextChanged` event, `/tree` picks) goes through it.
 
 Note that the SDK function `getSessionMessages` does _not_ supply the assistant
-view; see [socket-interface.md](docs/socket-interface.md) for details.
+view; see [protocol.md](docs/protocol.md) for details.
 
 ## 3. What's presented to the user
 
@@ -67,7 +67,7 @@ Two holders run the same builders with different retention:
 Both reset their per-file model on `sessionFileChanged` and rebuild it from
 the new file's scan. How the entry stream reaches a client, and why the
 daemon's and the TUI's trees agree, is in
-[`socket-interface.md`](socket-interface.md) and
+[`protocol.md`](protocol.md) and
 [`stream-merging.md`](stream-merging.md).
 
 ## Historical note: `loadedContext`

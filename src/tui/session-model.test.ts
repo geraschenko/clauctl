@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import type { UUID } from "node:crypto";
 import { test } from "node:test";
 import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
-import type { AgentEvent } from "../core/sdk-socket.ts";
+import type { AgentEvent } from "../core/protocol.ts";
 import { entriesByUuid, type SessionEntry } from "../core/session/file.ts";
 import { structuralEntry } from "../core/session/structural.ts";
 import { buildTree } from "../core/tree/build-tree.ts";

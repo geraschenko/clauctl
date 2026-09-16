@@ -15,8 +15,8 @@ The main pieces are:
   [Claude Agent SDK](https://docs.claude.com/en/api/agent-sdk/overview);
 - a per-agent clauctl daemon, launched as `clauctl _daemon`, which owns the
   single SDK connection to that process;
-- `sdk.sock`, owned by the daemon, exposing clauctl's structured agent
-  protocol, effectively multiplexing that single SDK connection;
+- the clauctl protocol, served by the daemon on the agent's `socket`, effectively
+  multiplexing that single SDK connection;
 - `CLAUCTL_DIR`, a filesystem registry of agent directories;
 - `clauctl`, the CLI, which acts as the "shell SDK" for these protocols.
 
@@ -41,7 +41,7 @@ The daemon then:
 
 - opens the SDK session in **streaming-input mode**: a held-open input
   iterable feeds successive turns into one warm `claude` process;
-- serves `sdk.sock`;
+- serves the agent's `socket`;
 - owns `agent.json`, keeping the current session id, pids, and attachment
   list up to date.
 
@@ -51,15 +51,15 @@ connect and disconnect.
 
 ## The clauctl protocol
 
-`sdk.sock` speaks a clauctl-defined protocol (`clauctl-sdk-socket`, version 1):
+The agent's `socket` speaks a clauctl-defined protocol (`clauctl-protocol`, version 1):
 newline-delimited JSON in both directions, opened by a `hello` record with
 protocol/version information. Client requests carry an `id`; server lines with
 an `id` are responses, and lines with an `event` are pushed events. The
-working definition is [`src/core/sdk-socket.ts`](../src/core/sdk-socket.ts).
+working definition is [`src/core/protocol.ts`](../src/core/protocol.ts).
 
 What the protocol offers — the request surface (subscribe, SDK passthrough,
 conversation operations), the event stream, `AgentState`, and the philosophy
-behind them — is [`socket-interface.md`](socket-interface.md). `set-context`,
+behind them — is [`protocol.md`](protocol.md). `set-context`,
 the one request that restarts the SDK session, is explained in this
 [blog post](https://geraschenko.com/blog/claude-context).
 
@@ -87,11 +87,11 @@ its accepted limitations.
 ### Terminal attach
 
 `clauctl attach` runs clauctl's TUI directly in the caller's terminal: it
-ensures the daemon is running, connects to `sdk.sock`, subscribes, fetches
+ensures the daemon is running, connects to `socket`, subscribes, fetches
 history with `get-entries`, and renders locally, keeping its own rolling
 session trees from the event stream (`SessionModel`,
-[`session-views.md`](session-views.md)). The TUI is an ordinary `sdk.sock` client with no privileged
-access — an embedder that wants to draw its own UI speaks `sdk.sock` itself;
+[`session-views.md`](session-views.md)). The TUI is an ordinary protocol client with no privileged
+access — an embedder that wants to draw its own UI speaks the protocol itself;
 one that wants a terminal view runs `clauctl attach` in a pty it owns.
 
 Detach is the remappable `app.detach` keybinding (default
@@ -118,7 +118,7 @@ $CLAUCTL_DIR/
   <agent-id>/
     agent.json
     spawn-options.json
-    sdk.sock
+    socket
     daemon.log
     audit.jsonl / sources.jsonl
     archived / revive.lock (marker files)
@@ -168,7 +168,7 @@ recorded lineage and metadata.
 
 Important states:
 
-- **running**: daemon and `claude` are up; `sdk.sock` accepts connections.
+- **running**: daemon and `claude` are up; `socket` accepts connections.
 - **dormant**: the agent directory exists, but the processes are gone.
 - **archived**: dormant and hidden from normal `clauctl list` (visible with
   `--all`). `clauctl archive` stops the agent politely first; nothing is
@@ -195,8 +195,8 @@ clauctl is meant to be the language-neutral shell interface to this system.
 
 - humans use it directly, non-interactively or with `clauctl attach`;
 - agents and scripts use it to spawn, discover, prompt, and monitor other
-  agents — every `sdk.sock` request type has a corresponding subcommand;
-- clients that want structured state can speak `sdk.sock` directly — a
+  agents — every protocol request type has a corresponding subcommand;
+- clients that want structured state can speak the protocol directly — a
   small, versioned, hello-first protocol designed to be implemented outside
   this codebase; clients that need a terminal view run `clauctl attach` in a
   pty they own.
@@ -207,10 +207,10 @@ attachable.
 
 ## Reference material
 
-- exact `sdk.sock` protocol: [`src/core/sdk-socket.ts`](../src/core/sdk-socket.ts);
+- exact protocol definition: [`src/core/protocol.ts`](../src/core/protocol.ts);
 - exact `agent.json` schema: [`src/core/registry.ts`](../src/core/registry.ts);
 - the state fold: [`src/core/agent-state.ts`](../src/core/agent-state.ts);
-- the socket interface and its philosophy: [`socket-interface.md`](socket-interface.md);
+- the protocol and its philosophy: [`protocol.md`](protocol.md);
 - merging the SDK stream with the session file: [`stream-merging.md`](stream-merging.md);
 - the three views of a session: [`session-views.md`](session-views.md);
 - what Claude and its SDK actually do: [`claude-agent-sdk.md`](claude-agent-sdk.md);

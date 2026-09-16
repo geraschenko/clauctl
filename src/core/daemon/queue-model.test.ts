@@ -10,7 +10,7 @@ import {
   observeSdkMessage,
   type QueueModelState,
 } from "./queue-model.ts";
-import type { AgentEvent } from "../sdk-socket.ts";
+import type { AgentEvent } from "../protocol.ts";
 
 function userMessage(overrides: Partial<SDKUserMessage> = {}): SDKUserMessage {
   return {

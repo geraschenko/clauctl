@@ -8,7 +8,7 @@
 
 import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import type { UUID } from "node:crypto";
-import type { AgentEvent } from "../core/sdk-socket.ts";
+import type { AgentEvent } from "../core/protocol.ts";
 import type { SessionEntry } from "../core/session/file.ts";
 import { completedEntry } from "../core/session/structural.ts";
 import { SessionTreeBuilder } from "../core/tree/build-tree.ts";

@@ -247,7 +247,7 @@ summary (`--summary`). Run `clauctl set-context -H` for the full story.
 ## Further reading
 
 - **How does clauctl work?** See [`docs/architecture.md`](docs/architecture.md)
-  for the agent registry, the daemon, the `sdk.sock` protocol, and how clauctl
+  for the agent registry, the daemon, the clauctl protocol, and how clauctl
   expects to interact with other programs.
 - For all available subcommands, run `clauctl --help-all`. Subcommands have
   their own help info, e.g. `clauctl format entries --help`.

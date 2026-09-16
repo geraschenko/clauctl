@@ -8,7 +8,7 @@
  */
 
 import { classOf, type AgentState } from "../core/agent-state.ts";
-import type { AgentEvent } from "../core/sdk-socket.ts";
+import type { AgentEvent } from "../core/protocol.ts";
 import { compactionMetadata } from "../core/session/file.ts";
 import { userText } from "../tui/sdk-render.ts";
 import {

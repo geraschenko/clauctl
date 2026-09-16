@@ -7,13 +7,16 @@ import { join } from "node:path";
 import { after, test } from "node:test";
 import type { SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
 import { initialAgentState, type AgentState } from "./agent-state.ts";
-import { RESPONSE_SENT, startSdkServer } from "./daemon/sdk-server.ts";
+import {
+  RESPONSE_SENT,
+  startProtocolServer,
+} from "./daemon/protocol-server.ts";
 import type { StreamEvent } from "./generated/streaming/driver.ts";
 import {
   parseSetContextRequest,
-  SdkSocketClient,
+  ProtocolClient,
   type AgentEvent,
-} from "./sdk-socket.ts";
+} from "./protocol.ts";
 
 test("parseSetContextRequest accepts boundary mode with all fields", () => {
   const uuids = [randomUUID(), randomUUID()];
@@ -122,7 +125,7 @@ test("parseSetContextRequest rejects malformed fields", () => {
 
 // --- client fold ownership ---------------------------------------------------
 
-const dir = mkdtempSync(join(tmpdir(), "clauctl-sdk-socket-"));
+const dir = mkdtempSync(join(tmpdir(), "clauctl-protocol-"));
 after(() => rmSync(dir, { recursive: true, force: true }));
 
 const queryingMessage: SDKUserMessage = {
@@ -132,7 +135,7 @@ const queryingMessage: SDKUserMessage = {
 };
 
 test("subscribe seeds the client fold and delivers (event, post-fold state) pairs", async () => {
-  const socketPath = join(dir, "sdk.sock");
+  const socketPath = join(dir, "socket");
   const queuedEvent: AgentEvent = {
     kind: "userMessageQueued",
     id: 1,
@@ -143,7 +146,7 @@ test("subscribe seeds the client fold and delivers (event, post-fold state) pair
     delivery: "turn",
     ids: [1],
   };
-  const server = startSdkServer(socketPath, (request, connection) => {
+  const server = startProtocolServer(socketPath, (request, connection) => {
     if (request.type === "subscribe") {
       // One write: the seed response and both events reach the client in a
       // single chunk, so all three lines dispatch before the subscribe
@@ -165,7 +168,7 @@ test("subscribe seeds the client fold and delivers (event, post-fold state) pair
     return Promise.resolve("ok");
   });
   try {
-    const client = await SdkSocketClient.connect(socketPath);
+    const client = await ProtocolClient.connect(socketPath);
     try {
       const { seed, events } = await client.subscribe();
       // The seed is the response's state, not the live folded state — the
@@ -200,12 +203,12 @@ test("hello version mismatch is exposed as versionWarning, match is not", async 
   const socketPath = join(dir, "hello-version.sock");
   const server = createServer((socket) => {
     socket.write(
-      `${JSON.stringify({ type: "hello", protocol: "clauctl-sdk-socket", version: 999 })}\n`,
+      `${JSON.stringify({ type: "hello", protocol: "clauctl-protocol", version: 999 })}\n`,
     );
   });
   await new Promise<void>((resolve) => server.listen(socketPath, resolve));
   try {
-    const client = await SdkSocketClient.connect(socketPath);
+    const client = await ProtocolClient.connect(socketPath);
     assert.match(client.versionWarning ?? "", /version 999, expected/);
     client.close();
   } finally {
@@ -213,9 +216,9 @@ test("hello version mismatch is exposed as versionWarning, match is not", async 
   }
 
   const matchedPath = join(dir, "hello-match.sock");
-  const matched = startSdkServer(matchedPath, () => Promise.resolve("ok"));
+  const matched = startProtocolServer(matchedPath, () => Promise.resolve("ok"));
   try {
-    const client = await SdkSocketClient.connect(matchedPath);
+    const client = await ProtocolClient.connect(matchedPath);
     assert.equal(client.versionWarning, undefined);
     client.close();
   } finally {
@@ -231,7 +234,7 @@ test("socket close drains the events already received", async () => {
     message: queryingMessage,
   };
   let daemonSocket: Socket | undefined;
-  const server = startSdkServer(socketPath, (request, connection) => {
+  const server = startProtocolServer(socketPath, (request, connection) => {
     if (request.type === "subscribe") {
       connection.write(
         [
@@ -252,7 +255,7 @@ test("socket close drains the events already received", async () => {
     daemonSocket = socket;
   });
   try {
-    const client = await SdkSocketClient.connect(socketPath);
+    const client = await ProtocolClient.connect(socketPath);
     try {
       const { events } = await client.subscribe();
       // Consume only after the close is observed, so the event is genuinely
@@ -278,7 +281,7 @@ test("socket close drains the events already received", async () => {
 test("close before the subscribe seed rejects", async () => {
   const socketPath = join(dir, "no-seed.sock");
   let daemonSocket: Socket | undefined;
-  const server = startSdkServer(socketPath, (request) => {
+  const server = startProtocolServer(socketPath, (request) => {
     if (request.type === "subscribe") {
       // Claim the response, then vanish without writing one.
       daemonSocket!.end();
@@ -290,7 +293,7 @@ test("close before the subscribe seed rejects", async () => {
     daemonSocket = socket;
   });
   try {
-    const client = await SdkSocketClient.connect(socketPath);
+    const client = await ProtocolClient.connect(socketPath);
     try {
       await assert.rejects(
         client.subscribe(),

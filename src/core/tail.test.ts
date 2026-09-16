@@ -21,11 +21,14 @@ import {
   type AgentState,
 } from "./agent-state.ts";
 import { app } from "./app.ts";
-import { RESPONSE_SENT, startSdkServer } from "./daemon/sdk-server.ts";
+import {
+  RESPONSE_SENT,
+  startProtocolServer,
+} from "./daemon/protocol-server.ts";
 import { runCliApp } from "./generated/cli.ts";
 import { fakeProcess, type CapturedProcess } from "./generated/test-util.ts";
-import { sdkSocketPath, writeAgentRecord } from "./registry.ts";
-import type { AgentEvent, GetEntriesResponse } from "./sdk-socket.ts";
+import { agentSocketPath, writeAgentRecord } from "./registry.ts";
+import type { AgentEvent, GetEntriesResponse } from "./protocol.ts";
 import type { SessionEntry } from "./session/file.ts";
 import { UntilSettlement } from "./tail.ts";
 
@@ -160,7 +163,7 @@ function snapshotOf(
 
 /**
  * A registry with one agent whose session files exist on disk. `live`
- * additionally makes this process the daemon and stands up an sdk.sock server
+ * additionally makes this process the daemon and stands up a protocol server
  * answering subscribe with `seed`, and the `"full"` get-entries with a
  * snapshot of the latest session file followed by `events` in the same chunk
  * (queued after the response, so they are live), optionally hanging up.
@@ -198,7 +201,7 @@ async function withTailAgent(
   });
   let daemonSocket: Socket | undefined;
   const server = options.live
-    ? startSdkServer(sdkSocketPath(agentDir), (request, connection) => {
+    ? startProtocolServer(agentSocketPath(agentDir), (request, connection) => {
         if (request.type === "subscribe") {
           return Promise.resolve(options.seed ?? IDLE_STATE);
         }

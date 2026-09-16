@@ -7,7 +7,7 @@
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { AgentState, TrackerAnomaly } from "../agent-state.ts";
-import type { AgentEvent } from "../sdk-socket.ts";
+import type { AgentEvent } from "../protocol.ts";
 
 /** Events of both streams kept as context for a bundle. */
 export const ANOMALY_CONTEXT_EVENTS = 50;

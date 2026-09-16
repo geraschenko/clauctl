@@ -12,7 +12,7 @@ import {
   settled,
   type AgentState,
 } from "../agent-state.ts";
-import type { AgentEvent } from "../sdk-socket.ts";
+import type { AgentEvent } from "../protocol.ts";
 import type { AnomalyRecorder } from "./anomaly-bundle.ts";
 import * as QueueModel from "./queue-model.ts";
 import type { SessionTracker } from "./session-tracker.ts";
@@ -116,7 +116,7 @@ export class EventHub {
   /**
    * Attach a subscriber sink; returns the unsubscribe function. Sinks receive
    * every event, post-fold, in order. Sinks must not throw
-   * (the only production sink is sdk-server's guarded connection.write) — a
+   * (the only production sink is protocol-server's guarded connection.write) — a
    * throwing sink would starve later sinks after the state has already
    * folded. Sinks must not call back into the hub either: a reentrant
    * delivery would interleave between an sdkMessage and the dequeues it

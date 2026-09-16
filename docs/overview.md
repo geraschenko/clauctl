@@ -50,10 +50,10 @@ override):
 - **Reuse.** pictl's daemon, per-agent socket model, and stricli-based subcommand
   completion transfer directly. Patterns and fixes flow both ways.
 
-**Where Rust still lives:** at the **socket boundary**. The `sdk.sock`
+**Where Rust still lives:** at the **socket boundary**. The clauctl
 protocol (below) is a stable, owned-by-us interface. Embedding a clauctl
 agent in a Rust app (e.g. a ratatui TUI) means writing a thin Rust client
-struct that speaks that socket protocol — no reimplementation of the control
+struct that speaks that protocol — no reimplementation of the control
 plane — or running `clauctl attach` in a pty the app owns for a ready-made
 terminal view. That is the low-burden, high-leverage place for Rust.
 
@@ -78,13 +78,13 @@ one session. So clauctl's daemon owns the _single_ programmatic connection to ea
 embedder — is a **client** that multiplexes through clauctl. This mirrors pictl's
 daemon + per-agent socket model.
 
-Each agent exposes a unix socket in its directory — `sdk.sock`, the analog of
-pictl's `pi.sock` — over which clients send requests and observe events. See
-[docs/socket-interface.md](docs/socket-interface.md) for details.
+Each agent exposes a unix socket in its directory — `socket`, the analog of
+pictl's `pi.sock` — over which clients send requests and observe events (the clauctl protocol,
+[docs/protocol.md](docs/protocol.md)).
 
-Clauctl's interactive TUI is an ordinary `sdk.sock` client that `clauctl attach`
+Clauctl's interactive TUI is an ordinary protocol client that `clauctl attach`
 runs directly in the caller's terminal (`docs/specs/attach-direct-tui.md`). An
-embedder that wants to render its own UI talks to `sdk.sock`; one that wants a
+embedder that wants to render its own UI speaks the protocol; one that wants a
 ready-made terminal view runs `clauctl attach` in a pty it owns — standard pty
 infrastructure exists in every language, gives per-pane sizing for free, and is
 uniform with pictl (`pictl attach` in a pty works the same way). An earlier

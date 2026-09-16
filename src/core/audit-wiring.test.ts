@@ -43,7 +43,7 @@ async function withRegistry<T>(fn: (dir: string) => Promise<T>): Promise<T> {
 }
 
 // Audit wiring is probed with no-op commands rather than the real audited
-// routes: those are sdk.sock commands whose funcs would attempt daemon
+// routes: those are protocol commands whose funcs would attempt daemon
 // revival against the fake registry. The wrappers under test are the same
 // ones the real routes go through.
 const auditProbeApp = buildApplication<CommandContext>(

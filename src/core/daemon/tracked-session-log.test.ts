@@ -9,7 +9,7 @@ import {
   settled,
   type TrackerAnomaly,
 } from "../agent-state.ts";
-import type { AgentEvent } from "../sdk-socket.ts";
+import type { AgentEvent } from "../protocol.ts";
 import type { SessionEntry } from "../session/file.ts";
 import { tempDir } from "../../test-support/temp-dir.ts";
 import { AnomalyRecorder } from "./anomaly-bundle.ts";

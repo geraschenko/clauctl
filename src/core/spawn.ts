@@ -41,7 +41,7 @@ async function readAll(stream: Readable): Promise<string> {
 
 /**
  * Launch the per-agent daemon: detached, stdio to daemon.log, plus a pipe on
- * fd 3 that the daemon writes a one-line ready/error message to once sdk.sock
+ * fd 3 that the daemon writes a one-line ready/error message to once socket
  * is up (or startup failed).
  * Awaiting that pipe is what makes spawn exit only after the agent is actually
  * reachable — no fixed sleeps.

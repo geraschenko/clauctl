@@ -3,7 +3,7 @@ import { test } from "node:test";
 import type { SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
 import type { AgentState } from "../core/agent-state.ts";
 import { initialAgentState } from "../core/agent-state.ts";
-import type { AgentEvent } from "../core/sdk-socket.ts";
+import type { AgentEvent } from "../core/protocol.ts";
 import { EventFormatter } from "./events.ts";
 import type { MessageFormatOptions, TailRecord } from "./types.ts";
 

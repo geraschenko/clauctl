@@ -1,5 +1,5 @@
 import type { AgentState } from "../core/agent-state.ts";
-import type { AgentEvent } from "../core/sdk-socket.ts";
+import type { AgentEvent } from "../core/protocol.ts";
 
 export interface MessageFormatOptions {
   toolResults: "summary" | "none" | "full";

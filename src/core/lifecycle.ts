@@ -1,6 +1,6 @@
 /**
  * `clauctl archive | gc` — stopping and cleaning up agents — plus the
- * transparent-revival machinery (`ensureAgentRunning`) that the sdk.sock
+ * transparent-revival machinery (`ensureAgentRunning`) that the protocol
  * commands use to revive a dormant agent on demand.
  *
  * archive follows the polite path: wait until the assistant is Idle, SIGTERM
@@ -27,9 +27,9 @@ import {
   listAgentIds,
   loadAgent,
   reviveLockPath,
-  sdkSocketPath,
+  agentSocketPath,
 } from "./registry.ts";
-import { connectWithRetry } from "./sdk-socket.ts";
+import { connectWithRetry, type ProtocolClient } from "./protocol.ts";
 import { launchDaemon } from "./spawn.ts";
 import { runStream } from "./generated/streaming/driver.ts";
 import {
@@ -58,7 +58,7 @@ async function setArchived(agentDir: string, archived: boolean): Promise<void> {
 /**
  * Revive `agent` via launchDaemon, serialized through an O_EXCL lock file.
  * Two concurrent revivals of the same agent must not both launch daemons: the
- * second daemon's stale-socket cleanup would delete the first's live sdk.sock.
+ * second daemon's stale-socket cleanup would delete the first's live socket.
  * The loser waits for the winner instead of spawning. launchDaemon returns
  * only once the daemon signals ready, so holding the lock across it is the
  * readiness barrier. As with waitPidGone, there is no cross-process event
@@ -133,7 +133,7 @@ async function awaitConcurrentRevival(
 
 /**
  * The transparent-revival entry point for commands that need the agent's
- * sdk.sock. list/status/gc never revive by design.
+ * socket. list/status/gc never revive by design.
  */
 export async function ensureAgentRunning(
   agentIdPrefix: string,
@@ -197,18 +197,42 @@ async function forEachAgent(
 }
 
 /**
- * The polite stop: wait until Idle over sdk.sock, SIGTERM the daemon (its
- * teardown runs query.close(), which SIGTERMs claude with SIGKILL escalation),
- * then wait for the daemon pid to disappear, escalating ourselves if needed.
+ * The polite stop: wait until Idle over the agent socket, SIGTERM the daemon
+ * (its teardown runs query.close(), which SIGTERMs claude with SIGKILL
+ * escalation), then wait for the daemon pid to disappear, escalating ourselves
+ * if needed. A daemon we cannot talk to (no socket, or one speaking another
+ * protocol, e.g. a daemon started by an older clauctl) is stopped without the
+ * idle wait so a version mismatch never blocks archiving.
  */
-async function stopRunningAgent(
+export async function stopRunningAgent(
   agent: AgentRecord,
   timeoutMs: number | undefined,
 ): Promise<void> {
-  const client = await connectWithRetry(
-    sdkSocketPath(agent.agentDir),
-    SOCKET_CONNECT_DEADLINE_MS,
+  let client: ProtocolClient | undefined;
+  try {
+    client = await connectWithRetry(
+      agentSocketPath(agent.agentDir),
+      SOCKET_CONNECT_DEADLINE_MS,
+    );
+  } catch (error) {
+    process.stderr.write(
+      `clauctl: warning: cannot reach agent ${agent.id}'s daemon (${(error as Error).message}); stopping it without waiting for idle\n`,
+    );
+  }
+  if (client !== undefined) {
+    await waitUntilIdle(client, timeoutMs);
+  }
+  killSilently(agent.daemonPid, "SIGTERM");
+  await waitPidGone(
+    agent.daemonPid,
+    Math.min(SIGKILL_ESCALATION_MS, PROCESS_EXIT_DEADLINE_MS),
   );
+}
+
+async function waitUntilIdle(
+  client: ProtocolClient,
+  timeoutMs: number | undefined,
+): Promise<void> {
   const idle: UntilCondition = { kind: "idle" };
   try {
     const { outcome } = await runStream(
@@ -220,7 +244,7 @@ async function stopRunningAgent(
       timeoutMs,
     );
     if (outcome === "closed") {
-      throw new Error("sdk socket closed while waiting for idle");
+      throw new Error("agent socket closed while waiting for idle");
     }
     // Signalled as UntilTimeoutError so callers can distinguish "never went
     // idle" from a transport failure and word their own message.
@@ -232,11 +256,6 @@ async function stopRunningAgent(
   } finally {
     client.close();
   }
-  killSilently(agent.daemonPid, "SIGTERM");
-  await waitPidGone(
-    agent.daemonPid,
-    Math.min(SIGKILL_ESCALATION_MS, PROCESS_EXIT_DEADLINE_MS),
-  );
 }
 
 const timeoutFlags = {

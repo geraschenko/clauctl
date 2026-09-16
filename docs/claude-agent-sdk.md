@@ -8,7 +8,7 @@ type definitions and by direct experiment (see [`derisk/`](derisk/) for the
 experiments), against `@anthropic-ai/claude-agent-sdk` 0.3.x in mid-2026 —
 they are empirical, and SDK upgrades can invalidate them. If clauctl does
 something in a roundabout way, the reason is usually on this page; what
-clauctl does about each fact is in [`socket-interface.md`](socket-interface.md)
+clauctl does about each fact is in [`protocol.md`](protocol.md)
 and the deep dives it links.
 
 Each fact notes what pins it: a test under `tests/sdk/` that runs against
@@ -108,7 +108,7 @@ Three quirks matter:
 - **`getSessionMessages()` is not the context.** This module-level SDK
   function returns the user/assistant chain, but not attachment entries.
   [`session-views.md`](session-views.md) explains what clauctl reads
-  instead; [`socket-interface.md`](socket-interface.md) has more details on
+  instead; [`protocol.md`](protocol.md) has more details on
   why we don't use `getSessionMessages`.
 
 The file is the durable record and the daemon follows it live; the query

@@ -3,7 +3,8 @@
 > Work log for phase 5 of docs/specs/session-tracker.md (IMPLEMENTATION
 > IDEAS, "Docs"). Status: **all edits made; the four new/rewritten docs
 > (socket-interface, stream-merging, session-views, claude-agent-sdk) are in
-> review iterations with Anton** (2026-09-14).
+> review iterations with Anton**; the "sdk socket" → protocol rename is
+> applied (2026-09-15).
 
 Unlike phases 1–4 the unit of work is a document, not a code step, so
 this log is a file → verdict → action table, the agreed outline of the
@@ -27,17 +28,17 @@ hits.
 
 ### Living docs (read as current)
 
-| File                                 | Stale                                                                                                                                                                                             | Action                                                                                  |
-| ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
-| docs/claude-agent-sdk.md             | L90–116: `AgentObserver` and `src/core/agent-observer.ts`; the sdk.sock event list omits the file leg (`sessionEntry`, `sessionFileChanged`, `scanComplete`, `sessionAppended`, `trackerAnomaly`) | Keep the CLI/process facts; move L90–116 out (structure below)                          |
-| docs/architecture.md                 | L88–94 same event list; L193–198 "tail, the TUI's history replay, and get-entries all consume the session file" (TUI never reads files; daemon serves from the resident tracker)                  | Fix both passages; attach section mentions `SessionModel`; point at socket-interface.md |
-| docs/overview.md                     | L204–207 calls daemon-architecture.md "the current state-tracking architecture … tty service"; document map lacks session-tracker, stream-merge, session-views, socket-interface                  | Update the document map                                                                 |
-| docs/session-views.md                | Accurate; silent on how each view is kept (rolling builders, daemon vs TUI ownership)                                                                                                             | "Owned by" lines gain pointers into socket-interface.md                                 |
-| docs/user-message-tracking.md        | Accurate                                                                                                                                                                                          | Cross-link only                                                                         |
-| docs/thoughts/get-entries-caching.md | Fully implemented, reads as a proposal; cited as "next" from get-context.md ×5, context-tree.md ×3                                                                                                | Move to docs/thoughts/old/; retarget the citations at session-tracker.md                |
-| docs/thoughts/transcript-order.md    | Current                                                                                                                                                                                           | Cross-link from socket-interface.md                                                     |
-| AGENTS.md L21 (one-pass bullet)      | Introduced against agents re-reading the whole file per function; the rolling builders make that shape unnatural now                                                                              | Remove (Anton, 2026-09-13)                                                              |
-| README.md                            | Accurate                                                                                                                                                                                          | none                                                                                    |
+| File                                 | Stale                                                                                                                                                                                           | Action                                                                          |
+| ------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
+| docs/claude-agent-sdk.md             | L90–116: `AgentObserver` and `src/core/agent-observer.ts`; the socket event list omits the file leg (`sessionEntry`, `sessionFileChanged`, `scanComplete`, `sessionAppended`, `trackerAnomaly`) | Keep the CLI/process facts; move L90–116 out (structure below)                  |
+| docs/architecture.md                 | L88–94 same event list; L193–198 "tail, the TUI's history replay, and get-entries all consume the session file" (TUI never reads files; daemon serves from the resident tracker)                | Fix both passages; attach section mentions `SessionModel`; point at protocol.md |
+| docs/overview.md                     | L204–207 calls daemon-architecture.md "the current state-tracking architecture … tty service"; document map lacks session-tracker, stream-merge, session-views, socket-interface                | Update the document map                                                         |
+| docs/session-views.md                | Accurate; silent on how each view is kept (rolling builders, daemon vs TUI ownership)                                                                                                           | "Owned by" lines gain pointers into protocol.md                                 |
+| docs/user-message-tracking.md        | Accurate                                                                                                                                                                                        | Cross-link only                                                                 |
+| docs/thoughts/get-entries-caching.md | Fully implemented, reads as a proposal; cited as "next" from get-context.md ×5, context-tree.md ×3                                                                                              | Move to docs/thoughts/old/; retarget the citations at session-tracker.md        |
+| docs/thoughts/transcript-order.md    | Current                                                                                                                                                                                         | Cross-link from protocol.md                                                     |
+| AGENTS.md L21 (one-pass bullet)      | Introduced against agents re-reading the whole file per function; the rolling builders make that shape unnatural now                                                                            | Remove (Anton, 2026-09-13)                                                      |
+| README.md                            | Accurate                                                                                                                                                                                        | none                                                                            |
 
 ### Specs
 
@@ -88,14 +89,14 @@ because we closed it. So the phase produces one interface doc and deep
 dives it links from an implementation section, not a facts doc paired
 with a mechanisms doc.
 
-### `docs/socket-interface.md` (new) — the interface sdk.sock provides
+### `docs/protocol.md` (new) — the interface socket provides
 
 The main thrust is interface and philosophy; implementation is one
 section of links.
 
-1. **What sdk.sock is** — the observation and control interface we wish
+1. **What socket is** — the observation and control interface we wish
    the SDK had: hello-first, requests with ids, pushed events. Brief;
-   the protocol details stay in architecture.md and sdk-socket.ts.
+   the protocol details stay in architecture.md and protocol.ts.
 2. **Philosophy** — observability by snapshot-on-subscribe plus a folded
    event stream: a subscriber maintains `AgentState` from the
    subscription alone; one fold (`nextAgentState`) runs in the daemon
@@ -151,14 +152,14 @@ extracted from `SessionModel` joins this doc beside the library.
   the architecture itself (binary is the authority, streaming-input
   mode, one connection, session ids roll over, transcripts are files);
   the stream-gap facts and the AgentObserver/event-list paragraphs
-  (L90–116) move into socket-interface.md and stream-merging.md. Each
+  (L90–116) move into protocol.md and stream-merging.md. Each
   fact gets a "tested by" pointer where tests/sdk/ has one (comparison
   below).
 - user-message-tracking.md stays a separate deep dive; its `get-messages`
   references are updated to get-context (docs/specs/get-context.md).
-- architecture.md: the socket section defers to socket-interface.md; the
+- architecture.md: the socket section defers to protocol.md; the
   history paragraph and attach section fixed (sweep table).
-- overview.md document map gains socket-interface.md, stream-merging.md,
+- overview.md document map gains protocol.md, stream-merging.md,
   session-views.md, session-tracker.md.
 
 ### tests/sdk/ vs claude-agent-sdk.md
@@ -200,7 +201,7 @@ where one exists.
   outline, §3).
 - 2026-09-14 (Anton): one interface doc, not a facts/mechanisms pair;
   deep dives for the involved parts. The earlier
-  `docs/agent-events.md` name is dropped for `docs/socket-interface.md`
+  `docs/agent-events.md` name is dropped for `docs/protocol.md`
   (it is not an SDK).
 - 2026-09-13 (Anton): remove the AGENTS.md one-pass bullet.
 - 2026-09-13 (Anton): get-entries-caching.md moves to docs/thoughts/old/.
@@ -224,6 +225,17 @@ where one exists.
   nothing is hidden that should be shown. The interrupt limitation stays,
   with the file-stream fix (confirm delivered prompts by their entry)
   recorded as a follow-up.
+- 2026-09-15 (Anton): "sdk socket" → **protocol** everywhere the term
+  meant the clauctl interface: `src/core/protocol.ts` (`ProtocolClient`,
+  `ProtocolRequest`/`ProtocolResponse`/`ProtocolRequestRecord`,
+  `PROTOCOL_NAME`/`PROTOCOL_VERSION`), `src/core/daemon/protocol-server.ts`
+  (`startProtocolServer`, `ProtocolConnection`), `registry.agentSocketPath`,
+  `docs/protocol.md`, error strings ("agent socket closed …"). The hello
+  value becomes `"clauctl-protocol"` (wire-breaking: old clients and daemons
+  reject each other; live agents need a restart). `Sdk*` names that mean
+  the Claude Agent SDK stay: `sdkMessage`, `SdkControl*`, sdk-passthrough,
+  sdk-commands, sdk-render, sdk-message, `tests/sdk/`. The `socket`
+  filename became `socket` in the same minor bump (0.2.0).
 - 2026-09-15: overview.md keeps its origin reasoning; sections it
   duplicated (SDK facts, data model, roadmap, document map) are links.
 
@@ -236,9 +248,6 @@ docs/thoughts/fold-resolved-events.md (deferred; a separate spec).
 From review round 95069a7:
 
 - `clauctl` `/fork` command (none exists in programmatic mode). See docs/thoughts/fork.md
-- Rename "sdk socket" → protocol (`src/core/protocol.ts`,
-  `ProtocolClient`, …, `docs/protocol.md`); the wire-breaking parts
-  (hello string, `sdk.sock` filename) wait for a minor version bump.
 - `docs/audit.md`: how the attach/detach audit works.
 - Confirming a delivered prompt by identity rather than by a later
   emission (stamping `SDKUserMessage.uuid`; `derisk/uuid-stamping/`), which
@@ -248,13 +257,13 @@ From review round 95069a7:
 
 - 2026-09-13: sweep done (table above); first outline agreed.
 - 2026-09-14: review round bf7eb2e; the facts/mechanisms split replaced
-  by socket-interface.md + deep dives (structure above); fold follow-up
+  by protocol.md + deep dives (structure above); fold follow-up
   recorded in docs/thoughts/fold-resolved-events.md.
-- 2026-09-14: review round 5ee9844: doc renamed socket-interface.md;
+- 2026-09-14: review round 5ee9844: doc renamed protocol.md;
   trees and `getSessionMessages` move to session-views.md; queue events
   link user-message-tracking.md; tests/sdk/ compared with
   claude-agent-sdk.md (table above).
-- 2026-09-14: written: docs/socket-interface.md, docs/stream-merging.md
+- 2026-09-14: written: docs/protocol.md, docs/stream-merging.md
   (classification table moved here from session-tracker.md, which now
   cites it), docs/session-views.md ("Why not ask the SDK?" under view 2;
   "How the views are kept" section), docs/claude-agent-sdk.md (AgentObserver
@@ -271,7 +280,7 @@ From review round 95069a7:
   completed specs (existing superseded/lineage blockquotes left as they
   were), AGENTS.md one-pass bullet removed, get-entries-caching.md moved to
   docs/thoughts/old/ with its 9 citations retargeted.
-- 2026-09-15: review round 95069a7: socket-interface.md (channels, the
+- 2026-09-15: review round 95069a7: protocol.md (channels, the
   philosophy rewritten around late subscribers/durability/multiple
   clients, Anton's "exists because the SDK lacks" list polished with the
   `getSessionMessages` deficiencies, the `SessionStore` rejection, the
@@ -285,10 +294,21 @@ From review round 95069a7:
   (linearization footnote; `loadedContext` moved to a historical note;
   no TUI reconnect; `getSessionMessages` is a module function),
   architecture.md ("Two facts" reduced to a sentence; "The clauctl
-  protocol" defers to socket-interface.md), overview.md (links replace
+  protocol" defers to protocol.md), overview.md (links replace
   duplicated sections), README.md (`spawn -a` quickstart; independent
   TUIs).
 - 2026-09-15: Anton's answers applied: `/fork` mentions removed, muninn
   paragraph dropped, audit TDC moved to follow-ups, interrupt limitation
   reworded without text matching; docs/derisk/attachment-types/FINDINGS.md
   written from a scan of 1160 local session files (27 types).
+- 2026-09-15: "sdk socket" → protocol rename applied (files, symbols,
+  error strings, comments, living docs, SKILL.md); hello value changed to
+  `clauctl-protocol`; `socket` filename rename left as a follow-up.
+- 2026-09-15: `stopRunningAgent` (archive) no longer requires the daemon to
+  speak our protocol: a failed connect/hello warns and falls through to
+  SIGTERM, so a clauctl update never has to be preceded by archiving the
+  agents its old daemons run (`src/core/lifecycle.test.ts`).
+- 2026-09-15: `sdk.sock` → `socket` (`agentSocketPath`, sun_path boundary
+  tests re-derived for the 7-byte suffix, docs); version bumped to 0.2.0.
+  Live agents started by 0.1.x need a restart (archive stops them via the
+  no-protocol path).

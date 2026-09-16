@@ -21,11 +21,14 @@ import type {
 } from "@anthropic-ai/claude-agent-sdk";
 import { initialAgentState, type AgentState } from "./agent-state.ts";
 import { app } from "./app.ts";
-import { RESPONSE_SENT, startSdkServer } from "./daemon/sdk-server.ts";
+import {
+  RESPONSE_SENT,
+  startProtocolServer,
+} from "./daemon/protocol-server.ts";
 import { runCliApp } from "./generated/cli.ts";
 import { fakeProcess, type CapturedProcess } from "./generated/test-util.ts";
-import { sdkSocketPath, writeAgentRecord } from "./registry.ts";
-import type { AgentEvent, SdkRequestRecord } from "./sdk-socket.ts";
+import { agentSocketPath, writeAgentRecord } from "./registry.ts";
+import type { AgentEvent, ProtocolRequestRecord } from "./protocol.ts";
 import type { SessionEntry } from "./session/file.ts";
 
 const UUID_A = "00000000-0000-4000-8000-00000000000a" as UUID;
@@ -115,7 +118,7 @@ async function runCommand(argv: string[]): Promise<CapturedProcess> {
 
 /**
  * A registry with one live agent (this process is its "daemon") and an
- * sdk.sock server: subscribe is answered with `seed` then `events` in a
+ * protocol server: subscribe is answered with `seed` then `events` in a
  * single chunk (already queued when subscribe resolves); the prompt request
  * is answered by `onPrompt`. `sessionEntries` are on-disk history before
  * the run.
@@ -126,7 +129,7 @@ async function withPromptAgent(
     events?: AgentEvent[];
     hangUp?: boolean;
     sessionEntries?: SessionEntry[];
-    onPrompt?: (request: SdkRequestRecord) => Promise<unknown>;
+    onPrompt?: (request: ProtocolRequestRecord) => Promise<unknown>;
   },
   fn: (agentId: string) => Promise<void>,
 ): Promise<void> {
@@ -156,8 +159,8 @@ async function withPromptAgent(
   });
   let subscribedSocket: Socket | undefined;
   let latestSocket: Socket | undefined;
-  const server = startSdkServer(
-    sdkSocketPath(agentDir),
+  const server = startProtocolServer(
+    agentSocketPath(agentDir),
     async (request, connection) => {
       if (request.type === "subscribe") {
         subscribedSocket = latestSocket;
@@ -202,7 +205,7 @@ async function withPromptAgent(
 }
 
 test("--detach submits and prints nothing", async () => {
-  const seen: SdkRequestRecord[] = [];
+  const seen: ProtocolRequestRecord[] = [];
   await withPromptAgent(
     {
       onPrompt: (request) => {
@@ -221,7 +224,7 @@ test("--detach submits and prints nothing", async () => {
 });
 
 test("--no-query implies detach and sends shouldQuery: false", async () => {
-  const seen: SdkRequestRecord[] = [];
+  const seen: ProtocolRequestRecord[] = [];
   await withPromptAgent(
     {
       onPrompt: (request) => {

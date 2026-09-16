@@ -53,7 +53,7 @@ import { fileExists, UsageError } from "./generated/util.ts";
 import {
   archivedPath,
   isPidAlive,
-  sdkSocketPath,
+  agentSocketPath,
   type AgentRecord,
 } from "./registry.ts";
 import { sessionEntryUuids } from "./sdk-commands.ts";
@@ -61,7 +61,7 @@ import {
   connectWithRetry,
   type AgentEvent,
   type GetEntriesResponse,
-} from "./sdk-socket.ts";
+} from "./protocol.ts";
 import { canonicalizeEntries } from "./session/entry-stream.ts";
 import { readSessionEntries, type SessionEntry } from "./session/file.ts";
 import { untilMetAtSeed, untilMetByEvent, untilQuietMs } from "./until.ts";
@@ -245,7 +245,7 @@ async function tailLive(
   timeoutMs: number | undefined,
 ): Promise<void> {
   const client = await connectWithRetry(
-    sdkSocketPath(agent.agentDir),
+    agentSocketPath(agent.agentDir),
     SOCKET_CONNECT_DEADLINE_MS,
   );
   const settlement = new UntilSettlement(condition);
@@ -307,7 +307,7 @@ async function tailLive(
   }
 }
 
-/** Live events: the sdk.sock stream in today's framing (`--json`) or through
+/** Live events: the protocol event stream in today's framing (`--json`) or through
  *  EventFormatter. A close with an unmet `--until` is an error — events have
  *  no file to give the dormancy reading. */
 async function tailEvents(
@@ -318,7 +318,7 @@ async function tailEvents(
   timeoutMs: number | undefined,
 ): Promise<void> {
   const client = await connectWithRetry(
-    sdkSocketPath(agent.agentDir),
+    agentSocketPath(agent.agentDir),
     SOCKET_CONNECT_DEADLINE_MS,
   );
   const formatter = json
@@ -352,7 +352,7 @@ async function tailEvents(
       timeoutMs,
     );
     if (outcome === "closed" && condition !== undefined) {
-      throw new Error("sdk socket closed before condition met");
+      throw new Error("agent socket closed before condition met");
     }
     if (formatter !== undefined) {
       const text = formatter.end();

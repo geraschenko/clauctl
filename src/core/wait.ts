@@ -19,8 +19,8 @@ import {
   type InferFlags,
 } from "./generated/cli.ts";
 import { oneTarget, type CommandContext } from "./generated/targets.ts";
-import { isPidAlive, sdkSocketPath } from "./registry.ts";
-import { connectWithRetry } from "./sdk-socket.ts";
+import { isPidAlive, agentSocketPath } from "./registry.ts";
+import { connectWithRetry } from "./protocol.ts";
 import { runStream } from "./generated/streaming/driver.ts";
 import {
   parseUntilCondition,
@@ -58,7 +58,7 @@ export async function wait(
   }
   const condition = flags.until;
   const client = await connectWithRetry(
-    sdkSocketPath(agent.agentDir),
+    agentSocketPath(agent.agentDir),
     SOCKET_CONNECT_DEADLINE_MS,
   );
   try {
@@ -72,7 +72,7 @@ export async function wait(
       timeoutMs,
     );
     if (outcome === "closed") {
-      throw new Error("sdk socket closed before condition met");
+      throw new Error("agent socket closed before condition met");
     }
     // wait's whole job is the condition holding, so running out of time is a
     // failure — the exit-3 path.

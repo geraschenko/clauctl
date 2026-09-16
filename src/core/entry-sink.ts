@@ -18,7 +18,7 @@ import {
   MessageFormatter,
 } from "../format/messages.ts";
 import type { CommandContext } from "./generated/targets.ts";
-import type { AgentEvent } from "./sdk-socket.ts";
+import type { AgentEvent } from "./protocol.ts";
 import type { SessionEntry } from "./session/file.ts";
 import { MessageProjector } from "./session/messages.ts";
 import { completedEntry } from "./session/structural.ts";

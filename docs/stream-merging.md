@@ -1,6 +1,6 @@
 # Merging the query stream and the session file
 
-Deep dive behind [`socket-interface.md`](socket-interface.md): how the
+Deep dive behind [`protocol.md`](protocol.md): how the
 daemon turns two unsynchronized views of one `claude` process into the
 single event stream a client folds. The specs are
 [`specs/stream-merge.md`](specs/stream-merge.md) (the library) and
@@ -193,7 +193,7 @@ change wakes the follower, which reads the new bytes, parses them, pushes
 each entry through the tracker and folds and broadcasts the resulting
 events (observed on `session`). Sinks run synchronously inside the read,
 which is what makes the snapshot/stream handoff cursor-free
-(socket-interface.md, Requests).
+(protocol.md, Requests).
 
 **Switch.** When the folded state shows `fileSessionId ≠ querySessionId`
 (a `/clear` or `/new`; the query stream announced a new session id), a

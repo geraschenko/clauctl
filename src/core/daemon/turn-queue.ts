@@ -2,7 +2,7 @@ import { type SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
 
 /**
  * The held-open input iterable behind `query({ prompt })`: turns pushed by
- * sdk.sock clients are yielded to the SDK as they arrive; close() ends the
+ * socket clients are yielded to the SDK as they arrive; close() ends the
  * stream.
  */
 export class TurnQueue implements AsyncIterable<SDKUserMessage> {

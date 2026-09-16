@@ -23,7 +23,7 @@ import {
   toolGroupMaps,
 } from "../tree/loader.ts";
 import { matchPreservedList } from "../tree/context-tree.ts";
-import type { SetContextRequest, SetContextResponse } from "../sdk-socket.ts";
+import type { SetContextRequest, SetContextResponse } from "../protocol.ts";
 import { parseTreeNodeRef } from "../tree/nodes.ts";
 import {
   appendSessionEntries,

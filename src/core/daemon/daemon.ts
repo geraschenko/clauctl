@@ -3,7 +3,7 @@
  * agent. It classifies startup (spawn vs revival), owns the AgentRecord and
  * its serialized writes, starts the SDK connection (a long-lived
  * streaming-input `query()`), wires the modules together — EventHub (state),
- * request handler (semantics), sdk-server (transport) — and handles teardown
+ * request handler (semantics), protocol-server (transport) — and handles teardown
  * and signals. It deliberately contains no request semantics and no state
  * tracking; only the stream read loop stays (see its section comment).
  */
@@ -36,7 +36,7 @@ import {
   daemonLogPath,
   readAgentRecord,
   readSpawnOptions,
-  sdkSocketPath,
+  agentSocketPath,
   spawnOptionsPath,
   writeAgentRecord,
   type AgentRecord,
@@ -48,7 +48,7 @@ import { AnomalyRecorder } from "./anomaly-bundle.ts";
 import { EventHub } from "./event-hub.ts";
 import { createRequestHandler } from "./request-handlers.ts";
 import { RwGate } from "./rw-gate.ts";
-import { startSdkServer } from "./sdk-server.ts";
+import { startProtocolServer } from "./protocol-server.ts";
 import { TrackedSessionLog } from "./tracked-session-log.ts";
 import { TurnQueue } from "./turn-queue.ts";
 
@@ -164,7 +164,7 @@ async function daemon(this: CommandContext, flags: DaemonFlags): Promise<void> {
 
   // A SIGKILLed predecessor leaves a stale socket file behind, and bind
   // refuses an existing path. Launchers guarantee no live daemon for this dir.
-  await rm(sdkSocketPath(agentDir), { force: true });
+  await rm(agentSocketPath(agentDir), { force: true });
 
   // The transcript lives where the CLI child looks for it: CLAUDE_CONFIG_DIR
   // from the child's env (persisted env can override ours), else ~/.claude.
@@ -212,7 +212,7 @@ async function daemon(this: CommandContext, flags: DaemonFlags): Promise<void> {
   await rm(spawnOptionsPath(agentDir), { force: true });
 
   // daemon.log (stdout) carries only exceptional events;
-  // the full event stream is observed via sdk.sock subscribers.
+  // the full event stream is observed via socket subscribers.
   // Observable state (agent-state.ts) is folded by the hub; it is separate
   // from the persisted record — nothing here writes back to agent.json.
   //
@@ -361,8 +361,8 @@ async function daemon(this: CommandContext, flags: DaemonFlags): Promise<void> {
   // Frozen at daemon start; the attach/detach audit hooks below use it.
   const auditingEnabled = auditEnabled(this.env);
 
-  const sdkServer: Server = startSdkServer(
-    sdkSocketPath(agentDir),
+  const sdkServer: Server = startProtocolServer(
+    agentSocketPath(agentDir),
     createRequestHandler({
       getQuery: () => claudeQuery,
       events,
@@ -452,7 +452,7 @@ async function daemon(this: CommandContext, flags: DaemonFlags): Promise<void> {
       record.attachments = [];
       queueRecordWrite();
       await writeQueue.catch(() => undefined);
-      await rm(sdkSocketPath(agentDir), { force: true });
+      await rm(agentSocketPath(agentDir), { force: true });
       proc.exit(code);
     })();
   };
@@ -461,7 +461,7 @@ async function daemon(this: CommandContext, flags: DaemonFlags): Promise<void> {
   proc.on("SIGTERM", () => cleanupAndExit(0, "shut down (SIGTERM)"));
   proc.on("SIGINT", () => cleanupAndExit(0, "shut down (SIGINT)"));
 
-  // Ready once sdk.sock is bound. The barrier cannot include the first
+  // Ready once socket is bound. The barrier cannot include the first
   // system/init: in streaming-input mode claude does not announce itself until
   // the first user turn arrives, so waiting for init deadlocks spawn (and
   // revival — the reviving CLI holds the turn that would trigger init).
@@ -471,10 +471,10 @@ async function daemon(this: CommandContext, flags: DaemonFlags): Promise<void> {
       await once(sdkServer, "listening");
     } catch (error) {
       fail(
-        `cannot bind ${sdkSocketPath(agentDir)}: ${String(error)}; log: ${daemonLogPath(agentDir)}`,
+        `cannot bind ${agentSocketPath(agentDir)}: ${String(error)}; log: ${daemonLogPath(agentDir)}`,
       );
       // No subscriber exists this early; the reason is for uniformity.
-      cleanupAndExit(1, "failed to start (cannot bind sdk.sock)");
+      cleanupAndExit(1, "failed to start (cannot bind socket)");
       return;
     }
   }

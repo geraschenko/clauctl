@@ -17,7 +17,7 @@ import type {
   SDKMessage,
   SDKUserMessage,
 } from "@anthropic-ai/claude-agent-sdk";
-import type { MessageDelivery, AgentEvent } from "../sdk-socket.ts";
+import type { MessageDelivery, AgentEvent } from "../protocol.ts";
 
 /** One accepted-but-not-yet-dequeued message in the modeled CLI queue. */
 export interface QueuedMessage {

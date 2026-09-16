@@ -42,7 +42,7 @@ import type {
   SDKUserMessage,
 } from "@anthropic-ai/claude-agent-sdk";
 import type { Result } from "neverthrow";
-import type { AgentEvent } from "./sdk-socket.ts";
+import type { AgentEvent } from "./protocol.ts";
 import type { SessionEntry } from "./session/file.ts";
 import {
   createMerge,
@@ -780,7 +780,7 @@ function foldEvent(state: AgentState, event: AgentEvent): AgentState {
         message.subtype === "status" &&
         message.permissionMode !== undefined
       ) {
-        // Mode changes not initiated over sdk.sock (e.g. plan-mode
+        // Mode changes not initiated over socket (e.g. plan-mode
         // transitions).
         return withObservedPermissionMode(next, message.permissionMode);
       }

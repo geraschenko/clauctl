@@ -1,6 +1,6 @@
 /**
  * The agent registry is a directory of agent dirs: $CLAUCTL_DIR/<agentId>/ with
- * agent.json (written only by the daemon), sdk.sock, daemon.log, the
+ * agent.json (written only by the daemon), socket, daemon.log, the
  * audit.jsonl/sources.jsonl audit logs (generated/audit.ts), and optionally
  * a tombstone file marking the dir for gc.
  */
@@ -11,7 +11,7 @@ import envPaths from "env-paths";
 import type { PersistedOptions } from "./options.ts";
 import { fileExists } from "./generated/util.ts";
 
-/** A live attached TUI (an sdk.sock subscriber that identified itself). */
+/** A live attached TUI (an socket subscriber that identified itself). */
 export interface AttachmentInfo {
   pid: number;
   client: string;
@@ -91,8 +91,8 @@ export function agentJsonPath(agentDir: string): string {
   return join(agentDir, "agent.json");
 }
 
-export function sdkSocketPath(agentDir: string): string {
-  return join(agentDir, "sdk.sock");
+export function agentSocketPath(agentDir: string): string {
+  return join(agentDir, "socket");
 }
 
 /**
@@ -168,7 +168,7 @@ export async function readSpawnOptions(
 
 /**
  * Unix socket paths must fit in sockaddr_un.sun_path including its NUL
- * terminator: 108 bytes on Linux, 104 on macOS/BSD. The daemon binds sdk.sock
+ * terminator: 108 bytes on Linux, 104 on macOS/BSD. The daemon binds socket
  * under agentDir; if it would not fit, the bind later fails with an opaque
  * `EINVAL: invalid argument`. Returns a human-readable error describing the
  * overflow and how to fix it, or undefined if the socket fits. Pure; platform
@@ -179,7 +179,7 @@ export function socketPathLengthError(
   platform: NodeJS.Platform = process.platform,
 ): string | undefined {
   const limit = platform === "linux" ? 108 : 104;
-  const longest = sdkSocketPath(agentDir);
+  const longest = agentSocketPath(agentDir);
   const needed = Buffer.byteLength(longest) + 1; // + NUL terminator
   if (needed <= limit) return undefined;
   return (
@@ -349,7 +349,7 @@ export function isPidAlive(pid: number): boolean {
 /**
  * The agent's status as far as on-disk markers and the daemon pid can tell —
  * no socket involved. A live daemon is reported as `running`; distinguishing
- * live agent state needs the sdk.sock probe. gc only needs the socket-free
+ * live agent state needs the socket probe. gc only needs the socket-free
  * verdict, so it uses this directly.
  */
 export type RegistryStatus =

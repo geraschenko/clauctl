@@ -1,10 +1,10 @@
 import { createServer, type Server, type Socket } from "node:net";
 import {
-  SDK_SOCKET_PROTOCOL,
-  SDK_SOCKET_VERSION,
-  type SdkRequestRecord,
-  type SdkResponse,
-} from "../sdk-socket.ts";
+  PROTOCOL_NAME,
+  PROTOCOL_VERSION,
+  type ProtocolRequestRecord,
+  type ProtocolResponse,
+} from "../protocol.ts";
 
 /**
  * Returned by a handler that wrote its own response (subscribe): the generic
@@ -14,23 +14,23 @@ import {
 export const RESPONSE_SENT: unique symbol = Symbol("response sent");
 
 /** Per-connection handle so subscribe can attach a sink and unhook it on close. */
-export interface SdkConnection {
+export interface ProtocolConnection {
   write(line: string): void;
   onClose(cleanup: () => void): void;
 }
 
 /**
- * JSONL server on sdk.sock; hello on connect. Requests get responses; a
+ * JSONL server speaking the clauctl protocol on socket; hello on connect. Requests get responses; a
  * subscribed connection additionally receives pushed AgentEventRecord lines
  * (written by the EventHub sink the subscribe handler attaches). Sinks are
  * fire-and-forget socket writes: a slow subscriber buffers in its socket,
  * never blocks the daemon or other clients.
  */
-export function startSdkServer(
+export function startProtocolServer(
   socketPath: string,
   handleRequest: (
-    request: SdkRequestRecord,
-    connection: SdkConnection,
+    request: ProtocolRequestRecord,
+    connection: ProtocolConnection,
   ) => Promise<unknown>,
 ): Server {
   const server = createServer((socket: Socket) => {
@@ -38,11 +38,11 @@ export function startSdkServer(
     socket.write(
       `${JSON.stringify({
         type: "hello",
-        protocol: SDK_SOCKET_PROTOCOL,
-        version: SDK_SOCKET_VERSION,
+        protocol: PROTOCOL_NAME,
+        version: PROTOCOL_VERSION,
       })}\n`,
     );
-    const connection: SdkConnection = {
+    const connection: ProtocolConnection = {
       write: (line) => {
         if (!socket.destroyed) {
           socket.write(line);
@@ -52,7 +52,7 @@ export function startSdkServer(
         socket.on("close", cleanup);
       },
     };
-    const respond = (response: SdkResponse): void => {
+    const respond = (response: ProtocolResponse): void => {
       let line: string;
       try {
         line = JSON.stringify(response);
@@ -60,7 +60,7 @@ export function startSdkServer(
         // Serialization failure (e.g. a cyclic or too-deep payload) must not
         // crash the daemon. The fallback embeds only String(error) — no part
         // of the original response data — so it cannot itself fail.
-        const failure: SdkResponse = {
+        const failure: ProtocolResponse = {
           id: response.id,
           ok: false,
           error: `response serialization failed: ${String(error)}`,
@@ -77,9 +77,9 @@ export function startSdkServer(
         const line = buffer.slice(0, newlineIndex);
         buffer = buffer.slice(newlineIndex + 1);
         if (line.trim() !== "") {
-          let request: SdkRequestRecord;
+          let request: ProtocolRequestRecord;
           try {
-            request = JSON.parse(line) as SdkRequestRecord;
+            request = JSON.parse(line) as ProtocolRequestRecord;
           } catch {
             continue;
           }

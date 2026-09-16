@@ -18,7 +18,7 @@ import {
   writeSpawnOptions,
 } from "./registry.ts";
 
-/** An agentDir of exactly `len` ASCII bytes. sdk.sock adds 9, the NUL 1 more. */
+/** An agentDir of exactly `len` ASCII bytes. "/socket" adds 7, the NUL 1 more. */
 function agentDirOfLength(len: number): string {
   return "/" + "a".repeat(len - 1);
 }
@@ -96,28 +96,31 @@ test("socketPathLengthError: a short path fits on both platforms", () => {
 });
 
 test("socketPathLengthError: Linux boundary is 108 bytes", () => {
-  // agentDir 98 + "/sdk.sock" 9 + NUL 1 = 108 = limit.
-  assert.equal(socketPathLengthError(agentDirOfLength(98), "linux"), undefined);
+  // agentDir 100 + "/socket" 7 + NUL 1 = 108 = limit.
+  assert.equal(
+    socketPathLengthError(agentDirOfLength(100), "linux"),
+    undefined,
+  );
   assert.match(
-    socketPathLengthError(agentDirOfLength(99), "linux") ?? "",
+    socketPathLengthError(agentDirOfLength(101), "linux") ?? "",
     /too long.*109 bytes.*limit is 108/s,
   );
 });
 
 test("socketPathLengthError: macOS boundary is 104 bytes", () => {
-  // agentDir 94 + 9 + 1 = 104 = limit.
+  // agentDir 96 + 7 + 1 = 104 = limit.
   assert.equal(
-    socketPathLengthError(agentDirOfLength(94), "darwin"),
+    socketPathLengthError(agentDirOfLength(96), "darwin"),
     undefined,
   );
   assert.match(
-    socketPathLengthError(agentDirOfLength(95), "darwin") ?? "",
+    socketPathLengthError(agentDirOfLength(97), "darwin") ?? "",
     /too long.*105 bytes.*limit is 104/s,
   );
 });
 
 test("socketPathLengthError: a path that fits Linux can overflow macOS", () => {
-  const dir = agentDirOfLength(96);
+  const dir = agentDirOfLength(98);
   assert.equal(socketPathLengthError(dir, "linux"), undefined);
   assert.ok(socketPathLengthError(dir, "darwin"));
 });
@@ -130,7 +133,7 @@ test("socketPathLengthError: counts bytes, not characters", () => {
 
 test("socketPathLengthError: message names the path and a remedy", () => {
   const msg = socketPathLengthError(agentDirOfLength(200), "linux") ?? "";
-  assert.match(msg, /sdk\.sock/);
+  assert.match(msg, /\/socket"/);
   assert.match(msg, /--id|CLAUCTL_DIR/);
 });
 

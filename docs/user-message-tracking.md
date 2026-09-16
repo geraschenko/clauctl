@@ -4,7 +4,7 @@
 > transcript leaf in `AgentState` (src/core/agent-state.ts, which states
 > the invariant in code; this doc holds the full rationale), and for the known
 > limitations we accepted. The queue events are one leg of the event stream
-> described in `docs/socket-interface.md`. Grounded in the echo-placement experiments
+> described in `docs/protocol.md`. Grounded in the echo-placement experiments
 > (`docs/derisk/echoed-message-placement/FINDINGS.md`); read that before
 > re-deriving any of this empirically.
 

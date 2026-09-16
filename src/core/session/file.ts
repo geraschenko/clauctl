@@ -20,7 +20,7 @@ import type { SessionMessage } from "@anthropic-ai/claude-agent-sdk";
 import { err, ok, type Result } from "neverthrow";
 import { LineReader } from "../generated/line-reader.ts";
 import { isRecord } from "../generated/util.ts";
-import type { SetContextResponse } from "../sdk-socket.ts";
+import type { SetContextResponse } from "../protocol.ts";
 
 /** One parsed jsonl line, verbatim. Known fields typed, everything else kept. */
 export interface SessionEntry {

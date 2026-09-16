@@ -48,9 +48,9 @@ import {
 import { pathToLeaf, type TreeNodeRef } from "../core/tree/nodes.ts";
 import type {
   AgentEvent,
-  SdkSocketClient,
+  ProtocolClient,
   GetEntriesResponse,
-} from "../core/sdk-socket.ts";
+} from "../core/protocol.ts";
 import { findFd, TuiAutocompleteProvider } from "./autocomplete.ts";
 import { EffortSelectorComponent } from "./components/effort-selector.ts";
 import { FooterComponent } from "./components/footer.ts";
@@ -126,7 +126,7 @@ export type InteractiveOutcome =
 
 /**
  * Connect the TUI to a subscribed client. Owns the subscribe ordering: events
- * may be delivered before the snapshot promise settles (SdkSocketClient
+ * may be delivered before the snapshot promise settles (ProtocolClient
  * contract), so they buffer in a closure until InteractiveMode exists — the
  * same gating `tail` does. Resolves with how the session ended: `done`
  * (detach key, shutdown event) races the event pump, whose own end means the
@@ -135,7 +135,7 @@ export type InteractiveOutcome =
  * line already on the wire still win the race.
  */
 export async function runInteractive(
-  client: SdkSocketClient,
+  client: ProtocolClient,
   logDirectory: string,
 ): Promise<InteractiveOutcome> {
   initTheme("dark");
@@ -332,7 +332,7 @@ class InteractiveMode {
   private finish!: (outcome: InteractiveOutcome) => void;
 
   private readonly ui: TUI;
-  private readonly client: SdkSocketClient;
+  private readonly client: ProtocolClient;
   /**
    * Seeded from the subscribe response and assigned the post-fold state the
    * client delivers with each live event — the client runs the same fold the
@@ -417,7 +417,7 @@ class InteractiveMode {
 
   constructor(
     ui: TUI,
-    client: SdkSocketClient,
+    client: ProtocolClient,
     seedState: AgentState,
     startupWarnings: string[],
   ) {
