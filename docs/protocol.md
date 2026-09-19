@@ -92,9 +92,8 @@ entirely because the Claude Agent SDK does not have these properties natively:
   playlist where the loader aborts, and does no cut or reparenting, so
   excluded siblings stay in. The daemon models the context instead; clients
   request it with `get-context`, or keep a rolling view by feeding the event
-  stream to [`context-tree.ts`](../src/core/tree/context-tree.ts) (an
-  interface that will be cleaned up when `SessionModel` is split; see
-  [`thoughts/fold-resolved-events.md`](thoughts/fold-resolved-events.md)).
+  stream to [`context-tree.ts`](../src/core/tree/context-tree.ts) (as the
+  TUI's `SessionModel` does).
 - **Modeling the context is not possible from the SDK alone.** Some
   information exists only in the session jsonl:
   - The conversation history when resuming a session. The SDK's `SessionStore`
@@ -123,8 +122,8 @@ turn_duration, api_error, away_summary, informational, model_*_fallback}`,
   everything out as soon as it is available and lets a client that needs the
   two correlated do so ([`stream-merge.ts`](../src/core/stream-merge.ts),
   [`stream-merging.md`](stream-merging.md)): `AgentState` tells the client
-  which SDK messages the file has not yet caught up to. (To be revisited
-  with [`thoughts/fold-resolved-events.md`](thoughts/fold-resolved-events.md).)
+  which SDK messages the file has not yet caught up to, and which ids each
+  fold step resolved (`SessionState.resolved`).
 - **One `Query` spans multiple session files.** `/clear` and `/new` start a
   new session id in the same process. This is why a clauctl agent id is not
   a claude session id. The daemon follows the
@@ -148,14 +147,11 @@ a uuid, only the first copy is forwarded.
 
 **`sessionEntry`**: the **file stream**: one event per canonical[^dups]
 entry of the tracked session file, in file order, as soon as the daemon reads
-the line. A session-only entry (a prompt, an attachment) travels complete; an
-entry the query stream also carries travels as its structural projection
-(links and class, payload emptied), because the subscriber already holds the
-payload from the `sdkMessage` twin. (Sparing clients this detail is the point
-of [`thoughts/fold-resolved-events.md`](thoughts/fold-resolved-events.md).)
-Each event also carries daemon-computed facts a client would otherwise need a
-tree for: the context leaf after this entry, the last assistant's
-usage/model, and the boundaries still waiting for an anchor.
+the line. Every entry includes the daemon's class decision (`expectsSdkMessage`:
+whether the query stream also carries it) so no subscriber re-classifies. Each
+event also carries daemon-computed facts a client would otherwise need a tree
+for: the context leaf after this entry, the last assistant's usage/model, and
+the boundaries still waiting for an anchor.
 
 **Daemon bookkeeping**: everything else, each covering a gap in the SDK:
 
@@ -167,7 +163,7 @@ usage/model, and the boundaries still waiting for an anchor.
 | `contextChanged`                           | a compact boundary completed (native or `set-context`) and the context leaf moved; the SDK has no set-context and no event for either.                                                                                          |
 | `sessionFileChanged`                       | `/clear`/`/new` start a new session id in the same process; the file follower moved to the new file and every client resets its per-file model.                                                                                 |
 | `scanComplete`                             | the file follower has delivered every line the file held when opened; what follows is live.                                                                                                                                     |
-| `sessionAppended`                          | the daemon appended these uuids itself (`set-context`); emitted before the file stream delivers them so the fold can expect them.                                                                                               |
+| `sessionAppended`                          | the daemon appended this entry itself (`set-context`): its query-stream `SDKMessage` form, one event per entry in file order, emitted before the file stream delivers the entries so the fold can expect them.                  |
 | `trackerAnomaly`                           | the daemon observed something its model of the CLI says cannot happen; the fold sets `AgentState.anomaly` (see stream merging).                                                                                                 |
 | `shutdown`                                 | a deliberate stop, so a lost connection without it means a crash.                                                                                                                                                               |
 
@@ -198,10 +194,9 @@ tracks which ids are still pending on which stream, and a session is
 awaits its anchor. Requests that read the file (`get-entries`,
 `get-context`, `set-context`) wait for settlement inside the daemon, so a
 client that only makes requests never sees the seam.[^settlement] A client that
-folds events and wants "no later arrival can reorder this" must read the pending
-set itself today; making the fold report what each step resolved is a planned
-follow-up
-([`thoughts/fold-resolved-events.md`](thoughts/fold-resolved-events.md)).
+folds events reads what each step resolved from `SessionState.resolved`
+(the resolutions of the event just folded, empty on every other state) and
+what is still pending from the merge state.
 
 ## Requests
 

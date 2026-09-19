@@ -86,7 +86,6 @@ function userEntry(uuid: UUID, text: string): SessionEntry {
   };
 }
 
-/** A structural assistant entry: its payload rides on the sdkMessage twin. */
 function assistantEntry(uuid: UUID): SessionEntry {
   return {
     type: "assistant",
@@ -501,11 +500,6 @@ test("--until settles only once the query file has caught up", async () => {
       ]);
       assert.equal(result.proc.exitCode, 0);
       assert.deepEqual(outputUuids(result), [UUID_A, UUID_B]);
-      const reply = JSON.parse(result.stdout.split("\n")[1]!) as {
-        message: { usage?: unknown };
-      };
-      // The structural entry was completed from its twin's payload.
-      assert.deepEqual(reply.message.usage, {});
     },
   );
 });

@@ -1,19 +1,13 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { BetaRawMessageStreamEvent } from "@anthropic-ai/sdk/resources/beta/messages/messages.mjs";
-import type { UUID } from "node:crypto";
 import type {
   SDKAssistantMessage,
-  SDKMessage,
   SDKUserMessage,
 } from "@anthropic-ai/claude-agent-sdk";
-import type { SessionEntry } from "../core/session/file.ts";
-import type { TreeNodeRef } from "../core/tree/nodes.ts";
 import {
   beginMessage,
   foldStreamEvent,
-  pathUpToBoundary,
-  releaseDedupeUuid,
   renderAssistant,
   toolResultsOf,
   userText,
@@ -260,111 +254,6 @@ test("toolResultsOf is empty for plain user turns", () => {
     toolResultsOf(sdkUserMessage([{ type: "text", text: "hi" }])),
     [],
   );
-});
-
-function uuid(n: number): UUID {
-  return `00000000-0000-0000-0000-${String(n).padStart(12, "0")}`;
-}
-
-function pathEntry(
-  type: string,
-  entryUuid: UUID,
-  extra: Partial<SessionEntry> = {},
-): SessionEntry {
-  return { type, uuid: entryUuid, ...extra };
-}
-
-/** A root-first path of raw refs plus the byUuid lookup over its entries. */
-function pathFixture(entries: SessionEntry[]): {
-  path: TreeNodeRef[];
-  byUuid: Map<UUID, SessionEntry>;
-} {
-  return {
-    path: entries.map((entry) => ({ uuid: entry.uuid! })),
-    byUuid: new Map(entries.map((entry) => [entry.uuid!, entry])),
-  };
-}
-
-function pathUuids(refs: TreeNodeRef[]): UUID[] {
-  return refs.map((ref) => ref.uuid);
-}
-
-test("pathUpToBoundary drops ordinary rows after the leaf row", () => {
-  const { path, byUuid } = pathFixture([
-    pathEntry("user", uuid(1)),
-    pathEntry("assistant", uuid(2)),
-    pathEntry("user", uuid(3)),
-    pathEntry("assistant", uuid(4)),
-  ]);
-  const result = pathUpToBoundary(path, byUuid, { uuid: uuid(2) });
-  assert.deepEqual(pathUuids(result.nodes), [uuid(1), uuid(2)]);
-  assert.equal(result.boundaryMissing, false);
-});
-
-test("pathUpToBoundary keeps post-leaf boundary and summary rows", () => {
-  // A native compaction landed between the state snapshot and the tree
-  // read: the leaf is the pre-compaction assistant, and the display path
-  // continues boundary → summary. Both replay (the banner keeps the
-  // segment structurally complete; the summary's live user event renders
-  // no text), the ordinary row after them drops (its live events render).
-  const boundary = uuid(9);
-  const { path, byUuid } = pathFixture([
-    pathEntry("user", uuid(1)),
-    pathEntry("assistant", uuid(2)),
-    pathEntry("system", boundary, { subtype: "compact_boundary" }),
-    pathEntry("user", uuid(8), {
-      isCompactSummary: true,
-      parentUuid: boundary,
-    }),
-    pathEntry("assistant", uuid(4)),
-  ]);
-  const result = pathUpToBoundary(path, byUuid, { uuid: uuid(2) });
-  assert.deepEqual(pathUuids(result.nodes), [
-    uuid(1),
-    uuid(2),
-    boundary,
-    uuid(8),
-  ]);
-  assert.equal(result.boundaryMissing, false);
-});
-
-test("pathUpToBoundary without a leaf row returns the whole path", () => {
-  const { path, byUuid } = pathFixture([pathEntry("user", uuid(1))]);
-  assert.deepEqual(pathUpToBoundary(path, byUuid, undefined), {
-    nodes: path,
-    boundaryMissing: false,
-  });
-});
-
-test("pathUpToBoundary with an absent leaf row returns everything, flagged", () => {
-  const { path, byUuid } = pathFixture([pathEntry("user", uuid(1))]);
-  assert.deepEqual(pathUpToBoundary(path, byUuid, { uuid: uuid(7) }), {
-    nodes: path,
-    boundaryMissing: true,
-  });
-});
-
-test("releaseDedupeUuid covers exactly the kinds a path replay renders", () => {
-  const withUuid = (shape: Record<string, unknown>): SDKMessage =>
-    ({ ...shape, uuid: uuid(1) }) as unknown as SDKMessage;
-  assert.equal(releaseDedupeUuid(withUuid({ type: "user" })), uuid(1));
-  assert.equal(releaseDedupeUuid(withUuid({ type: "assistant" })), uuid(1));
-  assert.equal(releaseDedupeUuid(withUuid({ type: "stream_event" })), uuid(1));
-  assert.equal(
-    releaseDedupeUuid(
-      withUuid({ type: "system", subtype: "compact_boundary" }),
-    ),
-    uuid(1),
-  );
-  // Other system subtypes render content no replay produces — a uuid
-  // collision must not swallow them.
-  assert.equal(
-    releaseDedupeUuid(
-      withUuid({ type: "system", subtype: "local_command_output" }),
-    ),
-    undefined,
-  );
-  assert.equal(releaseDedupeUuid(withUuid({ type: "result" })), undefined);
 });
 
 test("userText handles string and block content", () => {

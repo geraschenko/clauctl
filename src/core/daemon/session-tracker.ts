@@ -2,9 +2,9 @@
  * The daemon's resident view of ONE session file (docs/specs/
  * session-tracker.md, "Session tracker"): an index of byte ranges + classes
  * and rolling trees, turning each pushed line into the socket's
- * `sessionEntry` event. Entries themselves are never retained — payloads
- * are re-read by range — which is daemon serving policy, not a file
- * property, hence daemon/ rather than session/.
+ * `sessionEntry` event. Entries are retained only until the builders place
+ * them — payloads are re-read by range — which is daemon serving policy,
+ * not a file property, hence daemon/ rather than session/.
  */
 
 import type { UUID } from "node:crypto";
@@ -16,7 +16,6 @@ import {
   type ParsedEntry,
   type SessionEntry,
 } from "../session/file.ts";
-import { structuralEntry } from "../session/structural.ts";
 import { SessionTreeBuilder } from "../tree/build-tree.ts";
 import { ContextTreeBuilder, type ContextTree } from "../tree/context-tree.ts";
 import type { OnInvalid } from "../tree/loader.ts";
@@ -35,8 +34,8 @@ export class SessionTracker {
     UUID,
     { range: ByteRange; expectsSdkMessage: boolean }
   >();
-  /** Structural entries the builders have not consumed yet: a raw node
-   *  deferred behind an absent anchor keeps its entry until placed. */
+  /** Entries the builders have not consumed yet: a raw node deferred
+   *  behind an absent anchor keeps its entry until placed. */
   private readonly byUuid = new Map<UUID, SessionEntry>();
   private readonly sessionTree: SessionTreeBuilder;
   private readonly contextTreeBuilder: ContextTreeBuilder;
@@ -52,15 +51,13 @@ export class SessionTracker {
     );
   }
 
-  /** First-wins on uuid. Records the entry's range and class, pushes it
-   *  through the two trees (on observation — structure is a function of
-   *  file order; resolution is the fold's concern) and drops it once
-   *  consumed, and returns the events to emit, in order: `[]` for a
-   *  duplicate uuid; else the `sessionEntry` — the complete entry for a
-   *  session-only class, `structuralEntry(entry)` for a shared one,
-   *  `expectsSdkMessage` saying which — followed by one `contextChanged`
-   *  per boundary this entry completed (its own, or those whose deferred
-   *  blocks it anchored), in file order, each carrying the post-push leaf. */
+  /** First-wins on uuid. Records the entry's range and class, pushes it through
+   * the two trees (on observation — structure is a function of file order;
+   * resolution is the fold's concern) and drops it once consumed, and returns
+   * the events to emit, in order: `[]` for a duplicate uuid; else the
+   * `sessionEntry` followed by one `contextChanged` per boundary this entry
+   * completed (its own, or those whose deferred blocks it anchored), in file
+   * order, each carrying the post-push leaf. */
   push(parsed: ParsedEntry): readonly SessionTrackerEvent[] {
     const { entry, range } = parsed;
     if (entry.uuid === undefined) {
@@ -71,10 +68,9 @@ export class SessionTracker {
     }
     const expectsSdkMessage = !excludedFromQuery(entry);
     this.entryIndex.set(entry.uuid, { range, expectsSdkMessage });
-    const structural = structuralEntry(entry);
     const awaitingBefore = this.sessionTree.awaitingAnchors;
-    this.byUuid.set(entry.uuid, structural);
-    this.sessionTree.push(structural);
+    this.byUuid.set(entry.uuid, entry);
+    this.sessionTree.push(entry);
     this.contextTreeBuilder.push();
     this.pruneConsumed();
     const awaitingAfter = new Set(this.sessionTree.awaitingAnchors);
@@ -86,10 +82,7 @@ export class SessionTracker {
     ];
     const leaf = this.leaf;
     return [
-      this.sessionEntryEvent(
-        expectsSdkMessage ? structural : entry,
-        expectsSdkMessage,
-      ),
+      this.sessionEntryEvent(entry, expectsSdkMessage),
       ...completed.map((boundary): SessionTrackerEvent => ({
         kind: "contextChanged",
         boundary,

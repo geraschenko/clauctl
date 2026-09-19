@@ -56,16 +56,17 @@ Two holders run the same builders with different retention:
   and `get-context` by re-reading payloads by range. It computes the leaf
   and `contextChanged` and stamps them onto the `sessionEntry` events it
   emits.
-- **The TUI** (`SessionModel`, src/tui/session-model.ts) keeps view 3 (also 1
-  and 2, but only because they are required to build view 3),
-  fed by the socket: the `get-entries` snapshot after subscribing, then
-  every live `sessionEntry`. It holds every entry (complete from the
-  snapshot, structural for live shared entries whose payload came as an
-  `sdkMessage`) so `/tree` and transcript redraws read local state and never
+- **The TUI** (one `SessionModel` per session id, src/tui/session-model.ts,
+  routed by `SessionModels`, src/tui/session-models.ts, which mirrors
+  `AgentState.sessions`) keeps view 3 (also 1 and 2, but only because they
+  are required to build view 3), fed by the socket: the `get-entries`
+  snapshot after subscribing, then every live `sessionEntry`. It holds
+  every entry so `/tree` and transcript rebuilds read local state and never
   refetch.
 
-Both reset their per-file model on `sessionFileChanged` and rebuild it from
-the new file's scan. How the entry stream reaches a client, and why the
+Both restart the trees on `sessionFileChanged` and rebuild them from the
+new file's scan (the TUI keeps the entries: first-wins per uuid, the scan
+re-emits them). How the entry stream reaches a client, and why the
 daemon's and the TUI's trees agree, is in
 [`protocol.md`](protocol.md) and
 [`stream-merging.md`](stream-merging.md).

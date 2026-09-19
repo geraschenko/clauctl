@@ -5,7 +5,21 @@
  * the two paths cannot drift. It owns the transcript components — streaming
  * fold, tool components, user/assistant blocks, banners — while the caller
  * keeps everything that is not transcript content: pending/status/queue
- * areas, replay dedupe bookkeeping, and autocomplete side effects.
+ * areas and autocomplete side effects.
+ *
+ * Each uuid's visible content renders once (`renderedUuids`), whichever
+ * side delivers it first — the query stream's frame or the session file's
+ * entry; the loser still does its non-content work (a `user` frame resolves
+ * tool results, an `assistant` frame finalizes or discards the stream it
+ * owns). Streams are owned by API `message.id`, not transcript uuid: the
+ * two sides are delayed independently, so the stream open at a key need
+ * not belong to the message being finalized. `itemsByUuid` lets a resolved
+ * entry re-render its frame's item in place (`replaceContent`).
+ *
+ * A compaction summary's entry says so (`isCompactSummary`); its frame
+ * carries no flag, so a boundary frame's `preserved_messages.anchor_uuid`
+ * names the summary frame expected immediately after it (the anchor is
+ * the boundary itself when there is none: a rewind, a bare wipe).
  *
  * Top-level content is kept as an ordered item list and the container's
  * children are rebuilt from it on every change, because the collapsed view
@@ -21,6 +35,7 @@
  * stamps entries with — stands in.
  */
 
+import type { UUID } from "node:crypto";
 import {
   type Component,
   Container,
@@ -30,12 +45,12 @@ import {
 } from "@earendil-works/pi-tui";
 import type {
   SDKMessage,
-  SDKUserMessage,
   SessionMessage,
 } from "@anthropic-ai/claude-agent-sdk";
 import {
   entryToSessionMessage,
   queuedCommandPrompt,
+  queuedCommandSourceUuid,
   type SessionEntry,
 } from "../core/session/file.ts";
 import { AssistantMessageComponent } from "./components/assistant-message.ts";
@@ -100,6 +115,8 @@ interface StreamingComponent {
   state: StreamingMessage;
   /** The top-level item to finalize; undefined for subagent streams. */
   item: AssistantItem | undefined;
+  /** The API message id from `message_start`: the stream's owner. */
+  apiMessageId: string;
 }
 
 function hasThinking(rendered: RenderAssistant): boolean {
@@ -130,12 +147,21 @@ export class TranscriptRenderer {
   /** Top-level tool items only (fold bookkeeping). */
   private readonly toolItems = new Map<string, ToolItem>();
   private readonly assistantComponents: AssistantMessageComponent[] = [];
+  /** Uuids whose visible content is on screen: a top-level item or a
+   *  command-output attachment. A prompt's entry keys the run's last
+   *  member; a steer's attachment keys its `source_uuid`. */
+  private readonly renderedUuids = new Set<UUID>();
+  /** Replacement lookup for `replaceContent`. */
+  private readonly itemsByUuid = new Map<UUID, AssistantItem>();
   /** For headerArg path abbreviation (per-tool views). */
   private cwd: string | undefined;
   private toolsExpanded = false;
   private compactSummaryExpanded = false;
   private showThinking = false;
   private readonly compactSummaries: CompactSummaryComponent[] = [];
+  /** The last boundary frame's anchor, until the next top-level user
+   *  frame (see file comment). */
+  private expectedSummaryUuid: UUID | undefined;
   /** Previous top-level entry's timestamp (thinking-duration rule). */
   private lastEntryAtMs: number | undefined;
 
@@ -145,11 +171,14 @@ export class TranscriptRenderer {
 
   /**
    * Fold one SDK message into transcript components: stream events drive the
-   * streaming component; a finalized assistant message replaces it; user
-   * messages only resolve tool results (unknown toolCallId → dropped;
+   * streaming component; a finalized assistant message replaces the stream
+   * it owns (API message id) or renders whole; a user message renders as
+   * the compact summary its boundary frame announced, else its turn (prompt
+   * text, slash command) unless the CLI marked it a replay (command
+   * output), then resolves tool results (unknown toolCallId → dropped;
    * parent_tool_use_id-routed content renders nested under the owning
-   * component). Live user PROMPT text does NOT render here — it is echoed at
-   * dequeue via appendUserTurn.
+   * component). The CLI never echoes a prompt; the daemon's dequeue echo
+   * is that message.
    */
   append(message: SDKMessage): void {
     switch (message.type) {
@@ -161,7 +190,12 @@ export class TranscriptRenderer {
             component,
             message.parent_tool_use_id,
           );
-          this.streaming.set(key, { component, state: beginMessage(), item });
+          this.streaming.set(key, {
+            component,
+            state: beginMessage(),
+            item,
+            apiMessageId: message.event.message.id,
+          });
           break;
         }
         const live = this.streaming.get(key);
@@ -173,6 +207,23 @@ export class TranscriptRenderer {
       }
       case "assistant": {
         const key = message.parent_tool_use_id ?? "";
+        const live = this.streaming.get(key);
+        // A mismatch is the file side lagging, not an error: the query
+        // stream finalizes A before opening B, but A's entry can arrive
+        // after B's message_start opened the stream at this key.
+        const ownStream =
+          live?.apiMessageId === message.message.id ? live : undefined;
+        if (
+          message.parent_tool_use_id === null &&
+          this.renderedUuids.has(message.uuid)
+        ) {
+          // The entry rendered this message; a stream still open for it is
+          // the provisional rendering the entry superseded.
+          if (ownStream !== undefined) {
+            this.discardStream(key, ownStream);
+          }
+          break;
+        }
         const rendered = suppressNoResponse(renderAssistant(message));
         const thinkingSeconds =
           message.parent_tool_use_id === null && hasThinking(rendered)
@@ -181,24 +232,25 @@ export class TranscriptRenderer {
         if (message.parent_tool_use_id === null) {
           this.stampEntry(message);
         }
-        const live = this.streaming.get(key);
-        if (live !== undefined) {
-          live.component.updateContent(rendered);
-          if (live.item !== undefined) {
-            live.item.rendered = rendered;
-            live.item.thinkingSeconds = thinkingSeconds;
-          }
+        let item: AssistantItem | undefined;
+        if (ownStream !== undefined) {
+          ownStream.component.updateContent(rendered);
+          item = ownStream.item;
           this.streaming.delete(key);
         } else {
-          // No partials seen (e.g. subscribed mid-message): render whole.
+          // No partials of this message seen (subscribed mid-message, or the
+          // entry outran its stream): render whole.
           const component = this.newAssistantComponent(rendered);
-          const item = this.attachAssistant(
-            component,
-            message.parent_tool_use_id,
-          );
+          item = this.attachAssistant(component, message.parent_tool_use_id);
+        }
+        if (item !== undefined) {
+          item.rendered = rendered;
+          item.thinkingSeconds = thinkingSeconds;
+        }
+        if (message.parent_tool_use_id === null) {
+          this.renderedUuids.add(message.uuid);
           if (item !== undefined) {
-            item.rendered = rendered;
-            item.thinkingSeconds = thinkingSeconds;
+            this.itemsByUuid.set(message.uuid, item);
           }
         }
         for (const block of rendered.content) {
@@ -231,7 +283,26 @@ export class TranscriptRenderer {
       case "user": {
         if (message.parent_tool_use_id === null) {
           this.stampEntry(message);
+          const expectedSummaryUuid = this.expectedSummaryUuid;
+          this.expectedSummaryUuid = undefined;
+          if (
+            message.uuid !== undefined &&
+            message.uuid === expectedSummaryUuid
+          ) {
+            this.renderCompactSummary(message.uuid, message.message.content);
+          } else if ((message as { isReplay?: boolean }).isReplay !== true) {
+            // The CLI writes `isReplay: false` on frames the SDK type
+            // declares without the field.
+            const views = userTurnViews(message);
+            if (views.length > 0 && this.firstRender(message.uuid)) {
+              for (const view of views) {
+                this.appendUserView(view);
+              }
+            }
+          }
         }
+        // A subagent's user frames (its task prompt) are not this
+        // conversation's turns; only their tool results land here.
         for (const result of toolResultsOf(message)) {
           this.toolComponents.get(result.toolCallId)?.updateResult(result);
           const item = this.toolItems.get(result.toolCallId);
@@ -250,6 +321,9 @@ export class TranscriptRenderer {
         this.toolItems.clear();
         this.assistantComponents.length = 0;
         this.compactSummaries.length = 0;
+        this.renderedUuids.clear();
+        this.itemsByUuid.clear();
+        this.expectedSummaryUuid = undefined;
         this.lastEntryAtMs = undefined;
         this.addBanner("conversation reset");
         break;
@@ -259,14 +333,22 @@ export class TranscriptRenderer {
         if (message.subtype === "local_command_output") {
           // Steered `!` output: the CLI's own rendering (embedded ANSI
           // passes through the ⤷ block), attached to the preceding command.
-          this.attachCommandOutput(message.content);
+          if (this.firstRender(message.uuid)) {
+            this.attachCommandOutput(message.content);
+          }
         } else if (message.subtype === "compact_boundary") {
-          this.addBanner(
-            compactBanner(
-              message.compact_metadata.pre_tokens,
-              message.compact_metadata.post_tokens,
-            ),
-          );
+          const anchorUuid =
+            message.compact_metadata.preserved_messages?.anchor_uuid;
+          this.expectedSummaryUuid =
+            anchorUuid === message.uuid ? undefined : anchorUuid;
+          if (this.firstRender(message.uuid)) {
+            this.addBanner(
+              compactBanner(
+                message.compact_metadata.pre_tokens,
+                message.compact_metadata.post_tokens,
+              ),
+            );
+          }
         } else if (message.subtype === "notification") {
           this.addBanner(message.text);
         } else if (message.subtype === "informational") {
@@ -310,17 +392,6 @@ export class TranscriptRenderer {
         // bookkeeping, user-message replays, …) carry no transcript content;
         // user-facing text arrives as one of the messages handled above.
         break;
-    }
-  }
-
-  /**
-   * Render a user turn's visible content, one component per view. Called by
-   * replay (user path nodes) and by InteractiveMode's dequeue echo, so live
-   * and replayed prompts share one rendering.
-   */
-  appendUserTurn(message: SDKUserMessage): void {
-    for (const view of userTurnViews(message)) {
-      this.appendUserView(view);
     }
   }
 
@@ -389,30 +460,37 @@ export class TranscriptRenderer {
     this.rebuild();
   }
 
-  private addCompactSummary(text: string): void {
-    const component = new CompactSummaryComponent(text);
-    component.setExpanded(this.compactSummaryExpanded);
-    this.compactSummaries.push(component);
-    this.addPlain(component);
+  /** The summary's user message carries its text as a plain string. */
+  private renderCompactSummary(uuid: UUID, content: unknown): void {
+    if (typeof content === "string" && this.firstRender(uuid)) {
+      const component = new CompactSummaryComponent(content);
+      component.setExpanded(this.compactSummaryExpanded);
+      this.compactSummaries.push(component);
+      this.addPlain(component);
+    }
   }
 
   /**
-   * Replay one history entry through the exact live pipeline: boundary
-   * entries render the banner their live compact_boundary event would; user
-   * prompts render via appendUserTurn THEN append (tool-result resolution;
-   * result-only messages have no visible views); assistant → append; a
-   * steered prompt's `queued_command` attachment renders as a user turn
-   * (live too — it has no sdkMessage twin).
-   * Session-entry metadata that entryToSessionMessage drops (cwd, and later
-   * isCompactSummary) is read from the entry here. A SessionMessage carries
-   * every field its SDKMessage variant requires, so the cast is a narrowing
-   * of `message: unknown`, not a fabrication.
+   * Render one session entry as `append` renders its query message:
+   * boundary entries render the compact_boundary banner; user prompts
+   * render their views THEN append (tool-result resolution; result-only
+   * messages have no visible views); assistant → append; a steered prompt's
+   * `queued_command` attachment renders as a user turn (it has no
+   * sdkMessage twin).
+   * Session-entry metadata that entryToSessionMessage drops (cwd) is read
+   * from the entry here. A SessionMessage carries every field its
+   * SDKMessage variant requires, so the cast is a narrowing of `message:
+   * unknown`, not a fabrication.
    */
   appendEntry(entry: SessionEntry): void {
     if (entry.subtype === "compact_boundary") {
       const metadata = entry.compactMetadata as
-        Record<string, unknown> | undefined;
-      this.addBanner(compactBanner(metadata?.preTokens, metadata?.postTokens));
+        { preTokens?: unknown; postTokens?: unknown } | undefined;
+      if (this.firstRender(entry.uuid)) {
+        this.addBanner(
+          compactBanner(metadata?.preTokens, metadata?.postTokens),
+        );
+      }
       return;
     }
     if (typeof entry.cwd === "string") {
@@ -426,27 +504,30 @@ export class TranscriptRenderer {
       entry.subtype === "local_command" &&
       typeof entry.content === "string"
     ) {
-      for (const view of userTurnViewsFromText(entry.content)) {
-        this.appendUserView(view);
+      if (this.firstRender(entry.uuid)) {
+        for (const view of userTurnViewsFromText(entry.content)) {
+          this.appendUserView(view);
+        }
       }
       return;
     }
     // A steered prompt's only transcript record; it reads as the user turn
-    // it was.
+    // it was, keyed by the prompt's own uuid (`source_uuid`).
     const steeredPrompt = queuedCommandPrompt(entry);
     if (steeredPrompt !== undefined) {
-      for (const view of userTurnViewsFromText(steeredPrompt)) {
-        this.appendUserView(view);
+      if (this.firstRender(queuedCommandSourceUuid(entry) ?? entry.uuid)) {
+        for (const view of userTurnViewsFromText(steeredPrompt)) {
+          this.appendUserView(view);
+        }
       }
       return;
     }
-    if (entry.isCompactSummary === true) {
-      const content = (entry.message as { content?: unknown } | undefined)
-        ?.content;
-      if (typeof content === "string") {
-        this.addCompactSummary(content);
-        return;
-      }
+    if (entry.isCompactSummary === true && entry.uuid !== undefined) {
+      this.renderCompactSummary(
+        entry.uuid,
+        (entry.message as { content?: unknown } | undefined)?.content,
+      );
+      return;
     }
     const message = entryToSessionMessage(entry);
     if (message === undefined) {
@@ -454,9 +535,60 @@ export class TranscriptRenderer {
     }
     const sdkMessage = message as SessionMessage & SDKMessage;
     if (sdkMessage.type === "user") {
-      this.appendUserTurn(sdkMessage);
+      const views = userTurnViews(sdkMessage);
+      if (views.length > 0 && this.firstRender(sdkMessage.uuid)) {
+        for (const view of views) {
+          this.appendUserView(view);
+        }
+      }
     }
     this.append(sdkMessage);
+  }
+
+  /** Re-render the item keyed under `uuid` from its entry (an assistant
+   *  frame carries `stop_reason: null`; its entry the final value). Tool
+   *  items are keyed by tool call id and untouched. No-op without an
+   *  item or an assistant rendering of the entry. */
+  replaceContent(uuid: UUID, entry: SessionEntry): void {
+    const item = this.itemsByUuid.get(uuid);
+    const message = entryToSessionMessage(entry) as
+      (SessionMessage & SDKMessage) | undefined;
+    if (item === undefined || message?.type !== "assistant") {
+      return;
+    }
+    const rendered = suppressNoResponse(renderAssistant(message));
+    item.rendered = rendered;
+    item.component.updateContent(rendered);
+    this.rebuild();
+  }
+
+  /** True when `uuid`'s content is not yet on screen, claiming it; an
+   *  absent uuid has nothing to claim and always renders. */
+  private firstRender(uuid: UUID | undefined): boolean {
+    if (uuid === undefined) {
+      return true;
+    }
+    if (this.renderedUuids.has(uuid)) {
+      return false;
+    }
+    this.renderedUuids.add(uuid);
+    return true;
+  }
+
+  /** Drop an open stream's provisional component and top-level item. */
+  private discardStream(key: string, stream: StreamingComponent): void {
+    this.streaming.delete(key);
+    const componentIndex = this.assistantComponents.indexOf(stream.component);
+    if (componentIndex !== -1) {
+      this.assistantComponents.splice(componentIndex, 1);
+    }
+    if (stream.item !== undefined) {
+      const itemIndex = this.items.indexOf(stream.item);
+      if (itemIndex !== -1) {
+        this.items.splice(itemIndex, 1);
+      }
+    }
+    this.rebuild();
   }
 
   /** cwd for headerArg path abbreviation; InteractiveMode feeds it from
@@ -515,8 +647,14 @@ export class TranscriptRenderer {
     return (at - this.lastEntryAtMs) / 1000;
   }
 
+  /** Monotonic: a message's second arrival (its entry after its frame, or
+   *  the reverse) must not move the baseline back behind a later entry.
+   *  Only assistant messages carry a timestamp; the rest stamp arrival
+   *  time, so a delta across a rebuild measures the replay, not the
+   *  session. */
   private stampEntry(message: SDKMessage): void {
-    this.lastEntryAtMs = messageTimestampMs(message) ?? Date.now();
+    const at = messageTimestampMs(message) ?? Date.now();
+    this.lastEntryAtMs = Math.max(this.lastEntryAtMs ?? at, at);
   }
 
   private newAssistantComponent(

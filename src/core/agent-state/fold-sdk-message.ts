@@ -9,13 +9,14 @@ export function foldSdkMessage(
   message: SDKMessage,
 ): AgentState {
   if (
-    (message.type === "user" || message.type === "assistant") &&
+    "parent_tool_use_id" in message &&
     typeof message.parent_tool_use_id === "string"
   ) {
-    // Subagent traffic: its usage describes the subagent's own context,
-    // not this agent's, and its transcript entries are sidechain entries
-    // the leaf must never point at (session-seed applies the same
-    // eligibility filter).
+    // Subagent traffic (user, assistant and their stream_events): its
+    // usage describes the subagent's own context, not this agent's, and
+    // its transcript lives in the subagent's own file, so none of its ids
+    // can meet an entry here — a subagent's merge is a separate session
+    // model over that file (docs/thoughts/subagent-activity.md).
     return state;
   }
   let next = foldQueryMessage(state, message);

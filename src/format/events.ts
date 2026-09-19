@@ -143,7 +143,7 @@ function eventChunks(
     case "scanComplete":
       return ["[scan complete]"];
     case "sessionAppended":
-      return [annotation(`appended: ${event.uuids.join(" ")}`)];
+      return [annotation(`appended: ${event.message.uuid ?? "?"}`)];
     case "trackerAnomaly":
       return [
         annotation(`anomaly ${event.anomaly.kind}: ${event.anomaly.detail}`),

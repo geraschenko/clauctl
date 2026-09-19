@@ -178,24 +178,31 @@ Three principles make the rule cheap to keep:
   `queryMessages`, and the item keyed under it re-renders in place from
   `entryFor(id)` when the model has the entry (a reset-excluded prompt has
   none: nothing to re-render). The store rule is the merge's: after the
-  fold, a `user`/`assistant`/`system:compact_boundary` sdkMessage is
-  recorded iff `merge.nodes[uuid]?.seenOn` includes `"query"` (node
-  existence is not enough: a failed observation — `anomaly` — leaves an
-  existing node untouched, e.g. a session-only node blocked behind an
-  unresolved predecessor when `query` attempts it; an entry-first id
-  resolved in the same step has no node; a dequeued prompt is recorded
-  under `ids.at(-1)`, steers each under their own id, on the same
-  condition). The other query-only types (`stream_event`, `result`,
-  other `system` subtypes, `conversation_reset`, `command_lifecycle`) are
-  merge observations without durable content: never stored, never
-  replayed. Invariant: **`keys(queryMessages)` equals the ids of those
-  three types in `pending(merge, "query")` observed since the
-  subscription began** —
-  daemon-appended ids carry no message, and the seed state's pending ids
-  have none either (their payloads arrive with their entries; until then
-  a rebuild cannot show them — an accepted loss). No classification
-  predicate on the client; `conversation_reset` needs no client special
-  case (the fold's exclusion resolves the node).
+  fold, every uuid-bearing message of the query stream — an `sdkMessage`'s
+  or a `sessionAppended`'s `message` (`sdkMessageOf(event)`,
+  protocol.ts) — is recorded iff
+  `merge.nodes[uuid]?.seenOn` includes `"query"` (node existence is not
+  enough: a failed observation — `anomaly` — leaves an existing node
+  untouched, e.g. a session-only node blocked behind an unresolved
+  predecessor when `query` attempts it; an entry-first id resolved in
+  the same step has no node; a dequeued prompt is recorded under
+  `ids.at(-1)`, steers each under their own id, on the same condition).
+  Types the file never carries (`stream_event`, `result`, other `system`
+  subtypes, `conversation_reset`, `command_lifecycle`) are recorded too:
+  the merge excludes them from `session`, and they resolve once every
+  `query` predecessor has, so the list is the query tail past the last
+  file-settled message and a rebuild replays it through `append` exactly
+  as the live stream did (a retained `conversation_reset` replays as the
+  reset it was; partial output reconstructs only while its
+  `message_start` is still pending — a multi-block message whose earlier
+  block's frame already pends replays as that finalized block, the later
+  block's deltas lost until its own frame: a safe partial loss). No
+  second classification predicate on the client: the stored set is
+  `!excludedFromSession` by construction. Invariant:
+  **`keys(queryMessages)` equals `pending(merge, "query")` restricted to
+  ids observed since the subscription began** — the seed state's pending
+  ids have no message (their payloads arrive with their entries; until
+  then a rebuild cannot show them — an accepted loss).
 - **The transcript renders each id's content once.**
   `TranscriptRenderer.renderedUuids` records a uuid when its visible
   content is rendered: a top-level item (assistant message, user turn,
@@ -205,10 +212,16 @@ Three principles make the rule cheap to keep:
   The key is the uuid the entry carries (a run's last member for a prompt;
   a steer's `source_uuid`; the entry uuid otherwise). A message whose key
   is present renders no content; everything else it does still happens:
-  `append(user)` resolves tool results (idempotent by tool call id, and
-  it renders no text live, so it never records a key — a compact-summary
-  or output-only `user` sdkMessage leaves its entry free to render), and
-  `append(assistant)` finalizes the stream it owns. Stream ownership is
+  `append(user)` renders the compact summary under the key when the
+  uuid is the preceding boundary frame's anchor (the summary rule
+  below), else the turn's views unless the CLI flagged the frame `isReplay`
+  (command output, stream-classification/captures/events.jsonl:151) —
+  its entry renders the output attachment — then resolves tool results
+  (idempotent by tool call id), and `append(assistant)` finalizes the
+  stream it owns. The
+  daemon's dequeue echo is the prompt's query message (the CLI never
+  echoes a prompt; `userMessageDequeued` remedies that), so it renders
+  through the same `append`. Stream ownership is
   the API message id: `streaming` records `message.id` from
   `message_start`, and an `assistant` frame or entry (both carry
   `message.id`) finalizes the open stream at its key only when the ids
@@ -227,16 +240,39 @@ Three principles make the rule cheap to keep:
   rewrite (`<command-name>…`), and an assistant frame carries
   `stop_reason: null` where its entry carries the final value
   (exp4-events.jsonl 31/35 vs exp4-S1.jsonl 9–10; `toStopReason` renders
-  `max_tokens`/`refusal`). A rebuild is `resetTranscript()`, the path via
-  `appendEntry`, then the file session's `queryMessages` and — when
-  `querySessionId` differs (rollover window) — the query session's, each
-  replayed exactly as it rendered live (a query message via `append`, a
-  dequeued prompt via `appendUserTurn`), under the same guard (an entry
-  that landed but has not resolved yet is on the path and still in
-  `queryMessages`; the guard keeps it single). `streaming`,
+  `max_tokens`/`refusal`). A rebuild is `resetTranscript()` (a fresh
+  transcript headed by the welcome line, so it tops every scrollback;
+  the startup warnings describe the keybindings and settings as read at
+  start and appear only on the first attach), then the query session
+  only: its display path
+  without the entries the merge still holds unresolved
+  (`pathToLeaf()` minus `merge.nodes` membership — an unresolved file-side
+  entry and the pending query messages cannot be interleaved, which is
+  what merging the streams is for; it renders once the merge places it),
+  then its `queryMessages` through `append` exactly as they rendered
+  live. The file session's path is not rendered while `querySessionId`
+  differs (rollover window): the old file is not this conversation.
+  `streaming`,
   `toolComponents`/`toolItems` (results, subagent children) stay as they
   are. This replaces `replayedBoundaryUuids`, `replayedUuids`,
   `releaseDedupeUuid` and the attach-point banner.
+- **The summary rule.** A compaction summary's entry is identified by
+  its `isCompactSummary` flag — the file's own marker, which also covers
+  a summary preserved by a later boundary without its own (a relink:
+  Anton's session file has a self-anchored boundary `f3e4b1fa` followed
+  by the earlier summary `2dac0aa6` parented on it). Its frame carries
+  no flag (`isSynthetic` is undocumented in sdk.d.ts and attested on one
+  capture), so the frame is identified by the anchor heuristic: a
+  boundary frame's `preserved_messages.anchor_uuid` is its summary's
+  uuid, or its own when it has none (a rewind, a bare wipe — the CLI's
+  convention on every boundary in the captured sessions, and
+  `buildBoundaryEntries`' `summaryUuid ?? boundaryUuid`), and the summary
+  frame immediately follows the boundary frame. The transcript holds
+  the last boundary frame's anchor until the next top-level user frame,
+  which renders as the `CompactSummaryComponent` ("Compacted (ctrl+o to
+  see full summary)") iff its uuid is that anchor; no other user frame
+  after a boundary is a summary. Both sides render into the same
+  component under `firstRender(uuid)`, whichever arrives first.
 - **Rebuild triggers and the scan window.** Attach (after the snapshot),
   `contextChanged` and `scanComplete` call `renderHistory()`.
   `sessionFileChanged` resets the transcript and the model's trees and
@@ -374,9 +410,10 @@ Three principles make the rule cheap to keep:
   finalized), file entry A → `message_start` A → file entry B → frame A
   (B renders whole, A's stream finalized by its frame),
   assistant replacement updating `stop_reason` without re-creating tool
-  items, a `user` frame with text and tool results (results resolve, no
-  key), compact-summary frame then entry (`CompactSummaryComponent`
-  once), output-only frame then entry (attached once), the user-turn
+  items, a `user` frame with text and tool results (text renders under
+  the key, results resolve, the entry adds nothing), a synthetic
+  compact-summary frame then entry (`CompactSummaryComponent` once), a
+  replay output-only frame then entry (attached once), the user-turn
   replacement preserving attached output and expansion; an
   `interactive-mode` case for a failed history fetch, one for the scan
   window (nothing renders between `sessionFileChanged` and
@@ -449,30 +486,38 @@ interface SessionState {
 // `anomaly` before folding.
 // core/stream-merge.ts: unchanged (MergeStep stays the library's return).
 
-// tui/session-model.ts — one session
-/** A pending message replays in a rebuild exactly as it rendered live:
- *  a query message through `append`, a dequeued prompt through
- *  `appendUserTurn` (phase 3). */
-type PendingMessage =
-  | {
-      origin: "query";
-      message: SDKUserMessage | SDKAssistantMessage | SDKCompactBoundaryMessage;
-    }
-  | { origin: "dequeue"; message: SDKUserMessage };
+// core/protocol.ts — PROTOCOL_VERSION 2 (wire change)
+// The daemon appended an entry to the query file itself (set-context):
+// its query-stream form, one event per entry in file order, emitted
+// before the drain that delivers the entries — the echo the CLI would
+// have produced had it written them.
+// | { kind: "sessionAppended"; message: SDKMessage }
+/** The SDKMessage an event carries: the CLI's own frame, or the daemon's
+ *  echo of an entry it appended. Both are what the fold observes on
+ *  `query`, so a client's pending list and its transcript treat them
+ *  alike. */
+function sdkMessageOf(event: AgentEvent): SDKMessage | undefined;
+// core/session/file.ts: appendedEntryToSdkMessage(entry): SDKMessage —
+// the boundary as SDKCompactBoundaryMessage (with preserved_messages),
+// the summary as the plain user message; no flag marks it (summary rule).
+// agent-state/fold-session-appended.ts observes the message's uuid on
+// `query` of `querySessionId` with `classOf(message)`.
 
+// tui/session-model.ts — one session
 class SessionModel {
   /** Complete entries, first-wins, never cleared (payload retention
    *  across a same-file rescan). */
   readonly byUuid: Map<UUID, SessionEntry>;
-  /** The query pending list, in query order (Decisions, store rule). */
-  readonly queryMessages: Map<UUID, PendingMessage>;
+  /** The query pending list, in query order (Decisions, store rule); a
+   *  rebuild replays them through `append` exactly as they rendered live. */
+  readonly queryMessages: Map<UUID, SDKMessage>;
   private readonly attachmentBySource: Map<UUID, SessionEntry>;
   private trees: RollingTrees;
   get leaf(): TreeNodeRef | null;
   get contextTree(): ContextTree;
   get displayTree(): DisplayTree;
   pushEntry(entry: SessionEntry): void; // byUuid (first-wins), attachmentBySource, trees
-  recordPending(uuid: UUID, pending: PendingMessage): void;
+  recordPending(uuid: UUID, message: SDKMessage): void;
   retire(uuid: UUID): void; // queryMessages.delete
   resetTrees(): void; // sessionFileChanged for this id
   /** byUuid[uuid], else the queued_command entry whose source_uuid is
@@ -490,10 +535,10 @@ class SessionModels {
   /** Every event of the subscription in socket order, with the state
    *  the event folded to, in this order: (1) sessionEntry → pushEntry on
    *  the model of state.fileSessionId, sessionFileChanged → resetTrees
-   *  (both held until the snapshot, see applySnapshot); (2) a
-   *  user/assistant/compact_boundary sdkMessage → recordPending on the
-   *  model of message.session_id iff the folded merge's node for its
-   *  uuid has seenOn "query"; (3) every session's `resolved` retires
+   *  (both held until the snapshot, see applySnapshot); (2)
+   *  sdkMessageOf(event), if any → recordPending on the model of
+   *  message.session_id iff the folded merge's node for its uuid has
+   *  seenOn "query"; (3) every session's `resolved` retires
    *  and fires onResolved;
    *  (4) models absent from state.sessions are dropped. */
   observe(event: AgentEvent, state: AgentState): void;
@@ -519,13 +564,17 @@ class SessionModels {
 type OnResolved = (sessionId: UUID, uuid: UUID) => void;
 ```
 
-- `interactive-mode.ts`: `renderHistory(): void` — `resetTranscript()`;
-  the file session's `pathToLeaf()` entries via `transcript.appendEntry`;
-  its `queryMessages` values as they rendered live (`origin: "query"` →
-  `transcript.append`; `origin: "dequeue"` → `appendUserTurn`, phase 3);
-  the query session's `queryMessages` when `querySessionId !==
-fileSessionId`. Attach, `contextChanged` and `scanComplete` call it
-  identically; `sessionFileChanged` calls `resetTranscript()` only.
+- `interactive-mode.ts`: `resetTranscript()` installs a fresh transcript
+  headed by the welcome line; `reloadHistory(startupWarnings)` adds the
+  warnings once, on the first attach. `renderHistory():
+void` — the query session's `pathToLeaf()` entries whose uuid is not in
+  `sessions[querySessionId].merge.nodes` via `transcript.appendEntry`,
+  then its `queryMessages` values via `transcript.append`, then the
+  `deliveredMessages` tail via `append` (until phase 3). Attach,
+  `contextChanged` and `scanComplete` call it identically after a reset;
+  `sessionFileChanged` calls `resetTranscript()` only. Live, the dequeue
+  echo and a `sessionAppended`'s message go through `transcript.append`
+  too.
   `onResolved` → `transcript.replaceContent(uuid, entry)` when
   `models.get(sessionId)?.entryFor(uuid)` exists, gated like
   `renderEvent`: ignored while events are buffered for the attach fetch
@@ -665,9 +714,9 @@ interface UserTurnItem { kind: "userTurn"; component: UserTurnComponent }
 // TranscriptItem = AssistantItem | ToolItem | PlainItem | UserTurnItem;
 // CommandItem goes (its expand/output bookkeeping moves into the component);
 // PlainItem keeps banners and compact summaries.
-/** Live dequeue echo and a rebuild's pending prompts, keyed by `uuid`;
- *  renders nothing when the key is present. */
-appendUserTurn(message: SDKUserMessage, uuid: UUID): void;
+// The live dequeue echo and a rebuild's pending prompts go through
+// `append(user)` (phase 1), which renders the turn under `message.uuid`
+// and nothing when the key is present; phase 3 stamps the uuid.
 // itemsByUuid: Map<UUID, AssistantItem | UserTurnItem>; replaceContent
 // (phase 1) re-renders a UserTurnItem from entryUserViews(entry).
 /** Entries with a user turn (user message, queued_command attachment,
@@ -686,8 +735,9 @@ private entryUserViews(entry: SessionEntry): UserTurnView[];
 
 `interactive-mode.ts` drops `queuedById` (`SessionModels` holds it) and
 the `deliveredMessages` tail; the live `userMessageDequeued` case calls
-`appendUserTurn(joined, ids.at(-1))` (steers: one call per id) — the
-render-once guard makes the entry-first case a no-op; `onResolved` →
+`append` on the joined message stamped `uuid = ids.at(-1)` (steers: one
+call per id) — the render-once guard makes the entry-first case a
+no-op; `onResolved` →
 `replaceContent` (phase 1) now also covers user turns. `format/events.ts` and
 `format/sdk-message.ts` switch their id types. `/compact` is not a
 dequeued prompt (it bypasses the queue model: `compactSent`); its entry
@@ -702,10 +752,11 @@ Phase 1:
    whatever the entry resolved from `queryMessages` and fires
    `onResolved` → `replaceContent` (assistant `stop_reason`; user turns
    in phase 3).
-2. `sdkMessage` `user`/`assistant`/`compact_boundary` → `recordPending`
-   on the model of `session_id` iff the folded merge's node has seen
-   `query`; retired when its entry resolves it (or in the same step,
-   entry-first: never recorded).
+2. `sdkMessageOf(event)` (an `sdkMessage`'s or a
+   `sessionAppended`'s message) → `transcript.append` live, and
+   `recordPending` on the model of `session_id` iff the folded merge's
+   node has seen `query`; retired when the merge resolves it (or in the
+   same step, entry-first: never recorded).
 3. `sessionFileChanged(id)` → the fold drops the old `SessionState`
    (unless a same-file rescan) → `SessionModels` drops that model and
    resets the trees of `id`'s model; the TUI `resetTranscript()`s. The
@@ -718,10 +769,10 @@ Phase 1:
    routes correctly), applies the state of every event buffered during
    the fetch, then `renderHistory()`. The buffered events render nothing
    and their `onResolved` calls are ignored.
-6. `renderHistory()`: `resetTranscript()`; file session path via
-   `appendEntry`; file session `queryMessages` as they rendered live;
-   query session `queryMessages` when different. The render-once guard
-   keeps an entry that landed but has not resolved single.
+6. `renderHistory()` after `resetTranscript()` (banners at the top): the
+   query session's path minus the entries still in `merge.nodes` via
+   `appendEntry`; its `queryMessages` via `append`; the
+   `deliveredMessages` tail via `append`.
 
 Phase 2 (queue model): `result` → one dequeue for the first run of the
 top bucket; the next `result` (the run's own) dequeues the next run.
@@ -746,8 +797,9 @@ Phase 3 (identity):
    and `source_uuid` on `session`, resolving the steer.
 4. TUI: `userMessageQueued` → `SessionModels.queued` + pending area;
    `userMessageDequeued` → the joined message into the query session's
-   `queryMessages`, and `appendUserTurn(joined, ids.at(-1))` renders it
-   unless the entry already did. The entry's arrival renders nothing when
+   `queryMessages`, and `append` of the joined message (stamped
+   `ids.at(-1)`) renders it unless the entry already did. The entry's
+   arrival renders nothing when
    the key exists; the step's `resolved` retires the message and
    `onResolved` → `replaceContent(uuid, entryFor(uuid))` re-renders the
    turn from the entry. A rebuild renders it from the path (landed) or
@@ -908,8 +960,9 @@ Phase 3 (identity):
 
 - [x] Phase 0 `src/core/agent-state/` split + lint rule done 2026-09-18
       (committed) — docs/specs/query-pending-list/phase-0-agent-state-directory.md
-- [ ] Phase 1 rebuild (full entries, `SessionState.resolved`,
-      `SessionModels`, render-once)
+- [x] Phase 1 rebuild (full entries, `SessionState.resolved`,
+      `SessionModels`, render-once) — plan in
+      docs/specs/query-pending-list/phase-1-rebuild.md
 - [x] Phase 2 bucket probe + sdk test — probe (docs/derisk/queued-batches/)
       and `tests/sdk/queued-batches.test.ts` done 2026-09-16; fact recorded
       in docs/claude-agent-sdk.md
@@ -1233,3 +1286,84 @@ Phase 3 (identity):
   - A settle timeout releases waiters, not merge nodes; Cost reworded.
 - Tests added: failed observation against an existing blocked
   session-only node; cross-stream A/B streaming order.
+
+## 2026-09-19 — phase 1 review round (Anton's TDC comments, e93b5ae)
+
+- Banners: `resetTranscript()` installs a transcript already headed by
+  the welcome line and startup warnings, so every rebuild (attach,
+  `contextChanged`, `scanComplete`) keeps them at the top of the
+  scrollback; the pass 5 "fetch-error banner after renderHistory" order
+  stays for that one banner. The phase-1 claim that only the rescan's
+  rebuild dropped banners was wrong: every rebuild did.
+- `sessionAppended` carries the `SDKMessage` form of the appended entries
+  (protocol v2): everything in the query stream is an `SDKMessage`,
+  everything in the file stream a `SessionEntry`. `sdkMessageOfs`
+  (protocol.ts) is the one place a client asks what an event contributes
+  to the query stream; the fold observes them with `classOf`.
+- `PendingMessage` is gone: pending messages are `SDKMessage`, and the
+  dequeue echo is a user message the CLI should have echoed, so it
+  renders through `append(user)` like any other — which now renders
+  prompt text unless the frame is `isSynthetic` or `isReplay` (the CLI's
+  own flags on the summary and command-output frames, events.jsonl
+  150–151). `appendUserTurn` deleted. Phase 3 stamps the echo's uuid;
+  until then the echo and the entry both render (accepted).
+- The pending list stores every uuid-bearing query message (the spec's
+  "three durable types" restated `!excludedFromSession` in a second
+  place); the accepted loss is a partial whose `message_start` resolved
+  behind an earlier block's frame.
+- `renderHistory` renders the query session only, and of its path only
+  the entries the merge has resolved (`merge.nodes` membership is the
+  unresolved set): the merge exists because unresolved file-side entries
+  and pending query messages cannot be interleaved.
+- The fold skips every message with a string `parent_tool_use_id`
+  (`stream_event`s included; the filter was user/assistant only):
+  subagent traffic never meets an entry in this file. Per-subagent
+  session models are the direction (docs/thoughts/subagent-activity.md).
+- `lastEntryAtMs` stays monotonic; the `Date.now()` fallback for
+  timestamp-less frames means a delta across a rebuild measures the
+  replay (documented, untestable without clock injection). Anton
+  suspects stamping only on a message's first arrival is the right rule;
+  revisit with phase 3's uuid keying.
+
+## 2026-09-19 — phase 1 review round 2 (Anton's TDC comments, 9ed62fa)
+
+- Compaction summaries are identified by the anchor rule (Decisions), on
+  both streams, and rendered as the summary component from whichever
+  side arrives first. Suppressing the frame on `isSynthetic` hijacked an
+  undocumented SDK flag and hid the summary until the entry landed (or
+  for good, in a rebuild's pending replay): the user could not see what
+  the assistant sees. The two compactions in Anton's session file
+  (auto 2e3a8058/7825aa28, manual ca179e36/a64072b9) have identical
+  entries — `isCompactSummary`, no `isSynthetic` anywhere in the file —
+  so the "sometimes a plain user message" rendering was query-side
+  (arrival order or a flag the auto path omits); the anchor rule removes
+  both dependencies. All 78 boundaries in that file anchor at their
+  summary or at themselves. `appendedEntryToSdkMessage` no longer sets
+  `isSynthetic`; `entry.isCompactSummary` is no longer consulted.
+- `sessionAppended` carries one message per event, in file order
+  (boundary, then summary); `sdkMessageOf(event): SDKMessage |
+undefined`.
+- Startup warnings appear once, on the first attach
+  (`reloadHistory(startupWarnings)`): they describe keybindings and
+  settings as read at start, which a later rebuild may misstate. The
+  welcome line still heads every transcript (`freshTranscript()`).
+- Round 3 (93f5394): the reviewer showed the anchor rule is not a
+  complete classifier for entries — a later boundary can preserve an
+  earlier summary without its boundary (WORK-LOG P9 b-prefix; attested
+  in Anton's file, `f3e4b1fa` → `2dac0aa6`), and the SDK documents
+  boundaries without `preserved_messages`. Anton: entries use
+  `isCompactSummary`; frames fall back to the anchor heuristic, holding
+  only the last boundary frame's anchor (a single slot, not a set: the
+  summary frame is always the next frame) and never treating any other
+  user frame after a boundary as a summary. `queryStreamMessage` is
+  `sdkMessageOf`: the function answers which SDKMessage an event
+  carries, not whether the event is query-synchronized (most are).
+- Deferred to phase 1.5 (Anton): entries join the trees only at
+  resolution, so `pathToLeaf()` is the resolved path by construction
+  (the `renderHistory` `merge.nodes` filter goes); file-side content
+  renders at resolution through a two-part transcript (resolved part +
+  query-pending part) so an entry omitted from a rebuild is rendered when
+  it resolves; `SessionModels` passes the resolving entry to
+  `onResolved`. Reviewer findings 1 (no re-delivery of omitted entries)
+  and 2 (path minus unresolved is not a prefix under a relink) close
+  there.

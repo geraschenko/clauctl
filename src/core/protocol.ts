@@ -33,7 +33,7 @@ import type { TreeNodeRef } from "./tree/nodes.ts";
 import { UUID_PATTERN } from "./uuid.ts";
 
 export const PROTOCOL_NAME = "clauctl-protocol";
-export const PROTOCOL_VERSION = 1;
+export const PROTOCOL_VERSION = 2;
 
 export type MessageDelivery = "turn" | "steer" | "append";
 
@@ -67,14 +67,11 @@ export type AgentEvent =
   | { kind: "sdkMessage"; message: SDKMessage }
   // One per canonical log entry of the tracked file, in file order, emitted
   // as soon as the follower reads the line (never held for resolution:
-  // subscribers run the same merge). `entry` is the complete entry when its
-  // class is session-only, else `structuralEntry(entry)`: the subscriber
-  // already holds the payload from the `sdkMessage` twin. `expectsSdkMessage`
-  // is that class decision (false = session-only; a prediction from the
-  // table, not an observation), made by the tracker on the
-  // complete entry: the fold reads it rather than re-classifying, because
-  // the `<local-command-stdout>` rule reads `message.content`, a payload
-  // leaf the projection empties. `leaf` is the context tree's leaf after
+  // subscribers run the same merge). `entry` is the complete entry for every
+  // class. `expectsSdkMessage` is the tracker's class decision (false =
+  // session-only; a prediction from the table, not an observation): the
+  // fold reads it rather than re-classifying, so daemon and subscribers
+  // cannot disagree. `leaf` is the context tree's leaf after
   // this entry and `lastAssistant` the usage/model of the last
   // non-excluded, non-sidechain assistant on contextAt(leaf) (absent when
   // none; each field independently optional) — daemon-computed, so clients
@@ -94,9 +91,11 @@ export type AgentEvent =
   // The follower's start() has returned for the tracked file: every entry
   // the file held when it was opened has been folded.
   | { kind: "scanComplete" }
-  // The daemon appended these uuid-bearing entries to the query file
-  // (set-context); emitted before the drain that delivers them.
-  | { kind: "sessionAppended"; uuids: readonly UUID[] }
+  // The daemon appended an entry to the query file itself (set-context):
+  // its query-stream form, one event per entry in file order, emitted
+  // before the drain that delivers the entries — the echo the CLI would
+  // have produced had it written them.
+  | { kind: "sessionAppended"; message: SDKMessage }
   // A daemon-detected anomaly (follower failure, malformed line,
   // classification at the dedup site, awaiting-anchor); the fold sets
   // `anomaly`. Fold-detected ones (merge errors, head-mismatch) need no
@@ -107,6 +106,20 @@ export type AgentEvent =
   // close with no announcement). Delivery is best-effort: process exit races
   // kernel buffers, so a lost line degrades to an unannounced close.
   | { kind: "shutdown"; reason: string };
+
+/** The SDKMessage an event carries: the CLI's own frame, or the daemon's
+ *  echo of an entry it appended. Both are what the fold observes on
+ *  `query`, so a client's pending list and its transcript treat them
+ *  alike. */
+export function sdkMessageOf(event: AgentEvent): SDKMessage | undefined {
+  switch (event.kind) {
+    case "sdkMessage":
+    case "sessionAppended":
+      return event.message;
+    default:
+      return undefined;
+  }
+}
 
 export type TurnPriority = "now" | "next" | "later";
 

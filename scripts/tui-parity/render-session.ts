@@ -6,8 +6,6 @@
  * The leaf is the context tree's, matching what get-entries reports for a
  * freshly started daemon. Output is the
  * transcript container only — no footer, editor, status or pending area.
- * `pathUpToBoundary` does not apply: there is no live stream, so the whole
- * path renders.
  */
 
 import { Container } from "@earendil-works/pi-tui";

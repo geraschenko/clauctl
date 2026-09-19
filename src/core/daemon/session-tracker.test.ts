@@ -45,11 +45,10 @@ function sessionEntries(
 }
 
 // The data path end to end (spec, Module layering): follower →
-// SessionTracker.push → EventHub.emit → sinks, on a temp file. A
-// session-only entry (the prompt) crosses intact, a shared one (the
-// assistant) as its structural projection; the tracker keeps only the
+// SessionTracker.push → EventHub.emit → sinks, on a temp file. Every
+// entry crosses complete with its class; the tracker keeps only the
 // index and serves payloads by range.
-test("tracer: follower → tracker → hub delivers per-class entry shapes", (t) => {
+test("tracer: follower → tracker → hub delivers complete entries with their class", (t) => {
   const dir = tempDir("tracer", t);
   const filePath = join(dir, "session.jsonl");
   const prompt = randomUUID();
@@ -93,10 +92,7 @@ test("tracer: follower → tracker → hub delivers per-class entry shapes", (t)
       ],
     );
     assert.deepEqual(promptEvent!.entry, userEntry(prompt, "hi"));
-    const structural = assistantEntry(reply, prompt);
-    (structural.message as { content: { text: string }[] }).content[0]!.text =
-      "";
-    assert.deepEqual(replyEvent!.entry, structural);
+    assert.deepEqual(replyEvent!.entry, assistantEntry(reply, prompt));
     assert.deepEqual(
       [promptEvent, replyEvent].map((event) => [
         event!.leaf,

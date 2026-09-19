@@ -81,7 +81,6 @@ function assistantEvent(uuid: UUID): AgentEvent {
   };
 }
 
-/** A structural assistant entry: its payload rides on the sdkMessage twin. */
 function assistantEntry(uuid: UUID): SessionEntry {
   return {
     type: "assistant",
@@ -345,7 +344,7 @@ test("messages leg renders only our turn's entries, not history", async () => {
       seed: BUSY_STATE,
       // History (UUID_H) is in the snapshot the daemon would serve, never on
       // the stream; our turn's entries arrive live after the dequeue, the
-      // assistant one structural with its twin ahead of it.
+      // assistant one with its twin ahead of it.
       events: [
         queuedEvent(1, "hi"),
         dequeuedEvent([1]),

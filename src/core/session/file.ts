@@ -16,7 +16,10 @@ import {
   readSync,
 } from "node:fs";
 import { join } from "node:path";
-import type { SessionMessage } from "@anthropic-ai/claude-agent-sdk";
+import type {
+  SDKMessage,
+  SessionMessage,
+} from "@anthropic-ai/claude-agent-sdk";
 import { err, ok, type Result } from "neverthrow";
 import { LineReader } from "../generated/line-reader.ts";
 import { isRecord } from "../generated/util.ts";
@@ -83,6 +86,40 @@ export function entryToSessionMessage(
   };
 }
 
+/** The query-stream echo of an entry the daemon wrote itself
+ *  (`buildBoundaryEntries`): the boundary as the CLI's compact_boundary
+ *  message, the summary as the user message native compaction emits
+ *  (docs/derisk/stream-classification/captures/events.jsonl:150). A
+ *  transcript recognizes the summary frame as the boundary's anchor, not
+ *  by any flag on the message. */
+export function appendedEntryToSdkMessage(entry: SessionEntry): SDKMessage {
+  if (entry.subtype === "compact_boundary") {
+    const metadata = entry.compactMetadata as {
+      preTokens: number;
+      preservedMessages: { anchorUuid: UUID; uuids: UUID[] };
+    };
+    return {
+      type: "system",
+      subtype: "compact_boundary",
+      uuid: entry.uuid as UUID,
+      session_id: entry.sessionId as string,
+      compact_metadata: {
+        trigger: "manual",
+        pre_tokens: metadata.preTokens,
+        preserved_messages: {
+          anchor_uuid: metadata.preservedMessages.anchorUuid,
+          uuids: metadata.preservedMessages.uuids,
+        },
+      },
+    };
+  }
+  const message = entryToSessionMessage(entry);
+  if (message === undefined || message.type !== "user") {
+    throw new Error(`not a daemon-appended entry: ${String(entry.uuid)}`);
+  }
+  return message as SDKMessage;
+}
+
 /** The prompt of a steered message: one queued mid-turn and absorbed at
  *  a tool result is recorded not as a `user` entry but as a
  *  `queued_command` attachment after that result
@@ -94,6 +131,16 @@ export function queuedCommandPrompt(entry: SessionEntry): string | undefined {
     typeof entry.attachment.prompt === "string"
     ? entry.attachment.prompt
     : undefined;
+}
+
+/** The uuid of the prompt a `queued_command` attachment records (the
+ *  steer's own transcript identity); undefined for every other entry. */
+export function queuedCommandSourceUuid(entry: SessionEntry): UUID | undefined {
+  const sourceUuid =
+    queuedCommandPrompt(entry) === undefined
+      ? undefined
+      : (entry.attachment as { source_uuid?: unknown }).source_uuid;
+  return typeof sourceUuid === "string" ? (sourceUuid as UUID) : undefined;
 }
 
 /** The boundary fields `MessageControl`'s compaction variant carries. */

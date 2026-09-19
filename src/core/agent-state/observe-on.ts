@@ -25,8 +25,9 @@ export interface Observation {
 /** One merge observation on `file`. `excludeOther` is the caller's
  *  classification of a FIRST observation (an existing node is evidence
  *  the other stream carries the id); a failing merge call leaves the
- *  merge as it was and is reported. Resolutions clear `pendingLeaf`; a
- *  resolved node a stream skipped is a head-mismatch. */
+ *  merge as it was and is reported. Resolutions clear `pendingLeaf` and
+ *  append to the session's `resolved`; a resolved node a stream skipped
+ *  is a head-mismatch. */
 export function observeOn(
   session: SessionState,
   stream: MergeStream,
@@ -74,5 +75,13 @@ export function observeOn(
   const pendingLeaf = resolved.some((node) => node.id === session.pendingLeaf)
     ? null
     : session.pendingLeaf;
-  return { session: { ...session, merge, pendingLeaf }, anomalies };
+  return {
+    session: {
+      ...session,
+      merge,
+      pendingLeaf,
+      resolved: [...session.resolved, ...resolved],
+    },
+    anomalies,
+  };
 }

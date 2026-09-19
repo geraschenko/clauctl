@@ -30,7 +30,7 @@ import {
   settled,
   type AgentState,
 } from "./agent-state/agent-state.ts";
-import { entrySink, LiveEntryFeed } from "./entry-sink.ts";
+import { entrySink } from "./entry-sink.ts";
 import {
   booleanFlag,
   commandOneTarget,
@@ -267,7 +267,6 @@ async function tailLive(
     for (const entry of snapshot.entries!) {
       sink.push(entry);
     }
-    const feed = new LiveEntryFeed(sink, type === "messages");
     const emittedUuids = new Set<UUID>(snapshot.uuids);
     let position = 0;
     await Promise.race([
@@ -277,18 +276,13 @@ async function tailLive(
           onSeed: (seed) => settlement.metAtSeed(seed),
           onEvent: (event, state) => {
             position += 1;
-            if (event.kind === "sdkMessage") {
-              feed.recordTwin(event.message);
-            } else if (
-              event.kind === "sessionEntry" &&
-              position > eventsBefore
-            ) {
+            if (event.kind === "sessionEntry" && position > eventsBefore) {
               const uuid = event.entry.uuid;
               if (uuid === undefined || !emittedUuids.has(uuid)) {
                 if (uuid !== undefined) {
                   emittedUuids.add(uuid);
                 }
-                feed.push(event);
+                sink.push(event.entry);
               }
             }
             return settlement.observe(event, state);
@@ -300,7 +294,7 @@ async function tailLive(
       ),
       settlement.expiry,
     ]);
-    feed.end();
+    sink.end();
   } finally {
     settlement.dispose();
     client.close();

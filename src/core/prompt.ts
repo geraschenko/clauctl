@@ -26,7 +26,7 @@ import type {
 import { EventFormatter } from "../format/events.ts";
 import { DEFAULT_MESSAGE_FORMAT_OPTIONS } from "../format/messages.ts";
 import type { TailRecord } from "../format/types.ts";
-import { entrySink, LiveEntryFeed } from "./entry-sink.ts";
+import { entrySink } from "./entry-sink.ts";
 import {
   booleanFlag,
   commandOneTarget,
@@ -153,13 +153,12 @@ function opensGate(event: AgentEvent, promptId: number | undefined): boolean {
   );
 }
 
-/** Messages/entries leg: the agent event stream through LiveEntryFeed +
+/** Messages/entries leg: the agent event stream's `sessionEntry`s through
  *  EntrySink + UntilSettlement, output and condition checks gated by a
  *  closure boolean flipped by our dequeue event. `submitPromptFn` is
  *  deferred until after the subscription is established, so the dequeue
  *  cannot be missed. The gate starts open when it returns no receipt (the
- *  `/compact` path). `sdkMessage` twins are recorded before the gate too:
- *  the query side may lead the log across it. */
+ *  `/compact` path). */
 async function promptLive(
   context: CommandContext,
   agent: AgentRecord,
@@ -173,10 +172,7 @@ async function promptLive(
     agentSocketPath(agent.agentDir),
     SOCKET_CONNECT_DEADLINE_MS,
   );
-  const feed = new LiveEntryFeed(
-    entrySink(context, type, json),
-    type === "messages",
-  );
+  const sink = entrySink(context, type, json);
   const settlement = new UntilSettlement(condition);
   let promptId: number | undefined;
   let gateOpen = false;
@@ -196,15 +192,12 @@ async function promptLive(
           // caused is ahead of it, so the condition is never met at the seed.
           onSeed: () => false,
           onEvent: (event, state) => {
-            if (event.kind === "sdkMessage") {
-              feed.recordTwin(event.message);
-            }
             if (!gateOpen) {
               gateOpen = opensGate(event, promptId);
               return false;
             }
             if (event.kind === "sessionEntry") {
-              feed.push(event);
+              sink.push(event.entry);
             }
             return settlement.observe(event, state);
           },
@@ -222,7 +215,7 @@ async function promptLive(
         `condition not met within ${timeoutMs! / 1000}s`,
       );
     }
-    feed.end();
+    sink.end();
   } finally {
     settlement.dispose();
     client.close();

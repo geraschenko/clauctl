@@ -1,6 +1,10 @@
 import type { UUID } from "node:crypto";
 import type { NonNullableUsage } from "@anthropic-ai/claude-agent-sdk";
-import { createMerge, type MergeState } from "../stream-merge.ts";
+import {
+  createMerge,
+  type MergeState,
+  type Resolved,
+} from "../stream-merge.ts";
 import type { TreeNodeRef } from "../tree/nodes.ts";
 import type { AgentState } from "./agent-state.ts";
 
@@ -28,6 +32,10 @@ export interface SessionState {
   /** While true, session observations are excluded from `query`: the
    *  scan has not yet met an id the query stream reported. */
   readonly scanExcluded: boolean;
+  /** Ids resolved by every observation of the fold step that produced
+   *  this state, in resolution order; empty on every other state (like
+   *  `AgentState.anomaly`, it describes the event just folded). */
+  readonly resolved: readonly Resolved<UUID, MergeStream>[];
 }
 
 export const MERGE_STREAMS: readonly MergeStream[] = ["query", "session"];
@@ -51,6 +59,7 @@ export function freshSessionState(): SessionState {
     pendingLeaf: null,
     awaitingAnchors: [],
     scanExcluded: true,
+    resolved: [],
   };
 }
 

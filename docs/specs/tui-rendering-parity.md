@@ -175,8 +175,7 @@ Pipeline (the daemon's actual seeding path, cf.
 `request-handlers.ts`): `readSessionEntries` → `buildTree` +
 `effectiveTreeNodeChain` (leaf = chain tail) → `pathToLeaf` →
 `TranscriptRenderer.appendPathNode` per node. Invalid entries go to the
-chain's `onInvalid` callback → stderr warning. `pathUpToBoundary` does
-not apply (there is no live stream; the whole path renders).
+chain's `onInvalid` callback → stderr warning.
 
 The output is the transcript container only — no footer, editor, status
 or pending area — rendered at `width`. `capture.ts` (direct by

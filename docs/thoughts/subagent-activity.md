@@ -66,3 +66,15 @@ local session files.
   one-shot `query({resume: fork})`, or `query({resume, forkSession: true})`.
   Whether the raw `side_question` control request is reachable through
   `Query` needs a probe.
+
+## Direction (2026-09-19)
+
+The agent-state fold skips every query message with a string
+`parent_tool_use_id` — user, assistant and their `stream_event`s alike
+(`fold-sdk-message.ts`): none of their ids can meet an entry in the main
+file, and their usage describes the subagent's context. Showing subagent
+activity means one more `SessionModel` per subagent, with the subagent's
+SDK messages (routed by `parent_tool_use_id`) feeding its query stream
+and a separate file follower over `subagents/agent-<id>.jsonl` feeding
+its file stream — the same merge shape as the main session, not a filter
+over the main file.

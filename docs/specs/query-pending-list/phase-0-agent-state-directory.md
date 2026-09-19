@@ -1,7 +1,7 @@
 # Phase 0: `src/core/agent-state/` directory split
 
 > Work log for phase 0 of docs/specs/query-pending-list.md (Type Design,
-> "Phase 0"). Status: **implemented, awaiting commit** (2026-09-18).
+> "Phase 0"). Status: **done** (2026-09-18).
 
 ## Scope
 

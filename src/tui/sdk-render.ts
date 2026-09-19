@@ -19,12 +19,8 @@ import type {
 } from "@anthropic-ai/sdk/resources/beta/messages/messages.mjs";
 import type {
   SDKAssistantMessage,
-  SDKMessage,
   SDKUserMessage,
 } from "@anthropic-ai/claude-agent-sdk";
-import type { UUID } from "node:crypto";
-import type { SessionEntry } from "../core/session/file.ts";
-import { treeNodeRefsEqual, type TreeNodeRef } from "../core/tree/nodes.ts";
 import type {
   RenderAssistant,
   RenderBlock,
@@ -224,72 +220,6 @@ export function toolResultsOf(message: SDKUserMessage): RenderToolResult[] {
     results[0]!.toolUseResult = message.tool_use_result;
   }
   return results;
-}
-
-/**
- * The replayable portion of a root-to-leaf display path: everything
- * at/before the live leaf's visible row (the state fold's current leaf —
- * the last transcript entry reflected on the event stream before the
- * subscriber's snapshot — mapped by the caller to the display row that
- * carries it). An undefined row means nothing was emitted this daemon
- * lifetime → the whole path replays.
- *
- * After the match, only boundary banners and their summaries are kept —
- * ordinary rows are the entries whose live events render them, but keeping
- * these keeps a compaction segment structurally complete (banner before its
- * installed context), and a summary's live `user` event renders no text
- * (the sdkMessage user case only resolves tool results), so replay is the
- * only way its text appears. Their buffered events release-dedupe by uuid
- * like any other replayed entry.
- *
- * A row missing from the path means the read raced a writer: either a
- * context change moved the leaf between snapshot and read (resolved by the
- * buffered contextChanged's reload), or a genuine invariant violation. The
- * cut is impossible either way, so the whole path replays with
- * `boundaryMissing` set; the caller decides whether to warn.
- */
-export function pathUpToBoundary(
-  path: TreeNodeRef[],
-  byUuid: ReadonlyMap<UUID, SessionEntry>,
-  leafNode: TreeNodeRef | undefined,
-): { nodes: TreeNodeRef[]; boundaryMissing: boolean } {
-  if (leafNode === undefined) {
-    return { nodes: path, boundaryMissing: false };
-  }
-  const matchIndex = path.findIndex((ref) => treeNodeRefsEqual(ref, leafNode));
-  if (matchIndex === -1) {
-    return { nodes: path, boundaryMissing: true };
-  }
-  return {
-    nodes: [
-      ...path.slice(0, matchIndex + 1),
-      ...path.slice(matchIndex + 1).filter((ref) => {
-        const entry = byUuid.get(ref.uuid);
-        return (
-          entry?.subtype === "compact_boundary" ||
-          entry?.isCompactSummary === true
-        );
-      }),
-    ],
-    boundaryMissing: false,
-  };
-}
-
-/**
- * The uuid on which a live message deduplicates against a replayed path, or
- * undefined when the message kind never renders replayed content: only
- * user/assistant messages, stream events (their partial-message wrapper
- * carries the transcript uuid), and compact_boundary banners can double-
- * render; other system subtypes render content no path replay produces, so
- * a uuid collision must not swallow them.
- */
-export function releaseDedupeUuid(message: SDKMessage): string | undefined {
-  return message.type === "user" ||
-    message.type === "assistant" ||
-    message.type === "stream_event" ||
-    (message.type === "system" && message.subtype === "compact_boundary")
-    ? message.uuid
-    : undefined;
 }
 
 /** The displayable text of a user turn (image/document blocks are dropped). */

@@ -2,9 +2,7 @@ import assert from "node:assert/strict";
 import type { UUID } from "node:crypto";
 import { test } from "node:test";
 import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
-import type { AgentEvent } from "../core/protocol.ts";
 import { entriesByUuid, type SessionEntry } from "../core/session/file.ts";
-import { structuralEntry } from "../core/session/structural.ts";
 import { buildTree } from "../core/tree/build-tree.ts";
 import { toContextTree } from "../core/tree/context-tree.ts";
 import { toDisplayTree } from "../core/tree/display-tree.ts";
@@ -71,6 +69,23 @@ function summaryEntry(n: number, text: string, boundary: number): SessionEntry {
   };
 }
 
+function steerAttachment(
+  n: number,
+  source: number,
+  parent: number,
+): SessionEntry {
+  return {
+    type: "attachment",
+    uuid: uuid(n),
+    parentUuid: uuid(parent),
+    attachment: {
+      type: "queued_command",
+      prompt: "steer text",
+      source_uuid: uuid(source),
+    },
+  };
+}
+
 /** Raw chain 1 → 2 → 3 → 4, then an up_to compaction preserving the first
  *  exchange: boundary(5) anchored at summary(6), relinking 2@5 → 3@5. */
 const ENTRIES = [
@@ -81,36 +96,6 @@ const ENTRIES = [
   boundaryEntry(5, { uuids: [2, 3], anchor: 6, logicalParent: 4 }),
   summaryEntry(6, "summary text", 5),
 ];
-
-/** The wire's `sessionEntry` for `entry`: structural for the shared classes
- *  (user/assistant), intact otherwise. */
-function entryEvent(entry: SessionEntry): AgentEvent {
-  const shared = entry.type === "user" || entry.type === "assistant";
-  return {
-    kind: "sessionEntry",
-    entry: shared ? structuralEntry(entry) : entry,
-    expectsSdkMessage: shared,
-    leaf: null,
-    awaitingAnchors: [],
-  };
-}
-
-function twinEvent(entry: SessionEntry): AgentEvent {
-  return {
-    kind: "sdkMessage",
-    message: {
-      type: entry.type,
-      uuid: entry.uuid,
-      session_id: "s1",
-      parent_tool_use_id: null,
-      message: entry.message,
-    } as SDKMessage,
-  };
-}
-
-function fileChangedEvent(): AgentEvent {
-  return { kind: "sessionFileChanged", sessionId: uuid(99) };
-}
 
 function oneShotTrees(entries: SessionEntry[]) {
   const byUuid = entriesByUuid(entries);
@@ -123,15 +108,16 @@ function oneShotTrees(entries: SessionEntry[]) {
   };
 }
 
-test("SessionModel: the live trees after N events equal the one-shot trees over the same entries", () => {
+function sessionModelOver(entries: SessionEntry[]): SessionModel {
   const sessionModel = new SessionModel(failOnInvalid);
-  sessionModel.applySnapshot([], 0);
-  for (const entry of ENTRIES) {
-    sessionModel.observe(entryEvent(entry));
-    if (entry.type === "user" || entry.type === "assistant") {
-      sessionModel.observe(twinEvent(entry));
-    }
+  for (const entry of entries) {
+    sessionModel.pushEntry(entry);
   }
+  return sessionModel;
+}
+
+test("SessionModel: the rolling trees after N pushes equal the one-shot trees over the same entries", () => {
+  const sessionModel = sessionModelOver(ENTRIES);
   const expected = oneShotTrees(ENTRIES);
   assert.deepEqual(
     sessionModel.displayTree.parentMap,
@@ -145,56 +131,56 @@ test("SessionModel: the live trees after N events equal the one-shot trees over 
   assert.deepEqual(sessionModel.byUuid, expected.byUuid);
 });
 
-test("SessionModel: a twin arriving before its entry completes it; a twin after it grafts in place", () => {
-  const sessionModel = new SessionModel(failOnInvalid);
-  sessionModel.applySnapshot([], 0);
-  sessionModel.observe(twinEvent(ENTRIES[0]!));
-  sessionModel.observe(entryEvent(ENTRIES[0]!));
-  sessionModel.observe(entryEvent(ENTRIES[1]!));
+test("SessionModel: pathToLeaf renders a hidden relinked leaf as the visible node carrying it", () => {
+  const sessionModel = sessionModelOver(ENTRIES);
+  // The context leaf is 3@5 (relinked, hidden); the display path ends at
+  // the summary line that carries the preserved block.
+  assert.deepEqual(sessionModel.leaf, { uuid: uuid(3), viaBoundary: uuid(5) });
   assert.deepEqual(
-    sessionModel.byUuid.get(uuid(2)),
-    structuralEntry(ENTRIES[1]!),
+    sessionModel.pathToLeaf().map((ref) => ref.uuid),
+    [uuid(1), uuid(2), uuid(3), uuid(5), uuid(6)],
   );
-  sessionModel.observe(twinEvent(ENTRIES[1]!));
-  assert.deepEqual(sessionModel.byUuid.get(uuid(1)), ENTRIES[0]);
-  assert.deepEqual(sessionModel.byUuid.get(uuid(2)), ENTRIES[1]);
 });
 
-test("SessionModel: session-stream events before the snapshot cut are in the snapshot; those after extend it", () => {
-  const sessionModel = new SessionModel(failOnInvalid);
-  // Positions 1–3 precede the response line: a switch (position 1) and the
-  // scan's first two entries, which the snapshot contains; position 4 is
-  // live and extends it. The twin at position 5 is live too.
-  sessionModel.observe(fileChangedEvent());
-  sessionModel.observe(entryEvent(ENTRIES[0]!));
-  sessionModel.observe(entryEvent(ENTRIES[1]!));
-  sessionModel.observe(entryEvent(ENTRIES[2]!));
-  sessionModel.observe(twinEvent(ENTRIES[2]!));
-  sessionModel.applySnapshot(ENTRIES.slice(0, 2), 3);
-  const expected = oneShotTrees(ENTRIES.slice(0, 3));
-  assert.deepEqual(
-    sessionModel.displayTree.parentMap,
-    expected.displayTree.parentMap,
-  );
-  assert.deepEqual(sessionModel.leaf, expected.contextTree.leaf);
-  assert.deepEqual(sessionModel.byUuid, expected.byUuid);
-});
-
-test("SessionModel: sessionFileChanged after the snapshot rebuilds the trees over the retained entries", () => {
-  const sessionModel = new SessionModel(failOnInvalid);
-  sessionModel.applySnapshot(ENTRIES, 0);
-  sessionModel.observe(fileChangedEvent());
+test("SessionModel: resetTrees restarts the trees over retained entries; pushes stay first-wins", () => {
+  const sessionModel = sessionModelOver(ENTRIES);
+  sessionModel.resetTrees();
   assert.deepEqual(sessionModel.displayTree.parentMap, new Map());
   assert.equal(sessionModel.leaf, null);
   assert.equal(sessionModel.byUuid.size, ENTRIES.length);
-  // The forked file re-persists the entries structurally; payloads survive.
-  for (const entry of ENTRIES.slice(0, 2)) {
-    sessionModel.observe(entryEvent(entry));
-  }
+  // The forked file re-persists the entries; first-wins keeps the originals.
+  sessionModel.pushEntry(ENTRIES[0]!);
+  sessionModel.pushEntry(assistantEntry(2, "rewritten", 1));
   const expected = oneShotTrees(ENTRIES.slice(0, 2));
   assert.deepEqual(
     sessionModel.displayTree.parentMap,
     expected.displayTree.parentMap,
   );
   assert.deepEqual(sessionModel.byUuid.get(uuid(2)), ENTRIES[1]);
+});
+
+test("SessionModel: entryFor finds an entry by uuid, else the steer attachment recorded under its source uuid", () => {
+  const attachment = steerAttachment(7, 9, 2);
+  const sessionModel = sessionModelOver([...ENTRIES.slice(0, 2), attachment]);
+  assert.deepEqual(sessionModel.entryFor(uuid(2)), ENTRIES[1]);
+  assert.deepEqual(sessionModel.entryFor(uuid(9)), attachment);
+  assert.deepEqual(sessionModel.entryFor(uuid(7)), attachment);
+  assert.equal(sessionModel.entryFor(uuid(8)), undefined);
+});
+
+test("SessionModel: recordPending and retire maintain the pending list in query order", () => {
+  const sessionModel = new SessionModel(failOnInvalid);
+  const frame = (n: number): SDKMessage =>
+    ({
+      type: "assistant",
+      uuid: uuid(n),
+      session_id: "s",
+      parent_tool_use_id: null,
+      message: { role: "assistant", content: [] },
+    }) as unknown as SDKMessage;
+  sessionModel.recordPending(uuid(2), frame(2));
+  sessionModel.recordPending(uuid(3), frame(3));
+  assert.deepEqual([...sessionModel.queryMessages.keys()], [uuid(2), uuid(3)]);
+  sessionModel.retire(uuid(2));
+  assert.deepEqual([...sessionModel.queryMessages.keys()], [uuid(3)]);
 });

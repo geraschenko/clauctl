@@ -89,7 +89,8 @@ its accepted limitations.
 `clauctl attach` runs clauctl's TUI directly in the caller's terminal: it
 ensures the daemon is running, connects to `socket`, subscribes, fetches
 history with `get-entries`, and renders locally, keeping its own rolling
-session trees from the event stream (`SessionModel`,
+session trees and pending lists from the event stream (one `SessionModel`
+per session id under `SessionModels`,
 [`session-views.md`](session-views.md)). The TUI is an ordinary protocol client with no privileged
 access — an embedder that wants to draw its own UI speaks the protocol itself;
 one that wants a terminal view runs `clauctl attach` in a pty it owns.

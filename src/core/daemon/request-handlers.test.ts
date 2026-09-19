@@ -777,9 +777,10 @@ test("boundary mode appends boundary+summary, restarts, broadcasts", async (t) =
   // Default anchor "summary": up_to shape.
   assert.equal(metadata.preservedMessages.anchorUuid, result.summaryUuid);
 
+  // One echo per appended entry, boundary then summary, in file order.
   assert.deepEqual(
     f.emitted.map((event) => event.kind),
-    ["sessionAppended", "contextChanged"],
+    ["sessionAppended", "sessionAppended", "contextChanged"],
   );
   // The effective context (what get-context returns): summary first, then
   // the preserved uuids.

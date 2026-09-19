@@ -137,15 +137,30 @@ export function initialAgentState(): AgentState {
   };
 }
 
-/** `anomaly` describes the event just folded, so every fold starts from
- *  a state without one. */
+/** `anomaly` and every session's `resolved` describe the event just
+ *  folded, so every fold starts from a state without them. */
 export function nextAgentState(
   state: AgentState,
   event: AgentEvent,
 ): AgentState {
-  if (state.anomaly === undefined) return foldEvent(state, event);
+  return foldEvent(clearedForFold(state), event);
+}
+
+/** Identity when there is nothing to clear: pass-through folds return
+ *  their input, and callers rely on that reference equality. */
+function clearedForFold(state: AgentState): AgentState {
+  const sessionsToClear = Object.entries(state.sessions).filter(
+    ([, session]) => session.resolved.length > 0,
+  );
+  if (state.anomaly === undefined && sessionsToClear.length === 0) {
+    return state;
+  }
   const { anomaly: _anomaly, ...cleared } = state;
-  return foldEvent(cleared, event);
+  const sessions = { ...state.sessions };
+  for (const [sessionId, session] of sessionsToClear) {
+    sessions[sessionId as UUID] = { ...session, resolved: [] };
+  }
+  return { ...cleared, sessions };
 }
 
 function foldEvent(state: AgentState, event: AgentEvent): AgentState {
@@ -173,7 +188,7 @@ function foldEvent(state: AgentState, event: AgentEvent): AgentState {
     case "scanComplete":
       return foldScanComplete(state);
     case "sessionAppended":
-      return foldSessionAppended(state, event.uuids);
+      return foldSessionAppended(state, event.message);
     case "trackerAnomaly":
       return { ...state, anomaly: event.anomaly };
     // The tip it announces is already folded from the sessionEntry that

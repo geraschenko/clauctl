@@ -1,23 +1,28 @@
 import type { UUID } from "node:crypto";
+import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import type { AgentState } from "./agent-state.ts";
+import { classOf } from "./classification.ts";
 import { observeOn } from "./observe-on.ts";
 import { freshSessionState, withSession } from "./session-state.ts";
-import { type TrackerAnomaly, withAnomalies } from "./tracker-anomaly.ts";
+import { withAnomalies } from "./tracker-anomaly.ts";
 
-/** Daemon-appended entries (set-context) are query action items on the
- *  query file; their log entries resolve them. */
+/** A daemon-appended entry (set-context) is a query action item on the
+ *  query file; its log entry resolves it. */
 export function foldSessionAppended(
   state: AgentState,
-  uuids: readonly UUID[],
+  message: SDKMessage,
 ): AgentState {
   const sessionId = state.querySessionId;
-  if (sessionId === undefined) return state;
-  let session = state.sessions[sessionId] ?? freshSessionState();
-  const anomalies: TrackerAnomaly[] = [];
-  for (const uuid of uuids) {
-    const observation = observeOn(session, "query", uuid, "appended", false);
-    session = observation.session;
-    anomalies.push(...observation.anomalies);
-  }
-  return withAnomalies(withSession(state, sessionId, session), anomalies);
+  if (sessionId === undefined || message.uuid === undefined) return state;
+  const observation = observeOn(
+    state.sessions[sessionId] ?? freshSessionState(),
+    "query",
+    message.uuid as UUID,
+    classOf(message),
+    false,
+  );
+  return withAnomalies(
+    withSession(state, sessionId, observation.session),
+    observation.anomalies,
+  );
 }

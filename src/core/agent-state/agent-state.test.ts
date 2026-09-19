@@ -28,23 +28,27 @@ const uuidN = (n: number): UUID =>
 // The fold only inspects the fields each step reads, so minimal stubs
 // suffice; assistant messages get the usage payload and the (wire-mandatory)
 // parent_tool_use_id the fold reads. Every message names SESSION_A's file.
-function sdkMessage(
+function queryMessage(
   type:
     "assistant" | "result" | "system" | "stream_event" | "conversation_reset",
   fields: Record<string, unknown> = {},
-): AgentEvent {
+): SDKMessage {
   return {
-    kind: "sdkMessage",
-    message: {
-      type,
-      session_id: SESSION_A,
-      ...(type === "assistant" && {
-        parent_tool_use_id: null,
-        message: { usage: { input_tokens: 5, output_tokens: 7 } },
-      }),
-      ...fields,
-    } as unknown as SDKMessage,
-  };
+    type,
+    session_id: SESSION_A,
+    ...(type === "assistant" && {
+      parent_tool_use_id: null,
+      message: { usage: { input_tokens: 5, output_tokens: 7 } },
+    }),
+    ...fields,
+  } as unknown as SDKMessage;
+}
+
+function sdkMessage(
+  type: Parameters<typeof queryMessage>[0],
+  fields: Record<string, unknown> = {},
+): AgentEvent {
+  return { kind: "sdkMessage", message: queryMessage(type, fields) };
 }
 
 /** A tracker event as `TrackedSessionLog` would publish it: the
@@ -266,13 +270,19 @@ test("subagent user/assistant messages leave state unchanged", () => {
     sdkMessage("assistant"),
   ]);
   // A subagent assistant must not overwrite lastUsage, advance the leaf, or
-  // clear the delivered hold; same for a subagent user message.
+  // clear the delivered hold; same for a subagent user message or
+  // stream_event (none of their ids can meet an entry in this file).
   const afterSub = run(
     [
       sdkMessage("assistant", {
         parent_tool_use_id: "tool-1",
         uuid: "sub-uuid",
         message: { usage: { input_tokens: 999, output_tokens: 999 } },
+      }),
+      sdkMessage("stream_event", {
+        parent_tool_use_id: "tool-1",
+        uuid: uuidN(0xac),
+        event: { type: "message_start" },
       }),
       {
         kind: "sdkMessage",
@@ -790,6 +800,40 @@ test("a stream skipping an id is a head-mismatch anomaly naming it", () => {
   assert.deepEqual(fileA(state).merge.nodes, {});
 });
 
+test("resolved lists what the step resolved and is empty on the next state", () => {
+  const pendingOnSession = run([
+    assistantQuery(2),
+    fileChanged(SESSION_A),
+    scanComplete,
+  ]);
+  assert.deepEqual(fileA(pendingOnSession).resolved, []);
+  const entryResolves = nextAgentState(pendingOnSession, assistantEntry(2));
+  assert.deepEqual(fileA(entryResolves).resolved, [
+    { id: uuidN(2), seenOn: ["query", "session"], excludedFrom: [] },
+  ]);
+  const sessionOnly = nextAgentState(entryResolves, promptEntry(3));
+  assert.deepEqual(fileA(sessionOnly).resolved, [
+    { id: uuidN(3), seenOn: ["session"], excludedFrom: ["query"] },
+  ]);
+  const unrelated = nextAgentState(sessionOnly, sdkMessage("result"));
+  assert.deepEqual(fileA(unrelated).resolved, []);
+});
+
+test("resolved accumulates every resolution of one step, in resolution order", () => {
+  // The session stream skipping 2 resolves 2 and 3 together (head-mismatch).
+  const state = run([
+    assistantQuery(2),
+    assistantQuery(3),
+    fileChanged(SESSION_A),
+    scanComplete,
+    assistantEntry(3),
+  ]);
+  assert.deepEqual(
+    fileA(state).resolved.map((node) => node.id),
+    [uuidN(2), uuidN(3)],
+  );
+});
+
 test("trackerAnomaly sets the anomaly for one fold", () => {
   const anomaly = { kind: "malformed-line", detail: "bytes 10-20" } as const;
   const state = run([init(), { kind: "trackerAnomaly", anomaly }]);
@@ -802,7 +846,18 @@ test("sessionAppended ids are query action items resolved by their entries", () 
     init({ uuid: uuidN(1) }),
     fileChanged(SESSION_A),
     scanComplete,
-    { kind: "sessionAppended", uuids: [uuidN(6), uuidN(7)] },
+    {
+      kind: "sessionAppended",
+      message: userMessage({ uuid: uuidN(6), session_id: SESSION_A }),
+    },
+    {
+      kind: "sessionAppended",
+      message: queryMessage("system", {
+        subtype: "compact_boundary",
+        uuid: uuidN(7),
+        compact_metadata: { trigger: "manual", pre_tokens: 100 },
+      }),
+    },
   ]);
   assert.deepEqual(pending(fileA(appended).merge, "query"), [
     uuidN(6),

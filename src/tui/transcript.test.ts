@@ -18,22 +18,28 @@ initTheme("dark");
 // fixture style as sdk-render.test.ts. Shapes are carved from real session
 // jsonl entries, reduced to the minimum.
 
+// Each message gets its own uuid: the renderer renders a uuid's content
+// once, and these tests are about content, not identity.
+let nextUuid = 0;
+
 function assistantMessage(
   content: unknown[],
   parentToolUseId: string | null = null,
 ): SDKMessage {
+  nextUuid += 1;
   return {
     type: "assistant",
-    uuid: "a-uuid",
+    uuid: `a-uuid-${nextUuid}`,
     parent_tool_use_id: parentToolUseId,
-    message: { content, stop_reason: null },
+    message: { id: `msg-${nextUuid}`, content, stop_reason: null },
   } as unknown as SDKMessage;
 }
 
 function userMessage(content: unknown): SDKUserMessage {
+  nextUuid += 1;
   return {
     type: "user",
-    uuid: "u-uuid",
+    uuid: `u-uuid-${nextUuid}`,
     parent_tool_use_id: null,
     message: { role: "user", content },
   } as unknown as SDKUserMessage;
@@ -135,17 +141,30 @@ test("a result for an unknown toolCallId is dropped", () => {
   assert.equal(renderedText(container), before);
 });
 
-test("append(user) never renders prompt text; appendUserTurn does", () => {
+test("append(user) renders prompt text unless the frame is a replay", () => {
   const { renderer, container } = makeRenderer();
-  renderer.append(userMessage("a live prompt") as SDKMessage);
+  renderer.append({
+    ...userMessage("a replay"),
+    isReplay: true,
+  } as unknown as SDKMessage);
+  renderer.append({
+    ...userMessage("a subagent's task prompt"),
+    parent_tool_use_id: "task-1",
+  });
   assert.equal(renderedText(container), "");
-  renderer.appendUserTurn(userMessage("a live prompt"));
+  renderer.append(userMessage("a live prompt"));
   assert.match(renderedText(container), /a live prompt/);
+  // The CLI writes `isReplay: false` (events.jsonl:150); only true hides.
+  renderer.append({
+    ...userMessage("an ordinary prompt"),
+    isReplay: false,
+  } as unknown as SDKMessage);
+  assert.match(renderedText(container), /an ordinary prompt/);
 });
 
-test("appendUserTurn with no visible text renders nothing", () => {
+test("append(user) with no visible text renders nothing", () => {
   const { renderer, container } = makeRenderer();
-  renderer.appendUserTurn(userMessage([{ type: "image", source: {} }]));
+  renderer.append(userMessage([{ type: "image", source: {} }]));
   assert.equal(container.children.length, 0);
 });
 
@@ -158,7 +177,9 @@ test("stream events drive a streaming component that the assistant message final
       parent_tool_use_id: null,
       event,
     }) as unknown as SDKMessage;
-  renderer.append(streamEvent({ type: "message_start" }));
+  renderer.append(
+    streamEvent({ type: "message_start", message: { id: "msg_s" } }),
+  );
   renderer.append(
     streamEvent({
       type: "content_block_start",
@@ -174,7 +195,9 @@ test("stream events drive a streaming component that the assistant message final
     }),
   );
   assert.match(renderedText(container), /partial/);
-  renderer.append(assistantMessage([{ type: "text", text: "final text" }]));
+  renderer.append(
+    assistantFrame("s1", "msg_s", [{ type: "text", text: "final text" }]),
+  );
   const text = renderedText(container);
   assert.match(text, /final text/);
   assert.doesNotMatch(text, /partial/);
@@ -413,6 +436,44 @@ test("a fold run sums thinking durations and counts tools, claude-style", () => 
   assert.doesNotMatch(renderedText(container), /a contents/);
 });
 
+test("a message's late second arrival does not move the thinking baseline backwards", () => {
+  const { renderer, container } = makeRenderer();
+  renderer.setToolsExpanded(true);
+  const at = (seconds: number): string =>
+    new Date(1700000000000 + seconds * 1000).toISOString();
+  const thinkingEntry = (uuid: string, seconds: number): SessionEntry =>
+    sessionEntry({
+      type: "assistant",
+      uuid,
+      timestamp: at(seconds),
+      message: {
+        content: [{ type: "thinking", thinking: "hmm" }],
+        stop_reason: "end_turn",
+      },
+    });
+  renderer.appendEntry(
+    sessionEntry({
+      type: "user",
+      uuid: "u1",
+      timestamp: at(0),
+      message: { role: "user", content: "go" },
+    }),
+  );
+  renderer.appendEntry(thinkingEntry("a1", 2));
+  // u1's query frame, delivered after a1 (the two sides lag independently).
+  renderer.append({
+    type: "user",
+    uuid: "u1",
+    parent_tool_use_id: null,
+    timestamp: at(0),
+    message: { role: "user", content: "go" },
+  } as unknown as SDKMessage);
+  renderer.appendEntry(thinkingEntry("a2", 5));
+  assert.match(renderedText(container), /Thought for 2s \(ctrl\+t to show\)/);
+  assert.match(renderedText(container), /Thought for 3s \(ctrl\+t to show\)/);
+  assert.doesNotMatch(renderedText(container), /Thought for 5s/);
+});
+
 test("error results and non-readOnly tools break fold runs", () => {
   const { renderer, container } = makeRenderer();
   renderer.append(
@@ -507,7 +568,7 @@ test("banners keep their transcript position across fold rebuilds", () => {
 
 test("claude chrome: ❯ gutter with styled prompt echo, ● assistant gutter, one-blank spacing", () => {
   const { renderer, container } = makeRenderer();
-  renderer.appendUserTurn(
+  renderer.append(
     userMessage("keep **bold** and `code` markers verbatim in this prompt"),
   );
   renderer.append(assistantMessage([{ type: "text", text: "Sure thing" }]));
@@ -581,7 +642,7 @@ test("slash command with stdout renders a \u276f command block with \u2937 outpu
 
 test("/compact stdout and 'No response requested.' are hidden", () => {
   const { renderer, container } = makeRenderer();
-  renderer.appendUserTurn(
+  renderer.append(
     userMessage(
       "<command-name>/compact</command-name>\n            <command-message>compact</command-message>\n            <command-args></command-args>",
     ),
@@ -602,10 +663,8 @@ test("/compact stdout and 'No response requested.' are hidden", () => {
 
 test("bash passthrough: \u276f ! command with unescaped collapsed output", () => {
   const { renderer, container } = makeRenderer();
-  renderer.appendUserTurn(
-    userMessage("<bash-input>git show HEAD</bash-input>"),
-  );
-  renderer.appendUserTurn(
+  renderer.append(userMessage("<bash-input>git show HEAD</bash-input>"));
+  renderer.append(
     userMessage(
       "<bash-stdout>Author: A &lt;a@b.c&gt;</bash-stdout><bash-stderr></bash-stderr>",
     ),
@@ -615,16 +674,298 @@ test("bash passthrough: \u276f ! command with unescaped collapsed output", () =>
   assert.match(lines[1]!, /\u2937 {2}Author: A <a@b\.c>/u);
 });
 
-test("compact summary: collapsed one-liner, full markdown when expanded", () => {
+// Render-once fixtures: the same assistant message as its query-stream
+// frame (`stop_reason: null`) and as its file entry (final stop_reason),
+// sharing the transcript uuid and the API message id.
+function assistantFrame(
+  uuid: string,
+  apiMessageId: string,
+  content: unknown[],
+): SDKMessage {
+  return {
+    type: "assistant",
+    uuid,
+    parent_tool_use_id: null,
+    message: { id: apiMessageId, content, stop_reason: null },
+  } as unknown as SDKMessage;
+}
+
+function assistantEntry(
+  uuid: string,
+  apiMessageId: string,
+  content: unknown[],
+  stopReason = "end_turn",
+): SessionEntry {
+  return sessionEntry({
+    type: "assistant",
+    uuid,
+    message: { id: apiMessageId, content, stop_reason: stopReason },
+  });
+}
+
+function messageStart(apiMessageId: string): SDKMessage {
+  return {
+    type: "stream_event",
+    uuid: `stream-${apiMessageId}`,
+    parent_tool_use_id: null,
+    event: { type: "message_start", message: { id: apiMessageId } },
+  } as unknown as SDKMessage;
+}
+
+function textDelta(text: string): SDKMessage {
+  return {
+    type: "stream_event",
+    uuid: "stream-delta",
+    parent_tool_use_id: null,
+    event: {
+      type: "content_block_start",
+      index: 0,
+      content_block: { type: "text", text },
+    },
+  } as unknown as SDKMessage;
+}
+
+/** Anchored at `anchorUuid` (its summary), or at itself when omitted. */
+function boundaryFrame(uuid: string, anchorUuid: string = uuid): SDKMessage {
+  return {
+    type: "system",
+    subtype: "compact_boundary",
+    uuid,
+    compact_metadata: {
+      trigger: "manual",
+      pre_tokens: 156_000,
+      preserved_messages: { anchor_uuid: anchorUuid, uuids: [] },
+    },
+  } as unknown as SDKMessage;
+}
+
+function boundaryEntry(uuid: string, anchorUuid: string = uuid): SessionEntry {
+  return sessionEntry({
+    type: "system",
+    subtype: "compact_boundary",
+    uuid,
+    compactMetadata: {
+      preTokens: 156_000,
+      preservedMessages: { anchorUuid, uuids: [] },
+    },
+  });
+}
+
+const SUMMARY_TEXT = "## Summary\n\nAll the context.";
+
+function summaryFrame(uuid: string): SDKMessage {
+  return {
+    type: "user",
+    uuid,
+    parent_tool_use_id: null,
+    message: { role: "user", content: SUMMARY_TEXT },
+  } as unknown as SDKMessage;
+}
+
+function summaryEntry(uuid: string): SessionEntry {
+  return sessionEntry({
+    type: "user",
+    uuid,
+    isCompactSummary: true,
+    message: { role: "user", content: SUMMARY_TEXT },
+  });
+}
+
+const TEXT_A = [{ type: "text", text: "reply A" }];
+const TEXT_B = [{ type: "text", text: "reply B" }];
+
+test("render-once: an assistant message renders once from whichever side arrives first", () => {
+  const frameFirst = makeRenderer();
+  frameFirst.renderer.append(assistantFrame("a1", "msg_1", TEXT_A));
+  frameFirst.renderer.appendEntry(assistantEntry("a1", "msg_1", TEXT_A));
+  assert.equal(frameFirst.container.children.length, 1);
+  assert.equal(renderedText(frameFirst.container), "● reply A");
+
+  const entryFirst = makeRenderer();
+  entryFirst.renderer.appendEntry(assistantEntry("a1", "msg_1", TEXT_A));
+  entryFirst.renderer.append(assistantFrame("a1", "msg_1", TEXT_A));
+  assert.equal(entryFirst.container.children.length, 1);
+  assert.equal(renderedText(entryFirst.container), "● reply A");
+});
+
+test("render-once: a compact boundary banners once from either side", () => {
+  const frameFirst = makeRenderer();
+  frameFirst.renderer.append(boundaryFrame("b1"));
+  frameFirst.renderer.appendEntry(boundaryEntry("b1"));
+  assert.equal(frameFirst.container.children.length, 1);
+
+  const entryFirst = makeRenderer();
+  entryFirst.renderer.appendEntry(boundaryEntry("b1"));
+  entryFirst.renderer.append(boundaryFrame("b1"));
+  assert.equal(entryFirst.container.children.length, 1);
+  assert.match(renderedText(entryFirst.container), /context compacted/);
+});
+
+test("an entry outrunning its open stream finalizes it; the late frame renders nothing", () => {
   const { renderer, container } = makeRenderer();
+  renderer.append(messageStart("msg_1"));
+  renderer.append(textDelta("partial"));
+  assert.match(renderedText(container), /partial/);
+  renderer.appendEntry(assistantEntry("a1", "msg_1", TEXT_A));
+  assert.equal(container.children.length, 1);
+  assert.equal(renderedText(container), "● reply A");
+  renderer.append(assistantFrame("a1", "msg_1", TEXT_A));
+  assert.equal(container.children.length, 1);
+  assert.equal(renderedText(container), "● reply A");
+});
+
+test("stream ownership is the API message id: file A → message_start A → file B → frame A", () => {
+  const { renderer, container } = makeRenderer();
+  renderer.appendEntry(assistantEntry("a1", "msg_A", TEXT_A));
+  renderer.append(messageStart("msg_A"));
+  renderer.append(textDelta("partial A"));
+  // B's entry is not the open stream's owner: it renders whole and leaves
+  // the stream alone.
+  renderer.appendEntry(assistantEntry("b1", "msg_B", TEXT_B));
+  assert.match(renderedText(container), /partial A/);
+  assert.match(renderedText(container), /reply B/);
+  // A's keyed frame discards its own provisional stream.
+  renderer.append(assistantFrame("a1", "msg_A", TEXT_A));
+  assert.equal(container.children.length, 2);
+  assert.doesNotMatch(renderedText(container), /partial A/);
+  assert.equal(renderedText(container), "● reply A\n\n● reply B");
+});
+
+test("replaceContent updates the frame's item in place without re-creating tool items", () => {
+  const { renderer, container } = makeRenderer();
+  const content = [
+    { type: "text", text: "cut off" },
+    { type: "tool_use", id: "t1", name: "Bash", input: { command: "ls" } },
+  ];
+  renderer.append(assistantFrame("a1", "msg_1", content));
+  const childrenBefore = container.children.length;
+  renderer.replaceContent(
+    "a1" as never,
+    assistantEntry("a1", "msg_1", content, "max_tokens"),
+  );
+  assert.equal(container.children.length, childrenBefore);
+  assert.match(renderedText(container), /maximum output token limit/);
+  // No item keyed under the uuid: nothing happens.
+  renderer.replaceContent(
+    "unknown" as never,
+    assistantEntry("unknown", "msg_9", TEXT_B),
+  );
+  assert.doesNotMatch(renderedText(container), /reply B/);
+});
+
+test("a user frame renders its prompt and resolves tool results; its entry renders nothing more", () => {
+  const { renderer, container } = makeRenderer();
+  renderer.append(
+    assistantMessage([
+      { type: "tool_use", id: "t1", name: "Bash", input: { command: "ls" } },
+    ]),
+  );
+  const message = {
+    role: "user",
+    content: [
+      { type: "text", text: "next question" },
+      { type: "tool_result", tool_use_id: "t1", content: "listing" },
+    ],
+  };
+  renderer.append({
+    type: "user",
+    uuid: "u1",
+    parent_tool_use_id: null,
+    message,
+  } as unknown as SDKMessage);
+  assert.match(renderedText(container), /listing/);
+  assert.equal(renderedText(container).match(/next question/g)?.length, 1);
+  renderer.appendEntry(sessionEntry({ type: "user", uuid: "u1", message }));
+  assert.equal(renderedText(container).match(/next question/g)?.length, 1);
+});
+
+test("a compact summary renders once: the frame as its boundary's anchor, the entry by isCompactSummary", () => {
+  const frameFirst = makeRenderer();
+  frameFirst.renderer.append(boundaryFrame("b1", "cs1"));
+  frameFirst.renderer.append(summaryFrame("cs1"));
+  assert.equal(frameFirst.container.children.length, 2);
+  assert.match(renderedText(frameFirst.container), /Compacted/);
+  assert.doesNotMatch(renderedText(frameFirst.container), /❯/u);
+  frameFirst.renderer.appendEntry(boundaryEntry("b1", "cs1"));
+  frameFirst.renderer.appendEntry(summaryEntry("cs1"));
+  assert.equal(frameFirst.container.children.length, 2);
+
+  const entryFirst = makeRenderer();
+  entryFirst.renderer.appendEntry(boundaryEntry("b1", "cs1"));
+  entryFirst.renderer.appendEntry(summaryEntry("cs1"));
+  entryFirst.renderer.append(boundaryFrame("b1", "cs1"));
+  entryFirst.renderer.append(summaryFrame("cs1"));
+  assert.equal(entryFirst.container.children.length, 2);
+  assert.match(renderedText(entryFirst.container), /Compacted/);
+});
+
+test("a self-anchored boundary frame (no summary) expects none: the next user frame is a prompt", () => {
+  const { renderer, container } = makeRenderer();
+  renderer.append(boundaryFrame("b1"));
+  renderer.append(userMessage("a prompt after a rewind"));
+  assert.match(renderedText(container), /a prompt after a rewind/);
+  assert.doesNotMatch(renderedText(container), /Compacted/);
+});
+
+test("only the anchor is the summary: a boundary frame's expectation lapses at the next user frame", () => {
+  const { renderer, container } = makeRenderer();
+  renderer.append(boundaryFrame("b1", "cs1"));
+  renderer.append(userMessage("not the summary"));
+  renderer.append(summaryFrame("cs1"));
+  assert.match(renderedText(container), /not the summary/);
+  assert.doesNotMatch(renderedText(container), /Compacted \(/);
+});
+
+test("a relinked summary entry renders as the summary under a boundary that is not its own", () => {
+  // A later boundary preserves an earlier compaction's summary without
+  // its boundary (session file: boundary f3e4b1fa self-anchored, next
+  // entry 2dac0aa6 isCompactSummary parented on it).
+  const { renderer, container } = makeRenderer();
+  renderer.appendEntry(boundaryEntry("b2"));
+  renderer.appendEntry(summaryEntry("cs1"));
+  assert.match(renderedText(container), /Compacted \(/);
+  assert.doesNotMatch(renderedText(container), /❯/u);
+});
+
+test("output-only frame then entry attaches the output once", () => {
+  const { renderer, container } = makeRenderer();
+  renderer.append(
+    userMessage(
+      "<command-name>/login</command-name><command-message>login</command-message><command-args></command-args>",
+    ),
+  );
+  const output =
+    "<local-command-stdout>Login successful</local-command-stdout>";
+  renderer.append({
+    type: "user",
+    uuid: "o1",
+    parent_tool_use_id: null,
+    isReplay: true,
+    message: { role: "user", content: output },
+  } as unknown as SDKMessage);
+  assert.doesNotMatch(renderedText(container), /Login successful/);
   renderer.appendEntry(
     sessionEntry({
       type: "user",
-      uuid: "cs1",
-      isCompactSummary: true,
-      message: { role: "user", content: "## Summary\n\nAll the context." },
+      uuid: "o1",
+      message: { role: "user", content: output },
     }),
   );
+  renderer.appendEntry(
+    sessionEntry({
+      type: "user",
+      uuid: "o1",
+      message: { role: "user", content: output },
+    }),
+  );
+  assert.equal(container.children.length, 1);
+  assert.equal(renderedText(container).match(/Login successful/g)?.length, 1);
+});
+
+test("compact summary: collapsed one-liner, full markdown when expanded", () => {
+  const { renderer, container } = makeRenderer();
+  renderer.appendEntry(boundaryEntry("b1", "cs1"));
+  renderer.appendEntry(summaryEntry("cs1"));
   assert.match(
     renderedText(container),
     /Compacted \(ctrl\+o to see full summary\)/,

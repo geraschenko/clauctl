@@ -70,11 +70,10 @@ rule is the subtle one: a `user` entry is shared iff it has a
 session-only. Unknown rows are treated as **session-only** — the safe
 direction, since the entry then goes out on the wire whole.
 
-The table decides two things: what the merge may exclude (a one-sided id
-resolves as soon as its predecessors have, without waiting on the other
-stream), and what crosses the wire — a session-only entry goes out
-complete, a shared one as its structural projection because the subscriber
-already has the payload from the `sdkMessage` twin.
+The table decides what the merge may exclude: a one-sided id resolves as
+soon as its predecessors have, without waiting on the other stream. Every
+entry crosses the wire complete, tagged with the decision
+(`expectsSdkMessage`).
 
 ## `MergeState`
 
@@ -168,8 +167,7 @@ the entry that completes a compact boundary also yields `contextChanged`.
 
 The TUI's `SessionModel` (`src/tui/session-model.ts`) is the same
 function of the entry stream with the opposite retention policy: it keeps
-every entry (complete from the snapshot, structural from live shared
-events) plus the SDK message payloads, and adds the display tree. Both
+every entry and adds the display tree. Both
 compute the same structure from the same stream, which is what makes a
 live tree equal the tree a restart recomputes from the file. When
 [`thoughts/fold-resolved-events.md`](thoughts/fold-resolved-events.md)

@@ -27,6 +27,7 @@ import type { SetContextRequest, SetContextResponse } from "../protocol.ts";
 import { parseTreeNodeRef } from "../tree/nodes.ts";
 import {
   appendSessionEntries,
+  appendedEntryToSdkMessage,
   buildBoundaryEntries,
   entriesByUuid,
   type SessionEntry,
@@ -302,10 +303,12 @@ export function createSetContextHandler(
         // query-side observation (the daemon wrote it), which the drain's
         // session observation then resolves — the tracker pushes the
         // boundary and emits its contextChanged inside the drain.
-        events.emit({
-          kind: "sessionAppended",
-          uuids: built.entries.map((entry) => entry.uuid as UUID),
-        });
+        for (const entry of built.entries) {
+          events.emit({
+            kind: "sessionAppended",
+            message: appendedEntryToSdkMessage(entry),
+          });
+        }
         deps.trackedLog.drainVisibleBytes();
       } catch (error) {
         shared.setQueryAvailable(false);

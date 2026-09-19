@@ -32,24 +32,14 @@ import type {
   ModelInfo,
   PermissionMode,
   SDKControlInitializeResponse,
-  SDKMessage,
   SDKUserMessage,
 } from "@anthropic-ai/claude-agent-sdk";
-import {
-  isIdle,
-  leaf,
-  type AgentState,
-} from "../core/agent-state/agent-state.ts";
-import { randomUUID } from "node:crypto";
+import { isIdle, type AgentState } from "../core/agent-state/agent-state.ts";
+import { randomUUID, type UUID } from "node:crypto";
 import { readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import {
-  entryToSessionMessage,
-  queuedCommandPrompt,
-  type SessionEntry,
-} from "../core/session/file.ts";
-import { pathToLeaf, type TreeNodeRef } from "../core/tree/nodes.ts";
+import type { TreeNodeRef } from "../core/tree/nodes.ts";
 import type {
   AgentEvent,
   ProtocolClient,
@@ -78,8 +68,9 @@ import {
   externalEditorCommand,
 } from "./external-editor.ts";
 import { VERSION } from "../core/generated/version.ts";
-import { pathUpToBoundary, releaseDedupeUuid, userText } from "./sdk-render.ts";
-import { SessionModel } from "./session-model.ts";
+import { userText } from "./sdk-render.ts";
+import type { SessionModel } from "./session-model.ts";
+import { SessionModels } from "./session-models.ts";
 import { readSettings, settingsPath } from "./settings.ts";
 import { TranscriptRenderer } from "./transcript.ts";
 import { getEditorTheme, theme, type ThemeColor } from "./theme.ts";
@@ -345,9 +336,10 @@ class InteractiveMode {
    * (they predate the seed).
    */
   private agentState: AgentState;
-  /** Entries, payloads and trees, fed every event in socket order; the
-   *  transcript and `/tree` read it instead of fetching. */
-  private readonly sessionModel: SessionModel;
+  /** Per-session entries, pending lists and trees, fed every event in
+   *  socket order; the transcript and `/tree` read them instead of
+   *  fetching. */
+  private readonly sessionModels: SessionModels;
 
   private readonly chatContainer = new Container();
   private readonly pendingMessages = new PendingMessagesComponent();
@@ -365,8 +357,8 @@ class InteractiveMode {
   private transcript: TranscriptRenderer;
   /**
    * Queued prompts retained by queue id so the dequeue echo can render the
-   * full SDKUserMessage through appendUserTurn (the pending area shows only
-   * the preview text).
+   * full SDKUserMessage through `append` (the pending area shows only the
+   * preview text).
    */
   private readonly queuedById = new Map<number, SDKUserMessage>();
   /** The global manager set by runInteractive; also consulted by pi-tui's
@@ -383,32 +375,16 @@ class InteractiveMode {
    */
   private liveEventsDuringReplay: Array<[AgentEvent, AgentState]> | undefined =
     [];
-
-  /**
-   * Release dedupe (defined only during reloadHistory's release loop):
-   * uuids rendered from a replayed path — the attach redraw's, and any
-   * buffered contextChanged's redraw during the loop. A buffered event
-   * carrying one of them advances agentState but renders nothing — the
-   * snapshot can include entries newer than the seed leaf, which are also
-   * in the buffer.
-   */
-  private replayedUuids: Set<string> | undefined;
-  /** Buffered contextChanged events not yet released; each redraws the
-   *  transcript, superseding the redraws before it. */
-  private pendingContextChanges = 0;
-
-  /**
-   * One-shot banner dedupe that OUTLIVES the release loop: replayed boundary
-   * banners whose live compact_boundary event may not have arrived yet.
-   * Stream-before-file ordering is the codebase's working assumption (the
-   * flush-wait machinery exists because the file lags the stream) but is
-   * unproven for native compaction events, so a late arrival consumes its
-   * entry here instead of rendering a second banner. Only banners need this:
-   * post-cut ordinary raw entries never replay, and a replayed summary's
-   * live `user` event renders nothing. Daemon-authored boundaries emit no
-   * compact_boundary event, so their entries are simply never consumed.
-   */
-  private readonly replayedBoundaryUuids = new Set<string>();
+  /** `reloadHistory` waiting for the buffer to reach its snapshot cut
+   *  (`eventsBefore` counts events pushed to the subscription, which runs
+   *  ahead of the pump that delivers them here). A shutdown inside the cut
+   *  is never buffered, so the wait then stays pending — moot, the mode is
+   *  finishing. */
+  private cutAwaiter: { position: number; resolve: () => void } | undefined;
+  /** Between `sessionFileChanged` and `scanComplete` the transcript is
+   *  blank and nothing renders live: the scan's entries and the query
+   *  messages arriving meanwhile reach it through the rebuild at the end. */
+  private scanning = false;
 
   private readonly autocomplete: TuiAutocompleteProvider;
   private modelSelector?: ModelSelectorComponent;
@@ -429,8 +405,11 @@ class InteractiveMode {
     this.client = client;
     this.agentState = seedState;
     this.keybindings = getKeybindings();
-    this.transcript = new TranscriptRenderer(this.chatContainer);
-    this.sessionModel = new SessionModel((message) => this.addBanner(message));
+    this.transcript = this.freshTranscript();
+    this.sessionModels = new SessionModels(
+      (message) => this.addBanner(message),
+      (sessionId, uuid) => this.onResolved(sessionId, uuid),
+    );
     this.done = new Promise((resolve) => {
       this.finish = resolve;
     });
@@ -467,18 +446,7 @@ class InteractiveMode {
       this.queuedById.set(entry.id, entry.message);
       this.pendingMessages.add(entry.id, userText(entry.message));
     }
-    void this.reloadHistory();
-    // After reloadHistory's synchronous prefix, which recreates the
-    // transcript renderer — banners added earlier would be wiped. The
-    // welcome line self-identifies the product on attach (Agent SDK
-    // branding guidelines: our own branding, not Claude Code's).
-    this.addBanner(
-      `Welcome to clauctl TUI ${theme.fg("dim", `v${VERSION}`)}`,
-      "accent",
-    );
-    for (const warning of startupWarnings) {
-      this.addBanner(warning, "warning");
-    }
+    void this.reloadHistory(startupWarnings);
 
     this.autocomplete = new TuiAutocompleteProvider(
       seedState.cwd ?? null,
@@ -509,13 +477,19 @@ class InteractiveMode {
 
   /**
    * The attach-time history fetch: `get-entries {payload: "full"}` seeds
-   * the session model (the response's event count is its snapshot cut),
-   * the transcript renders from the session model, then the buffered live
-   * events are released. Path-vs-buffer duplication is deduped by replayedUuids
-   * during the release loop.
+   * the session models (the response's event count is its snapshot cut,
+   * and the state at that cut is the one the daemon answered against —
+   * read from the buffer once the pump has delivered that far), the
+   * buffered live events release their state effects, then the transcript
+   * fills from the models below the startup banners — unless the release
+   * left a scan window open, whose `scanComplete` rebuilds instead.
+   * `startupWarnings` describe the keybindings and settings as read at
+   * start, so only this first transcript shows them; rebuilds do not.
    */
-  private async reloadHistory(): Promise<void> {
-    this.resetTranscript();
+  private async reloadHistory(startupWarnings: string[]): Promise<void> {
+    for (const warning of startupWarnings) {
+      this.transcript.addBanner(warning, "warning");
+    }
     this.liveEventsDuringReplay = [];
     try {
       const { data, eventsBefore } = await this.client.requestWithEventCount({
@@ -523,131 +497,115 @@ class InteractiveMode {
         payload: "full",
       });
       const snapshot = data as GetEntriesResponse;
-      this.sessionModel.applySnapshot(snapshot.entries!, eventsBefore);
+      await this.bufferedUpTo(eventsBefore);
+      this.sessionModels.applySnapshot(
+        snapshot.entries!,
+        eventsBefore,
+        this.stateAtCut(eventsBefore),
+      );
     } catch (error) {
       this.addBanner(`history fetch failed: ${String(error)}`);
-      this.sessionModel.applySnapshot([], 0);
+      this.sessionModels.applySnapshot([], 0, this.agentState);
     }
-    const buffered = this.liveEventsDuringReplay ?? [];
+    const buffered = this.liveEventsDuringReplay;
     this.liveEventsDuringReplay = undefined;
-    this.pendingContextChanges = buffered.filter(
-      ([event]) => event.kind === "contextChanged",
-    ).length;
-    const replayed = new Set<string>();
-    this.renderHistory(replayed);
-    this.replayedUuids = replayed;
-    try {
-      for (const [event, state] of buffered) {
-        if (event.kind === "contextChanged") {
-          this.pendingContextChanges -= 1;
-        }
-        this.applyEvent(event, state);
-      }
-    } finally {
-      this.replayedUuids = undefined;
+    for (const [event, state] of buffered) {
+      this.applyState(event, state);
+    }
+    if (!this.scanning) {
+      this.renderHistory();
     }
     this.ui.requestRender();
   }
 
+  /** Resolves once `liveEventsDuringReplay` holds `position` events. */
+  private bufferedUpTo(position: number): Promise<void> {
+    return this.liveEventsDuringReplay!.length >= position
+      ? Promise.resolve()
+      : new Promise((resolve) => {
+          this.cutAwaiter = { position, resolve };
+        });
+  }
+
+  /** The state the first `eventsBefore` buffered events folded to: the
+   *  seed when none preceded the snapshot response. */
+  private stateAtCut(eventsBefore: number): AgentState {
+    return eventsBefore === 0
+      ? this.agentState
+      : this.liveEventsDuringReplay![eventsBefore - 1]![1];
+  }
+
   private resetTranscript(): void {
     this.chatContainer.clear();
-    this.transcript = new TranscriptRenderer(this.chatContainer);
-    this.transcript.setCwd(this.agentState.cwd);
-    this.transcript.setToolsExpanded(this.toolsExpanded);
-    this.transcript.setCompactSummaryExpanded(this.toolsExpanded);
-    this.transcript.setShowThinking(this.showThinking);
-    this.replayedBoundaryUuids.clear();
+    this.transcript = this.freshTranscript();
   }
 
-  /**
-   * Render the session model's root-to-leaf display path cut at the state
-   * fold's leaf (pathUpToBoundary), then the delivered-but-unconfirmed
-   * prompts. `replayed` collects the uuids rendered.
-   *
-   * Two leaves because they play different roles. The path runs to the
-   * session model's leaf — the file's tip as far as the model knows —
-   * because pathUpToBoundary keeps the boundary banners and summaries
-   * beyond the cut (their live events render no text) and because a
-   * missing cut falls back to the whole path. The state leaf is the cut:
-   * the buffered live events resume right after it.
-   *
-   * When the state leaf is missing from the path, exactly-once is
-   * unachievable: the whole path replays behind a warning banner — unless a
-   * buffered contextChanged is still pending, whose redraw supersedes this
-   * one (the context change moved the leaf between seed and snapshot), so
-   * warning would be spurious.
-   */
-  private renderHistory(replayed: Set<string>): void {
-    const displayTree = this.sessionModel.displayTree;
-    const byUuid = this.sessionModel.byUuid;
-    // Leaves map to the visible node that carries them (a hidden relinked
-    // leaf renders as its summary's line). A stale leaf maps to itself, so
-    // the raced-leaf handling below still warns.
-    const sessionLeaf = this.sessionModel.leaf;
-    const leafNode =
-      sessionLeaf === null
-        ? undefined
-        : displayTree.nearestVisibleNode(sessionLeaf);
-    const path = pathToLeaf(displayTree.parentMap, byUuid, leafNode ?? null);
-    const stateLeaf = leaf(this.agentState);
-    const { nodes, boundaryMissing } = pathUpToBoundary(
-      path,
-      byUuid,
-      stateLeaf === null
-        ? undefined
-        : displayTree.nearestVisibleNode(stateLeaf),
+  /** An empty transcript with the welcome line at its top, so it heads the
+   *  scrollback whatever follows. The welcome line self-identifies the
+   *  product (Agent SDK branding guidelines: our own branding, not Claude
+   *  Code's). */
+  private freshTranscript(): TranscriptRenderer {
+    const transcript = new TranscriptRenderer(this.chatContainer);
+    transcript.setCwd(this.agentState.cwd);
+    transcript.setToolsExpanded(this.toolsExpanded);
+    transcript.setCompactSummaryExpanded(this.toolsExpanded);
+    transcript.setShowThinking(this.showThinking);
+    transcript.addBanner(
+      `Welcome to clauctl TUI ${theme.fg("dim", `v${VERSION}`)}`,
+      "accent",
     );
-    // pathToLeaf validated every path uuid against byUuid, so the lookup
-    // cannot miss.
-    for (const ref of nodes) {
-      this.renderEntry(byUuid.get(ref.uuid)!, replayed);
-    }
-    if (boundaryMissing && this.pendingContextChanges === 0) {
-      this.addBanner(
-        "history attach point not found; recent messages may be missing or duplicated",
-      );
-    }
-    // Delivered-but-unconfirmed prompts (the prompt-visibility invariant,
-    // agent-state.ts): dequeued before the state snapshot was taken with the
-    // transcript echo still pending, so they are in neither the leaf-cut
-    // path nor the buffered events. Chronologically they follow the
-    // replayed transcript.
-    for (const message of this.agentState.deliveredMessages) {
-      this.transcript.appendUserTurn(message);
-    }
+    return transcript;
+  }
+
+  /** The rebuild for `contextChanged` and `scanComplete`; attach renders
+   *  the history into the fresh transcript directly. */
+  private rebuildTranscript(): void {
+    this.resetTranscript();
+    this.renderHistory();
   }
 
   /**
-   * One path entry: the rendering itself lives in
-   * TranscriptRenderer.appendEntry; this wrapper keeps only the replay
-   * dedupe bookkeeping (which uuids rendered, so their buffered live events
-   * fold without re-rendering). It re-derives the rendered uuid with the
-   * same entryToSessionMessage the renderer uses — a pure conversion, run
-   * twice so the renderer stays free of attach-only dedupe state.
+   * The one history path (attach, `contextChanged`, `scanComplete`), all
+   * of it the query session's: its display path up to the last resolved
+   * id, then its pending query messages, then delivered-but-unconfirmed
+   * user prompts. Path entries the file holds but the merge has not
+   * resolved are left out: they and the pending messages cannot be
+   * interleaved, which is the whole point of merging the streams — they
+   * render once the merge places them.
    */
-  private renderEntry(entry: SessionEntry, replayed: Set<string>): void {
-    if (entry.subtype === "compact_boundary") {
-      if (entry.uuid !== undefined) {
-        replayed.add(entry.uuid);
-        this.replayedBoundaryUuids.add(entry.uuid);
+  private renderHistory(): void {
+    const { querySessionId } = this.agentState;
+    const querySessionModel =
+      querySessionId === undefined
+        ? undefined
+        : this.sessionModels.get(querySessionId);
+    if (querySessionModel !== undefined) {
+      // The merge holds exactly the unresolved ids (stream-merge.ts).
+      const unresolved = this.agentState.sessions[querySessionId!]!.merge.nodes;
+      for (const ref of querySessionModel.pathToLeaf()) {
+        if (!Object.hasOwn(unresolved, ref.uuid)) {
+          // pathToLeaf validated every path uuid against byUuid, so the
+          // lookup cannot miss.
+          this.transcript.appendEntry(querySessionModel.byUuid.get(ref.uuid)!);
+        }
       }
-    } else if (queuedCommandPrompt(entry) !== undefined) {
-      if (entry.uuid !== undefined) {
-        replayed.add(entry.uuid);
-      }
-    } else {
-      const message = entryToSessionMessage(entry);
-      if (message !== undefined) {
-        replayed.add(message.uuid);
+      for (const message of querySessionModel.queryMessages.values()) {
+        this.transcript.append(message);
       }
     }
-    this.transcript.appendEntry(entry);
+    for (const message of this.agentState.deliveredMessages) {
+      this.transcript.append(message);
+    }
+  }
+
+  private fileSessionModel(): SessionModel | undefined {
+    const { fileSessionId } = this.agentState;
+    return fileSessionId === undefined
+      ? undefined
+      : this.sessionModels.get(fileSessionId);
   }
 
   handleEvent(event: AgentEvent, state: AgentState): void {
-    // The session model sees every event as it arrives — its snapshot cut
-    // is a socket position — while rendering waits out the history replay.
-    this.sessionModel.observe(event);
     // Terminal and order-independent, so it must not wait out a history
     // replay: the socket may close right behind it, and a buffered shutdown
     // would then misreport as connectionLost.
@@ -655,15 +613,40 @@ class InteractiveMode {
       this.finish({ kind: "shutdown", reason: event.reason });
       return;
     }
+    // The session models see every event as it arrives — their snapshot
+    // cut is a socket position — while state and rendering wait out the
+    // history replay. Live, the state (and its scan gate) updates before
+    // the models fire `onResolved`, so the callback reads the current gate.
     if (this.liveEventsDuringReplay !== undefined) {
+      this.sessionModels.observe(event, state);
       this.liveEventsDuringReplay.push([event, state]);
+      if (
+        this.cutAwaiter !== undefined &&
+        this.liveEventsDuringReplay.length >= this.cutAwaiter.position
+      ) {
+        this.cutAwaiter.resolve();
+        this.cutAwaiter = undefined;
+      }
       return;
     }
-    this.applyEvent(event, state);
+    this.applyState(event, state);
+    this.sessionModels.observe(event, state);
+    this.renderEvent(event);
+    this.ui.requestRender();
   }
 
-  private applyEvent(event: AgentEvent, state: AgentState): void {
+  /** The event's effects outside the transcript — the state itself, the
+   *  scan gate, and the components that read the state: the pending area,
+   *  the command list, the footer — plus the anomaly banner, the one
+   *  transcript effect that must survive a buffered release. Runs for every
+   *  event, including the ones released after attach. */
+  private applyState(event: AgentEvent, state: AgentState): void {
     this.agentState = state;
+    if (event.kind === "sessionFileChanged") {
+      this.scanning = true;
+    } else if (event.kind === "scanComplete") {
+      this.scanning = false;
+    }
     // `anomaly` names the event just folded (agent-state.ts), so reading it
     // per event shows each anomaly once, whichever event's fold raised it.
     if (state.anomaly !== undefined) {
@@ -672,25 +655,54 @@ class InteractiveMode {
         "warning",
       );
     }
-    // The switch is rendering-only dispatch; all state effects (footer
-    // fields, mode cycle, activity) come from the delivered state above.
+    if (event.kind === "userMessageQueued") {
+      this.queuedById.set(event.id, event.message);
+      this.pendingMessages.add(event.id, userText(event.message));
+    } else if (event.kind === "userMessageDequeued") {
+      this.pendingMessages.take(event.ids);
+    } else if (event.kind === "contextChanged") {
+      // An open selector keeps its now-stale tree; the warning tells the
+      // attached user some other process changed the context under them.
+      this.treeSelector?.setWarning(
+        "context changed while the tree selector is open",
+      );
+    } else if (
+      event.kind === "sdkMessage" &&
+      event.message.type === "system" &&
+      event.message.subtype === "commands_changed"
+    ) {
+      this.autocomplete.setCommands(event.message.commands);
+    }
+    this.syncActivity();
+  }
+
+  /** The event's transcript effect. Live events render as they arrive
+   *  (the render-once guard in the transcript keeps a message rendered
+   *  from one stream from rendering again from the other); a scan window
+   *  renders nothing until its rebuild. */
+  private renderEvent(event: AgentEvent): void {
+    if (event.kind === "sessionFileChanged") {
+      this.resetTranscript();
+      return;
+    }
+    if (event.kind === "scanComplete") {
+      this.rebuildTranscript();
+      return;
+    }
+    if (this.scanning) {
+      return;
+    }
     switch (event.kind) {
-      case "userMessageQueued":
-        this.queuedById.set(event.id, event.message);
-        this.pendingMessages.add(event.id, userText(event.message));
-        break;
       case "userMessageDequeued":
         // The dequeue's stream position is the correct transcript position;
-        // the retained message renders through the same appendUserTurn the
-        // replay path uses. A steered message renders from its
-        // `queued_command` attachment entry instead (the sessionEntry case),
-        // where history replay finds it too.
-        this.pendingMessages.take(event.ids);
+        // the retained message is the user message the query stream would
+        // have echoed. A steered message renders from its `queued_command`
+        // attachment entry instead (the sessionEntry case).
         for (const id of event.ids) {
           const message = this.queuedById.get(id);
           this.queuedById.delete(id);
           if (message !== undefined && event.delivery !== "steer") {
-            this.transcript.appendUserTurn(message);
+            this.transcript.append(message);
           }
         }
         break;
@@ -700,78 +712,41 @@ class InteractiveMode {
       case "interruptSent":
         this.addBanner("interrupted");
         break;
-      case "controlApplied":
-        break;
       case "contextChanged":
-        // An open selector keeps its now-stale tree; the warning tells the
-        // attached user some other process changed the context under them.
-        this.treeSelector?.setWarning(
-          "context changed while the tree selector is open",
-        );
-        // agentState already holds the new leaf, so the redraw cuts the
-        // fresh path at the right occurrence.
-        this.resetTranscript();
-        this.renderHistory(this.replayedUuids ?? new Set());
+        this.rebuildTranscript();
         break;
       case "sdkMessage":
-        this.handleSdkMessage(event.message);
-        break;
-      case "sessionEntry":
-        // The session-only entries with transcript content of their own
-        // (today: the steered prompt); shared entries render from their
-        // sdkMessage twin. Appended at arrival, which trails the query
-        // stream: an entry may land after a later sdkMessage (rare; see
-        // docs/thoughts/transcript-order.md). Release dedupe as in
-        // handleSdkMessage: a buffered event whose entry the replayed path
-        // already rendered renders nothing.
         if (
-          queuedCommandPrompt(event.entry) !== undefined &&
-          (event.entry.uuid === undefined ||
-            !this.replayedUuids?.has(event.entry.uuid))
+          event.message.type !== "system" ||
+          event.message.subtype !== "commands_changed"
         ) {
-          this.transcript.appendEntry(event.entry);
+          this.transcript.append(event.message);
         }
         break;
-      // The rest of the session stream feeds the session model
-      // (handleEvent) and renders nothing itself.
-      case "sessionFileChanged":
-      case "scanComplete":
+      case "sessionEntry":
+        this.transcript.appendEntry(event.entry);
+        break;
       case "sessionAppended":
+        this.transcript.append(event.message);
+        break;
+      case "userMessageQueued":
+      case "controlApplied":
       case "trackerAnomaly":
         break;
     }
-    this.syncActivity();
-    this.ui.requestRender();
   }
 
-  private handleSdkMessage(message: SDKMessage): void {
-    // Release dedupe: a buffered event whose transcript entry already
-    // rendered from the replayed path advances agentState (handleEvent,
-    // before dispatch) but renders nothing — no second banner, no streaming
-    // component, no tool-result re-resolution.
-    const dedupeUuid = releaseDedupeUuid(message);
-    if (dedupeUuid !== undefined && this.replayedUuids?.has(dedupeUuid)) {
-      // A buffered banner event consumed here won't arrive again — release
-      // its one-shot entry.
-      this.replayedBoundaryUuids.delete(dedupeUuid);
+  /** A resolved id whose entry the model holds re-renders from the entry:
+   *  the canonical content (`stop_reason`, the persisted text). Nothing to
+   *  do while the transcript is not showing live events. */
+  private onResolved(sessionId: UUID, uuid: UUID): void {
+    if (this.liveEventsDuringReplay !== undefined || this.scanning) {
       return;
     }
-    if (message.type === "system") {
-      // The two attach-only system effects; everything else renders (or
-      // deliberately doesn't) in TranscriptRenderer.append.
-      if (message.subtype === "commands_changed") {
-        this.autocomplete.setCommands(message.commands);
-        return;
-      }
-      if (
-        message.subtype === "compact_boundary" &&
-        message.uuid !== undefined &&
-        this.replayedBoundaryUuids.delete(message.uuid)
-      ) {
-        return;
-      }
+    const entry = this.sessionModels.get(sessionId)?.entryFor(uuid);
+    if (entry !== undefined) {
+      this.transcript.replaceContent(uuid, entry);
     }
-    this.transcript.append(message);
   }
 
   private addBanner(text: string, color: ThemeColor = "dim"): void {
@@ -1094,17 +1069,23 @@ class InteractiveMode {
     if (this.treeSelector !== undefined) {
       return;
     }
-    // The rows come from the session model's display tree, rendered once at
+    const fileSessionModel = this.fileSessionModel();
+    if (fileSessionModel === undefined) {
+      this.addBanner("no session file to navigate yet", "warning");
+      this.ui.requestRender();
+      return;
+    }
+    // The rows come from the file session's display tree, rendered once at
     // open; picks resolve on the context tree (a picked row's parent — e.g.
     // of a post-compaction user row — is a relinked occurrence the display
-    // tree hides). The marker is the session model's leaf, not
-    // leaf(agentState): the state's is the query-side leaf, which names an
-    // entry not yet in the tree while the query leads the file.
+    // tree hides). The marker is the model's leaf, not leaf(agentState):
+    // the state's is the query-side leaf, which names an entry not yet in
+    // the tree while the query leads the file.
     const selector = new TreeSelectorComponent(
-      this.sessionModel.leaf,
-      this.sessionModel.displayTree,
-      this.sessionModel.byUuid,
-      (pick) => this.confirmTreePick(pick),
+      fileSessionModel.leaf,
+      fileSessionModel.displayTree,
+      fileSessionModel.byUuid,
+      (pick) => this.confirmTreePick(fileSessionModel, pick),
       () => this.closeTreeSelector(),
     );
     this.treeSelector = selector;
@@ -1113,8 +1094,12 @@ class InteractiveMode {
     this.ui.requestRender();
   }
 
-  /** The selector stays dumb; the busy gate and the request live here. */
-  private confirmTreePick(pick: TreeNodeRef): void {
+  /** The selector stays dumb; the busy gate and the request live here. The
+   *  pick resolves on the model the selector showed. */
+  private confirmTreePick(
+    fileSessionModel: SessionModel,
+    pick: TreeNodeRef,
+  ): void {
     if (!isIdle(this.agentState)) {
       this.hintText.setText(
         theme.fg("dim", "cannot navigate tree while assistant is busy"),
@@ -1123,8 +1108,8 @@ class InteractiveMode {
       return;
     }
     const action = resolveTreePick(
-      this.sessionModel.contextTree,
-      this.sessionModel.byUuid,
+      fileSessionModel.contextTree,
+      fileSessionModel.byUuid,
       pick,
     );
     this.closeTreeSelector();
