@@ -16,6 +16,23 @@
  * not belong to the message being finalized. `itemsByUuid` lets a resolved
  * entry re-render its frame's item in place (`replaceContent`).
  *
+ * The transcript is two item lists, resolved then pending
+ * (docs/specs/query-pending-list/phase-1.5-render-at-resolution.md). A
+ * query message renders into the pending part; an entry, which the caller
+ * delivers only once the merge resolved its id, into the resolved part.
+ * `resolve(uuid)` moves the pending prefix through the items keyed `uuid`
+ * — items of one `append` call share its uuid and are contiguous — and the
+ * unkeyed items after them (banners: query-side notices that resolve as
+ * soon as nothing unresolved precedes them; they join the resolved part
+ * directly when the pending part is empty), stopping at the next keyed
+ * item or open stream. An open stream's item is conceptually keyed by the
+ * uuid of the `assistant` frame that will finalize it, which nothing
+ * carries ahead of time (the `message_start` names only the API
+ * `message.id`, shared by every block of the response), so as a workaround
+ * it is always pending and blocks the move: a file-only entry resolving
+ * while it streams lands above it, in file order. The pending part is
+ * therefore empty or starts with a keyed item or an open stream's item.
+ *
  * A compaction summary's entry says so (`isCompactSummary`); its frame
  * carries no flag, so a boundary frame's `preserved_messages.anchor_uuid`
  * names the summary frame expected immediately after it (the anchor is
@@ -77,7 +94,18 @@ import {
 import { getMarkdownTheme, theme, type ThemeColor } from "./theme.ts";
 import type { RenderAssistant, RenderToolResult } from "./render-types.ts";
 
-interface AssistantItem {
+interface ItemKey {
+  /** The uuid the item rendered under (`renderedUuids`' key); undefined
+   *  for an unkeyed item (see file comment). Several items can share a
+   *  uuid: every message has one uuid and (assistant) one content block,
+   *  but `appendMessage` makes a top-level item per thing the user can
+   *  fold or expand — a tool_use message yields its assistant item plus a
+   *  tool item, a user message an item per view (text, command, output) —
+   *  so a uuid keys a contiguous run of one or more items. */
+  uuid: UUID | undefined;
+}
+
+interface AssistantItem extends ItemKey {
   kind: "assistant";
   component: AssistantMessageComponent;
   /** Undefined while streaming; streaming components never fold. */
@@ -86,7 +114,7 @@ interface AssistantItem {
   thinkingSeconds?: number;
 }
 
-interface ToolItem {
+interface ToolItem extends ItemKey {
   kind: "tool";
   name: string;
   component: ToolExecutionComponent;
@@ -94,12 +122,12 @@ interface ToolItem {
   result?: RenderToolResult;
 }
 
-interface PlainItem {
+interface PlainItem extends ItemKey {
   kind: "plain";
   component: Component;
 }
 
-interface CommandItem {
+interface CommandItem extends ItemKey {
   kind: "command";
   component: UserCommandComponent;
   /** The slash command (e.g. "/compact"); undefined for bash passthrough
@@ -109,6 +137,11 @@ interface CommandItem {
 }
 
 type TranscriptItem = AssistantItem | ToolItem | PlainItem | CommandItem;
+
+/** A stream's item before its `assistant` frame keyed it: the only unkeyed
+ *  assistant item there is (subagent streams are nested, not items). */
+const isOpenStream = (item: TranscriptItem): boolean =>
+  item.kind === "assistant" && item.uuid === undefined;
 
 interface StreamingComponent {
   component: AssistantMessageComponent;
@@ -136,9 +169,11 @@ function messageTimestampMs(message: SDKMessage): number | undefined {
 
 export class TranscriptRenderer {
   private readonly container: Container;
-  /** Ordered top-level transcript content; container children derive from
-   *  it on every rebuild. */
-  private readonly items: TranscriptItem[] = [];
+  /** Ordered top-level transcript content, resolved part then pending
+   *  part (see file comment); container children derive from both on
+   *  every rebuild. */
+  private readonly resolvedItems: TranscriptItem[] = [];
+  private readonly pendingItems: TranscriptItem[] = [];
   /** Live streaming component per parent_tool_use_id ("" = top level). */
   private readonly streaming = new Map<string, StreamingComponent>();
   /** ALL tool components (top-level and subagent-nested), for result
@@ -151,7 +186,11 @@ export class TranscriptRenderer {
    *  command-output attachment. A prompt's entry keys the run's last
    *  member; a steer's attachment keys its `source_uuid`. */
   private readonly renderedUuids = new Set<UUID>();
-  /** Replacement lookup for `replaceContent`. */
+  /** Replacement lookup for `replaceContent`.
+   *  TODO: a lookup is always of a pending item now (an open stream stays
+   *  pending; file comment), so a scan of the pending part may make this
+   *  map (which grows for the conversation's lifetime) unnecessary —
+   *  pending phase 3's attachment lookup by `source_uuid`. */
   private readonly itemsByUuid = new Map<UUID, AssistantItem>();
   /** For headerArg path abbreviation (per-tool views). */
   private cwd: string | undefined;
@@ -178,9 +217,15 @@ export class TranscriptRenderer {
    * output), then resolves tool results (unknown toolCallId → dropped;
    * parent_tool_use_id-routed content renders nested under the owning
    * component). The CLI never echoes a prompt; the daemon's dequeue echo
-   * is that message.
+   * is that message. Query-side: the items land in the pending part.
    */
   append(message: SDKMessage): void {
+    this.appendMessage(message, this.pendingItems);
+  }
+
+  /** `append` with the part its keyed items join: the pending part for a
+   *  query message, the resolved part for an entry's (`appendEntry`). */
+  private appendMessage(message: SDKMessage, part: TranscriptItem[]): void {
     switch (message.type) {
       case "stream_event": {
         const key = message.parent_tool_use_id ?? "";
@@ -189,6 +234,8 @@ export class TranscriptRenderer {
           const item = this.attachAssistant(
             component,
             message.parent_tool_use_id,
+            undefined, // uuid
+            part,
           );
           this.streaming.set(key, {
             component,
@@ -213,6 +260,12 @@ export class TranscriptRenderer {
         // after B's message_start opened the stream at this key.
         const ownStream =
           live?.apiMessageId === message.message.id ? live : undefined;
+        // DEFERRED (docs/specs/query-pending-list/phase-1.5-render-at-resolution.md,
+        // IMPLEMENTATION IDEAS): the CLI emits one `assistant` frame per
+        // content block of a response, interleaved with the partials, and
+        // the stream is deleted below on the first of them; the later
+        // blocks lose their partials and render whole on arrival. The
+        // response's real end is `message_stop`.
         if (
           message.parent_tool_use_id === null &&
           this.renderedUuids.has(message.uuid)
@@ -232,16 +285,28 @@ export class TranscriptRenderer {
         if (message.parent_tool_use_id === null) {
           this.stampEntry(message);
         }
+        // A top-level item is keyed by the message; a stream's item was
+        // unkeyed until now.
+        const uuid =
+          message.parent_tool_use_id === null ? message.uuid : undefined;
         let item: AssistantItem | undefined;
         if (ownStream !== undefined) {
           ownStream.component.updateContent(rendered);
           item = ownStream.item;
+          if (item !== undefined) {
+            item.uuid = uuid;
+          }
           this.streaming.delete(key);
         } else {
           // No partials of this message seen (subscribed mid-message, or the
           // entry outran its stream): render whole.
           const component = this.newAssistantComponent(rendered);
-          item = this.attachAssistant(component, message.parent_tool_use_id);
+          item = this.attachAssistant(
+            component,
+            message.parent_tool_use_id,
+            uuid,
+            part,
+          );
         }
         if (item !== undefined) {
           item.rendered = rendered;
@@ -266,12 +331,13 @@ export class TranscriptRenderer {
             if (parent === undefined) {
               const item: ToolItem = {
                 kind: "tool",
+                uuid,
                 name: block.name,
                 component: tool,
                 view: toolViewFor(block.name),
               };
               this.toolItems.set(block.id, item);
-              this.items.push(item);
+              this.partFor(item, part).push(item);
             } else {
               parent.addSubagentChild(tool);
             }
@@ -289,14 +355,18 @@ export class TranscriptRenderer {
             message.uuid !== undefined &&
             message.uuid === expectedSummaryUuid
           ) {
-            this.renderCompactSummary(message.uuid, message.message.content);
+            this.renderCompactSummary(
+              message.message.content,
+              message.uuid,
+              part,
+            );
           } else if ((message as { isReplay?: boolean }).isReplay !== true) {
             // The CLI writes `isReplay: false` on frames the SDK type
             // declares without the field.
             const views = userTurnViews(message);
             if (views.length > 0 && this.firstRender(message.uuid)) {
               for (const view of views) {
-                this.appendUserView(view);
+                this.appendUserView(view, message.uuid, part);
               }
             }
           }
@@ -315,7 +385,8 @@ export class TranscriptRenderer {
       }
       case "conversation_reset":
         // The old conversation is no longer this surface's transcript.
-        this.items.length = 0;
+        this.resolvedItems.length = 0;
+        this.pendingItems.length = 0;
         this.streaming.clear();
         this.toolComponents.clear();
         this.toolItems.clear();
@@ -334,7 +405,7 @@ export class TranscriptRenderer {
           // Steered `!` output: the CLI's own rendering (embedded ANSI
           // passes through the ⤷ block), attached to the preceding command.
           if (this.firstRender(message.uuid)) {
-            this.attachCommandOutput(message.content);
+            this.attachCommandOutput(message.content, message.uuid, part);
           }
         } else if (message.subtype === "compact_boundary") {
           const anchorUuid =
@@ -342,11 +413,15 @@ export class TranscriptRenderer {
           this.expectedSummaryUuid =
             anchorUuid === message.uuid ? undefined : anchorUuid;
           if (this.firstRender(message.uuid)) {
-            this.addBanner(
-              compactBanner(
-                message.compact_metadata.pre_tokens,
-                message.compact_metadata.post_tokens,
+            this.addPlain(
+              bannerText(
+                compactBanner(
+                  message.compact_metadata.pre_tokens,
+                  message.compact_metadata.post_tokens,
+                ),
               ),
+              message.uuid,
+              part,
             );
           }
         } else if (message.subtype === "notification") {
@@ -395,41 +470,54 @@ export class TranscriptRenderer {
     }
   }
 
-  private appendUserView(view: UserTurnView): void {
+  private appendUserView(
+    view: UserTurnView,
+    uuid: UUID | undefined,
+    part: TranscriptItem[],
+  ): void {
     switch (view.kind) {
       case "prompt":
       case "contextTag":
-        this.addPlain(new UserMessageComponent(view.text));
+        this.addPlain(new UserMessageComponent(view.text), uuid, part);
         break;
       case "slashCommand":
         this.addCommand(
           view.args === "" ? view.command : `${view.command} ${view.args}`,
           view.command,
+          uuid,
+          part,
         );
         break;
       case "bashInput":
-        this.addCommand(`! ${view.command}`, undefined);
+        this.addCommand(`! ${view.command}`, undefined, uuid, part);
         break;
       case "commandOutput":
-        this.attachCommandOutput(view.text);
+        this.attachCommandOutput(view.text, uuid, part);
         break;
       case "bashOutput": {
         const parts = [view.stdout, view.stderr].filter(
           (part) => part.trim() !== "",
         );
         if (parts.length > 0) {
-          this.attachCommandOutput(parts.join("\n"));
+          this.attachCommandOutput(parts.join("\n"), uuid, part);
         }
         break;
       }
     }
   }
 
-  private addCommand(line: string, command: string | undefined): void {
+  private addCommand(
+    line: string,
+    command: string | undefined,
+    uuid: UUID | undefined,
+    part: TranscriptItem[],
+  ): void {
     const component = new UserCommandComponent(line);
     component.setExpanded(this.toolsExpanded);
-    this.items.push({ kind: "command", component, command, hasOutput: false });
-    this.rebuild();
+    this.addItem(
+      { kind: "command", uuid, component, command, hasOutput: false },
+      part,
+    );
   }
 
   /** Command output renders under the immediately preceding command block;
@@ -437,8 +525,12 @@ export class TranscriptRenderer {
    *  /compact's transient stdout is hidden — claude does (observed on the
    *  failed-compact capture), and the success path renders the boundary
    *  banner + full summary instead. */
-  private attachCommandOutput(text: string): void {
-    const last = this.items.at(-1);
+  private attachCommandOutput(
+    text: string,
+    uuid: UUID | undefined,
+    part: TranscriptItem[],
+  ): void {
+    const last = this.pendingItems.at(-1) ?? this.resolvedItems.at(-1);
     if (last?.kind === "command" && !last.hasOutput) {
       if (last.command === "/compact") {
         return;
@@ -451,22 +543,23 @@ export class TranscriptRenderer {
     const component = new UserCommandComponent(undefined);
     component.setOutput(text);
     component.setExpanded(this.toolsExpanded);
-    this.items.push({
-      kind: "command",
-      component,
-      command: undefined,
-      hasOutput: true,
-    });
-    this.rebuild();
+    this.addItem(
+      { kind: "command", uuid, component, command: undefined, hasOutput: true },
+      part,
+    );
   }
 
   /** The summary's user message carries its text as a plain string. */
-  private renderCompactSummary(uuid: UUID, content: unknown): void {
+  private renderCompactSummary(
+    content: unknown,
+    uuid: UUID,
+    part: TranscriptItem[],
+  ): void {
     if (typeof content === "string" && this.firstRender(uuid)) {
       const component = new CompactSummaryComponent(content);
       component.setExpanded(this.compactSummaryExpanded);
       this.compactSummaries.push(component);
-      this.addPlain(component);
+      this.addPlain(component, uuid, part);
     }
   }
 
@@ -480,15 +573,20 @@ export class TranscriptRenderer {
    * Session-entry metadata that entryToSessionMessage drops (cwd) is read
    * from the entry here. A SessionMessage carries every field its
    * SDKMessage variant requires, so the cast is a narrowing of `message:
-   * unknown`, not a fabrication.
+   * unknown`, not a fabrication. File-side: the items land in the resolved
+   * part, so the caller delivers an entry only once its id resolved
+   * (`resolve`, the history rebuild).
    */
   appendEntry(entry: SessionEntry): void {
+    const part = this.resolvedItems;
     if (entry.subtype === "compact_boundary") {
       const metadata = entry.compactMetadata as
         { preTokens?: unknown; postTokens?: unknown } | undefined;
       if (this.firstRender(entry.uuid)) {
-        this.addBanner(
-          compactBanner(metadata?.preTokens, metadata?.postTokens),
+        this.addPlain(
+          bannerText(compactBanner(metadata?.preTokens, metadata?.postTokens)),
+          entry.uuid,
+          part,
         );
       }
       return;
@@ -506,7 +604,7 @@ export class TranscriptRenderer {
     ) {
       if (this.firstRender(entry.uuid)) {
         for (const view of userTurnViewsFromText(entry.content)) {
-          this.appendUserView(view);
+          this.appendUserView(view, entry.uuid, part);
         }
       }
       return;
@@ -515,17 +613,19 @@ export class TranscriptRenderer {
     // it was, keyed by the prompt's own uuid (`source_uuid`).
     const steeredPrompt = queuedCommandPrompt(entry);
     if (steeredPrompt !== undefined) {
-      if (this.firstRender(queuedCommandSourceUuid(entry) ?? entry.uuid)) {
+      const key = queuedCommandSourceUuid(entry) ?? entry.uuid;
+      if (this.firstRender(key)) {
         for (const view of userTurnViewsFromText(steeredPrompt)) {
-          this.appendUserView(view);
+          this.appendUserView(view, key, part);
         }
       }
       return;
     }
     if (entry.isCompactSummary === true && entry.uuid !== undefined) {
       this.renderCompactSummary(
-        entry.uuid,
         (entry.message as { content?: unknown } | undefined)?.content,
+        entry.uuid,
+        part,
       );
       return;
     }
@@ -538,11 +638,48 @@ export class TranscriptRenderer {
       const views = userTurnViews(sdkMessage);
       if (views.length > 0 && this.firstRender(sdkMessage.uuid)) {
         for (const view of views) {
-          this.appendUserView(view);
+          this.appendUserView(view, sdkMessage.uuid, part);
         }
       }
     }
-    this.append(sdkMessage);
+    this.appendMessage(sdkMessage, part);
+  }
+
+  /**
+   * The merge resolved `uuid`. The pending prefix through the last item
+   * keyed `uuid` (its run; `ItemKey.uuid`), plus the unkeyed items after
+   * it up to the next keyed item or open stream, joins the resolved part.
+   * `entry` then re-renders the one item whose content differs between
+   * frame and entry, the assistant item (`replaceContent`; a tool item's
+   * call and result are the same on both sides); with no such item it
+   * runs through `appendEntry`, which renders what the frame did not and
+   * applies the entry's tool results.
+   */
+  resolve(uuid: UUID, entry: SessionEntry | undefined): void {
+    const last = this.pendingItems.findLastIndex((item) => item.uuid === uuid);
+    if (last !== -1) {
+      let end = last + 1;
+      while (
+        end < this.pendingItems.length &&
+        this.pendingItems[end]!.uuid === undefined &&
+        !isOpenStream(this.pendingItems[end]!)
+      ) {
+        end += 1;
+      }
+      this.resolvedItems.push(...this.pendingItems.splice(0, end));
+    }
+    if (entry !== undefined) {
+      // Branch on an assistant item keyed `uuid`, not on `renderedUuids`:
+      // a user frame's entry still carries the tool results only the file
+      // has.
+      if (this.itemsByUuid.has(uuid)) {
+        this.replaceContent(uuid, entry);
+      } else {
+        this.appendEntry(entry);
+      }
+    }
+    // No rebuild for the move alone: the container is the concatenation
+    // of the two parts, which the move leaves unchanged.
   }
 
   /** Re-render the item keyed under `uuid` from its entry (an assistant
@@ -583,9 +720,11 @@ export class TranscriptRenderer {
       this.assistantComponents.splice(componentIndex, 1);
     }
     if (stream.item !== undefined) {
-      const itemIndex = this.items.indexOf(stream.item);
-      if (itemIndex !== -1) {
-        this.items.splice(itemIndex, 1);
+      for (const part of [this.resolvedItems, this.pendingItems]) {
+        const itemIndex = part.indexOf(stream.item);
+        if (itemIndex !== -1) {
+          part.splice(itemIndex, 1);
+        }
       }
     }
     this.rebuild();
@@ -602,7 +741,7 @@ export class TranscriptRenderer {
     for (const tool of this.toolComponents.values()) {
       tool.setExpanded(expanded);
     }
-    for (const item of this.items) {
+    for (const item of [...this.resolvedItems, ...this.pendingItems]) {
       if (item.kind === "command") {
         item.component.setExpanded(expanded);
       }
@@ -627,14 +766,39 @@ export class TranscriptRenderer {
   }
 
   /** A dim one-line notice in transcript order (also the caller's banner
-   *  surface, so banners survive rebuilds). */
+   *  surface, so banners survive rebuilds). Unkeyed: it resolves with
+   *  whatever precedes it. */
   addBanner(text: string, color: ThemeColor = "dim"): void {
-    this.addPlain(new Text(theme.fg(color, text), 1, 1));
+    this.addPlain(bannerText(text, color), undefined, this.pendingItems);
   }
 
-  private addPlain(component: Component): void {
-    this.items.push({ kind: "plain", component });
+  private addPlain(
+    component: Component,
+    uuid: UUID | undefined,
+    part: TranscriptItem[],
+  ): void {
+    this.addItem({ kind: "plain", uuid, component }, part);
+  }
+
+  private addItem(item: TranscriptItem, part: TranscriptItem[]): void {
+    this.partFor(item, part).push(item);
     this.rebuild();
+  }
+
+  /** Where a new item goes: a keyed item to `part`; an open stream's item
+   *  to the pending part; any other unkeyed one behind the pending items
+   *  if there are any, else straight into the resolved part (see file
+   *  comment). */
+  private partFor(
+    item: TranscriptItem,
+    part: TranscriptItem[],
+  ): TranscriptItem[] {
+    if (item.uuid !== undefined) {
+      return part;
+    }
+    return this.pendingItems.length > 0 || isOpenStream(item)
+      ? this.pendingItems
+      : this.resolvedItems;
   }
 
   /** Thinking-duration rule: this entry's timestamp minus the previous
@@ -673,15 +837,16 @@ export class TranscriptRenderer {
   private attachAssistant(
     component: AssistantMessageComponent,
     parentToolUseId: string | null,
+    uuid: UUID | undefined,
+    part: TranscriptItem[],
   ): AssistantItem | undefined {
     const parent = this.parentTool(parentToolUseId);
     if (parent !== undefined) {
       parent.addSubagentChild(component);
       return undefined;
     }
-    const item: AssistantItem = { kind: "assistant", component };
-    this.items.push(item);
-    this.rebuild();
+    const item: AssistantItem = { kind: "assistant", uuid, component };
+    this.addItem(item, part);
     return item;
   }
 
@@ -708,16 +873,18 @@ export class TranscriptRenderer {
         run = [];
       }
     };
-    for (const item of this.items) {
-      if (folding && isFoldable(item)) {
-        run.push(item);
-        continue;
+    for (const part of [this.resolvedItems, this.pendingItems]) {
+      for (const item of part) {
+        if (folding && isFoldable(item)) {
+          run.push(item);
+          continue;
+        }
+        flush();
+        if (item.kind === "assistant") {
+          this.applyThinkingLabel(item);
+        }
+        this.container.addChild(item.component);
       }
-      flush();
-      if (item.kind === "assistant") {
-        this.applyThinkingLabel(item);
-      }
-      this.container.addChild(item.component);
     }
     flush();
   }
@@ -768,6 +935,10 @@ class CompactSummaryComponent implements Component {
       width,
     );
   }
+}
+
+function bannerText(text: string, color: ThemeColor = "dim"): Text {
+  return new Text(theme.fg(color, text), 1, 1);
 }
 
 /** "context compacted (156k → 12k tokens)". Unknown-typed so replayed

@@ -25,6 +25,24 @@ import {
 import type { OnInvalid } from "../core/tree/loader.ts";
 import { pathToLeaf, type TreeNodeRef } from "../core/tree/nodes.ts";
 
+/** An entry awaiting its resolution; `contextChangedAfter` when a
+ *  `contextChanged` followed it in the file stream — the daemon emits one
+ *  right after the entry that completed a boundary (the boundary itself,
+ *  or the anchor a deferred boundary waited for), so the rebuild it asks
+ *  for belongs to that entry's resolution. */
+interface QueuedEntry {
+  entry: SessionEntry;
+  contextChangedAfter: boolean;
+}
+
+/** What `resolve` found for an id: the entry that renders it (`entryFor`,
+ *  undefined for a query-only id) and whether pushing the queue prefix
+ *  crossed a `contextChanged`. */
+export interface Resolution {
+  entry: SessionEntry | undefined;
+  contextChanged: boolean;
+}
+
 interface RollingTrees {
   full: SessionTreeBuilder;
   context: ContextTreeBuilder;
@@ -51,10 +69,16 @@ export class SessionModel {
   readonly byUuid = new Map<UUID, SessionEntry>();
   /** The query pending list in query order: messages the query stream
    *  reported whose ids the merge has not resolved; a rebuild replays
-   *  them through `append` exactly as they rendered live. */
-  readonly queryMessages = new Map<UUID, SDKMessage>();
+   *  them through `append` exactly as they rendered live. An undefined
+   *  message is an id pending in the seed state at attach (mid-turn:
+   *  stream events, a result) whose frame this process never saw. */
+  readonly queryMessages = new Map<UUID, SDKMessage | undefined>();
   /** A steer's `queued_command` attachment under the steer's own uuid. */
   private readonly attachmentBySource = new Map<UUID, SessionEntry>();
+  /** Uuid-bearing entries in file order that the trees do not hold yet:
+   *  the file-side counterpart of `queryMessages`. An entry joins the
+   *  trees when the merge resolves its id (`resolve`). */
+  private readonly queuedEntries: QueuedEntry[] = [];
   private readonly onInvalid: OnInvalid;
   private trees: RollingTrees;
 
@@ -77,31 +101,71 @@ export class SessionModel {
     return this.contextTree.leaf;
   }
 
-  pushEntry(entry: SessionEntry): void {
-    if (entry.uuid !== undefined && !this.byUuid.has(entry.uuid)) {
+  /** Retain the entry; a uuid-bearing one waits in `queuedEntries` for its
+   *  resolution (uuid-less entries never reach the trees). */
+  enqueueEntry(entry: SessionEntry): void {
+    if (entry.uuid === undefined) {
+      return;
+    }
+    if (!this.byUuid.has(entry.uuid)) {
       this.byUuid.set(entry.uuid, entry);
     }
     const sourceUuid = queuedCommandSourceUuid(entry);
     if (sourceUuid !== undefined && !this.attachmentBySource.has(sourceUuid)) {
       this.attachmentBySource.set(sourceUuid, entry);
     }
-    this.trees.full.push(entry);
-    this.trees.context.push();
-    this.trees.display.push();
+    this.queuedEntries.push({ entry, contextChangedAfter: false });
   }
 
-  recordPending(uuid: UUID, message: SDKMessage): void {
+  /** A `contextChanged` arrived: it belongs to the queue's tail, whose
+   *  resolution will report it. True when nothing is queued — the entry
+   *  it followed resolved already, so it is due now. */
+  enqueueContextChange(): boolean {
+    const tail = this.queuedEntries.at(-1);
+    if (tail === undefined) {
+      return true;
+    }
+    tail.contextChangedAfter = true;
+    return false;
+  }
+
+  recordPending(uuid: UUID, message: SDKMessage | undefined): void {
     this.queryMessages.set(uuid, message);
   }
 
-  retire(uuid: UUID): void {
-    this.queryMessages.delete(uuid);
+  /** The merge resolved `uuid`: retire it from the pending list and push
+   *  the queued prefix through its entry into the trees. Resolution order
+   *  is file order among session ids, so a prefix longer than the head is
+   *  a merge anomaly, and an id that is neither queued, pending nor
+   *  retained is unknown; both are reported, the TUI keeps running. */
+  resolve(uuid: UUID): Resolution {
+    const wasPending = this.queryMessages.delete(uuid);
+    const index = this.queuedEntries.findIndex(
+      (queued) => queued.entry.uuid === uuid,
+    );
+    let contextChanged = false;
+    if (index !== -1) {
+      if (index > 0) {
+        this.onInvalid(`${uuid} resolved behind ${index} queued entries`);
+      }
+      for (const queued of this.queuedEntries.splice(0, index + 1)) {
+        this.trees.full.push(queued.entry);
+        this.trees.context.push();
+        this.trees.display.push();
+        contextChanged ||= queued.contextChangedAfter;
+      }
+    } else if (!wasPending && this.entryFor(uuid) === undefined) {
+      this.onInvalid(`${uuid} resolved but never observed`);
+    }
+    return { entry: this.entryFor(uuid), contextChanged };
   }
 
-  /** The file was replaced under this id: the trees restart from nothing,
-   *  the payloads stay (the new tracker re-emits every uuid). */
+  /** The file was replaced under this id: the trees and the queue (its
+   *  contextChanged flags with it) restart from nothing, the payloads stay
+   *  (the new tracker re-emits every uuid). */
   resetTrees(): void {
     this.trees = rollingTrees(this.onInvalid, this.byUuid);
+    this.queuedEntries.length = 0;
   }
 
   /** The entry that renders `uuid`: its own, else the steer attachment

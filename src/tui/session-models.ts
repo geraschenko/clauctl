@@ -13,23 +13,27 @@ import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import type { AgentState } from "../core/agent-state/agent-state.ts";
 import { type AgentEvent, sdkMessageOf } from "../core/protocol.ts";
 import type { SessionEntry } from "../core/session/file.ts";
+import { pending } from "../core/stream-merge.ts";
 import type { OnInvalid } from "../core/tree/loader.ts";
 import { SessionModel } from "./session-model.ts";
 
-/** A step resolved `uuid` on `sessionId`; fires after the entry that
- *  resolved it was pushed, so `entryFor(uuid)` is the canonical rendering
- *  when the session model has it. */
-export type OnResolved = (sessionId: UUID, uuid: UUID) => void;
+/** A step resolved `uuid` on `sessionId`, reported in resolution order
+ *  after the session model pushed its entry into the trees; `entry` is
+ *  what renders `uuid` (`entryFor`), undefined for a query-only id. */
+export type OnResolved = (
+  sessionId: UUID,
+  uuid: UUID,
+  entry: SessionEntry | undefined,
+) => void;
 
-type SessionStreamEvent = Extract<
-  AgentEvent,
-  { kind: "sessionEntry" | "sessionFileChanged" }
->;
+/** A `contextChanged` on `sessionId` resolved: the entry it followed is in
+ *  the trees (or already was when it arrived), so the path is current. */
+export type OnContextChanged = (sessionId: UUID) => void;
 
 interface HeldEvent {
   /** Socket position, the coordinate of `applySnapshot`'s `eventsBefore`. */
   position: number;
-  event: SessionStreamEvent;
+  event: AgentEvent;
   state: AgentState;
 }
 
@@ -37,54 +41,63 @@ export class SessionModels {
   private readonly sessionModels = new Map<UUID, SessionModel>();
   private readonly onInvalid: OnInvalid;
   private readonly onResolved: OnResolved;
+  private readonly onContextChanged: OnContextChanged;
   private eventsObserved = 0;
-  /** Session-stream events observed before the snapshot response, held
-   *  until the response says where its cut falls; undefined once the
-   *  snapshot is applied. */
+  /** Events observed before the snapshot response, held until the
+   *  response says where its cut falls; undefined once the snapshot is
+   *  applied. */
   private heldForSnapshot: HeldEvent[] | undefined = [];
   /** The state of the last observed event: what `applySnapshot` prunes
    *  against, since the snapshot and the held events predate it. */
   private latestState: AgentState | undefined;
 
-  constructor(onInvalid: OnInvalid, onResolved: OnResolved) {
+  constructor(
+    onInvalid: OnInvalid,
+    onResolved: OnResolved,
+    onContextChanged: OnContextChanged,
+  ) {
     this.onInvalid = onInvalid;
     this.onResolved = onResolved;
+    this.onContextChanged = onContextChanged;
   }
 
   get(sessionId: UUID): SessionModel | undefined {
     return this.sessionModels.get(sessionId);
   }
 
+  /** The seed state's query-pending ids (attaching mid-turn), recorded
+   *  without their frames so their resolutions are known ids, not
+   *  "never observed". */
+  seedPending(state: AgentState): void {
+    for (const [sessionId, session] of Object.entries(state.sessions)) {
+      for (const id of pending(session.merge, "query")) {
+        this.sessionModelFor(sessionId as UUID).recordPending(id, undefined);
+      }
+    }
+  }
+
   /** Every event of the subscription in socket order, with the state it
-   *  folded to. Entries and file switches feed the trees (held until the
-   *  snapshot, see `applySnapshot`); the query-stream message the event
-   *  carries joins the pending list of its session iff the fold observed
-   *  its id on `query`; the step's resolutions retire and fire
-   *  `onResolved`; session models the state dropped go with it. */
+   *  folded to. The query-stream message the event carries joins the
+   *  pending list of its session iff the fold observed its id on `query`;
+   *  the event's tree effects (`applyEntry`, `applyResolutions`) run now,
+   *  or wait for the snapshot; session models the state dropped go with
+   *  it. */
   observe(event: AgentEvent, state: AgentState): void {
     this.eventsObserved += 1;
     this.latestState = state;
-    if (event.kind === "sessionEntry" || event.kind === "sessionFileChanged") {
-      if (this.heldForSnapshot !== undefined) {
-        this.heldForSnapshot.push({
-          position: this.eventsObserved,
-          event,
-          state,
-        });
-      } else {
-        this.applySessionStream(event, state);
-      }
-    }
     const message = sdkMessageOf(event);
     if (message !== undefined) {
       this.recordPending(message, state);
     }
-    for (const [sessionId, session] of Object.entries(state.sessions)) {
-      const sessionModel = this.sessionModels.get(sessionId as UUID);
-      for (const node of session.resolved) {
-        sessionModel?.retire(node.id);
-        this.onResolved(sessionId as UUID, node.id);
-      }
+    if (this.heldForSnapshot !== undefined) {
+      this.heldForSnapshot.push({
+        position: this.eventsObserved,
+        event,
+        state,
+      });
+    } else {
+      this.applyEntry(event, state);
+      this.applyResolutions(state);
     }
     this.prune(state);
   }
@@ -93,12 +106,19 @@ export class SessionModels {
    * The `get-entries {payload: "full"}` response into the session model of
    * `stateAtCut.fileSessionId` — `stateAtCut` being the state the daemon
    * answered against: the seed folded through the first `eventsBefore`
-   * events. Held events after the cut extend the snapshot with their own
-   * states (only their tree effects: pending-list bookkeeping ran when they
-   * were observed); session models they or the snapshot revive for sessions the
-   * latest state has since dropped are pruned again. A failed fetch applies
-   * an empty snapshot at position 0, so the trees still grow from every
-   * event received.
+   * events. The snapshot is the file prefix, and file order is resolution
+   * order among session ids, so each entry is enqueued and resolved in
+   * turn (`settled` rules out query-pending ids, not session-pending ones:
+   * a tail entry whose echo has not arrived is pushed now, and its later
+   * resolution finds it retained with nothing queued). Then the held
+   * events replay their tree effects with their own states — resolutions
+   * for all of them, since ids recorded before the cut must still retire;
+   * entries, context changes and file switches only after the cut, the
+   * snapshot (and the attach render) holds the rest. Session models they
+   * or the snapshot revive for sessions the
+   * latest state has since dropped are pruned again. A failed fetch
+   * applies an empty snapshot at position 0, so the trees still grow from
+   * every event received.
    */
   applySnapshot(
     entries: readonly SessionEntry[],
@@ -108,15 +128,19 @@ export class SessionModels {
     if (stateAtCut.fileSessionId !== undefined) {
       const sessionModel = this.sessionModelFor(stateAtCut.fileSessionId);
       for (const entry of entries) {
-        sessionModel.pushEntry(entry);
+        sessionModel.enqueueEntry(entry);
+        if (entry.uuid !== undefined) {
+          sessionModel.resolve(entry.uuid);
+        }
       }
     }
     const held = this.heldForSnapshot ?? [];
     this.heldForSnapshot = undefined;
     for (const { position, event, state } of held) {
       if (position > eventsBefore) {
-        this.applySessionStream(event, state);
+        this.applyEntry(event, state);
       }
+      this.applyResolutions(state);
     }
     this.prune(this.latestState ?? stateAtCut);
   }
@@ -129,36 +153,68 @@ export class SessionModels {
     }
   }
 
-  private applySessionStream(
-    event: SessionStreamEvent,
-    state: AgentState,
-  ): void {
+  /** The event's file-side effect on the session model of
+   *  `state.fileSessionId`: its entry enqueued, its `contextChanged`
+   *  queued behind the entry it followed (reported at once when that
+   *  entry resolved already); a file switch resets that session's
+   *  trees. */
+  private applyEntry(event: AgentEvent, state: AgentState): void {
     if (event.kind === "sessionFileChanged") {
       this.sessionModelFor(event.sessionId).resetTrees();
       return;
     }
-    if (state.fileSessionId !== undefined) {
-      this.sessionModelFor(state.fileSessionId).pushEntry(event.entry);
+    if (state.fileSessionId === undefined) {
+      return;
+    }
+    if (event.kind === "sessionEntry") {
+      this.sessionModelFor(state.fileSessionId).enqueueEntry(event.entry);
+    } else if (
+      event.kind === "contextChanged" &&
+      this.sessionModelFor(state.fileSessionId).enqueueContextChange()
+    ) {
+      this.onContextChanged(state.fileSessionId);
     }
   }
 
-  /** The store rule: recorded iff the folded merge saw the id on `query`
-   *  (an entry-first id resolved in the same step has no node; a failed
-   *  observation leaves an existing session-only node untouched). Types
-   *  the file never carries are recorded too: they resolve with their
-   *  `query` predecessors, so the list is the query tail past the last
+  /** The step's resolutions, per session in order, each pushing through
+   *  the session model and reported; a `contextChanged` the push crossed
+   *  is reported after its entry. */
+  private applyResolutions(state: AgentState): void {
+    for (const [sessionId, session] of Object.entries(state.sessions)) {
+      const sessionModel = this.sessionModels.get(sessionId as UUID);
+      for (const node of session.resolved) {
+        const resolution = sessionModel?.resolve(node.id);
+        this.onResolved(sessionId as UUID, node.id, resolution?.entry);
+        if (resolution?.contextChanged === true) {
+          this.onContextChanged(sessionId as UUID);
+        }
+      }
+    }
+  }
+
+  /** The store rule: recorded iff the fold observed the id on `query` —
+   *  its merge node has `query`, or the step resolved it with `query`
+   *  (the merge forgets resolved nodes; a failed observation leaves an
+   *  existing session-only node untouched). An id resolved in its own
+   *  step is retired by `applyResolutions` right after. Types the file
+   *  never carries are recorded too: they resolve with their `query`
+   *  predecessors, so the list is the query tail past the last
    *  file-settled message, and a rebuild replays it through `append`
    *  exactly as the live stream did. */
   private recordPending(message: SDKMessage, state: AgentState): void {
     if (message.uuid === undefined) {
       return;
     }
+    const uuid = message.uuid as UUID;
     const sessionId = message.session_id as UUID;
-    const node = state.sessions[sessionId]?.merge.nodes[message.uuid];
-    if (node === undefined || !node.seenOn.includes("query")) {
+    const session = state.sessions[sessionId];
+    const seenOn =
+      session?.merge.nodes[uuid]?.seenOn ??
+      session?.resolved.find((node) => node.id === uuid)?.seenOn;
+    if (seenOn === undefined || !seenOn.includes("query")) {
       return;
     }
-    this.sessionModelFor(sessionId).recordPending(message.uuid, message);
+    this.sessionModelFor(sessionId).recordPending(uuid, message);
   }
 
   private sessionModelFor(sessionId: UUID): SessionModel {

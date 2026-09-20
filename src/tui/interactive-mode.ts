@@ -39,6 +39,7 @@ import { randomUUID, type UUID } from "node:crypto";
 import { readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { SessionEntry } from "../core/session/file.ts";
 import type { TreeNodeRef } from "../core/tree/nodes.ts";
 import type {
   AgentEvent,
@@ -408,8 +409,10 @@ class InteractiveMode {
     this.transcript = this.freshTranscript();
     this.sessionModels = new SessionModels(
       (message) => this.addBanner(message),
-      (sessionId, uuid) => this.onResolved(sessionId, uuid),
+      (sessionId, uuid, entry) => this.onResolved(sessionId, uuid, entry),
+      (sessionId) => this.onContextChanged(sessionId),
     );
+    this.sessionModels.seedPending(seedState);
     this.done = new Promise((resolve) => {
       this.finish = resolve;
     });
@@ -557,8 +560,8 @@ class InteractiveMode {
     return transcript;
   }
 
-  /** The rebuild for `contextChanged` and `scanComplete`; attach renders
-   *  the history into the fresh transcript directly. */
+  /** The rebuild for a resolved `contextChanged` and `scanComplete`; attach
+   *  renders the history into the fresh transcript directly. */
   private rebuildTranscript(): void {
     this.resetTranscript();
     this.renderHistory();
@@ -566,12 +569,9 @@ class InteractiveMode {
 
   /**
    * The one history path (attach, `contextChanged`, `scanComplete`), all
-   * of it the query session's: its display path up to the last resolved
-   * id, then its pending query messages, then delivered-but-unconfirmed
-   * user prompts. Path entries the file holds but the merge has not
-   * resolved are left out: they and the pending messages cannot be
-   * interleaved, which is the whole point of merging the streams — they
-   * render once the merge places them.
+   * of it the query session's: its display path — the trees hold resolved
+   * entries only, so the whole path is the resolved part — then its
+   * pending query messages, then delivered-but-unconfirmed user prompts.
    */
   private renderHistory(): void {
     const { querySessionId } = this.agentState;
@@ -580,17 +580,15 @@ class InteractiveMode {
         ? undefined
         : this.sessionModels.get(querySessionId);
     if (querySessionModel !== undefined) {
-      // The merge holds exactly the unresolved ids (stream-merge.ts).
-      const unresolved = this.agentState.sessions[querySessionId!]!.merge.nodes;
       for (const ref of querySessionModel.pathToLeaf()) {
-        if (!Object.hasOwn(unresolved, ref.uuid)) {
-          // pathToLeaf validated every path uuid against byUuid, so the
-          // lookup cannot miss.
-          this.transcript.appendEntry(querySessionModel.byUuid.get(ref.uuid)!);
-        }
+        // pathToLeaf validated every path uuid against byUuid, so the
+        // lookup cannot miss.
+        this.transcript.appendEntry(querySessionModel.byUuid.get(ref.uuid)!);
       }
       for (const message of querySessionModel.queryMessages.values()) {
-        this.transcript.append(message);
+        if (message !== undefined) {
+          this.transcript.append(message);
+        }
       }
     }
     for (const message of this.agentState.deliveredMessages) {
@@ -676,10 +674,12 @@ class InteractiveMode {
     this.syncActivity();
   }
 
-  /** The event's transcript effect. Live events render as they arrive
-   *  (the render-once guard in the transcript keeps a message rendered
-   *  from one stream from rendering again from the other); a scan window
-   *  renders nothing until its rebuild. */
+  /** The event's transcript effect: query-side content, into the pending
+   *  part as it arrives (the render-once guard in the transcript keeps a
+   *  message rendered from one stream from rendering again from the
+   *  other). File-side content reaches the transcript through `onResolved`
+   *  and `onContextChanged` only. A scan window renders nothing until its
+   *  rebuild. */
   private renderEvent(event: AgentEvent): void {
     if (event.kind === "sessionFileChanged") {
       this.resetTranscript();
@@ -697,7 +697,7 @@ class InteractiveMode {
         // The dequeue's stream position is the correct transcript position;
         // the retained message is the user message the query stream would
         // have echoed. A steered message renders from its `queued_command`
-        // attachment entry instead (the sessionEntry case).
+        // attachment entry instead, when that entry resolves.
         for (const id of event.ids) {
           const message = this.queuedById.get(id);
           this.queuedById.delete(id);
@@ -712,9 +712,6 @@ class InteractiveMode {
       case "interruptSent":
         this.addBanner("interrupted");
         break;
-      case "contextChanged":
-        this.rebuildTranscript();
-        break;
       case "sdkMessage":
         if (
           event.message.type !== "system" ||
@@ -723,12 +720,15 @@ class InteractiveMode {
           this.transcript.append(event.message);
         }
         break;
-      case "sessionEntry":
-        this.transcript.appendEntry(event.entry);
-        break;
       case "sessionAppended":
         this.transcript.append(event.message);
         break;
+      case "contextChanged":
+        // The transcript is rebuilt when the context change _resolves_, not
+        // when it arrives. Otherwise the display tree will not have registered
+        // the context update yet.
+        break;
+      case "sessionEntry":
       case "userMessageQueued":
       case "controlApplied":
       case "trackerAnomaly":
@@ -736,17 +736,37 @@ class InteractiveMode {
     }
   }
 
-  /** A resolved id whose entry the model holds re-renders from the entry:
-   *  the canonical content (`stop_reason`, the persisted text). Nothing to
-   *  do while the transcript is not showing live events. */
-  private onResolved(sessionId: UUID, uuid: UUID): void {
-    if (this.liveEventsDuringReplay !== undefined || this.scanning) {
+  /** A resolution on the query session moves its items into the resolved
+   *  part and renders from the entry — the canonical content
+   *  (`stop_reason`, the persisted text). Nothing to do while the
+   *  transcript is not showing live events: the rebuild renders the trees. */
+  private onResolved(
+    sessionId: UUID,
+    uuid: UUID,
+    entry: SessionEntry | undefined,
+  ): void {
+    if (
+      this.liveEventsDuringReplay !== undefined ||
+      this.scanning ||
+      sessionId !== this.agentState.querySessionId
+    ) {
       return;
     }
-    const entry = this.sessionModels.get(sessionId)?.entryFor(uuid);
-    if (entry !== undefined) {
-      this.transcript.replaceContent(uuid, entry);
+    this.transcript.resolve(uuid, entry);
+  }
+
+  /** The query session's path changed under a boundary that is now in the
+   *  trees (with its anchor, for a relink): rebuild from it. Gated like
+   *  `onResolved`. */
+  private onContextChanged(sessionId: UUID): void {
+    if (
+      this.liveEventsDuringReplay !== undefined ||
+      this.scanning ||
+      sessionId !== this.agentState.querySessionId
+    ) {
+      return;
     }
+    this.rebuildTranscript();
   }
 
   private addBanner(text: string, color: ThemeColor = "dim"): void {
@@ -1078,7 +1098,7 @@ class InteractiveMode {
     // The rows come from the file session's display tree, rendered once at
     // open; picks resolve on the context tree (a picked row's parent — e.g.
     // of a post-compaction user row — is a relinked occurrence the display
-    // tree hides). The marker is the model's leaf, not leaf(agentState):
+    // tree hides). The marker is the session model's leaf, not leaf(agentState):
     // the state's is the query-side leaf, which names an entry not yet in
     // the tree while the query leads the file.
     const selector = new TreeSelectorComponent(
@@ -1095,7 +1115,7 @@ class InteractiveMode {
   }
 
   /** The selector stays dumb; the busy gate and the request live here. The
-   *  pick resolves on the model the selector showed. */
+   *  pick resolves on the session model the selector showed. */
   private confirmTreePick(
     fileSessionModel: SessionModel,
     pick: TreeNodeRef,

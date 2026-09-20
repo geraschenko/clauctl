@@ -24,7 +24,7 @@
 ## Naming and References
 
 - Name things by their semantic role, so the name is comprehensible without external context. Never name after an arbitrary ordering (`rule4Parent` bad, `linearizedGroupParent` good).
-- Long-lived variables (fields, module state) are named after their type when possible: `sessionModel: SessionModel`, never `model`. A generic word (`model`, `state`, `data`) collides with the other things it could mean in this codebase (the assistant model, `QueueModel`, `AgentState`).
+- Long-lived variables (fields, module state) are named after their type when possible: `sessionModel: SessionModel`, never `model`. A generic word (`model`, `state`, `data`) collides with the other things it could mean in this codebase (the assistant model, `QueueModel`, `AgentState`). The same rule applies to prose: comments, doc comments and specs say "session model", never "the model".
 - Use the repo's established terminology; do not coin synonyms for concepts that already have names (a boundary's list of kept uuids is its "preserved uuids").
 - Shorthand references in comments and test names (probe ids like `p20`, pipeline stage numbers) must be locally resolvable: define the pointer once in the file's header comment and write "…; see file comment" at each use site.
 - Minified identifiers from decompiled code belong only in the derisk findings docs, never in product code or comments.

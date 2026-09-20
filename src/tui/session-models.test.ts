@@ -99,21 +99,29 @@ const fileChanged = (sessionId: UUID): AgentEvent => ({
   sessionId,
 });
 const scanComplete: AgentEvent = { kind: "scanComplete" };
+const contextChanged = (boundary: number): AgentEvent => ({
+  kind: "contextChanged",
+  boundary: uuidN(boundary),
+  leaf: { uuid: uuidN(boundary) },
+});
 
 class Harness {
   state: AgentState = initialAgentState();
   /** `statesAfter[i]` is the state after the (i+1)th event. */
   readonly statesAfter: AgentState[] = [];
   readonly resolved: Array<[UUID, UUID]> = [];
-  /** Whether `entryFor` had the resolved id when `onResolved` fired. */
+  /** Whether `onResolved` carried an entry. */
   readonly entryPresentAtResolve: boolean[] = [];
+  /** Each `onContextChanged`, as the length of `resolved` when it fired. */
+  readonly contextChangedAfterResolved: number[] = [];
   readonly sessionModels = new SessionModels(
     failOnInvalid,
-    (sessionId, uuid) => {
+    (sessionId, uuid, entry) => {
       this.resolved.push([sessionId, uuid]);
-      this.entryPresentAtResolve.push(
-        this.sessionModels.get(sessionId)?.entryFor(uuid) !== undefined,
-      );
+      this.entryPresentAtResolve.push(entry !== undefined);
+    },
+    () => {
+      this.contextChangedAfterResolved.push(this.resolved.length);
     },
   );
 
@@ -189,6 +197,63 @@ test("SessionModels: the snapshot lands in the file session at the cut; held eve
   assert.deepEqual(cutAfterSwitch.byUuidKeys(SESSION_B), [uuidN(2)]);
 });
 
+test("SessionModels: the snapshot's entries are in the trees; ids resolved before the cut still retire at applySnapshot, and an entry after the cut resolves through its replay", () => {
+  // Positions: 1 fileChanged(A), 2 scanComplete, 3 query 2, 4 query 3,
+  // 5 entry 3 (resolves 2 as query-only and 3), 6 query 4, 7 entry 4.
+  const events = [
+    fileChanged(SESSION_A),
+    scanComplete,
+    assistantQuery(2),
+    assistantQuery(3),
+    entryEvent(assistantEntry(3)),
+    assistantQuery(4),
+    entryEvent(assistantEntry(4, 3)),
+  ];
+  const h = new Harness();
+  h.feed(...events);
+  assert.deepEqual(h.resolved, []);
+  assert.deepEqual(h.pendingKeys(SESSION_A), [uuidN(2), uuidN(3), uuidN(4)]);
+  h.sessionModels.applySnapshot([assistantEntry(3)], 5, h.statesAfter[4]!);
+  const sessionModel = h.sessionModels.get(SESSION_A)!;
+  assert.deepEqual(h.pendingKeys(SESSION_A), []);
+  assert.deepEqual(sessionModel.leaf, { uuid: uuidN(4) });
+  assert.deepEqual(h.resolved, [
+    [SESSION_A, uuidN(2)],
+    [SESSION_A, uuidN(3)],
+    [SESSION_A, uuidN(4)],
+  ]);
+  assert.deepEqual(h.entryPresentAtResolve, [false, true, true]);
+});
+
+test("SessionModels: seedPending records the seed state's query-pending ids without frames, so their later resolution is a known id", () => {
+  const before = new Harness();
+  before.feed(
+    fileChanged(SESSION_A),
+    scanComplete,
+    assistantQuery(2),
+    sdkMessage("stream_event", { uuid: uuidN(3) }),
+  );
+  // Attaching at that state: both frames were delivered before this
+  // process subscribed. The stream event resolves query-only, which
+  // without the seed would be an unknown id (Harness throws on onInvalid).
+  const h = new Harness();
+  h.state = before.state;
+  h.sessionModels.seedPending(h.state);
+  assert.deepEqual(h.pendingKeys(SESSION_A), [uuidN(2), uuidN(3)]);
+  assert.equal(
+    h.sessionModels.get(SESSION_A)!.queryMessages.get(uuidN(2)),
+    undefined,
+  );
+  h.sessionModels.applySnapshot([], 0, h.state);
+  h.feed(entryEvent(assistantEntry(2)));
+  assert.deepEqual(h.pendingKeys(SESSION_A), []);
+  assert.deepEqual(h.resolved, [
+    [SESSION_A, uuidN(2)],
+    [SESSION_A, uuidN(3)],
+  ]);
+  assert.deepEqual(h.entryPresentAtResolve, [true, false]);
+});
+
 test("SessionModels: a same-file rescan restarts the trees and keeps the entries and pending list", () => {
   const h = new Harness();
   h.sessionModels.applySnapshot([], 0, h.state);
@@ -204,16 +269,18 @@ test("SessionModels: a same-file rescan restarts the trees and keeps the entries
   assert.deepEqual(sessionModel.displayTree.parentMap, new Map());
   assert.deepEqual(h.byUuidKeys(SESSION_A), [uuidN(1), uuidN(2)]);
   assert.deepEqual(h.pendingKeys(SESSION_A), [uuidN(3)]);
+  // The rescan's entries are session-only until it meets a query-reported
+  // id (fold-session-entry.ts), so each resolves as it is re-emitted.
   h.feed(
-    scanComplete,
     entryEvent(assistantEntry(1)),
     entryEvent(assistantEntry(2, 1)),
+    scanComplete,
   );
   assert.equal(sessionModel.displayTree.parentMap.size, 2);
   assert.deepEqual(sessionModel.leaf, { uuid: uuidN(2) });
 });
 
-test("SessionModels: a query frame is recorded while its id pends and retired by its entry, with onResolved after the push", () => {
+test("SessionModels: a query frame is recorded while its id pends and retired by its entry, with onResolved carrying the entry after the push", () => {
   const h = new Harness();
   h.sessionModels.applySnapshot([], 0, h.state);
   h.feed(fileChanged(SESSION_A), scanComplete, assistantQuery(2));
@@ -224,9 +291,22 @@ test("SessionModels: a query frame is recorded while its id pends and retired by
   assert.deepEqual(h.pendingKeys(SESSION_A), []);
   assert.deepEqual(h.resolved, [[SESSION_A, uuidN(2)]]);
   assert.deepEqual(h.entryPresentAtResolve, [true]);
+  assert.deepEqual(h.sessionModels.get(SESSION_A)!.leaf, { uuid: uuidN(2) });
 });
 
-test("SessionModels: a frame whose entry arrived first is never recorded; it still resolves", () => {
+test("SessionModels: an entry awaiting its query echo is retained but outside the trees until the echo resolves it", () => {
+  const h = new Harness();
+  h.sessionModels.applySnapshot([], 0, h.state);
+  h.feed(fileChanged(SESSION_A), scanComplete, entryEvent(assistantEntry(2)));
+  const sessionModel = h.sessionModels.get(SESSION_A)!;
+  assert.deepEqual(h.byUuidKeys(SESSION_A), [uuidN(2)]);
+  assert.equal(sessionModel.leaf, null);
+  h.feed(assistantQuery(2));
+  assert.deepEqual(sessionModel.leaf, { uuid: uuidN(2) });
+  assert.deepEqual(h.entryPresentAtResolve, [true]);
+});
+
+test("SessionModels: a frame whose entry arrived first resolves in its own step and leaves nothing pending", () => {
   const h = new Harness();
   h.sessionModels.applySnapshot([], 0, h.state);
   h.feed(fileChanged(SESSION_A), scanComplete, entryEvent(assistantEntry(2)));
@@ -272,6 +352,19 @@ test("SessionModels: a stream_event stays recorded behind its unresolved query p
   ]);
 });
 
+test("SessionModels: a query-only frame with nothing pending ahead resolves in its own step as a known id", () => {
+  const h = new Harness();
+  h.sessionModels.applySnapshot([], 0, h.state);
+  h.feed(
+    fileChanged(SESSION_A),
+    scanComplete,
+    sdkMessage("stream_event", { uuid: uuidN(8) }),
+  );
+  assert.deepEqual(h.pendingKeys(SESSION_A), []);
+  assert.deepEqual(h.resolved, [[SESSION_A, uuidN(8)]]);
+  assert.deepEqual(h.entryPresentAtResolve, [false]);
+});
+
 test("SessionModels: a compact_boundary frame is recorded and retired by its boundary entry", () => {
   const h = new Harness();
   h.sessionModels.applySnapshot([], 0, h.state);
@@ -287,6 +380,36 @@ test("SessionModels: a compact_boundary frame is recorded and retired by its bou
     [SESSION_A, uuidN(1)],
     [SESSION_A, uuidN(7)],
   ]);
+});
+
+test("SessionModels: a contextChanged behind a boundary awaiting its echo fires when the boundary resolves, after its onResolved; behind a resolved entry it fires at once", () => {
+  const h = new Harness();
+  h.sessionModels.applySnapshot([], 0, h.state);
+  h.feed(fileChanged(SESSION_A), scanComplete, assistantQuery(1));
+  h.feed(entryEvent(assistantEntry(1)));
+  assert.deepEqual(h.resolved, [[SESSION_A, uuidN(1)]]);
+  // The boundary entry precedes its frame: queued, and the contextChanged
+  // waits with it.
+  h.feed(entryEvent(boundaryEntry(7, 1)), contextChanged(7));
+  assert.deepEqual(h.contextChangedAfterResolved, []);
+  h.feed({ kind: "sdkMessage", message: boundaryMessage(7) });
+  assert.deepEqual(h.resolved, [
+    [SESSION_A, uuidN(1)],
+    [SESSION_A, uuidN(7)],
+  ]);
+  assert.deepEqual(h.contextChangedAfterResolved, [2]);
+  // Nothing queued: the contextChanged is due now.
+  h.feed(contextChanged(7));
+  assert.deepEqual(h.contextChangedAfterResolved, [2, 2]);
+});
+
+test("SessionModels: a contextChanged held before the snapshot cut is not replayed; one after it is", () => {
+  const h = new Harness();
+  h.feed(fileChanged(SESSION_A), scanComplete, contextChanged(7));
+  h.feed(contextChanged(7));
+  assert.deepEqual(h.contextChangedAfterResolved, []);
+  h.sessionModels.applySnapshot([], 3, h.statesAfter[2]!);
+  assert.deepEqual(h.contextChangedAfterResolved, [0]);
 });
 
 test("SessionModels: sessionAppended messages join the pending list like query-stream frames", () => {

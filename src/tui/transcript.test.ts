@@ -962,6 +962,177 @@ test("output-only frame then entry attaches the output once", () => {
   assert.equal(renderedText(container).match(/Login successful/g)?.length, 1);
 });
 
+// Resolution fixtures (see file comment of transcript.ts: resolved part,
+// then pending part). `userEntry` has no frame in these tests: resolving
+// it appends to the resolved part, so where it lands shows the boundary.
+function userEntry(uuid: string, text: string): SessionEntry {
+  return sessionEntry({
+    type: "user",
+    uuid,
+    message: { role: "user", content: text },
+  });
+}
+
+test("resolve: a frame's item moves into the resolved part and re-renders from its entry, ahead of every pending item", () => {
+  const { renderer, container } = makeRenderer();
+  renderer.append(assistantFrame("a1", "msg_1", TEXT_A));
+  renderer.append(assistantFrame("a2", "msg_2", TEXT_B));
+  renderer.resolve(
+    "a1" as never,
+    assistantEntry("a1", "msg_1", TEXT_A, "max_tokens"),
+  );
+  assert.equal(container.children.length, 2);
+  assert.match(
+    renderedText(container),
+    /reply A[\s\S]*maximum output token limit[\s\S]*reply B/,
+  );
+  // An entry without a frame lands at the end of the resolved part: after
+  // a1, before the still-pending a2.
+  renderer.resolve("u3" as never, userEntry("u3", "a prompt"));
+  assert.match(renderedText(container), /reply A[\s\S]*a prompt[\s\S]*reply B/);
+});
+
+test("resolve: an unkeyed banner joins the resolved part when nothing is pending, else waits behind the pending items", () => {
+  const withNothingPending = makeRenderer();
+  withNothingPending.renderer.addBanner("interrupted");
+  withNothingPending.renderer.append(assistantFrame("a2", "msg_2", TEXT_B));
+  withNothingPending.renderer.resolve(
+    "u1" as never,
+    userEntry("u1", "a prompt"),
+  );
+  assert.match(
+    renderedText(withNothingPending.container),
+    /interrupted[\s\S]*a prompt[\s\S]*reply B/,
+  );
+
+  const behindPending = makeRenderer();
+  behindPending.renderer.append(assistantFrame("a2", "msg_2", TEXT_B));
+  behindPending.renderer.addBanner("interrupted");
+  behindPending.renderer.resolve("u1" as never, userEntry("u1", "a prompt"));
+  assert.match(
+    renderedText(behindPending.container),
+    /a prompt[\s\S]*reply B[\s\S]*interrupted/,
+  );
+});
+
+test("resolve: the moved prefix carries the unkeyed items after the keyed one and stops at the next keyed item", () => {
+  const { renderer, container } = makeRenderer();
+  renderer.append(assistantFrame("a1", "msg_1", TEXT_A));
+  renderer.addBanner("interrupted");
+  renderer.append(assistantFrame("a2", "msg_2", TEXT_B));
+  renderer.resolve("a1" as never, assistantEntry("a1", "msg_1", TEXT_A));
+  renderer.resolve("u3" as never, userEntry("u3", "a prompt"));
+  assert.match(
+    renderedText(container),
+    /reply A[\s\S]*interrupted[\s\S]*a prompt[\s\S]*reply B/,
+  );
+});
+
+test("resolve: a tool_use frame's tool item moves with its frame; the tool result's resolution moves nothing new", () => {
+  const { renderer, container } = makeRenderer();
+  const toolUse = [
+    { type: "tool_use", id: "t1", name: "Bash", input: { command: "ls" } },
+  ];
+  renderer.append(assistantFrame("a1", "msg_1", toolUse));
+  renderer.append(toolResultMessage("t1", "listing"));
+  renderer.append(assistantFrame("a2", "msg_2", TEXT_B));
+  renderer.resolve("a1" as never, assistantEntry("a1", "msg_1", toolUse));
+  renderer.resolve("u3" as never, userEntry("u3", "a prompt"));
+  assert.match(renderedText(container), /ls[\s\S]*a prompt[\s\S]*reply B/);
+  renderer.resolve("r1" as never, undefined);
+  assert.match(renderedText(container), /ls[\s\S]*a prompt[\s\S]*reply B/);
+});
+
+test("resolve: an open stream stays pending and stops the prefix move; a file-only entry resolving meanwhile lands above it", () => {
+  const { renderer, container } = makeRenderer();
+  renderer.append(assistantFrame("a1", "msg_1", TEXT_A));
+  renderer.append(messageStart("msg_2"));
+  renderer.append(textDelta("partial B"));
+  renderer.resolve("a1" as never, assistantEntry("a1", "msg_1", TEXT_A));
+  renderer.resolve("u3" as never, userEntry("u3", "a steer"));
+  assert.match(
+    renderedText(container),
+    /reply A[\s\S]*a steer[\s\S]*partial B/,
+  );
+  renderer.append(assistantFrame("a2", "msg_2", TEXT_B));
+  renderer.resolve(
+    "a2" as never,
+    assistantEntry("a2", "msg_2", TEXT_B, "max_tokens"),
+  );
+  assert.equal(container.children.length, 3);
+  assert.match(
+    renderedText(container),
+    /reply A[\s\S]*a steer[\s\S]*reply B[\s\S]*maximum output token limit/,
+  );
+});
+
+test("resolve: an open stream with nothing pending is still pending; a banner after it moves with the stream's resolution", () => {
+  const { renderer, container } = makeRenderer();
+  renderer.append(messageStart("msg_2"));
+  renderer.append(textDelta("partial B"));
+  renderer.addBanner("interrupted");
+  renderer.resolve("u1" as never, userEntry("u1", "a prompt"));
+  assert.match(
+    renderedText(container),
+    /a prompt[\s\S]*partial B[\s\S]*interrupted/,
+  );
+  renderer.append(assistantFrame("a2", "msg_2", TEXT_B));
+  renderer.resolve("a2" as never, assistantEntry("a2", "msg_2", TEXT_B));
+  renderer.resolve("u3" as never, userEntry("u3", "a later prompt"));
+  assert.match(
+    renderedText(container),
+    /a prompt[\s\S]*reply B[\s\S]*interrupted[\s\S]*a later prompt/,
+  );
+});
+
+test("resolve: a user frame that rendered text still takes its entry's tool-result enrichment", () => {
+  const { renderer, container } = makeRenderer();
+  renderer.append(
+    assistantMessage([
+      {
+        type: "tool_use",
+        id: "e1",
+        name: "Edit",
+        input: {
+          file_path: "/repo/src/a.ts",
+          old_string: "old line",
+          new_string: "new line one\nnew line two",
+        },
+      },
+    ]),
+  );
+  const toolResult = {
+    type: "tool_result",
+    tool_use_id: "e1",
+    content: "updated",
+  };
+  const frame = userMessage([{ type: "text", text: "and a note" }, toolResult]);
+  renderer.append(frame);
+  assert.match(renderedText(container), /and a note/);
+  renderer.resolve(
+    frame.uuid as never,
+    sessionEntry({
+      type: "user",
+      uuid: frame.uuid,
+      message: { role: "user", content: [toolResult] },
+      toolUseResult: {
+        structuredPatch: [
+          {
+            oldStart: 4,
+            oldLines: 1,
+            newStart: 4,
+            newLines: 2,
+            lines: ["-old line", "+new line one", "+new line two"],
+          },
+        ],
+      },
+    }),
+  );
+  const text = renderedText(container);
+  assert.match(text, /4 -old line/);
+  assert.equal(text.match(/and a note/g)?.length, 1);
+});
+
 test("compact summary: collapsed one-liner, full markdown when expanded", () => {
   const { renderer, container } = makeRenderer();
   renderer.appendEntry(boundaryEntry("b1", "cs1"));

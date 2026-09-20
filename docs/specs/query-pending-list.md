@@ -180,13 +180,17 @@ Three principles make the rule cheap to keep:
   none: nothing to re-render). The store rule is the merge's: after the
   fold, every uuid-bearing message of the query stream — an `sdkMessage`'s
   or a `sessionAppended`'s `message` (`sdkMessageOf(event)`,
-  protocol.ts) — is recorded iff
-  `merge.nodes[uuid]?.seenOn` includes `"query"` (node existence is not
-  enough: a failed observation — `anomaly` — leaves an existing node
-  untouched, e.g. a session-only node blocked behind an unresolved
-  predecessor when `query` attempts it; an entry-first id resolved in
-  the same step has no node; a dequeued prompt is recorded under
-  `ids.at(-1)`, steers each under their own id, on the same condition).
+  protocol.ts) — is recorded iff the fold observed the uuid on `query`:
+  `merge.nodes[uuid]?.seenOn` includes `"query"`, or the step's
+  `resolved` holds the uuid with `"query"` in its `seenOn` (the merge
+  forgets resolved nodes, and an id resolves in its own step when
+  nothing pends ahead of it — every `stream_event` between turns, an
+  entry-first frame; such an id is retired again by the same step's
+  resolutions). Node existence is not enough: a failed observation —
+  `anomaly` — leaves an existing node untouched, e.g. a session-only
+  node blocked behind an unresolved predecessor when `query` attempts
+  it. A dequeued prompt is recorded under `ids.at(-1)`, steers each
+  under their own id, on the same condition.
   Types the file never carries (`stream_event`, `result`, other `system`
   subtypes, `conversation_reset`, `command_lifecycle`) are recorded too:
   the merge excludes them from `session`, and they resolve once every
@@ -199,10 +203,10 @@ Three principles make the rule cheap to keep:
   block's deltas lost until its own frame: a safe partial loss). No
   second classification predicate on the client: the stored set is
   `!excludedFromSession` by construction. Invariant:
-  **`keys(queryMessages)` equals `pending(merge, "query")` restricted to
-  ids observed since the subscription began** — the seed state's pending
-  ids have no message (their payloads arrive with their entries; until
-  then a rebuild cannot show them — an accepted loss).
+  **`keys(queryMessages)` equals `pending(merge, "query")`** — the seed
+  state's pending ids are seeded with no message
+  (`SessionModels.seedPending`; their payloads arrive with their entries;
+  until then a rebuild cannot show them — an accepted loss).
 - **The transcript renders each id's content once.**
   `TranscriptRenderer.renderedUuids` records a uuid when its visible
   content is rendered: a top-level item (assistant message, user turn,
@@ -244,13 +248,11 @@ Three principles make the rule cheap to keep:
   transcript headed by the welcome line, so it tops every scrollback;
   the startup warnings describe the keybindings and settings as read at
   start and appear only on the first attach), then the query session
-  only: its display path
-  without the entries the merge still holds unresolved
-  (`pathToLeaf()` minus `merge.nodes` membership — an unresolved file-side
-  entry and the pending query messages cannot be interleaved, which is
-  what merging the streams is for; it renders once the merge places it),
-  then its `queryMessages` through `append` exactly as they rendered
-  live. The file session's path is not rendered while `querySessionId`
+  only: its display path — the trees hold resolved entries only (phase
+  1.5: an entry joins them when the merge resolves its id, so an
+  unresolved file-side entry and the pending query messages are never
+  interleaved), then its `queryMessages` through `append` exactly as
+  they rendered live. The file session's path is not rendered while `querySessionId`
   differs (rollover window): the old file is not this conversation.
   `streaming`,
   `toolComponents`/`toolItems` (results, subagent children) stay as they
@@ -306,9 +308,10 @@ Three principles make the rule cheap to keep:
   (seeded from the seed state's `queuedMessages`); `userMessageDequeued`
   removes its ids, joins them (turn/append) and records the result in the
   query session's `queryMessages` under `ids.at(-1)` — steers one each
-  under their own id — on the store rule above (recorded iff the folded
-  merge holds the id: an entry-first prompt resolved in the same step is
-  never recorded). No client guard: the merge already knows.
+  under their own id — on the store rule above (recorded iff the fold
+  observed the id on `query`: an entry-first prompt resolved in the same
+  step is recorded and retired within it). No client guard: the merge
+  already knows.
 - Steers: observe every dequeued prompt on `query` under its stamped uuid;
   in `foldSessionEntry`, a `queued_command` attachment carrying
   `source_uuid` additionally observes `source_uuid` on `session` (the
@@ -509,17 +512,33 @@ class SessionModel {
    *  across a same-file rescan). */
   readonly byUuid: Map<UUID, SessionEntry>;
   /** The query pending list, in query order (Decisions, store rule); a
-   *  rebuild replays them through `append` exactly as they rendered live. */
-  readonly queryMessages: Map<UUID, SDKMessage>;
+   *  rebuild replays them through `append` exactly as they rendered live.
+   *  undefined: pending in the seed state at attach, frame never seen
+   *  here (`SessionModels.seedPending`). */
+  readonly queryMessages: Map<UUID, SDKMessage | undefined>;
   private readonly attachmentBySource: Map<UUID, SessionEntry>;
   private trees: RollingTrees;
   get leaf(): TreeNodeRef | null;
   get contextTree(): ContextTree;
   get displayTree(): DisplayTree;
-  pushEntry(entry: SessionEntry): void; // byUuid (first-wins), attachmentBySource, trees
-  recordPending(uuid: UUID, message: SDKMessage): void;
-  retire(uuid: UUID): void; // queryMessages.delete
-  resetTrees(): void; // sessionFileChanged for this id
+  /** Entries in file order not yet in the trees (phase 1.5), each
+   *  flagged when a contextChanged followed it in the file stream. */
+  private readonly queuedEntries: {
+    entry: SessionEntry;
+    contextChangedAfter: boolean;
+  }[];
+  enqueueEntry(entry: SessionEntry): void; // byUuid (first-wins), attachmentBySource, queue
+  /** Flags the queue's tail; true when nothing is queued (due now). */
+  enqueueContextChange(): boolean;
+  recordPending(uuid: UUID, message: SDKMessage | undefined): void;
+  /** queryMessages.delete; the queue's prefix through uuid into the
+   *  trees (a deeper position is an anomaly); entry = entryFor(uuid),
+   *  contextChanged iff a pushed entry carried the flag. */
+  resolve(uuid: UUID): {
+    entry: SessionEntry | undefined;
+    contextChanged: boolean;
+  };
+  resetTrees(): void; // sessionFileChanged for this id; clears the queue too
   /** byUuid[uuid], else the queued_command entry whose source_uuid is
    *  uuid. A retained entry for a uuid the current trees lack is the
    *  same entry the file re-wrote (first-wins, as everywhere). */
@@ -531,26 +550,36 @@ class SessionModel {
 
 // tui/session-models.ts — the mirror of AgentState.sessions
 class SessionModels {
-  constructor(onInvalid: OnInvalid, onResolved: OnResolved);
+  constructor(
+    onInvalid: OnInvalid,
+    onResolved: OnResolved,
+    onContextChanged: OnContextChanged,
+  );
+  /** The seed state's query-pending ids → recordPending(id, undefined)
+   *  on their session models (attaching mid-turn). */
+  seedPending(state: AgentState): void;
   /** Every event of the subscription in socket order, with the state
-   *  the event folded to, in this order: (1) sessionEntry → pushEntry on
-   *  the model of state.fileSessionId, sessionFileChanged → resetTrees
-   *  (both held until the snapshot, see applySnapshot); (2)
-   *  sdkMessageOf(event), if any → recordPending on the model of
-   *  message.session_id iff the folded merge's node for its uuid has
-   *  seenOn "query"; (3) every session's `resolved` retires
-   *  and fires onResolved;
-   *  (4) models absent from state.sessions are dropped. */
+   *  the event folded to, in this order: (1) sdkMessageOf(event), if any
+   *  → recordPending on the session model of message.session_id iff the
+   *  folded merge's node for its uuid, or the step's `resolved` record
+   *  for it, has seenOn "query"; (2)
+   *  sessionEntry → enqueueEntry on the session model of
+   *  state.fileSessionId, contextChanged → enqueueContextChange on it
+   *  (true → onContextChanged now), sessionFileChanged → resetTrees;
+   *  (3) every session's `resolved` in order → `resolve` and onResolved
+   *  with the entry, then onContextChanged if the push crossed a flag;
+   *  (2)+(3) are held until the snapshot, see applySnapshot;
+   *  (4) session models absent from state.sessions are dropped. */
   observe(event: AgentEvent, state: AgentState): void;
-  /** The `get-entries {payload: "full"}` response into the model of
-   *  `stateAtCut.fileSessionId`, where `stateAtCut` is the state the
-   *  daemon answered against: the seed state folded through the first
-   *  `eventsBefore` events (the TUI has it: the state paired with the
-   *  buffered event at `eventsBefore - 1`, or the seed state). Held
-   *  session-stream events after the cut are applied with their own
-   *  states — only their step (1) effects; steps (2)–(4) already ran
-   *  when they were observed. A failed fetch applies an empty snapshot
-   *  at position 0. */
+  /** The `get-entries {payload: "full"}` response into the session
+   *  model of `stateAtCut.fileSessionId`, where `stateAtCut` is the state
+   *  the daemon answered against: the seed state folded through the
+   *  first `eventsBefore` events (the TUI has it: the state paired with
+   *  the buffered event at `eventsBefore - 1`, or the seed state). The
+   *  snapshot is the file prefix in resolution order: each entry is
+   *  enqueued and resolved in turn. Held events then replay (3) with
+   *  their own states, and (2) only past the cut. A failed fetch applies
+   *  an empty snapshot at position 0. */
   applySnapshot(
     entries: readonly SessionEntry[],
     eventsBefore: number,
@@ -558,28 +587,37 @@ class SessionModels {
   ): void;
   get(sessionId: UUID): SessionModel | undefined;
 }
-/** A step resolved `uuid` on `sessionId`; fires after the entry that
- *  resolved it was pushed, so `entryFor(uuid)` is the canonical
- *  rendering when the model has it. */
-type OnResolved = (sessionId: UUID, uuid: UUID) => void;
+/** A step resolved `uuid` on `sessionId`, reported in resolution order
+ *  after the session model pushed its entry into the trees; `entry` is
+ *  what renders `uuid`, undefined for a query-only id. */
+type OnResolved = (
+  sessionId: UUID,
+  uuid: UUID,
+  entry: SessionEntry | undefined,
+) => void;
+/** A contextChanged on `sessionId` resolved: the entry it followed is in
+ *  the trees, so the path is current (phase 1.5 spec, Data Flow 5). */
+type OnContextChanged = (sessionId: UUID) => void;
 ```
 
 - `interactive-mode.ts`: `resetTranscript()` installs a fresh transcript
   headed by the welcome line; `reloadHistory(startupWarnings)` adds the
   warnings once, on the first attach. `renderHistory():
-void` — the query session's `pathToLeaf()` entries whose uuid is not in
-  `sessions[querySessionId].merge.nodes` via `transcript.appendEntry`,
-  then its `queryMessages` values via `transcript.append`, then the
-  `deliveredMessages` tail via `append` (until phase 3). Attach,
-  `contextChanged` and `scanComplete` call it identically after a reset;
-  `sessionFileChanged` calls `resetTranscript()` only. Live, the dequeue
-  echo and a `sessionAppended`'s message go through `transcript.append`
-  too.
-  `onResolved` → `transcript.replaceContent(uuid, entry)` when
-  `models.get(sessionId)?.entryFor(uuid)` exists, gated like
-  `renderEvent`: ignored while events are buffered for the attach fetch
-  and between `sessionFileChanged` and `scanComplete` (the
-  `renderHistory()` that ends each window renders the entry).
+void` — the query session's `pathToLeaf()` entries via
+  `transcript.appendEntry` (no merge read: the trees hold resolved
+  entries only), then its defined `queryMessages` values via
+  `transcript.append`, then the `deliveredMessages` tail via `append`
+  (until phase 3). Attach, a resolved `contextChanged`
+  (`onContextChanged`) and `scanComplete` call it identically after a
+  reset; `sessionFileChanged` calls `resetTranscript()` only. Live, the
+  dequeue echo and a `sessionAppended`'s message go through
+  `transcript.append` too; a `sessionEntry` and a `contextChanged` render
+  nothing on arrival.
+  `onResolved(sessionId, uuid, entry)` → `transcript.resolve(uuid,
+entry)` for the query session, gated like `renderEvent`: ignored while
+  events are buffered for the attach fetch and between
+  `sessionFileChanged` and `scanComplete` (the `renderHistory()` that
+  ends each window renders the entry).
   `reloadHistory`'s release loop applies each buffered event's state
   effects only — `applyEvent` is split into `applyState(event, state)`
   (agentState, anomaly banner, pending area, footer sync) and
@@ -604,7 +642,11 @@ void` — the keyed item's component `updateContent`s from the entry's
   id matches the stream open at its key removes that stream's item and
   component. The
   `compact_boundary` banner is keyed, so a file-first boundary after a
-  rebuild and its late sdkMessage render one banner.
+  rebuild and its late sdkMessage render one banner. Phase 1.5: the
+  items form a resolved part and a pending part; `append` fills the
+  pending part, `appendEntry` the resolved one, and `resolve(uuid,
+entry)` moves the pending prefix through the items keyed `uuid` before
+  rendering the entry (docs/specs/query-pending-list/phase-1.5-render-at-resolution.md).
 - `/tree` and rewind read `sessionModels.get(fileSessionId)`; today's
   `sessionModel.byUuid` sites (interactive-mode.ts 1102, 1123).
 - `session-model.test.ts` no longer simulates structural wire entries.
@@ -688,7 +730,7 @@ class SessionModels {
   // observe(): userMessageQueued → queued.set(id, message)
   //            userMessageDequeued → steer: recordPending(id, {origin: "dequeue", message}) per id;
   //                                  turn/append: recordPending(ids.at(-1), {origin: "dequeue", message: joinedPrompt(messages)})
-  //            on the model of state.querySessionId, iff its merge node has seenOn "query"
+  //            on the model of state.querySessionId, iff its merge node or `resolved` record has seenOn "query"
   //            (none → ids leave `queued` only); step (3) then retires
   //            whatever this step resolved.
 }
@@ -748,31 +790,35 @@ renders through `appendEntry` only.
 Phase 1:
 
 1. `sessionEntry` (complete) → `SessionModels.observe` → the file
-   session's `pushEntry`; the fold's `resolved` for that step retires
-   whatever the entry resolved from `queryMessages` and fires
-   `onResolved` → `replaceContent` (assistant `stop_reason`; user turns
-   in phase 3).
+   session's `enqueueEntry`; the fold's `resolved` for that step
+   `resolve`s each id (retires it from `queryMessages`, pushes the queue
+   through its entry) and fires `onResolved` → `transcript.resolve`
+   (moves the frame's items into the resolved part, renders the entry:
+   assistant `stop_reason`; user turns in phase 3).
 2. `sdkMessageOf(event)` (an `sdkMessage`'s or a
    `sessionAppended`'s message) → `transcript.append` live, and
-   `recordPending` on the model of `session_id` iff the folded merge's
-   node has seen `query`; retired when the merge resolves it (or in the
-   same step, entry-first: never recorded).
+   `recordPending` on the model of `session_id` iff the fold observed it
+   on `query` (merge node or this step's `resolved` record); retired
+   when the merge resolves it — in the same step for an id with nothing
+   pending ahead (entry-first, or a `stream_event` between turns).
 3. `sessionFileChanged(id)` → the fold drops the old `SessionState`
    (unless a same-file rescan) → `SessionModels` drops that model and
    resets the trees of `id`'s model; the TUI `resetTranscript()`s. The
    scan's entries fold; `scanComplete` → `renderHistory()`.
-4. `contextChanged` → `renderHistory()`.
+4. `contextChanged` → `enqueueContextChange` on the file session's model;
+   `renderHistory()` when the entry it followed resolves (or at once if
+   it already has) — phase 1.5 spec, Data Flow 5.
 5. Attach: `reloadHistory` fetches `get-entries {payload: "full"}`
    (answered under `acquireSettled`), `applySnapshot` with the state at
-   the `eventsBefore` cut (held session-stream events after the cut
-   apply with their own folded states, so a held `sessionFileChanged`
-   routes correctly), applies the state of every event buffered during
-   the fetch, then `renderHistory()`. The buffered events render nothing
-   and their `onResolved` calls are ignored.
+   the `eventsBefore` cut (the snapshot's entries enqueue and resolve in
+   file order; held events replay their resolutions with their own
+   folded states, entries and file switches only past the cut, so a held
+   `sessionFileChanged` routes correctly), applies the state of every
+   event buffered during the fetch, then `renderHistory()`. The buffered
+   events render nothing and their `onResolved` calls are ignored.
 6. `renderHistory()` after `resetTranscript()` (banners at the top): the
-   query session's path minus the entries still in `merge.nodes` via
-   `appendEntry`; its `queryMessages` via `append`; the
-   `deliveredMessages` tail via `append`.
+   query session's path via `appendEntry`; its `queryMessages` via
+   `append`; the `deliveredMessages` tail via `append`.
 
 Phase 2 (queue model): `result` → one dequeue for the first run of the
 top bucket; the next `result` (the run's own) dequeues the next run.
@@ -801,7 +847,7 @@ Phase 3 (identity):
    `ids.at(-1)`) renders it unless the entry already did. The entry's
    arrival renders nothing when
    the key exists; the step's `resolved` retires the message and
-   `onResolved` → `replaceContent(uuid, entryFor(uuid))` re-renders the
+   `onResolved` → `transcript.resolve(uuid, entry)` re-renders the
    turn from the entry. A rebuild renders it from the path (landed) or
    from `queryMessages` (not yet) — never both.
 
@@ -845,7 +891,7 @@ Phase 3 (identity):
 
 - File leads query (entry before its sdkMessage): the entry is complete,
   renders on arrival and keys the uuid; the late sdkMessage renders
-  nothing and is never recorded (resolved in the same step). If a stream
+  nothing and is recorded and retired within its step. If a stream
   with the entry's API message id was open, the entry finalized it
   (through `append`) and the frame finds no matching stream; if the
   stream opened after the entry, the keyed frame discards it.
@@ -915,10 +961,11 @@ Phase 3 (identity):
 
 ## Non-goals
 
-- Holding `contextChanged` until settled (rejected: an ordered stream
-  cannot hold one event without holding everything after it). The only
-  ordering change is the steer dequeue's placement before its trigger
-  (phase 2).
+- Holding `contextChanged` until settled in the daemon (rejected: an
+  ordered stream cannot hold one event without holding everything after
+  it). The TUI's session model holds it per session behind the one entry
+  it followed (phase 1.5), which holds nothing else. The only ordering
+  change is the steer dequeue's placement before its trigger (phase 2).
 - Interrupt changes (`--cancel-queued`, dropped-prompt reporting) —
   follow-up audit.
 - Fixing the `<task-notification>` rendering (new CLI background-Agent
@@ -963,6 +1010,9 @@ Phase 3 (identity):
 - [x] Phase 1 rebuild (full entries, `SessionState.resolved`,
       `SessionModels`, render-once) — plan in
       docs/specs/query-pending-list/phase-1-rebuild.md
+- [x] Phase 1.5 render at resolution (entry queue, two-part transcript,
+      `renderHistory` without the merge read) done 2026-09-20 —
+      docs/specs/query-pending-list/phase-1.5-render-at-resolution.md
 - [x] Phase 2 bucket probe + sdk test — probe (docs/derisk/queued-batches/)
       and `tests/sdk/queued-batches.test.ts` done 2026-09-16; fact recorded
       in docs/claude-agent-sdk.md
