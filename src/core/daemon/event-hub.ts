@@ -174,8 +174,8 @@ export class EventHub {
    *  uuid the tracked file's index holds and the merge has resolved is
    *  dropped — silently for a shared class, as a `classification`
    *  anomaly for a session-only one (the table said the query stream
-   *  would not carry it). Otherwise emit the sdkMessage event plus any
-   *  dequeues the queue model implies. */
+   *  would not carry it). Otherwise emit the sdkMessage event and the
+   *  dequeue the queue model implies, if any. */
   observeSdkMessage(message: SDKMessage): void {
     if (message.uuid !== undefined) {
       const uuid = message.uuid as UUID;
@@ -200,13 +200,24 @@ export class EventHub {
         return;
       }
     }
-    this.applyEvent({ kind: "sdkMessage", message });
-    // Dequeues follow their trigger: the model observes the message after its
-    // own sdkMessage event is on the stream, so any userMessageDequeued it
-    // implies lands immediately after.
-    this.applyTransition(
-      QueueModel.observeSdkMessage(this.queueModel, message),
-    );
+    const transition = QueueModel.observeSdkMessage(this.queueModel, message);
+    const sdkEvent: AgentEvent = { kind: "sdkMessage", message };
+    // A steer's dequeue precedes its trigger: the file places the
+    // queued_command attachment before the assistant frame that steered it,
+    // and the stream keeps that order. A turn/append dequeue follows its
+    // result.
+    if (
+      transition.events.some(
+        (event) =>
+          event.kind === "userMessageDequeued" && event.delivery === "steer",
+      )
+    ) {
+      this.applyTransition(transition);
+      this.applyEvent(sdkEvent);
+    } else {
+      this.applyEvent(sdkEvent);
+      this.applyTransition(transition);
+    }
   }
 
   /** Resolves when settled(agentState) — immediately if already; rejects

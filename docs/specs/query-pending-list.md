@@ -984,8 +984,9 @@ Phase 3 (identity):
   snapshot hold stores the same pairs.
 - Phase 2 tests (queue-model.test.ts): "mixed bucket with one querying
   message" becomes append `[1]` at the first result, turn `[2]` at the
-  second; add `[Q, Q, A, Q]`; add a `later` run behind a `now` arriving
-  mid-drain (priority still wins between results).
+  second; add `[Q, Q, A, Q]`; add a `later` bucket with a default-priority
+  prompt arriving mid-drain (priority still wins between results;
+  docs/derisk/queued-batches/ mid-drain probe).
 - Phase 3: `acceptUserMessage` asserting `message.uuid` — throw on
   absence (daemon bug) rather than stamp there, so the delivered message
   and the queued one are provably the same object.
@@ -1036,7 +1037,9 @@ Phase 3 (identity):
 - [x] /reviewer pass 6 2026-09-18: no blockers; two wording edits applied
       (stream discard only on matching API id; stdout renders at its
       entry)
-- [ ] Phase 2 queue-model per-run dequeue
+- [x] Phase 2 queue-model per-run dequeue — implemented 2026-09-20; log
+      in `query-pending-list/phase-2-per-run-dequeue.md`; awaiting
+      Anton's review
 - [ ] Phase 3 identity; `git mv docs/thoughts/fold-resolved-events.md docs/thoughts/old/`
 - [ ] Follow-up (separate): SDK control-request flag audit
       (`cancel_queued` unreachable via `Query.interrupt()`)

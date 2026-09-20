@@ -148,7 +148,7 @@ test("deliverUserMessage while busy queues without dequeuing", () => {
   assert.equal(events.agentState.queuedMessages.length, 1);
 });
 
-test("observeSdkMessage emits the message first, then implied dequeues", () => {
+test("observeSdkMessage emits the result first, then the turn it dequeues", () => {
   const events = hub();
   events.deliverUserMessage(userMessage());
   events.observeSdkMessage(sdkMessage("assistant"));
@@ -159,6 +159,32 @@ test("observeSdkMessage emits the message first, then implied dequeues", () => {
   assert.deepEqual(
     lines.map((event) => event.kind),
     ["sdkMessage", "userMessageDequeued"],
+  );
+});
+
+test("observeSdkMessage emits a steer dequeue before the assistant frame that triggered it", () => {
+  const events = hub();
+  events.deliverUserMessage(userMessage());
+  events.observeSdkMessage(sdkMessage("assistant"));
+  events.deliverUserMessage(userMessage()); // queued behind the running turn
+  events.observeSdkMessage(
+    userMessage({
+      message: {
+        role: "user",
+        content: [{ type: "tool_result", tool_use_id: "t1", content: "ok" }],
+      },
+    }),
+  );
+  const lines: AgentEvent[] = [];
+  events.subscribe((event) => lines.push(event));
+  events.observeSdkMessage(sdkMessage("assistant"));
+  assert.deepEqual(
+    lines.map((event) =>
+      event.kind === "userMessageDequeued"
+        ? `${event.kind}:${event.delivery}`
+        : event.kind,
+    ),
+    ["userMessageDequeued:steer", "sdkMessage"],
   );
 });
 

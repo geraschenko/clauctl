@@ -46,12 +46,15 @@ export type MessageDelivery = "turn" | "steer" | "append";
  *
  * The CLI's queue operations are invisible on the live stream, so the daemon
  * models the queue (queue-model.ts) and synthesizes the queued/dequeued pair:
- * `userMessageQueued` at acceptance, `userMessageDequeued` immediately after
- * the SDK message that triggered the dequeue. Dequeues reference
- * daemon-assigned ids, so out-of-order dequeuing (a `next` cutting ahead of a
- * `later`) is unambiguous. A merged same-priority bucket dequeues as one event
- * carrying all its ids — the whole bucket runs as a single turn with a single
- * `result`.
+ * `userMessageQueued` at acceptance, `userMessageDequeued` next to the SDK
+ * message that triggered the dequeue: a steer's dequeue immediately before
+ * the assistant frame that absorbed it (the file's order), a turn's or
+ * append's immediately after the `result` that dequeued it. Dequeues
+ * reference daemon-assigned ids, so out-of-order dequeuing (a `next` cutting
+ * ahead of a `later`) is unambiguous. A run — the querying prefix of the
+ * top-priority bucket, or a lone append (docs/claude-agent-sdk.md, "Queued
+ * prompts coalesce by run") — dequeues as one event carrying all its ids:
+ * it runs as a single turn with a single `result`.
  */
 export type AgentEvent =
   | { kind: "userMessageQueued"; id: number; message: SDKUserMessage }

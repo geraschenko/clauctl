@@ -26,6 +26,15 @@ Run: `node docs/derisk/queued-batches/probe.mjs` (LIVE, haiku, ~12 calls,
 | J1 text, J2 `[image, text]`, J3 text, default, during a text-only turn (`probe-image.mjs`) | one entry under **J3**, content = **block array** `[text J1, image, text J2, text J3]` — strings lifted to text blocks, arrays spliced, no `\n`                                                                                 | one                                                              | —                                                                          |
 | L1 `[image, text]`, L2 text, default, during a text-only turn (`probe-image.mjs`)          | one entry under **L2**, `[image, text L1, text L2]`                                                                                                                                                                             | one                                                              | —                                                                          |
 
+`probe-mid-drain.mjs` (LIVE, 10 calls, 2026-09-20; artifacts in
+`captures/mid-drain-*`) asks what a prompt accepted while a bucket is
+mid-drain does — pushed at the first `stream_event` of run 1's turn:
+
+| case                                                                                                   | file                                                                                                        | `command_lifecycle`                                                                   |
+| ------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| P1 `later`, P2 `later`+`shouldQuery:false`, P3 `later` during a Bash tool; N0 default during P1's turn | **N0 cuts ahead of the remaining runs**: P1, reply, N0, reply, P2, P3, reply                                | P1 started/completed, then N0, P2, P3 sequentially                                    |
+| R1..R3 as above; R0 `now` during R1's turn                                                             | **R0 cancels the running turn**: R1's user entry with **no assistant reply**, then R0, reply, R2, R3, reply | R1 started → R0 queued → `result` → R1 **cancelled** → R0 started/completed → R2 → R3 |
+
 Neither batch shape puts a stamped uuid on the query stream (as before);
 the only query-side trace is `command_lifecycle`.
 
@@ -47,6 +56,14 @@ in `captures/image-*`.
   whole top-priority bucket as one delivery at a `result` regardless of
   `shouldQuery`; it must emit one `userMessageDequeued` per run, with the
   following runs dequeued at the following `result`s.
+- **The bucket is re-ranked at every `result`.** A higher-priority prompt
+  accepted while a bucket is mid-drain runs before the bucket's remaining
+  runs, so the queue model must recompute the top bucket per `result`
+  rather than commit to a bucket at its first dequeue. `now` is an
+  interrupt (echoed-message-placement FINDINGS, priority table): the
+  aborted turn still ends with a `result` (before the `cancelled`
+  lifecycle), so "one run per `result`" holds; the user entry with no
+  reply is what the file shows for it.
 - **The join has two shapes.** All-string runs become one `\n`-joined
   string; a run with any block-form member (`clauctl prompt --image`)
   becomes one block array: string members lifted to `{type: "text"}`

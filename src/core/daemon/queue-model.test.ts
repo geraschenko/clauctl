@@ -202,7 +202,7 @@ test("no-query bucket dequeues as append at the result", () => {
   ]);
 });
 
-test("mixed bucket with one querying message dequeues as turn", () => {
+test("an append at the head of a bucket is its own run; the querying member follows at the next result", () => {
   let scenario = accept(
     start(),
     userMessage({ priority: "later", shouldQuery: false }),
@@ -211,8 +211,58 @@ test("mixed bucket with one querying message dequeues as turn", () => {
   scenario = accept(scenario, userMessage({ priority: "later" }), false);
   scenario = observe(scenario, result);
   assert.deepEqual(dequeues(scenario), [
-    { kind: "userMessageDequeued", delivery: "turn", ids: [1, 2] },
+    { kind: "userMessageDequeued", delivery: "append", ids: [1] },
   ]);
+  assert.equal(scenario.state.queued.length, 1);
+  scenario = observe(scenario, result);
+  assert.deepEqual(dequeues(scenario).at(-1), {
+    kind: "userMessageDequeued",
+    delivery: "turn",
+    ids: [2],
+  });
+  assert.deepEqual(scenario.state.queued, []);
+});
+
+test("[Q, Q, A, Q] in one bucket drains as turn, append, turn over three results", () => {
+  let scenario = accept(start(), userMessage({ priority: "later" }), false);
+  scenario = accept(scenario, userMessage({ priority: "later" }), false);
+  scenario = accept(
+    scenario,
+    userMessage({ priority: "later", shouldQuery: false }),
+    false,
+  );
+  scenario = accept(scenario, userMessage({ priority: "later" }), false);
+  scenario = observe(scenario, result);
+  scenario = observe(scenario, result);
+  scenario = observe(scenario, result);
+  assert.deepEqual(dequeues(scenario), [
+    { kind: "userMessageDequeued", delivery: "turn", ids: [1, 2] },
+    { kind: "userMessageDequeued", delivery: "append", ids: [3] },
+    { kind: "userMessageDequeued", delivery: "turn", ids: [4] },
+  ]);
+  assert.deepEqual(scenario.state.queued, []);
+});
+
+test("a higher priority accepted mid-drain cuts ahead of the bucket's remaining runs", () => {
+  let scenario = accept(start(), userMessage({ priority: "later" }), false); // id 1
+  scenario = accept(
+    scenario,
+    userMessage({ priority: "later", shouldQuery: false }),
+    false,
+  ); // id 2
+  scenario = accept(scenario, userMessage({ priority: "later" }), false); // id 3
+  scenario = observe(scenario, result); // run 1 (id 1) runs
+  scenario = accept(scenario, userMessage(), false); // id 4, default priority
+  scenario = observe(scenario, result);
+  scenario = observe(scenario, result);
+  scenario = observe(scenario, result);
+  assert.deepEqual(dequeues(scenario), [
+    { kind: "userMessageDequeued", delivery: "turn", ids: [1] },
+    { kind: "userMessageDequeued", delivery: "turn", ids: [4] },
+    { kind: "userMessageDequeued", delivery: "append", ids: [2] },
+    { kind: "userMessageDequeued", delivery: "turn", ids: [3] },
+  ]);
+  assert.deepEqual(scenario.state.queued, []);
 });
 
 test("result with an empty queue emits nothing", () => {

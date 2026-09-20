@@ -149,8 +149,14 @@ run of consecutive querying prompts becomes **one** `\n`-joined `user`
 entry whose uuid is the run's **last** member (the other members' uuids
 never reach the file); if any member has block-form content, the entry is
 instead one block array — strings lifted to text blocks, arrays spliced,
-no separator. The CLI dequeues one run per `result`. This is the
-rule the daemon's queue model
+no separator. The CLI dequeues one run per `result` and re-ranks the
+queue at each: a higher-priority prompt accepted while a bucket is
+mid-drain runs before the bucket's remaining runs. A `now` prompt is an
+interrupt (`derisk/echoed-message-placement/FINDINGS.md`, priority
+table): the aborted turn still ends
+with a `result`, its `command_lifecycle` reports `cancelled`, and its
+user entry stays in the file with no reply. This is the rule the daemon's
+queue model
 ([`user-message-tracking.md`](user-message-tracking.md)) has to mirror.
 Pinned by
 `tests/sdk/queued-batches.test.ts`; evidence in

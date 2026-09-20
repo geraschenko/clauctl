@@ -6,8 +6,10 @@
 // a maximal run of consecutive querying members merges into one `\n`-joined
 // user entry whose uuid is the run's LAST member; an append splits runs.
 // A run with a block-form member merges to one block array instead
-// (strings lifted to text blocks, no separator). Evidence:
-// docs/derisk/queued-batches/. LIVE: one haiku session, ~10 calls.
+// (strings lifted to text blocks, no separator). The CLI dequeues one run
+// per result and re-ranks the queue at each: a higher-priority prompt
+// accepted mid-drain runs before the bucket's remaining runs. Evidence:
+// docs/derisk/queued-batches/. LIVE: one haiku session, ~11 calls.
 
 import assert from "node:assert/strict";
 import { randomUUID, type UUID } from "node:crypto";
@@ -147,6 +149,8 @@ interface Stamped {
   idleAppend: [UUID, UUID, UUID];
   /** `later`: querying (image + text), querying, append, querying. */
   mixed: [UUID, UUID, UUID, UUID];
+  /** Default priority, pushed during the turn of `mixed`'s first run. */
+  midDrain: UUID;
 }
 
 interface Capture {
@@ -166,7 +170,12 @@ async function runSession(): Promise<Capture> {
     defaultRun: [randomUUID(), randomUUID(), randomUUID()],
     idleAppend: [randomUUID(), randomUUID(), randomUUID()],
     mixed: [randomUUID(), randomUUID(), randomUUID(), randomUUID()],
+    midDrain: randomUUID(),
   };
+  const awaitingCompletion = new Set<UUID>([
+    stamped.midDrain,
+    stamped.mixed[3],
+  ]);
   const channel = inputChannel();
   const q = query({
     prompt: channel.input,
@@ -248,7 +257,25 @@ async function runSession(): Promise<Capture> {
       },
     },
     {
-      trigger: (message) => isLifecycleCompleted(message, stamped.mixed[3]),
+      // The sleep turn's result dequeues `mixed`'s first run; the first
+      // stream_event after it is that run's turn, the mid-drain window.
+      trigger: (message) => message.type === "result",
+      run: () => {},
+    },
+    {
+      trigger: (message) => message.type === "stream_event",
+      run: () => channel.push(userMessage("Reply OMEGA.", stamped.midDrain)),
+    },
+    {
+      // Whichever of the two completes last ends the session, so a CLI that
+      // stops re-ranking still produces a file to assert on.
+      trigger: (message) => {
+        for (const uuid of awaitingCompletion) {
+          if (isLifecycleCompleted(message, uuid))
+            awaitingCompletion.delete(uuid);
+        }
+        return awaitingCompletion.size === 0;
+      },
       run: () => channel.end(),
     },
   ];
@@ -294,6 +321,12 @@ function userEntryText(
 ): string | undefined {
   const content = userEntryContent(entries, uuid);
   return typeof content === "string" ? content : undefined;
+}
+
+function userEntryIndex(entries: SessionEntry[], uuid: UUID): number {
+  return entries.findIndex(
+    (candidate) => candidate.uuid === uuid && candidate.type === "user",
+  );
 }
 
 function queuedCommandSources(entries: SessionEntry[]): UUID[] {
@@ -344,4 +377,18 @@ test("an append splits a bucket into runs, and a block-form member makes the run
   ]);
   assert.equal(userEntryText(entries, append), "Note the word TAU.");
   assert.equal(userEntryText(entries, lastQuery), "Reply UPSILON.");
+});
+
+test("a higher-priority prompt accepted mid-drain runs before the bucket's remaining runs", async () => {
+  const { entries, stamped } = await capture;
+  const [, firstRun, append, lastQuery] = stamped.mixed;
+  assert.equal(userEntryText(entries, stamped.midDrain), "Reply OMEGA.");
+  const firstRunAt = userEntryIndex(entries, firstRun);
+  const midDrainAt = userEntryIndex(entries, stamped.midDrain);
+  const appendAt = userEntryIndex(entries, append);
+  const lastQueryAt = userEntryIndex(entries, lastQuery);
+  assert.ok(
+    firstRunAt < midDrainAt && midDrainAt < appendAt && appendAt < lastQueryAt,
+    `file order: run 1 @${firstRunAt}, mid-drain @${midDrainAt}, append @${appendAt}, last @${lastQueryAt}`,
+  );
 });

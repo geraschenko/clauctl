@@ -1,0 +1,371 @@
+{
+  "sdk": "0.3.258",
+  "sessionId": "7e577c64-13aa-476f-9dc6-48f4497d8b97",
+  "stamped": {
+    "P": "549f3db8-4e39-4bc3-9990-75f3a85118c5",
+    "P1": "db4f1aac-c1cc-48ca-b97c-37f9da85bcfb",
+    "P2": "d421a109-05aa-48cc-b004-8f317dd9d104",
+    "P3": "c45a3ee4-aecd-4506-b1b7-c2fd990b0a7c",
+    "N0": "c6cd82fb-7627-463a-8cec-e36d9a648f9f",
+    "R": "2cd17884-3e44-4063-9c94-5006996b066e",
+    "R1": "8f75026c-6adb-4264-ba9a-808f2de62fec",
+    "R2": "6b4a6c07-5cd1-40c9-a069-235bd18c2131",
+    "R3": "c3b2d08f-cd97-425e-a323-ce047fe9e602",
+    "R0": "c0b7e7a6-1c34-4ea0-bf6e-1bba5ea29591"
+  },
+  "fileOrder": [
+    {
+      "type": "queue-operation",
+      "operation": "enqueue"
+    },
+    {
+      "type": "queue-operation",
+      "operation": "dequeue"
+    },
+    {
+      "type": "user",
+      "uuid": "P",
+      "text": "Run `sleep 4` as a Bash tool call, then reply with the single word DONE."
+    },
+    {
+      "type": "assistant",
+      "uuid": "c518508a",
+      "text": "thinking"
+    },
+    {
+      "type": "assistant",
+      "uuid": "e4c4fcc6",
+      "text": "tool_use"
+    },
+    {
+      "type": "queue-operation",
+      "operation": "enqueue"
+    },
+    {
+      "type": "queue-operation",
+      "operation": "enqueue"
+    },
+    {
+      "type": "queue-operation",
+      "operation": "enqueue"
+    },
+    {
+      "type": "user",
+      "uuid": "1c86330e",
+      "text": "tool_result"
+    },
+    {
+      "type": "assistant",
+      "uuid": "e1d7cbcc",
+      "text": "thinking"
+    },
+    {
+      "type": "assistant",
+      "uuid": "38ed793a",
+      "text": "text:DONE"
+    },
+    {
+      "type": "queue-operation",
+      "operation": "dequeue"
+    },
+    {
+      "type": "user",
+      "uuid": "P1",
+      "text": "Later one: reply with the word ALPHA."
+    },
+    {
+      "type": "queue-operation",
+      "operation": "enqueue"
+    },
+    {
+      "type": "assistant",
+      "uuid": "91c1b8f3",
+      "text": "thinking"
+    },
+    {
+      "type": "assistant",
+      "uuid": "a0a21d43",
+      "text": "text:ALPHA"
+    },
+    {
+      "type": "queue-operation",
+      "operation": "dequeue"
+    },
+    {
+      "type": "user",
+      "uuid": "N0",
+      "text": "Default: reply with the word DELTA."
+    },
+    {
+      "type": "assistant",
+      "uuid": "b4dcb073",
+      "text": "thinking"
+    },
+    {
+      "type": "assistant",
+      "uuid": "a65ef5e7",
+      "text": "text:DELTA"
+    },
+    {
+      "type": "queue-operation",
+      "operation": "dequeue"
+    },
+    {
+      "type": "user",
+      "uuid": "P2",
+      "text": "Note the word BETA."
+    },
+    {
+      "type": "queue-operation",
+      "operation": "dequeue"
+    },
+    {
+      "type": "user",
+      "uuid": "P3",
+      "text": "Later two: reply with the word GAMMA."
+    },
+    {
+      "type": "assistant",
+      "uuid": "b47f5450",
+      "text": "thinking"
+    },
+    {
+      "type": "assistant",
+      "uuid": "97aea718",
+      "text": "text:GAMMA"
+    },
+    {
+      "type": "queue-operation",
+      "operation": "enqueue"
+    },
+    {
+      "type": "queue-operation",
+      "operation": "dequeue"
+    },
+    {
+      "type": "user",
+      "uuid": "R",
+      "text": "Run `sleep 4` as a Bash tool call, then reply with the single word DONE."
+    },
+    {
+      "type": "assistant",
+      "uuid": "54b2a863",
+      "text": "thinking"
+    },
+    {
+      "type": "assistant",
+      "uuid": "d1bcf829",
+      "text": "tool_use"
+    },
+    {
+      "type": "queue-operation",
+      "operation": "enqueue"
+    },
+    {
+      "type": "queue-operation",
+      "operation": "enqueue"
+    },
+    {
+      "type": "queue-operation",
+      "operation": "enqueue"
+    },
+    {
+      "type": "user",
+      "uuid": "c79217b3",
+      "text": "tool_result"
+    },
+    {
+      "type": "assistant",
+      "uuid": "4f3faeb8",
+      "text": "thinking"
+    },
+    {
+      "type": "assistant",
+      "uuid": "ecf3c306",
+      "text": "text:DONE"
+    },
+    {
+      "type": "queue-operation",
+      "operation": "dequeue"
+    },
+    {
+      "type": "user",
+      "uuid": "R1",
+      "text": "Later three: reply with the word EPSILON."
+    },
+    {
+      "type": "queue-operation",
+      "operation": "enqueue"
+    },
+    {
+      "type": "queue-operation",
+      "operation": "dequeue"
+    },
+    {
+      "type": "user",
+      "uuid": "R0",
+      "text": "Now: reply with the word THETA."
+    },
+    {
+      "type": "assistant",
+      "uuid": "2a136a7c",
+      "text": "thinking"
+    },
+    {
+      "type": "assistant",
+      "uuid": "7218b455",
+      "text": "text:THETA"
+    },
+    {
+      "type": "queue-operation",
+      "operation": "dequeue"
+    },
+    {
+      "type": "user",
+      "uuid": "R2",
+      "text": "Note the word ZETA."
+    },
+    {
+      "type": "queue-operation",
+      "operation": "dequeue"
+    },
+    {
+      "type": "user",
+      "uuid": "R3",
+      "text": "Later four: reply with the word ETA."
+    },
+    {
+      "type": "assistant",
+      "uuid": "491606f0",
+      "text": "thinking"
+    },
+    {
+      "type": "assistant",
+      "uuid": "36a56037",
+      "text": "text:Noted. I've recorded ZETA and will reply"
+    }
+  ],
+  "commandLifecycle": [
+    {
+      "command": "P",
+      "state": "queued"
+    },
+    {
+      "command": "P",
+      "state": "started"
+    },
+    {
+      "command": "P1",
+      "state": "queued"
+    },
+    {
+      "command": "P2",
+      "state": "queued"
+    },
+    {
+      "command": "P3",
+      "state": "queued"
+    },
+    {
+      "command": "P",
+      "state": "completed"
+    },
+    {
+      "command": "P1",
+      "state": "started"
+    },
+    {
+      "command": "N0",
+      "state": "queued"
+    },
+    {
+      "command": "P1",
+      "state": "completed"
+    },
+    {
+      "command": "N0",
+      "state": "started"
+    },
+    {
+      "command": "N0",
+      "state": "completed"
+    },
+    {
+      "command": "P2",
+      "state": "started"
+    },
+    {
+      "command": "P2",
+      "state": "completed"
+    },
+    {
+      "command": "P3",
+      "state": "started"
+    },
+    {
+      "command": "P3",
+      "state": "completed"
+    },
+    {
+      "command": "R",
+      "state": "queued"
+    },
+    {
+      "command": "R",
+      "state": "started"
+    },
+    {
+      "command": "R1",
+      "state": "queued"
+    },
+    {
+      "command": "R2",
+      "state": "queued"
+    },
+    {
+      "command": "R3",
+      "state": "queued"
+    },
+    {
+      "command": "R",
+      "state": "completed"
+    },
+    {
+      "command": "R1",
+      "state": "started"
+    },
+    {
+      "command": "R0",
+      "state": "queued"
+    },
+    {
+      "command": "R1",
+      "state": "cancelled"
+    },
+    {
+      "command": "R0",
+      "state": "started"
+    },
+    {
+      "command": "R0",
+      "state": "completed"
+    },
+    {
+      "command": "R2",
+      "state": "started"
+    },
+    {
+      "command": "R2",
+      "state": "completed"
+    },
+    {
+      "command": "R3",
+      "state": "started"
+    },
+    {
+      "command": "R3",
+      "state": "completed"
+    }
+  ],
+  "results": 10
+}

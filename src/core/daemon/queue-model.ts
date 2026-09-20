@@ -4,7 +4,7 @@
  * deterministic (echo-placement FINDINGS, Round 3), so this module tracks every
  * accepted message and decides which `userMessageQueued`/`userMessageDequeued`
  * events to emit and when. Pure state machine: the EventHub threads occurrences
- * through it and emits the returned events immediately after each triggering
+ * through it and emits the returned events next to each triggering
  * occurrence.
  *
  * Daemon-only, unlike agent-state.ts: this is the *decider* that synthesizes
@@ -122,9 +122,10 @@ function hasToolResult(message: SDKUserMessage): boolean {
 }
 
 /**
- * Fold an observed SDK message into the model; emits any dequeues it implies.
- * The daemon emits the message's own `sdkMessage` event first, then these —
- * dequeues follow their trigger on the stream.
+ * Fold an observed SDK message into the model; emits any dequeues it implies
+ * (at most one). Where the hub places it relative to the message's own
+ * `sdkMessage` event is the hub's protocol commitment: a steer precedes its
+ * trigger, a turn/append follows its result.
  */
 export function observeSdkMessage(
   state: QueueModelState,
@@ -173,11 +174,14 @@ export function observeSdkMessage(
     };
   }
 
-  // A result ends the running turn; the CLI consumes the highest-priority
-  // bucket present, all of it, as one merged turn with one future result
-  // (FINDINGS: same-priority executing messages merge FIFO into a single
-  // turn). A bucket of only shouldQuery:false messages enters the transcript
-  // with no turn of its own.
+  // A result ends the running turn; the CLI dequeues one run of the
+  // highest-priority bucket present (docs/claude-agent-sdk.md, "Queued
+  // prompts coalesce by run"): an append (shouldQuery:false) at the head is
+  // a run of its own, entering the transcript with no turn; otherwise the
+  // head's maximal prefix of querying members merges into one turn with one
+  // future result. The rest of the bucket waits for that result, and the
+  // bucket is recomputed then — a higher priority accepted meanwhile cuts
+  // ahead.
   if (message.type === "result" && state.queued.length > 0) {
     const topRank = Math.min(
       ...state.queued.map((entry) => priorityRank(entry.message)),
@@ -185,19 +189,30 @@ export function observeSdkMessage(
     const bucket = state.queued.filter(
       (entry) => priorityRank(entry.message) === topRank,
     );
+    const run = nextRun(bucket);
     return {
       state: {
         ...state,
-        queued: state.queued.filter((entry) => !bucket.includes(entry)),
+        queued: state.queued.filter((entry) => !run.includes(entry)),
       },
       events: [
         dequeued(
-          bucket.some((entry) => isQuerying(entry.message)) ? "turn" : "append",
-          bucket.map((entry) => entry.id),
+          isQuerying(run[0]!.message) ? "turn" : "append",
+          run.map((entry) => entry.id),
         ),
       ],
     };
   }
 
   return { state, events: [] };
+}
+
+/** The run at the head of a non-empty bucket: an append alone, otherwise
+ *  the maximal prefix of querying members. */
+function nextRun(bucket: QueuedMessage[]): QueuedMessage[] {
+  if (!isQuerying(bucket[0]!.message)) {
+    return bucket.slice(0, 1);
+  }
+  const firstAppend = bucket.findIndex((entry) => !isQuerying(entry.message));
+  return firstAppend === -1 ? bucket : bucket.slice(0, firstAppend);
 }

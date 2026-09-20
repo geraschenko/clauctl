@@ -70,9 +70,10 @@ The daemon's EventHub folds each event, writes it to subscribers, and
 serves state reads in one synchronous step, so no observer can catch a
 prompt in two states or none.
 
-When several prompts are queued, claude writes all of the same priority as
-one `\n`-joined entry (`docs/derisk/echoed-message-placement/FINDINGS.md`,
-Q4). Entries land in file-append order, so
+When several prompts are queued, claude writes each run — a maximal
+prefix of querying same-priority prompts, or a lone append — as one
+`\n`-joined entry (`docs/claude-agent-sdk.md`, "Queued prompts coalesce by
+run"). Entries land in file-append order, so
 any message emitted after a delivery has its entry after every delivered
 prompt's; the prompt itself is never re-emitted, the later message _is_ the
 confirmation. Clearing _all_ of `deliveredMessages` on _every_
