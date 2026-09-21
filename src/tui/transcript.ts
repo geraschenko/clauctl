@@ -14,12 +14,12 @@
  * owns). Streams are owned by API `message.id`, not transcript uuid: the
  * two sides are delayed independently, so the stream open at a key need
  * not belong to the message being finalized. `itemsByUuid` lets a resolved
- * entry re-render its frame's item in place (`replaceContent`).
+ * entry re-render its frame's item in place (`replaceItem`).
  *
  * The transcript is two item lists, resolved then pending
  * (docs/specs/query-pending-list/phase-1.5-render-at-resolution.md). A
  * query message renders into the pending part; an entry, which the caller
- * delivers only once the merge resolved its id, into the resolved part.
+ * delivers only once the merge resolved its uuid, into the resolved part.
  * `resolve(uuid)` moves the pending prefix through the items keyed `uuid`
  * — items of one `append` call share its uuid and are contiguous — and the
  * unkeyed items after them (banners: query-side notices that resolve as
@@ -72,8 +72,11 @@ import {
 } from "../core/session/file.ts";
 import { AssistantMessageComponent } from "./components/assistant-message.ts";
 import { ToolExecutionComponent } from "./components/tool-execution.ts";
-import { UserCommandComponent } from "./components/user-command.ts";
-import { UserMessageComponent } from "./components/user-message.ts";
+import {
+  isOutputView,
+  outputText,
+  UserTurnComponent,
+} from "./components/user-turn.ts";
 import { claudeStyle } from "./claude-style.ts";
 import {
   beginMessage,
@@ -100,8 +103,7 @@ interface ItemKey {
    *  uuid: every message has one uuid and (assistant) one content block,
    *  but `appendMessage` makes a top-level item per thing the user can
    *  fold or expand — a tool_use message yields its assistant item plus a
-   *  tool item, a user message an item per view (text, command, output) —
-   *  so a uuid keys a contiguous run of one or more items. */
+   *  tool item — so a uuid keys a contiguous run of one or more items. */
   uuid: UUID | undefined;
 }
 
@@ -127,16 +129,13 @@ interface PlainItem extends ItemKey {
   component: Component;
 }
 
-interface CommandItem extends ItemKey {
-  kind: "command";
-  component: UserCommandComponent;
-  /** The slash command (e.g. "/compact"); undefined for bash passthrough
-   *  and standalone output blocks. */
-  command: string | undefined;
-  hasOutput: boolean;
+/** A user turn's views as one component (prompt text, command, output). */
+interface UserTurnItem extends ItemKey {
+  kind: "userTurn";
+  component: UserTurnComponent;
 }
 
-type TranscriptItem = AssistantItem | ToolItem | PlainItem | CommandItem;
+type TranscriptItem = AssistantItem | ToolItem | PlainItem | UserTurnItem;
 
 /** A stream's item before its `assistant` frame keyed it: the only unkeyed
  *  assistant item there is (subagent streams are nested, not items). */
@@ -186,12 +185,11 @@ export class TranscriptRenderer {
    *  command-output attachment. A prompt's entry keys the run's last
    *  member; a steer's attachment keys its `source_uuid`. */
   private readonly renderedUuids = new Set<UUID>();
-  /** Replacement lookup for `replaceContent`.
+  /** Replacement lookup for `replaceItem`.
    *  TODO: a lookup is always of a pending item now (an open stream stays
    *  pending; file comment), so a scan of the pending part may make this
-   *  map (which grows for the conversation's lifetime) unnecessary —
-   *  pending phase 3's attachment lookup by `source_uuid`. */
-  private readonly itemsByUuid = new Map<UUID, AssistantItem>();
+   *  map (which grows for the conversation's lifetime) unnecessary. */
+  private readonly itemsByUuid = new Map<UUID, AssistantItem | UserTurnItem>();
   /** For headerArg path abbreviation (per-tool views). */
   private cwd: string | undefined;
   private toolsExpanded = false;
@@ -365,21 +363,13 @@ export class TranscriptRenderer {
             // declares without the field.
             const views = userTurnViews(message);
             if (views.length > 0 && this.firstRender(message.uuid)) {
-              for (const view of views) {
-                this.appendUserView(view, message.uuid, part);
-              }
+              this.addUserTurn(views, message.uuid, part);
             }
           }
         }
         // A subagent's user frames (its task prompt) are not this
         // conversation's turns; only their tool results land here.
-        for (const result of toolResultsOf(message)) {
-          this.toolComponents.get(result.toolCallId)?.updateResult(result);
-          const item = this.toolItems.get(result.toolCallId);
-          if (item !== undefined) {
-            item.result = result;
-          }
-        }
+        this.applyToolResults(message);
         this.rebuild();
         break;
       }
@@ -405,7 +395,11 @@ export class TranscriptRenderer {
           // Steered `!` output: the CLI's own rendering (embedded ANSI
           // passes through the ⤷ block), attached to the preceding command.
           if (this.firstRender(message.uuid)) {
-            this.attachCommandOutput(message.content, message.uuid, part);
+            this.addUserTurn(
+              [{ kind: "commandOutput", text: message.content }],
+              message.uuid,
+              part,
+            );
           }
         } else if (message.subtype === "compact_boundary") {
           const anchorUuid =
@@ -470,83 +464,49 @@ export class TranscriptRenderer {
     }
   }
 
-  private appendUserView(
-    view: UserTurnView,
-    uuid: UUID | undefined,
-    part: TranscriptItem[],
+  /** The message's tool_result blocks onto their tool components (unknown
+   *  toolCallId → dropped) and top-level tool items. */
+  private applyToolResults(
+    message: Extract<SDKMessage, { type: "user" }>,
   ): void {
-    switch (view.kind) {
-      case "prompt":
-      case "contextTag":
-        this.addPlain(new UserMessageComponent(view.text), uuid, part);
-        break;
-      case "slashCommand":
-        this.addCommand(
-          view.args === "" ? view.command : `${view.command} ${view.args}`,
-          view.command,
-          uuid,
-          part,
-        );
-        break;
-      case "bashInput":
-        this.addCommand(`! ${view.command}`, undefined, uuid, part);
-        break;
-      case "commandOutput":
-        this.attachCommandOutput(view.text, uuid, part);
-        break;
-      case "bashOutput": {
-        const parts = [view.stdout, view.stderr].filter(
-          (part) => part.trim() !== "",
-        );
-        if (parts.length > 0) {
-          this.attachCommandOutput(parts.join("\n"), uuid, part);
-        }
-        break;
+    for (const result of toolResultsOf(message)) {
+      this.toolComponents.get(result.toolCallId)?.updateResult(result);
+      const item = this.toolItems.get(result.toolCallId);
+      if (item !== undefined) {
+        item.result = result;
       }
     }
   }
 
-  private addCommand(
-    line: string,
-    command: string | undefined,
+  /** One user-turn item for `views` under `uuid`. Views that are all
+   *  output (a command's stdout arrives as its own message) attach to the
+   *  immediately preceding user turn when it has a command to hold them,
+   *  else render as a standalone output turn. */
+  private addUserTurn(
+    views: readonly UserTurnView[],
     uuid: UUID | undefined,
     part: TranscriptItem[],
   ): void {
-    const component = new UserCommandComponent(line);
-    component.setExpanded(this.toolsExpanded);
-    this.addItem(
-      { kind: "command", uuid, component, command, hasOutput: false },
-      part,
-    );
-  }
-
-  /** Command output renders under the immediately preceding command block;
-   *  with none (or one already holding output), as a standalone ⤷ block.
-   *  /compact's transient stdout is hidden — claude does (observed on the
-   *  failed-compact capture), and the success path renders the boundary
-   *  banner + full summary instead. */
-  private attachCommandOutput(
-    text: string,
-    uuid: UUID | undefined,
-    part: TranscriptItem[],
-  ): void {
-    const last = this.pendingItems.at(-1) ?? this.resolvedItems.at(-1);
-    if (last?.kind === "command" && !last.hasOutput) {
-      if (last.command === "/compact") {
+    if (views.every(isOutputView)) {
+      const texts = views.map(outputText).filter((text) => text !== undefined);
+      if (texts.length === 0) {
         return;
       }
-      last.hasOutput = true;
-      last.component.setOutput(text);
-      this.rebuild();
-      return;
+      const last = this.pendingItems.at(-1) ?? this.resolvedItems.at(-1);
+      if (
+        last?.kind === "userTurn" &&
+        last.component.attachOutput(texts.join("\n"))
+      ) {
+        this.rebuild();
+        return;
+      }
     }
-    const component = new UserCommandComponent(undefined);
-    component.setOutput(text);
-    component.setExpanded(this.toolsExpanded);
-    this.addItem(
-      { kind: "command", uuid, component, command: undefined, hasOutput: true },
-      part,
-    );
+    const component = new UserTurnComponent(views, this.toolsExpanded);
+    const item: UserTurnItem = { kind: "userTurn", uuid, component };
+    this.addItem(item, part);
+    if (uuid !== undefined) {
+      this.itemsByUuid.set(uuid, item);
+    }
   }
 
   /** The summary's user message carries its text as a plain string. */
@@ -565,17 +525,16 @@ export class TranscriptRenderer {
 
   /**
    * Render one session entry as `append` renders its query message:
-   * boundary entries render the compact_boundary banner; user prompts
-   * render their views THEN append (tool-result resolution; result-only
-   * messages have no visible views); assistant → append; a steered prompt's
-   * `queued_command` attachment renders as a user turn (it has no
-   * sdkMessage twin).
-   * Session-entry metadata that entryToSessionMessage drops (cwd) is read
-   * from the entry here. A SessionMessage carries every field its
-   * SDKMessage variant requires, so the cast is a narrowing of `message:
-   * unknown`, not a fabrication. File-side: the items land in the resolved
-   * part, so the caller delivers an entry only once its id resolved
-   * (`resolve`, the history rebuild).
+   * boundary entries render the compact_boundary banner; a user entry, or
+   * one with no message of its own (a steered prompt's `queued_command`
+   * attachment, a local command), renders as a user turn
+   * (`appendUserEntry`); anything else → `appendMessage`. Session-entry
+   * metadata that entryToSessionMessage drops (cwd) is read from the entry
+   * here. A SessionMessage carries every field its SDKMessage variant
+   * requires, so the cast is a narrowing of `message: unknown`, not a
+   * fabrication. File-side: the items land in the resolved part, so the
+   * caller delivers an entry only once its uuid resolved (`resolve`, the
+   * history rebuild).
    */
   appendEntry(entry: SessionEntry): void {
     const part = this.resolvedItems;
@@ -591,36 +550,7 @@ export class TranscriptRenderer {
       }
       return;
     }
-    if (typeof entry.cwd === "string") {
-      this.cwd = entry.cwd;
-    }
-    // Slash commands and their stdout can live in system/local_command
-    // entries (empirical: /login, /context; others arrive as user
-    // messages), which entryToSessionMessage drops.
-    if (
-      entry.type === "system" &&
-      entry.subtype === "local_command" &&
-      typeof entry.content === "string"
-    ) {
-      if (this.firstRender(entry.uuid)) {
-        for (const view of userTurnViewsFromText(entry.content)) {
-          this.appendUserView(view, entry.uuid, part);
-        }
-      }
-      return;
-    }
-    // A steered prompt's only transcript record; it reads as the user turn
-    // it was, keyed by the prompt's own uuid (`source_uuid`).
-    const steeredPrompt = queuedCommandPrompt(entry);
-    if (steeredPrompt !== undefined) {
-      const key = queuedCommandSourceUuid(entry) ?? entry.uuid;
-      if (this.firstRender(key)) {
-        for (const view of userTurnViewsFromText(steeredPrompt)) {
-          this.appendUserView(view, key, part);
-        }
-      }
-      return;
-    }
+    this.trackCwd(entry);
     if (entry.isCompactSummary === true && entry.uuid !== undefined) {
       this.renderCompactSummary(
         (entry.message as { content?: unknown } | undefined)?.content,
@@ -629,31 +559,41 @@ export class TranscriptRenderer {
       );
       return;
     }
-    const message = entryToSessionMessage(entry);
-    if (message === undefined) {
+    const message = entryToSessionMessage(entry) as
+      (SessionMessage & SDKMessage) | undefined;
+    if (message !== undefined && message.type !== "user") {
+      this.appendMessage(message, part);
       return;
     }
-    const sdkMessage = message as SessionMessage & SDKMessage;
-    if (sdkMessage.type === "user") {
-      const views = userTurnViews(sdkMessage);
-      if (views.length > 0 && this.firstRender(sdkMessage.uuid)) {
-        for (const view of views) {
-          this.appendUserView(view, sdkMessage.uuid, part);
-        }
-      }
+    // A steered prompt's attachment is keyed by the prompt's own uuid.
+    const key = queuedCommandSourceUuid(entry) ?? entry.uuid;
+    const views = entryUserViews(entry, message);
+    if (views.length > 0 && this.firstRender(key)) {
+      this.addUserTurn(views, key, part);
     }
-    this.appendMessage(sdkMessage, part);
+    if (message !== undefined) {
+      this.stampEntry(message);
+      this.applyToolResults(message);
+    }
+    this.rebuild();
+  }
+
+  private trackCwd(entry: SessionEntry): void {
+    if (typeof entry.cwd === "string") {
+      this.cwd = entry.cwd;
+    }
   }
 
   /**
    * The merge resolved `uuid`. The pending prefix through the last item
    * keyed `uuid` (its run; `ItemKey.uuid`), plus the unkeyed items after
    * it up to the next keyed item or open stream, joins the resolved part.
-   * `entry` then re-renders the one item whose content differs between
-   * frame and entry, the assistant item (`replaceContent`; a tool item's
-   * call and result are the same on both sides); with no such item it
-   * runs through `appendEntry`, which renders what the frame did not and
-   * applies the entry's tool results.
+   * `entry` then re-renders the item whose content may differ between
+   * frame and entry — the assistant item, or the user turn a dequeue echo
+   * rendered ahead of the file (`replaceItem`; a tool item's call and
+   * result are the same on both sides); with no such item it runs through
+   * `appendEntry`, which renders what the frame did not and applies the
+   * entry's tool results.
    */
   resolve(uuid: UUID, entry: SessionEntry | undefined): void {
     const last = this.pendingItems.findLastIndex((item) => item.uuid === uuid);
@@ -669,33 +609,63 @@ export class TranscriptRenderer {
       this.resolvedItems.push(...this.pendingItems.splice(0, end));
     }
     if (entry !== undefined) {
-      // Branch on an assistant item keyed `uuid`, not on `renderedUuids`:
-      // a user frame's entry still carries the tool results only the file
-      // has.
-      if (this.itemsByUuid.has(uuid)) {
-        this.replaceContent(uuid, entry);
-      } else {
+      // Branch on an item keyed `uuid`, not on `renderedUuids`: a user
+      // frame's entry still carries the tool results only the file has.
+      const item = this.itemsByUuid.get(uuid);
+      if (item === undefined) {
         this.appendEntry(entry);
+      } else {
+        this.replaceItem(item, entry);
       }
     }
     // No rebuild for the move alone: the container is the concatenation
     // of the two parts, which the move leaves unchanged.
   }
 
-  /** Re-render the item keyed under `uuid` from its entry (an assistant
-   *  frame carries `stop_reason: null`; its entry the final value). Tool
-   *  items are keyed by tool call id and untouched. No-op without an
-   *  item or an assistant rendering of the entry. */
-  replaceContent(uuid: UUID, entry: SessionEntry): void {
-    const item = this.itemsByUuid.get(uuid);
+  /** Re-render `item`, the frame's rendering of `entry`'s uuid, from the
+   *  entry: what the file records can differ from what the stream carried.
+   *  No-op for an assistant item whose entry is not an assistant message. */
+  private replaceItem(
+    item: AssistantItem | UserTurnItem,
+    entry: SessionEntry,
+  ): void {
+    this.trackCwd(entry);
     const message = entryToSessionMessage(entry) as
       (SessionMessage & SDKMessage) | undefined;
-    if (item === undefined || message?.type !== "assistant") {
-      return;
+    if (item.kind === "userTurn") {
+      this.replaceUserTurn(item, entry, message);
+    } else if (message?.type === "assistant") {
+      this.replaceAssistant(item, message);
     }
+  }
+
+  /** An assistant frame carries `stop_reason: null`; its entry the final
+   *  value. */
+  private replaceAssistant(
+    item: AssistantItem,
+    message: Extract<SDKMessage, { type: "assistant" }>,
+  ): void {
     const rendered = suppressNoResponse(renderAssistant(message));
     item.rendered = rendered;
     item.component.updateContent(rendered);
+    this.rebuild();
+  }
+
+  /** A user turn's entry is the file's record of the dequeue echo (a merged
+   *  run's joined text, a steer's attachment) and carries the tool results
+   *  only the file has. */
+  private replaceUserTurn(
+    item: UserTurnItem,
+    entry: SessionEntry,
+    message: (SessionMessage & SDKMessage) | undefined,
+  ): void {
+    const views = entryUserViews(entry, message);
+    if (views.length > 0) {
+      item.component.updateContent(views);
+    }
+    if (message?.type === "user") {
+      this.applyToolResults(message);
+    }
     this.rebuild();
   }
 
@@ -742,7 +712,7 @@ export class TranscriptRenderer {
       tool.setExpanded(expanded);
     }
     for (const item of [...this.resolvedItems, ...this.pendingItems]) {
-      if (item.kind === "command") {
+      if (item.kind === "userTurn") {
         item.component.setExpanded(expanded);
       }
     }
@@ -937,6 +907,31 @@ class CompactSummaryComponent implements Component {
   }
 }
 
+/** The views a session entry contributes to a user turn: a user message's
+ *  text, a steered prompt's `queued_command` attachment, a
+ *  system/local_command entry (slash commands and their stdout can live
+ *  there — empirical: /login, /context; others arrive as user messages —
+ *  which entryToSessionMessage drops). Empty otherwise. */
+function entryUserViews(
+  entry: SessionEntry,
+  message: (SessionMessage & SDKMessage) | undefined,
+): UserTurnView[] {
+  if (
+    entry.type === "system" &&
+    entry.subtype === "local_command" &&
+    typeof entry.content === "string"
+  ) {
+    return userTurnViewsFromText(entry.content);
+  }
+  const steeredPrompt = queuedCommandPrompt(entry);
+  if (steeredPrompt !== undefined) {
+    // A steer's attachment is the prompt verbatim; a `/command` is never
+    // steered (tests/sdk/steer-slash-command.test.ts), so no expansion.
+    return [{ kind: "prompt", text: steeredPrompt }];
+  }
+  return message?.type === "user" ? userTurnViews(message) : [];
+}
+
 function bannerText(text: string, color: ThemeColor = "dim"): Text {
   return new Text(theme.fg(color, text), 1, 1);
 }
@@ -979,7 +974,7 @@ function displayThinkingSeconds(seconds: number): number {
 function isFoldable(item: TranscriptItem): boolean {
   switch (item.kind) {
     case "plain":
-    case "command":
+    case "userTurn":
       return false;
     case "tool":
       return (

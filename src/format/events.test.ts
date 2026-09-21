@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import type { UUID } from "node:crypto";
 import { test } from "node:test";
 import type { SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
 import type { AgentState } from "../core/agent-state/agent-state.ts";
@@ -12,6 +13,9 @@ const OPTIONS: MessageFormatOptions = {
   maxToolArgChars: 120,
   maxErrorLines: 10,
 };
+
+const uuidN = (n: number): UUID =>
+  `00000000-0000-0000-0000-${String(n).padStart(12, "0")}`;
 
 function prompt(text: string): SDKUserMessage {
   return {
@@ -54,66 +58,93 @@ test("snapshot renders a header with the observed fields", () => {
   );
 });
 
-test("snapshot omits unobserved fields and lists queued/delivered prompts", () => {
+test("snapshot omits unobserved fields and lists queued prompts", () => {
   const output = format([
     snapshotRecord({
       activity: "pending",
-      queuedMessages: [{ id: 3, message: prompt("queued text") }],
-      deliveredMessages: [prompt("delivered text")],
+      queuedMessages: [{ uuid: uuidN(3), message: prompt("queued text") }],
     }),
   ]);
   assert.equal(
     output,
-    "[snapshot: pending]\n[queued #3: queued text]\n[delivered: delivered text]\n",
+    `[snapshot: pending]\n[queued ${uuidN(3)}: queued text]\n`,
   );
 });
 
 test("queued prompts render one-line truncated, full at dequeue", () => {
   const long = `start ${"x".repeat(100)}`;
   const output = format([
-    event({ kind: "userMessageQueued", id: 3, message: prompt(long) }),
-    event({ kind: "userMessageDequeued", delivery: "turn", ids: [3] }),
+    event({ kind: "userMessageQueued", uuid: uuidN(3), message: prompt(long) }),
+    event({ kind: "userMessageDequeued", delivery: "turn", uuids: [uuidN(3)] }),
   ]);
   const [queuedChunk, dequeuedChunk] = output.split("\n\n");
-  assert.match(queuedChunk!, /^\[queued #3: start x+…\]$/u);
+  assert.match(
+    queuedChunk!,
+    /^\[queued 0{8}-0{4}-0{4}-0{4}-0{11}3: start x+…\]$/u,
+  );
   // The whole bracketed content truncates, so the line width is fixed
-  // regardless of how wide the id prefix is.
+  // regardless of how wide the uuid prefix is.
   assert.equal(queuedChunk!.length, "[]".length + 80);
-  assert.equal(dequeuedChunk, `[dequeued (turn): #3]\n== user ==\n${long}\n`);
+  assert.equal(
+    dequeuedChunk,
+    `[dequeued (turn): ${uuidN(3)}]\n== user ==\n${long}\n`,
+  );
 });
 
 test("snapshot queued messages seed the dequeue store", () => {
   const output = format([
     snapshotRecord({
-      queuedMessages: [{ id: 7, message: prompt("from snapshot") }],
+      queuedMessages: [{ uuid: uuidN(7), message: prompt("from snapshot") }],
     }),
-    event({ kind: "userMessageDequeued", delivery: "steer", ids: [7] }),
+    event({
+      kind: "userMessageDequeued",
+      delivery: "steer",
+      uuids: [uuidN(7)],
+    }),
   ]);
-  assert.match(
-    output,
-    /\[dequeued \(steer\): #7\]\n== user ==\nfrom snapshot\n$/u,
+  assert.ok(
+    output.endsWith(
+      `[dequeued (steer): ${uuidN(7)}]\n== user ==\nfrom snapshot\n`,
+    ),
   );
 });
 
-test("a merged-bucket dequeue separates its messages as records", () => {
-  const output = format([
-    event({ kind: "userMessageQueued", id: 1, message: prompt("first") }),
-    event({ kind: "userMessageQueued", id: 2, message: prompt("second") }),
-    event({ kind: "userMessageDequeued", delivery: "turn", ids: [1, 2] }),
+test("a merged run's dequeue renders the one joined message", () => {
+  const run = format([
+    event({
+      kind: "userMessageQueued",
+      uuid: uuidN(1),
+      message: prompt("first"),
+    }),
+    event({
+      kind: "userMessageQueued",
+      uuid: uuidN(2),
+      message: prompt("second"),
+    }),
+    event({
+      kind: "userMessageDequeued",
+      delivery: "turn",
+      uuids: [uuidN(1), uuidN(2)],
+    }),
   ]);
-  assert.match(
-    output,
-    /\[dequeued \(turn\): #1, #2\]\n== user ==\nfirst\n\n== user ==\nsecond\n$/u,
+  assert.ok(
+    run.endsWith(
+      `[dequeued (turn): ${uuidN(1)}, ${uuidN(2)}]\n== user ==\nfirst\nsecond\n`,
+    ),
   );
 });
 
 test("a new snapshot supersedes remembered queued messages", () => {
   const output = format([
-    event({ kind: "userMessageQueued", id: 1, message: prompt("stale") }),
+    event({
+      kind: "userMessageQueued",
+      uuid: uuidN(1),
+      message: prompt("stale"),
+    }),
     snapshotRecord({ queuedMessages: [] }),
-    event({ kind: "userMessageDequeued", delivery: "turn", ids: [1] }),
+    event({ kind: "userMessageDequeued", delivery: "turn", uuids: [uuidN(1)] }),
   ]);
-  assert.match(output, /\[dequeued \(turn\): #1\]\n$/u);
+  assert.ok(output.endsWith(`[dequeued (turn): ${uuidN(1)}]\n`));
   assert.doesNotMatch(output, /== user ==/u);
 });
 
@@ -130,11 +161,15 @@ test("control details with newlines or excess length are one-lined", () => {
   assert.match(output, /^\[control: set-model spread over x+…\]\n$/u);
 });
 
-test("a dequeue of an unremembered id degrades to the annotation alone", () => {
+test("a dequeue of an unremembered uuid degrades to the annotation alone", () => {
   const output = format([
-    event({ kind: "userMessageDequeued", delivery: "append", ids: [1, 2] }),
+    event({
+      kind: "userMessageDequeued",
+      delivery: "append",
+      uuids: [uuidN(1), uuidN(2)],
+    }),
   ]);
-  assert.equal(output, "[dequeued (append): #1, #2]\n");
+  assert.equal(output, `[dequeued (append): ${uuidN(1)}, ${uuidN(2)}]\n`);
 });
 
 test("compact/interrupt/control events render one-liners", () => {

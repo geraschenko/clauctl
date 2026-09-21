@@ -49,16 +49,24 @@ export type MessageDelivery = "turn" | "steer" | "append";
  * `userMessageQueued` at acceptance, `userMessageDequeued` next to the SDK
  * message that triggered the dequeue: a steer's dequeue immediately before
  * the assistant frame that absorbed it (the file's order), a turn's or
- * append's immediately after the `result` that dequeued it. Dequeues
- * reference daemon-assigned ids, so out-of-order dequeuing (a `next` cutting
- * ahead of a `later`) is unambiguous. A run — the querying prefix of the
- * top-priority bucket, or a lone append (docs/claude-agent-sdk.md, "Queued
- * prompts coalesce by run") — dequeues as one event carrying all its ids:
- * it runs as a single turn with a single `result`.
+ * append's immediately after the `result` that dequeued it. A message's
+ * uuid is stamped by the daemon before delivery — the uuid its
+ * session-file entry carries — so out-of-order dequeuing (a `next` cutting
+ * ahead of a `later`) is unambiguous and a dequeue names the entry it
+ * predicts. A run — the querying prefix of the top-priority bucket, or a
+ * lone append (docs/claude-agent-sdk.md, "Queued prompts coalesce by run")
+ * — dequeues as one event carrying all its uuids: it runs as a single turn
+ * with a single `result`, filed under the last uuid. A steer and an append
+ * are always a run of one (queue-model.ts); consumers need not special-case
+ * them.
  */
 export type AgentEvent =
-  | { kind: "userMessageQueued"; id: number; message: SDKUserMessage }
-  | { kind: "userMessageDequeued"; delivery: MessageDelivery; ids: number[] }
+  | { kind: "userMessageQueued"; uuid: UUID; message: SDKUserMessage }
+  | {
+      kind: "userMessageDequeued";
+      delivery: MessageDelivery;
+      uuids: readonly [UUID, ...UUID[]];
+    }
   | { kind: "compactSent"; message: SDKUserMessage } // /compact issued while Idle
   | { kind: "interruptSent" }
   | { kind: "controlApplied"; request: SdkControlApplied }

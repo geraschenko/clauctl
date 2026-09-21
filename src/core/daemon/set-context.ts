@@ -216,15 +216,12 @@ export function createSetContextHandler(
   return async (parsed: SetContextRequest): Promise<SetContextResponse> => {
     const releaseGate = await shared.acquireSettledExclusive();
     try {
-      // Eligibility, checked under the gate: nothing running, nothing queued,
-      // nothing delivered-but-unconfirmed. No implicit waiting — callers can
+      // Eligibility, checked under the gate: nothing running, nothing queued
+      // (a dequeued prompt not yet in the file is pending on `query`, which
+      // the settled gate waits out). No implicit waiting — callers can
       // `clauctl wait --until idle` first.
       const state = events.agentState;
-      if (
-        state.activity !== "idle" ||
-        state.queuedMessages.length > 0 ||
-        state.deliveredMessages.length > 0
-      ) {
+      if (state.activity !== "idle" || state.queuedMessages.length > 0) {
         throw new Error(
           "set-context requires an idle assistant with an empty queue",
         );

@@ -17,19 +17,16 @@
  * remain queued (messages with `shouldQuery === false` may sit across idle —
  * they run merged into the next querying message).
  *
- * Prompt-visibility invariant: every accepted turn/append prompt appears in
- * exactly one place — `queuedMessages` (accepted, not yet consumed by the
- * CLI), `deliveredMessages` (consumed, not yet confirmed by a later stream
- * emission), or the transcript at/before `leaf` (confirmed; a
- * history read covers it). Each transition is one fold step, so no state can
- * catch a prompt in two places or in none. An attaching observer therefore
- * renders each prompt exactly once: history replay up to the boundary, then
- * `deliveredMessages`, then `queuedMessages` in the pending area — everything
- * past the boundary arrives on the live stream. The transcript leg rests on a
- * CLI ordering assumption the fold cannot verify: a consumed prompt's
- * transcript entry is written at consumption and entries land in file-append
- * order, so any later uuid-carrying emission confirms every prompt delivered
- * before it. Background: docs/user-message-tracking.md.
+ * Prompt-visibility invariant: every accepted prompt appears in exactly
+ * one place — `queuedMessages` (accepted, not yet consumed by the CLI),
+ * pending on `query` in the query session's merge (its dequeue observed
+ * under its stamped uuid, its file entry not yet), or resolved into the
+ * file (a history read covers it). The daemon stamps each prompt's uuid
+ * before delivery and the CLI files the entry under it (a merged run under
+ * its last member's, a steer as a `queued_command` attachment naming it as
+ * `source_uuid`), so the dequeue and the entry meet in the merge like any
+ * other twin. Each transition is one fold step, so no state can catch a
+ * prompt in two places or in none. Background: docs/user-message-tracking.md.
  *
  * This file is the directory's only import surface (eslint
  * `no-restricted-imports`); the siblings are implementation.
@@ -73,6 +70,7 @@ export {
   type MergeStream,
   type SessionState,
 } from "./session-state.ts";
+export { joinedPrompt } from "./joined-prompt.ts";
 export { toNonNullableUsage } from "./to-non-nullable-usage.ts";
 export type { TrackerAnomaly } from "./tracker-anomaly.ts";
 
@@ -104,10 +102,8 @@ export interface AgentState {
   /** Every mode observed this daemon lifetime, in first-observed order. */
   readonly observedPermissionModes: readonly PermissionMode[];
   readonly cwd?: string;
-  /** Accepted, not yet consumed by the CLI. */
-  readonly queuedMessages: readonly { id: number; message: SDKUserMessage }[];
-  /** Consumed as turn/append, not yet confirmed by a later stream emission. */
-  readonly deliveredMessages: readonly SDKUserMessage[];
+  /** Accepted, not yet consumed by the CLI; `uuid` is the stamped uuid. */
+  readonly queuedMessages: readonly { uuid: UUID; message: SDKUserMessage }[];
   /** Plain record (it crosses the wire in `subscribe`). */
   readonly sessions: Readonly<Record<UUID, SessionState>>;
   /** The query file: the latest query message's `session_id`; undefined
@@ -132,7 +128,6 @@ export function initialAgentState(): AgentState {
     activity: "idle",
     observedPermissionModes: [],
     queuedMessages: [],
-    deliveredMessages: [],
     sessions: {},
   };
 }
@@ -166,7 +161,7 @@ function clearedForFold(state: AgentState): AgentState {
 function foldEvent(state: AgentState, event: AgentEvent): AgentState {
   switch (event.kind) {
     case "userMessageQueued":
-      return foldUserMessageQueued(state, event.id, event.message);
+      return foldUserMessageQueued(state, event.uuid, event.message);
     case "userMessageDequeued":
       return foldUserMessageDequeued(state, event);
     case "compactSent":

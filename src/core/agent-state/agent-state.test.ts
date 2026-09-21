@@ -86,28 +86,35 @@ function queued(
   id: number,
   overrides: Partial<SDKUserMessage> = {},
 ): AgentEvent {
-  return { kind: "userMessageQueued", id, message: userMessage(overrides) };
+  return {
+    kind: "userMessageQueued",
+    uuid: uuidN(id),
+    message: userMessage(overrides),
+  };
 }
 
 function dequeued(
   delivery: "turn" | "steer" | "append",
-  ids: number[],
+  [first, ...rest]: [number, ...number[]],
 ): AgentEvent {
-  return { kind: "userMessageDequeued", delivery, ids };
+  return {
+    kind: "userMessageDequeued",
+    delivery,
+    uuids: [uuidN(first), ...rest.map(uuidN)],
+  };
 }
 
 function run(events: AgentEvent[], from = initialAgentState()): AgentState {
   return events.reduce(nextAgentState, from);
 }
 
-function queuedIds(state: AgentState): number[] {
-  return state.queuedMessages.map((entry) => entry.id);
+function queuedIds(state: AgentState): UUID[] {
+  return state.queuedMessages.map((entry) => entry.uuid);
 }
 
 test("initial state is idle with empty arrays", () => {
   assert.equal(initialAgentState().activity, "idle");
   assert.deepEqual(initialAgentState().queuedMessages, []);
-  assert.deepEqual(initialAgentState().deliveredMessages, []);
   assert.deepEqual(initialAgentState().observedPermissionModes, []);
   assert.equal(isIdle(initialAgentState()), true);
 });
@@ -115,14 +122,14 @@ test("initial state is idle with empty arrays", () => {
 test("querying message queued while idle → pending", () => {
   const state = run([queued(1)]);
   assert.equal(state.activity, "pending");
-  assert.deepEqual(queuedIds(state), [1]);
+  assert.deepEqual(queuedIds(state), [uuidN(1)]);
   assert.equal(isIdle(state), false);
 });
 
 test("non-querying message queued while idle stays idle", () => {
   const state = run([queued(1, { shouldQuery: false })]);
   assert.equal(state.activity, "idle");
-  assert.deepEqual(queuedIds(state), [1]);
+  assert.deepEqual(queuedIds(state), [uuidN(1)]);
   assert.equal(isIdle(state), true);
 });
 
@@ -162,7 +169,7 @@ test("result with a querying message still queued → pending, never idle", () =
     sdkMessage("result"),
   ]);
   assert.equal(state.activity, "pending");
-  assert.deepEqual(queuedIds(state), [2]);
+  assert.deepEqual(queuedIds(state), [uuidN(2)]);
   const done = run(
     [dequeued("turn", [2]), sdkMessage("assistant"), sdkMessage("result")],
     state,
@@ -212,7 +219,7 @@ test("non-querying entry may sit across idle; append dequeue clears it", () => {
     sdkMessage("result"), // Q === 0 → idle, entry 2 still queued
   ]);
   assert.equal(state.activity, "idle");
-  assert.deepEqual(queuedIds(state), [2]);
+  assert.deepEqual(queuedIds(state), [uuidN(2)]);
   const done = run([dequeued("append", [2])], state);
   assert.equal(done.activity, "idle");
   assert.deepEqual(done.queuedMessages, []);
@@ -239,7 +246,7 @@ test("compact with a later turn queued behind it", () => {
     sdkMessage("result"), // compaction finished
   ]);
   assert.equal(state.activity, "pending");
-  assert.deepEqual(queuedIds(state), [1]);
+  assert.deepEqual(queuedIds(state), [uuidN(1)]);
 });
 
 test("interruptSent and non-tracking controlApplied leave state unchanged", () => {
@@ -334,7 +341,6 @@ test("other message types do not change activity or the queue", () => {
     const state = nextAgentState(pendingTurn, event);
     assert.equal(state.activity, "pending");
     assert.deepEqual(state.queuedMessages, pendingTurn.queuedMessages);
-    assert.deepEqual(state.deliveredMessages, pendingTurn.deliveredMessages);
   }
 });
 
@@ -380,12 +386,13 @@ function init(fields: Record<string, unknown> = {}): AgentEvent {
   });
 }
 
-test("conversation_reset clears delivered prompts and preserves queued work", () => {
+test("conversation_reset preserves queued work and activity", () => {
   const before: AgentState = {
     ...initialAgentState(),
     activity: "working",
-    deliveredMessages: [userMessage()],
-    queuedMessages: [{ id: 2, message: userMessage({ priority: "later" }) }],
+    queuedMessages: [
+      { uuid: uuidN(2), message: userMessage({ priority: "later" }) },
+    ],
   };
   const state = nextAgentState(
     before,
@@ -393,8 +400,7 @@ test("conversation_reset clears delivered prompts and preserves queued work", ()
       new_conversation_id: "new-session",
     }),
   );
-  assert.deepEqual(state.deliveredMessages, []);
-  assert.deepEqual(queuedIds(state), [2]);
+  assert.deepEqual(queuedIds(state), [uuidN(2)]);
   assert.equal(state.activity, "working");
 });
 
@@ -498,102 +504,157 @@ test("controlApplied set-permission-mode observes the mode", () => {
   assert.deepEqual(state.observedPermissionModes, ["acceptEdits"]);
 });
 
-// --- prompt-visibility bookkeeping -------------------------------------------
-// The fold cannot prove transcript presence — that rests on the documented CLI
-// transcript-ordering assumption (agent-state.ts header). These tests cover
-// the bookkeeping properties the fold does own.
+// --- prompt identity ---------------------------------------------------------
+// A prompt's dequeue is its `query` observation under the stamped uuid
+// (uuidN(n) here); its file entry — a merged run's under the last id, a
+// steer's `queued_command` attachment naming it as source_uuid — is the
+// `session` one. `withQuerySession` makes SESSION_A the query and tracked
+// file, scanned.
 
-test("turn dequeue moves messages from queuedMessages to deliveredMessages in ids order", () => {
-  const first = userMessage({ message: { role: "user", content: "one" } });
-  const second = userMessage({ message: { role: "user", content: "two" } });
-  const state = run([
+const withQuerySession: AgentEvent[] = [
+  init(),
+  fileChanged(SESSION_A),
+  scanComplete,
+];
+const steerEntry = (n: number, source: number): AgentEvent =>
+  sessionEntry({
+    type: "attachment",
+    uuid: uuidN(n),
+    attachment: {
+      type: "queued_command",
+      prompt: "steer text",
+      source_uuid: uuidN(source),
+    },
+  });
+const resolvedIds = (state: AgentState): UUID[] =>
+  fileA(state).resolved.map((node) => node.id);
+
+test("turn dequeue observes the run key on query and holds it as the pending leaf until its entry", () => {
+  const dequeuedState = run([
+    ...withQuerySession,
     queued(1),
-    dequeued("turn", [1]),
-    sdkMessage("assistant"),
-    { kind: "userMessageQueued", id: 2, message: first },
-    { kind: "userMessageQueued", id: 3, message: second },
-    sdkMessage("result"),
-    dequeued("turn", [3, 2]),
+    queued(2),
+    dequeued("turn", [1, 2]),
   ]);
-  assert.deepEqual(state.queuedMessages, []);
-  // Ids order (3 before 2), not queue order.
-  assert.deepEqual(
-    state.deliveredMessages.map((m) => m.message.content),
-    ["hello", "two", "one"],
-  );
+  assert.deepEqual(dequeuedState.queuedMessages, []);
+  const file = fileA(dequeuedState);
+  assert.deepEqual(pending(file.merge, "query"), [uuidN(2)]);
+  assert.equal(file.pendingLeaf, uuidN(2));
+  assert.deepEqual(leaf(dequeuedState), { uuid: uuidN(2) });
+  assert.equal(settled(dequeuedState), false);
+  const filed = nextAgentState(dequeuedState, promptEntry(2));
+  assert.deepEqual(fileA(filed).merge.nodes, {});
+  assert.equal(fileA(filed).pendingLeaf, null);
+  assert.deepEqual(resolvedIds(filed), [uuidN(2)]);
+  assert.equal(settled(filed), true);
+  assert.equal(filed.anomaly, undefined);
 });
 
-test("append dequeue also delivers; steer dequeue removes without delivering", () => {
+test("append dequeue observes like a turn; a dequeue without a query session only leaves the queue", () => {
   const appended = run([
+    ...withQuerySession,
     queued(1, { shouldQuery: false }),
     dequeued("append", [1]),
   ]);
-  assert.deepEqual(appended.queuedMessages, []);
-  assert.equal(appended.deliveredMessages.length, 1);
+  assert.deepEqual(pending(fileA(appended).merge, "query"), [uuidN(1)]);
+  const sessionless = run([queued(1), dequeued("turn", [1])]);
+  assert.deepEqual(sessionless.queuedMessages, []);
+  assert.deepEqual(sessionless.sessions, {});
+});
 
+test("a prompt entry ahead of its dequeue pends on session, not excluded from query; the dequeue resolves it", () => {
+  const ahead = run([...withQuerySession, queued(1), promptEntry(1)]);
+  assert.deepEqual(pending(fileA(ahead).merge, "session"), [uuidN(1)]);
+  assert.equal(ahead.anomaly, undefined);
+  const caughtUp = nextAgentState(ahead, dequeued("turn", [1]));
+  assert.deepEqual(fileA(caughtUp).merge.nodes, {});
+  assert.equal(fileA(caughtUp).pendingLeaf, null);
+  assert.deepEqual(resolvedIds(caughtUp), [uuidN(1)]);
+  assert.equal(caughtUp.anomaly, undefined);
+});
+
+test("each steer dequeue observes its uuid without predicting a leaf; each attachment's source_uuid resolves its own", () => {
   const steered = run([
+    ...withQuerySession,
     queued(1),
-    dequeued("turn", [1]),
-    sdkMessage("assistant"),
     queued(2),
+    dequeued("steer", [1]),
     dequeued("steer", [2]),
   ]);
-  assert.deepEqual(steered.queuedMessages, []);
-  // Id 1's turn delivery is held; the steered id 2 is not.
-  assert.equal(steered.deliveredMessages.length, 1);
+  const file = fileA(steered);
+  assert.deepEqual(pending(file.merge, "query"), [uuidN(1), uuidN(2)]);
+  assert.equal(file.pendingLeaf, null);
+  const one = nextAgentState(steered, steerEntry(5, 1));
+  assert.deepEqual(pending(fileA(one).merge, "query"), [uuidN(2)]);
+  assert.deepEqual(resolvedIds(one), [uuidN(5), uuidN(1)]);
+  const both = nextAgentState(one, steerEntry(6, 2));
+  assert.deepEqual(fileA(both).merge.nodes, {});
+  assert.equal(both.anomaly, undefined);
 });
 
-test("dequeue ids not present in queuedMessages are ignored", () => {
-  const state = run([queued(1), dequeued("turn", [1, 99])]);
+test("an attachment ahead of its steer dequeue pends its source on session; the dequeue resolves it", () => {
+  const ahead = run([...withQuerySession, queued(1), steerEntry(5, 1)]);
+  assert.deepEqual(pending(fileA(ahead).merge, "session"), [uuidN(1)]);
+  const caughtUp = nextAgentState(ahead, dequeued("steer", [1]));
+  assert.deepEqual(fileA(caughtUp).merge.nodes, {});
+  assert.equal(caughtUp.anomaly, undefined);
+});
+
+test("historical prompt and attachment entries (no queued id) are session-only and resolve at once", () => {
+  const state = run([...withQuerySession, promptEntry(3), steerEntry(5, 7)]);
+  assert.deepEqual(fileA(state).merge.nodes, {});
+  assert.equal(state.anomaly, undefined);
+});
+
+test("dequeue ids not present in queuedMessages still observe: the entry may already have passed", () => {
+  const state = run([
+    ...withQuerySession,
+    queued(1),
+    dequeued("turn", [1, 99]),
+  ]);
   assert.deepEqual(state.queuedMessages, []);
-  assert.equal(state.deliveredMessages.length, 1);
+  assert.deepEqual(pending(fileA(state).merge, "query"), [uuidN(99)]);
 });
 
-test("uuid-carrying message advances the boundary and clears deliveredMessages in one step", () => {
-  const delivered = run([queued(1), dequeued("turn", [1])]);
-  assert.equal(delivered.deliveredMessages.length, 1);
-  const confirmed = nextAgentState(
-    delivered,
-    sdkMessage("assistant", { uuid: "uuid-1" }),
-  );
-  assert.deepEqual(leaf(confirmed), { uuid: "uuid-1" });
-  assert.deepEqual(confirmed.deliveredMessages, []);
-  const userUuid = "00000000-0000-0000-0000-000000000002";
-  const user = nextAgentState(confirmed, {
-    kind: "sdkMessage",
-    message: userMessage({
-      uuid: userUuid,
-      session_id: SESSION_A,
-    }) as SDKMessage,
-  });
-  assert.deepEqual(leaf(user), { uuid: userUuid });
+test("conversation_reset excludes the reset prompt (the last query-pending id) from the old file", () => {
+  const state = run([
+    ...withQuerySession,
+    queued(1),
+    dequeued("turn", [1]),
+    sdkMessage("conversation_reset", { new_conversation_id: "x" }),
+  ]);
+  assert.deepEqual(fileA(state).merge.nodes, {});
+  assert.equal(fileA(state).pendingLeaf, null);
+  assert.deepEqual(resolvedIds(state), [uuidN(1)]);
+  assert.equal(state.anomaly, undefined);
 });
 
-test("messages without a uuid neither advance the boundary nor clear deliveredMessages", () => {
-  const delivered = run([queued(1), dequeued("turn", [1])]);
-  const state = run(
-    [sdkMessage("system"), sdkMessage("stream_event"), sdkMessage("assistant")],
-    delivered,
-  );
-  assert.equal(leaf(state), null);
-  assert.equal(state.deliveredMessages.length, 1);
+test("conversation_reset's exclusion resolves in stream order, behind earlier pending ids", () => {
+  const reset = run([
+    ...withQuerySession,
+    assistantQuery(3),
+    queued(1),
+    dequeued("turn", [1]),
+    sdkMessage("conversation_reset", { new_conversation_id: "x" }),
+  ]);
+  assert.deepEqual(pending(fileA(reset).merge, "query"), [uuidN(3), uuidN(1)]);
+  assert.deepEqual(fileA(reset).merge.nodes[uuidN(1)]!.excludedFrom, [
+    "session",
+  ]);
+  const caughtUp = nextAgentState(reset, assistantEntry(3));
+  assert.deepEqual(fileA(caughtUp).merge.nodes, {});
+  assert.deepEqual(resolvedIds(caughtUp), [uuidN(3), uuidN(1)]);
+  assert.equal(caughtUp.anomaly, undefined);
 });
 
-test("exactly-one-place property across an accept→deliver→confirm cycle", () => {
-  // The prompt is visible in exactly one of queuedMessages/deliveredMessages/
-  // behind-the-boundary at every step.
-  let state = nextAgentState(initialAgentState(), queued(1));
-  assert.equal(state.queuedMessages.length, 1);
-  assert.equal(state.deliveredMessages.length, 0);
-
-  state = nextAgentState(state, dequeued("turn", [1]));
-  assert.equal(state.queuedMessages.length, 0);
-  assert.equal(state.deliveredMessages.length, 1);
-
-  state = nextAgentState(state, sdkMessage("assistant", { uuid: "uuid-1" }));
-  assert.equal(state.queuedMessages.length, 0);
-  assert.equal(state.deliveredMessages.length, 0);
-  assert.deepEqual(leaf(state), { uuid: "uuid-1" });
+test("conversation_reset with nothing pending on query resolves nothing", () => {
+  const state = run([
+    ...withQuerySession,
+    sdkMessage("conversation_reset", { new_conversation_id: "x" }),
+  ]);
+  assert.deepEqual(fileA(state).merge.nodes, {});
+  assert.deepEqual(resolvedIds(state), []);
+  assert.equal(state.anomaly, undefined);
 });
 
 test("contextChanged is pass-through: the tip it carries is folded from the completing entry", () => {

@@ -13,6 +13,7 @@
  * events. Merging the two would leak daemon inference into the protocol.
  */
 
+import type { UUID } from "node:crypto";
 import type {
   SDKMessage,
   SDKUserMessage,
@@ -21,19 +22,17 @@ import type { MessageDelivery, AgentEvent } from "../protocol.ts";
 
 /** One accepted-but-not-yet-dequeued message in the modeled CLI queue. */
 export interface QueuedMessage {
-  id: number;
+  uuid: UUID;
   message: SDKUserMessage;
   /** A tool_result has been observed since THIS message's acceptance. */
   toolResultSeen: boolean;
 }
 
 export interface QueueModelState {
-  nextId: number;
   queued: QueuedMessage[];
 }
 
 export const INITIAL_QUEUE_MODEL_STATE: QueueModelState = {
-  nextId: 1,
   queued: [],
 };
 
@@ -43,10 +42,10 @@ export interface QueueTransition {
   events: AgentEvent[];
 }
 
-/** An acceptance additionally names the id it assigned — the receipt the
+/** An acceptance additionally names the message's uuid — the receipt the
  *  prompt response carries back to the submitting client. */
 export interface AcceptTransition extends QueueTransition {
-  id: number;
+  uuid: UUID;
 }
 
 /**
@@ -78,36 +77,48 @@ function priorityRank(message: SDKUserMessage): number {
   }
 }
 
-function dequeued(delivery: MessageDelivery, ids: number[]): AgentEvent {
-  return { kind: "userMessageDequeued", delivery, ids };
+function dequeued(
+  delivery: MessageDelivery,
+  uuids: readonly [UUID, ...UUID[]],
+): AgentEvent {
+  return { kind: "userMessageDequeued", delivery, uuids };
 }
 
 /**
  * Accept a turn from a client; emits `userMessageQueued` (plus the immediate
  * dequeue when idle — the message runs, or is appended, right away).
+ * `message.uuid` is the uuid: the hub stamps it before delivery, so the
+ * delivered message and the modeled one are the same object; an unstamped
+ * message is a daemon bug.
  */
 export function acceptUserMessage(
   state: QueueModelState,
   message: SDKUserMessage,
   isIdle: boolean,
 ): AcceptTransition {
-  const id = state.nextId;
-  const queuedEvent: AgentEvent = { kind: "userMessageQueued", id, message };
+  const uuid = message.uuid;
+  if (uuid === undefined) {
+    throw new Error("acceptUserMessage: message has no uuid");
+  }
+  const queuedEvent: AgentEvent = {
+    kind: "userMessageQueued",
+    uuid,
+    message,
+  };
   if (isIdle) {
     return {
-      id,
-      state: { ...state, nextId: id + 1 },
+      uuid,
+      state,
       events: [
         queuedEvent,
-        dequeued(isQuerying(message) ? "turn" : "append", [id]),
+        dequeued(isQuerying(message) ? "turn" : "append", [uuid]),
       ],
     };
   }
   return {
-    id,
+    uuid,
     state: {
-      nextId: id + 1,
-      queued: [...state.queued, { id, message, toolResultSeen: false }],
+      queued: [...state.queued, { uuid, message, toolResultSeen: false }],
     },
     events: [queuedEvent],
   };
@@ -153,24 +164,17 @@ export function observeSdkMessage(
   // Assistant activity after a tool_result: the CLI removed the marked
   // demotable messages from its queue and delivered them as
   // <system-reminder>s inside that tool result; they never run as turns.
+  // Each gets its own attachment entry, so each is its own dequeue.
   if (message.type === "assistant" || message.type === "stream_event") {
     const steered = state.queued.filter(
       (entry) => isDemotable(entry.message) && entry.toolResultSeen,
     );
-    if (steered.length === 0) {
-      return { state, events: [] };
-    }
     return {
       state: {
         ...state,
         queued: state.queued.filter((entry) => !steered.includes(entry)),
       },
-      events: [
-        dequeued(
-          "steer",
-          steered.map((entry) => entry.id),
-        ),
-      ],
+      events: steered.map((entry) => dequeued("steer", [entry.uuid])),
     };
   }
 
@@ -189,17 +193,18 @@ export function observeSdkMessage(
     const bucket = state.queued.filter(
       (entry) => priorityRank(entry.message) === topRank,
     );
-    const run = nextRun(bucket);
+    const [head, ...tail] = bucket as [QueuedMessage, ...QueuedMessage[]];
+    const run = nextRun(head, tail);
     return {
       state: {
         ...state,
         queued: state.queued.filter((entry) => !run.includes(entry)),
       },
       events: [
-        dequeued(
-          isQuerying(run[0]!.message) ? "turn" : "append",
-          run.map((entry) => entry.id),
-        ),
+        dequeued(isQuerying(head.message) ? "turn" : "append", [
+          head.uuid,
+          ...run.slice(1).map((entry) => entry.uuid),
+        ]),
       ],
     };
   }
@@ -207,12 +212,12 @@ export function observeSdkMessage(
   return { state, events: [] };
 }
 
-/** The run at the head of a non-empty bucket: an append alone, otherwise
- *  the maximal prefix of querying members. */
-function nextRun(bucket: QueuedMessage[]): QueuedMessage[] {
-  if (!isQuerying(bucket[0]!.message)) {
-    return bucket.slice(0, 1);
+/** The run at the head of a bucket: an append alone, otherwise the maximal
+ *  prefix of querying members. */
+function nextRun(head: QueuedMessage, tail: QueuedMessage[]): QueuedMessage[] {
+  if (!isQuerying(head.message)) {
+    return [head];
   }
-  const firstAppend = bucket.findIndex((entry) => !isQuerying(entry.message));
-  return firstAppend === -1 ? bucket : bucket.slice(0, firstAppend);
+  const firstAppend = tail.findIndex((entry) => !isQuerying(entry.message));
+  return [head, ...(firstAppend === -1 ? tail : tail.slice(0, firstAppend))];
 }

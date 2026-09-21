@@ -4,10 +4,15 @@
  * annotations. A queued prompt renders as a truncated one-liner at its
  * `userMessageQueued` and in full at its `userMessageDequeued` — the full
  * text appears where it logically enters context, while the queued line
- * preserves when it arrived.
+ * preserves when it arrived. A dequeue of several uuids is one merged run,
+ * rendered as the one joined message claude files for it.
  */
 
-import { classOf, type AgentState } from "../core/agent-state/agent-state.ts";
+import {
+  classOf,
+  joinedPrompt,
+  type AgentState,
+} from "../core/agent-state/agent-state.ts";
 import type { AgentEvent } from "../core/protocol.ts";
 import { compactionMetadata } from "../core/session/file.ts";
 import { userText } from "../tui/sdk-render.ts";
@@ -37,12 +42,9 @@ function agentStateChunk(
   // A snapshot record carries the authoritative queue state; anything
   // remembered from before it (a concatenated or restarted stream) is stale.
   formatState.queuedMessages.clear();
-  for (const { id, message } of agentState.queuedMessages) {
-    formatState.queuedMessages.set(id, message);
-    lines.push(annotation(`queued #${id}: ${userText(message)}`));
-  }
-  for (const message of agentState.deliveredMessages) {
-    lines.push(annotation(`delivered: ${userText(message)}`));
+  for (const { uuid, message } of agentState.queuedMessages) {
+    formatState.queuedMessages.set(uuid, message);
+    lines.push(annotation(`queued ${uuid}: ${userText(message)}`));
   }
   return lines.join("\n");
 }
@@ -75,30 +77,26 @@ function eventChunks(
 ): string[] {
   switch (event.kind) {
     case "userMessageQueued":
-      formatState.queuedMessages.set(event.id, event.message);
-      return [annotation(`queued #${event.id}: ${userText(event.message)}`)];
+      formatState.queuedMessages.set(event.uuid, event.message);
+      return [annotation(`queued ${event.uuid}: ${userText(event.message)}`)];
     case "userMessageDequeued": {
-      const ids = event.ids.map((id) => `#${id}`).join(", ");
-      const dequeued = `[dequeued (${event.delivery}): ${ids}]`;
-      const renders: string[] = [];
-      for (const id of event.ids) {
-        const message = formatState.queuedMessages.get(id);
-        if (message === undefined) {
-          continue; // unseen id: the annotation alone still records the dequeue
-        }
-        formatState.queuedMessages.delete(id);
-        const rendered = formatSdkMessage(message, formatState, options);
-        if (rendered !== undefined && rendered !== "") {
-          renders.push(rendered);
-        }
-      }
-      // The first render attaches to the annotation (one logical record, per
-      // the spec example); further messages of a merged bucket separate as
-      // ordinary blank-line records.
-      const [first, ...rest] = renders;
-      return first === undefined
+      const dequeued = `[dequeued (${event.delivery}): ${event.uuids.join(", ")}]`;
+      // Unseen uuids drop out: the annotation alone still records the dequeue.
+      const prompt = joinedPrompt(
+        event.uuids.flatMap((uuid) => {
+          const message = formatState.queuedMessages.get(uuid);
+          formatState.queuedMessages.delete(uuid);
+          return message === undefined ? [] : [message];
+        }),
+      );
+      const rendered =
+        prompt === undefined
+          ? undefined
+          : formatSdkMessage(prompt, formatState, options);
+      // The render attaches to the annotation: one logical record.
+      return rendered === undefined || rendered === ""
         ? [dequeued]
-        : [`${dequeued}\n${first}`, ...rest];
+        : [`${dequeued}\n${rendered}`];
     }
     case "compactSent":
       return ["[compact sent]"];

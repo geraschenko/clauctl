@@ -17,6 +17,7 @@
  * (the receipt is internal), exit 0; `--no-query` implies it.
  */
 
+import type { UUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { extname } from "node:path";
 import type {
@@ -55,6 +56,7 @@ import { agentSocketPath, type AgentRecord } from "./registry.ts";
 import { connectWithRetry, type AgentEvent } from "./protocol.ts";
 import { UntilSettlement } from "./tail.ts";
 import { untilMetByEvent, untilQuietMs } from "./until.ts";
+import { UUID_PATTERN } from "./uuid.ts";
 
 const PROMPT_TYPES = ["messages", "entries", "events"] as const;
 
@@ -110,13 +112,14 @@ async function imageBlock(path: string): Promise<ImageBlockParam> {
 }
 
 /** Opens a short-lived connection, submits, and returns the acceptance
- *  receipt's queue id — undefined for `/compact`, which bypasses the queue
- *  model. The daemon is ours, so a malformed receipt is an internal error. */
+ *  receipt's id (the message's stamped uuid) — undefined for `/compact`,
+ *  which bypasses the queue model. The daemon is ours, so a malformed
+ *  receipt is an internal error. */
 async function submitPrompt(
   agent: AgentRecord,
   flags: PromptFlags,
   text: string,
-): Promise<number | undefined> {
+): Promise<UUID | undefined> {
   const images = await Promise.all(flags.image.map(imageBlock));
   const content: string | ContentBlockParam[] =
     images.length === 0 ? text : [...images, { type: "text", text }];
@@ -135,21 +138,21 @@ async function submitPrompt(
       return undefined;
     }
     const id = (data as { id?: unknown }).id;
-    if (typeof id !== "number") {
+    if (typeof id !== "string" || !UUID_PATTERN.test(id)) {
       throw new Error(`malformed prompt receipt: ${JSON.stringify(data)}`);
     }
-    return id;
+    return id as UUID;
   } finally {
     client.close();
   }
 }
 
 /** Whether this event announces the dequeue of our own message. */
-function opensGate(event: AgentEvent, promptId: number | undefined): boolean {
+function opensGate(event: AgentEvent, promptId: UUID | undefined): boolean {
   return (
     promptId !== undefined &&
     event.kind === "userMessageDequeued" &&
-    event.ids.includes(promptId)
+    event.uuids.includes(promptId)
   );
 }
 
@@ -164,7 +167,7 @@ async function promptLive(
   agent: AgentRecord,
   type: "messages" | "entries",
   json: boolean,
-  submitPromptFn: () => Promise<number | undefined>,
+  submitPromptFn: () => Promise<UUID | undefined>,
   condition: UntilCondition,
   timeoutMs: number | undefined,
 ): Promise<void> {
@@ -174,7 +177,7 @@ async function promptLive(
   );
   const sink = entrySink(context, type, json);
   const settlement = new UntilSettlement(condition);
-  let promptId: number | undefined;
+  let promptId: UUID | undefined;
   let gateOpen = false;
   try {
     const { outcome } = await Promise.race([
@@ -229,7 +232,7 @@ async function promptEvents(
   context: CommandContext,
   agent: AgentRecord,
   json: boolean,
-  submitPromptFn: () => Promise<number | undefined>,
+  submitPromptFn: () => Promise<UUID | undefined>,
   condition: UntilCondition,
   timeoutMs: number | undefined,
 ): Promise<void> {
@@ -249,7 +252,7 @@ async function promptEvents(
       context.process.stdout.write(text);
     }
   };
-  let promptId: number | undefined;
+  let promptId: UUID | undefined;
   let gateOpen = false;
   try {
     const { outcome } = await runStream(

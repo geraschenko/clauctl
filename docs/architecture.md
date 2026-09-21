@@ -79,8 +79,8 @@ model to drift out of sync.
 The SDK's live stream does not echo user prompts, so the daemon synthesizes
 queue events itself and maintains the **prompt-visibility invariant**: every
 accepted prompt is visible in exactly one of `queuedMessages` (accepted, not
-yet handed to the SDK), `deliveredMessages` (handed over, not yet in the
-transcript), or the transcript at-or-before `leaf`. See
+yet handed to the SDK), the query session's stream merge (handed over under
+the uuid the daemon stamped, its entry not yet filed), or the transcript. See
 [`user-message-tracking.md`](user-message-tracking.md) for why this exists and
 its accepted limitations.
 

@@ -5,7 +5,6 @@ import {
   type MergeError,
   type MergeStep,
   observe,
-  type Resolved,
 } from "../stream-merge.ts";
 import {
   MERGE_STREAMS,
@@ -22,12 +21,66 @@ export interface Observation {
   readonly anomalies: readonly TrackerAnomaly[];
 }
 
-/** One merge observation on `file`. `excludeOther` is the caller's
+/** Folds one merge call's result into `session`: a failing call leaves
+ *  the merge as it was and is reported; resolutions clear `pendingLeaf`
+ *  and append to the session's `resolved`; a resolved node a stream
+ *  skipped is a head-mismatch. */
+function applyMergeStep(
+  session: SessionState,
+  result: Result<MergeStep<UUID, MergeStream>, MergeError>,
+  className: string,
+  uuid: UUID,
+  stream: MergeStream,
+): Observation {
+  return result.match(
+    (step) => {
+      const skipped = step.resolved.flatMap((node) => {
+        const missing = MERGE_STREAMS.filter(
+          (name) =>
+            !node.seenOn.includes(name) && !node.excludedFrom.includes(name),
+        );
+        return missing.length === 0
+          ? []
+          : [
+              `${node.id} seen on ${node.seenOn.join(",")}, skipped by ${missing.join(",")}`,
+            ];
+      });
+      const pendingLeaf = step.resolved.some(
+        (node) => node.id === session.pendingLeaf,
+      )
+        ? null
+        : session.pendingLeaf;
+      return {
+        session: {
+          ...session,
+          merge: step.state,
+          pendingLeaf,
+          resolved: [...session.resolved, ...step.resolved],
+        },
+        anomalies:
+          skipped.length === 0
+            ? []
+            : [{ kind: "head-mismatch", detail: skipped.join("; ") }],
+      };
+    },
+    (error) => ({
+      session,
+      anomalies: [
+        {
+          kind:
+            error.kind === "excluded-observed"
+              ? "classification"
+              : "merge-error",
+          detail: `${className} ${uuid} on ${stream}: ${error.message}`,
+        },
+      ],
+    }),
+  );
+}
+
+/** One merge observation on `stream`. `excludeOther` is the caller's
  *  classification of a FIRST observation (an existing node is evidence
- *  the other stream carries the id); a failing merge call leaves the
- *  merge as it was and is reported. Resolutions clear `pendingLeaf` and
- *  append to the session's `resolved`; a resolved node a stream skipped
- *  is a head-mismatch. */
+ *  the other stream carries the id). */
 export function observeOn(
   session: SessionState,
   stream: MergeStream,
@@ -35,53 +88,35 @@ export function observeOn(
   className: string,
   excludeOther: boolean,
 ): Observation {
-  const anomalies: TrackerAnomaly[] = [];
-  const resolved: Resolved<UUID, MergeStream>[] = [];
-  let merge = session.merge;
-  const apply = (
-    result: Result<MergeStep<UUID, MergeStream>, MergeError>,
-  ): void =>
-    result.match(
-      (step) => {
-        merge = step.state;
-        resolved.push(...step.resolved);
-      },
-      (error) => {
-        anomalies.push({
-          kind:
-            error.kind === "excluded-observed"
-              ? "classification"
-              : "merge-error",
-          detail: `${className} ${uuid} on ${stream}: ${error.message}`,
-        });
-      },
-    );
-  if (excludeOther) apply(excludeFrom(merge, [otherStream(stream)], uuid));
-  apply(observe(merge, stream, uuid));
-  const skipped = resolved.flatMap((node) => {
-    const missing = MERGE_STREAMS.filter(
-      (name) =>
-        !node.seenOn.includes(name) && !node.excludedFrom.includes(name),
-    );
-    return missing.length === 0
-      ? []
-      : [
-          `${node.id} seen on ${node.seenOn.join(",")}, skipped by ${missing.join(",")}`,
-        ];
-  });
-  if (skipped.length > 0) {
-    anomalies.push({ kind: "head-mismatch", detail: skipped.join("; ") });
-  }
-  const pendingLeaf = resolved.some((node) => node.id === session.pendingLeaf)
-    ? null
-    : session.pendingLeaf;
+  const excluded = excludeOther
+    ? excludeOn(session, otherStream(stream), uuid, className)
+    : { session, anomalies: [] };
+  const observed = applyMergeStep(
+    excluded.session,
+    observe(excluded.session.merge, stream, uuid),
+    className,
+    uuid,
+    stream,
+  );
   return {
-    session: {
-      ...session,
-      merge,
-      pendingLeaf,
-      resolved: [...session.resolved, ...resolved],
-    },
-    anomalies,
+    session: observed.session,
+    anomalies: [...excluded.anomalies, ...observed.anomalies],
   };
+}
+
+/** Exclude `uuid` from `stream`; resolves it when that was the last
+ *  stream it awaited. */
+export function excludeOn(
+  session: SessionState,
+  stream: MergeStream,
+  uuid: UUID,
+  className: string,
+): Observation {
+  return applyMergeStep(
+    session,
+    excludeFrom(session.merge, [stream], uuid),
+    className,
+    uuid,
+    stream,
+  );
 }

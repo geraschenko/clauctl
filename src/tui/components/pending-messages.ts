@@ -6,27 +6,28 @@
  * correct transcript position (phase-2 queue model).
  */
 
+import type { UUID } from "node:crypto";
 import { Container, Spacer, Text } from "@earendil-works/pi-tui";
 import { theme } from "../theme.ts";
 
 interface PendingEntry {
-  id: number;
+  uuid: UUID;
   text: string;
 }
 
 export class PendingMessagesComponent extends Container {
   private entries: PendingEntry[] = [];
 
-  add(id: number, text: string): void {
-    this.entries.push({ id, text });
+  add(uuid: UUID, text: string): void {
+    this.entries.push({ uuid, text });
     this.rebuild();
   }
 
-  /** Remove the given ids; returns their texts in the order requested. */
-  take(ids: number[]): string[] {
+  /** Remove the given uuids; returns their texts in the order requested. */
+  take(uuids: readonly UUID[]): string[] {
     const taken: string[] = [];
-    for (const id of ids) {
-      const index = this.entries.findIndex((entry) => entry.id === id);
+    for (const uuid of uuids) {
+      const index = this.entries.findIndex((entry) => entry.uuid === uuid);
       if (index !== -1) {
         taken.push(this.entries[index].text);
         this.entries.splice(index, 1);

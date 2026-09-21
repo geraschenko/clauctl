@@ -1,8 +1,13 @@
+import type { UUID } from "node:crypto";
 import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
+import { pending } from "../stream-merge.ts";
 import type { AgentState } from "./agent-state.ts";
 import { foldQueryMessage } from "./fold-query-message.ts";
+import { excludeOn } from "./observe-on.ts";
 import { withObservedPermissionMode } from "./observed-permission-mode.ts";
 import { queryingCount } from "./selectors.ts";
+import { withSession } from "./session-state.ts";
+import { withAnomalies } from "./tracker-anomaly.ts";
 
 export function foldSdkMessage(
   state: AgentState,
@@ -19,28 +24,33 @@ export function foldSdkMessage(
     // model over that file (docs/thoughts/subagent-activity.md).
     return state;
   }
-  let next = foldQueryMessage(state, message);
-  if (
-    (message.type === "user" || message.type === "assistant") &&
-    message.uuid !== undefined
-  ) {
-    // The uuid guard is for the type only: stream user/assistant messages
-    // always carry the transcript uuid (verified in the CLI binary; the
-    // optional uuid on SDKUserMessage is for host-pushed input). The
-    // boundary advance (foldQueryMessage's pendingLeaf) and the
-    // deliveredMessages clear happen in the same fold step — that is the
-    // prompt-visibility bookkeeping (agent-state.ts header comment).
-    if (next.deliveredMessages.length > 0) {
-      next = { ...next, deliveredMessages: [] };
-    }
-  }
+  const next = foldQueryMessage(state, message);
   if (message.type === "conversation_reset") {
     // SDK 0.3.250 emits this before the new conversation's init. Despite
     // its name, new_conversation_id is not the transcript session_id
     // announced by that init (verified live); the old context's evidence
     // stays with its file. Queued future turns still belong to the
-    // running process.
-    return { ...next, deliveredMessages: [] };
+    // running process. The reset command's own prompt — the last query
+    // observation still awaiting this file — is filed under the NEXT
+    // session instead, so it is excluded from this file's stream.
+    const sessionId = message.session_id as UUID;
+    const session = next.sessions[sessionId]!;
+    const last = pending(session.merge, "query")
+      .filter(
+        (id) => !session.merge.nodes[id]!.excludedFrom.includes("session"),
+      )
+      .at(-1);
+    if (last === undefined) return next;
+    const observation = excludeOn(
+      session,
+      "session",
+      last,
+      "conversation_reset",
+    );
+    return withAnomalies(
+      withSession(next, sessionId, observation.session),
+      observation.anomalies,
+    );
   }
   if (message.type === "system" && message.subtype === "init") {
     return withObservedPermissionMode(

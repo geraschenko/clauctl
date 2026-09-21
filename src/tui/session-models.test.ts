@@ -7,7 +7,10 @@
 import assert from "node:assert/strict";
 import type { UUID } from "node:crypto";
 import { test } from "node:test";
-import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
+import type {
+  SDKMessage,
+  SDKUserMessage,
+} from "@anthropic-ai/claude-agent-sdk";
 import {
   type AgentState,
   initialAgentState,
@@ -86,13 +89,71 @@ function boundaryEntry(n: number, parent?: number): SessionEntry {
   };
 }
 
-const entryEvent = (entry: SessionEntry): AgentEvent => ({
+const entryEvent = (
+  entry: SessionEntry,
+  expectsSdkMessage = true,
+): AgentEvent => ({
   kind: "sessionEntry",
   entry,
-  expectsSdkMessage: true,
+  expectsSdkMessage,
   leaf: { uuid: entry.uuid! },
   awaitingAnchors: [],
 });
+
+// --- prompts: stamped uuid `uuidN(n)`, dequeued as the query observation,
+// filed as a `user` entry (a merged run under its last uuid) or, steered, as
+// a `queued_command` attachment naming the uuid as source_uuid.
+
+const queued = (n: number, text: string): AgentEvent => ({
+  kind: "userMessageQueued",
+  uuid: uuidN(n),
+  message: {
+    type: "user",
+    message: { role: "user", content: text },
+    parent_tool_use_id: null,
+    uuid: uuidN(n),
+  },
+});
+const dequeued = (
+  delivery: "turn" | "steer" | "append",
+  [first, ...rest]: [number, ...number[]],
+): AgentEvent => ({
+  kind: "userMessageDequeued",
+  delivery,
+  uuids: [uuidN(first), ...rest.map(uuidN)],
+});
+const promptEntryEvent = (n: number, parent?: number): AgentEvent =>
+  entryEvent(
+    {
+      type: "user",
+      uuid: uuidN(n),
+      parentUuid: parent === undefined ? null : uuidN(parent),
+      message: { role: "user", content: "hello" },
+    },
+    false,
+  );
+const steerEntryEvent = (n: number, source: number): AgentEvent =>
+  entryEvent(
+    {
+      type: "attachment",
+      uuid: uuidN(n),
+      parentUuid: null,
+      attachment: {
+        type: "queued_command",
+        prompt: "steer text",
+        source_uuid: uuidN(source),
+      },
+    },
+    false,
+  );
+/** SESSION_A as the query session (init is query-only, nothing pends). */
+const init = sdkMessage("system", { subtype: "init", uuid: undefined });
+const promptText = (h: Harness, n: number): unknown =>
+  (
+    h.sessionModels
+      .get(SESSION_A)!
+      .queryMessages.get(uuidN(n)) as SDKUserMessage
+  ).message.content;
 
 const fileChanged = (sessionId: UUID): AgentEvent => ({
   kind: "sessionFileChanged",
@@ -225,7 +286,7 @@ test("SessionModels: the snapshot's entries are in the trees; ids resolved befor
   assert.deepEqual(h.entryPresentAtResolve, [false, true, true]);
 });
 
-test("SessionModels: seedPending records the seed state's query-pending ids without frames, so their later resolution is a known id", () => {
+test("SessionModels: seed records the seed state's query-pending ids without frames, so their later resolution is a known id", () => {
   const before = new Harness();
   before.feed(
     fileChanged(SESSION_A),
@@ -238,7 +299,7 @@ test("SessionModels: seedPending records the seed state's query-pending ids with
   // without the seed would be an unknown id (Harness throws on onInvalid).
   const h = new Harness();
   h.state = before.state;
-  h.sessionModels.seedPending(h.state);
+  h.sessionModels.seed(h.state);
   assert.deepEqual(h.pendingKeys(SESSION_A), [uuidN(2), uuidN(3)]);
   assert.equal(
     h.sessionModels.get(SESSION_A)!.queryMessages.get(uuidN(2)),
@@ -457,4 +518,90 @@ test("SessionModels: subagent traffic is never recorded", () => {
     }),
   );
   assert.equal(h.sessionModels.get(SESSION_A)?.queryMessages.size ?? 0, 0);
+});
+
+test("SessionModels: a dequeued run is recorded as its joined prompt under the run key and retired by its entry", () => {
+  const h = new Harness();
+  h.sessionModels.applySnapshot([], 0, h.state);
+  h.feed(
+    fileChanged(SESSION_A),
+    scanComplete,
+    init,
+    queued(1, "one"),
+    queued(2, "two"),
+    dequeued("turn", [1, 2]),
+  );
+  assert.deepEqual(h.pendingKeys(SESSION_A), [uuidN(2)]);
+  assert.equal(promptText(h, 2), "one\ntwo");
+  h.feed(promptEntryEvent(2));
+  assert.deepEqual(h.pendingKeys(SESSION_A), []);
+  assert.deepEqual(h.resolved, [[SESSION_A, uuidN(2)]]);
+  assert.deepEqual(h.entryPresentAtResolve, [true]);
+});
+
+test("SessionModels: a prompt whose entry arrived first resolves in its dequeue step and leaves nothing pending", () => {
+  const h = new Harness();
+  h.sessionModels.applySnapshot([], 0, h.state);
+  h.feed(
+    fileChanged(SESSION_A),
+    scanComplete,
+    init,
+    queued(1, "one"),
+    promptEntryEvent(1),
+  );
+  assert.deepEqual(h.pendingKeys(SESSION_A), []);
+  assert.deepEqual(h.resolved, []);
+  h.feed(dequeued("turn", [1]));
+  assert.deepEqual(h.pendingKeys(SESSION_A), []);
+  assert.deepEqual(h.resolved, [[SESSION_A, uuidN(1)]]);
+  assert.deepEqual(h.entryPresentAtResolve, [true]);
+});
+
+test("SessionModels: each steer is recorded under its uuid and retired by its attachment, which onResolved carries", () => {
+  const h = new Harness();
+  h.sessionModels.applySnapshot([], 0, h.state);
+  h.feed(
+    fileChanged(SESSION_A),
+    scanComplete,
+    init,
+    queued(1, "one"),
+    queued(2, "two"),
+    dequeued("steer", [1]),
+    dequeued("steer", [2]),
+  );
+  assert.deepEqual(h.pendingKeys(SESSION_A), [uuidN(1), uuidN(2)]);
+  assert.equal(promptText(h, 1), "one");
+  assert.equal(promptText(h, 2), "two");
+  h.feed(steerEntryEvent(5, 1));
+  assert.deepEqual(h.pendingKeys(SESSION_A), [uuidN(2)]);
+  assert.deepEqual(h.resolved, [
+    [SESSION_A, uuidN(5)],
+    [SESSION_A, uuidN(1)],
+  ]);
+  assert.deepEqual(h.entryPresentAtResolve, [true, true]);
+});
+
+test("SessionModels: seed holds the seed state's queued prompts for their dequeues", () => {
+  const before = new Harness();
+  before.feed(fileChanged(SESSION_A), scanComplete, init, queued(1, "one"));
+  const h = new Harness();
+  h.state = before.state;
+  h.sessionModels.seed(h.state);
+  h.sessionModels.applySnapshot([], 0, h.state);
+  h.feed(dequeued("turn", [1]));
+  assert.deepEqual(h.pendingKeys(SESSION_A), [uuidN(1)]);
+  assert.equal(promptText(h, 1), "one");
+});
+
+test("SessionModels: a dequeue of a prompt this process never held is recorded frameless", () => {
+  const h = new Harness();
+  h.sessionModels.applySnapshot([], 0, h.state);
+  h.feed(fileChanged(SESSION_A), scanComplete, init, dequeued("turn", [1]));
+  assert.deepEqual(h.pendingKeys(SESSION_A), [uuidN(1)]);
+  assert.equal(
+    h.sessionModels.get(SESSION_A)!.queryMessages.get(uuidN(1)),
+    undefined,
+  );
+  h.feed(promptEntryEvent(1));
+  assert.deepEqual(h.resolved, [[SESSION_A, uuidN(1)]]);
 });

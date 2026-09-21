@@ -16,7 +16,7 @@ import { syncBuiltinESMExports } from "node:module";
 import { join } from "node:path";
 import { test, type TestContext } from "node:test";
 import type { Query, SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
-import { initialAgentState } from "../agent-state/agent-state.ts";
+import { initialAgentState, settled } from "../agent-state/agent-state.ts";
 import type { GetContextResponse, GetEntriesResponse } from "../protocol.ts";
 import type { TreeNodeRef } from "../tree/nodes.ts";
 import type { PersistedOptions } from "../options.ts";
@@ -40,6 +40,7 @@ import { RwGate } from "./rw-gate.ts";
 import { RESPONSE_SENT, type ProtocolConnection } from "./protocol-server.ts";
 import { TrackedSessionLog } from "./tracked-session-log.ts";
 import type { TurnQueue } from "./turn-queue.ts";
+import { UUID_PATTERN } from "../uuid.ts";
 import { tempDir } from "../../test-support/temp-dir.ts";
 
 const uuid = (): UUID => randomUUID();
@@ -307,8 +308,9 @@ function linearSession(f: Fixture): {
 test("prompt delivers through the hub and returns the acceptance receipt", async (t) => {
   const f = fixture(t);
   const result = await f.handle({ type: "prompt", content: "hi", id: "r1" });
-  assert.deepEqual(result, { id: 1 });
   assert.equal(f.pushed.length, 1);
+  assert.match(f.pushed[0]!.uuid!, UUID_PATTERN);
+  assert.deepEqual(result, { id: f.pushed[0]!.uuid });
   assert.deepEqual(f.pushed[0]!.origin, { kind: "human" });
   assert.equal(f.events.agentState.activity, "pending");
 });
@@ -703,8 +705,9 @@ test("get-entries returns an empty snapshot without a session", async (t) => {
 
 test("set-context rejects while busy, before any teardown", async (t) => {
   const f = fixture(t);
-  linearSession(f);
-  f.events.deliverUserMessage(userMessage());
+  const { a2 } = linearSession(f);
+  const promptUuid = f.events.deliverUserMessage(userMessage());
+  f.appendEntries([{ ...userEntry(a2.uuid, f.sessionId), uuid: promptUuid }]);
   await assert.rejects(
     f.handle({ type: "set-context", uuids: [uuid()], id: "c1" }),
     /requires an idle assistant/,
@@ -712,16 +715,15 @@ test("set-context rejects while busy, before any teardown", async (t) => {
   assert.equal(f.teardowns, 0);
 });
 
-test("set-context rejects delivered-but-unconfirmed prompts as busy", async (t) => {
+test("set-context waits at the settled gate for a dequeued prompt's entry, then judges eligibility", async (t) => {
   const f = fixture(t);
-  linearSession(f);
-  const appendOnly: SDKUserMessage = { ...userMessage(), shouldQuery: false };
-  f.events.deliverUserMessage(appendOnly);
-  assert.equal(f.events.agentState.activity, "idle");
-  await assert.rejects(
-    f.handle({ type: "set-context", uuids: [uuid()], id: "c1" }),
-    /requires an idle assistant/,
-  );
+  const { a2 } = linearSession(f);
+  const promptUuid = f.events.deliverUserMessage(userMessage());
+  assert.equal(settled(f.events.agentState), false);
+  const request = f.handle({ type: "set-context", uuids: [uuid()], id: "c1" });
+  f.appendEntries([{ ...userEntry(a2.uuid, f.sessionId), uuid: promptUuid }]);
+  await assert.rejects(request, /requires an idle assistant/);
+  assert.equal(f.teardowns, 0);
 });
 
 test("set-context rejects unknown and duplicate uuid lists", async (t) => {

@@ -32,7 +32,6 @@ import type {
   ModelInfo,
   PermissionMode,
   SDKControlInitializeResponse,
-  SDKUserMessage,
 } from "@anthropic-ai/claude-agent-sdk";
 import { isIdle, type AgentState } from "../core/agent-state/agent-state.ts";
 import { randomUUID, type UUID } from "node:crypto";
@@ -356,12 +355,6 @@ class InteractiveMode {
 
   /** All transcript content renders through this (recreated on reload). */
   private transcript: TranscriptRenderer;
-  /**
-   * Queued prompts retained by queue id so the dequeue echo can render the
-   * full SDKUserMessage through `append` (the pending area shows only the
-   * preview text).
-   */
-  private readonly queuedById = new Map<number, SDKUserMessage>();
   /** The global manager set by runInteractive; also consulted by pi-tui's
    *  Editor and SelectList, so remaps apply everywhere at once. */
   private readonly keybindings: KeybindingsManager;
@@ -412,7 +405,7 @@ class InteractiveMode {
       (sessionId, uuid, entry) => this.onResolved(sessionId, uuid, entry),
       (sessionId) => this.onContextChanged(sessionId),
     );
-    this.sessionModels.seedPending(seedState);
+    this.sessionModels.seed(seedState);
     this.done = new Promise((resolve) => {
       this.finish = resolve;
     });
@@ -446,8 +439,7 @@ class InteractiveMode {
     // syncActivity below); the transcript fills asynchronously via
     // reloadHistory.
     for (const entry of seedState.queuedMessages) {
-      this.queuedById.set(entry.id, entry.message);
-      this.pendingMessages.add(entry.id, userText(entry.message));
+      this.pendingMessages.add(entry.uuid, userText(entry.message));
     }
     void this.reloadHistory(startupWarnings);
 
@@ -571,14 +563,10 @@ class InteractiveMode {
    * The one history path (attach, `contextChanged`, `scanComplete`), all
    * of it the query session's: its display path — the trees hold resolved
    * entries only, so the whole path is the resolved part — then its
-   * pending query messages, then delivered-but-unconfirmed user prompts.
+   * pending query messages (dequeued prompts among them).
    */
   private renderHistory(): void {
-    const { querySessionId } = this.agentState;
-    const querySessionModel =
-      querySessionId === undefined
-        ? undefined
-        : this.sessionModels.get(querySessionId);
+    const querySessionModel = this.querySessionModel();
     if (querySessionModel !== undefined) {
       for (const ref of querySessionModel.pathToLeaf()) {
         // pathToLeaf validated every path uuid against byUuid, so the
@@ -591,9 +579,13 @@ class InteractiveMode {
         }
       }
     }
-    for (const message of this.agentState.deliveredMessages) {
-      this.transcript.append(message);
-    }
+  }
+
+  private querySessionModel(): SessionModel | undefined {
+    const { querySessionId } = this.agentState;
+    return querySessionId === undefined
+      ? undefined
+      : this.sessionModels.get(querySessionId);
   }
 
   private fileSessionModel(): SessionModel | undefined {
@@ -654,10 +646,9 @@ class InteractiveMode {
       );
     }
     if (event.kind === "userMessageQueued") {
-      this.queuedById.set(event.id, event.message);
-      this.pendingMessages.add(event.id, userText(event.message));
+      this.pendingMessages.add(event.uuid, userText(event.message));
     } else if (event.kind === "userMessageDequeued") {
-      this.pendingMessages.take(event.ids);
+      this.pendingMessages.take(event.uuids);
     } else if (event.kind === "contextChanged") {
       // An open selector keeps its now-stale tree; the warning tells the
       // attached user some other process changed the context under them.
@@ -693,19 +684,19 @@ class InteractiveMode {
       return;
     }
     switch (event.kind) {
-      case "userMessageDequeued":
+      case "userMessageDequeued": {
         // The dequeue's stream position is the correct transcript position;
-        // the retained message is the user message the query stream would
-        // have echoed. A steered message renders from its `queued_command`
-        // attachment entry instead, when that entry resolves.
-        for (const id of event.ids) {
-          const message = this.queuedById.get(id);
-          this.queuedById.delete(id);
-          if (message !== undefined && event.delivery !== "steer") {
-            this.transcript.append(message);
-          }
+        // the session model just recorded the run's joined prompt under the
+        // run key — absent when the step already resolved it (its entry
+        // rendered it) or there is no query session yet (its entry will).
+        const prompt = this.querySessionModel()?.queryMessages.get(
+          event.uuids.at(-1)!,
+        );
+        if (prompt !== undefined) {
+          this.transcript.append(prompt);
         }
         break;
+      }
       case "compactSent":
         this.addBanner("compacting…");
         break;

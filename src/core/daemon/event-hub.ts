@@ -1,4 +1,4 @@
-import type { UUID } from "node:crypto";
+import { randomUUID, type UUID } from "node:crypto";
 import type {
   SDKMessage,
   SDKUserMessage,
@@ -22,7 +22,7 @@ export interface EventHubOptions {
    * The state before the first event — the same seed-then-fold contract
    * subscribers follow. The daemon composes it from initialAgentState() and
    * the options/settings cascade (daemon.ts). Must be quiescent — idle with
-   * empty queuedMessages/deliveredMessages — because the hub's queue model
+   * empty queuedMessages — because the hub's queue model
    * always starts fresh; the constructor asserts this rather than silently
    * overwriting, so a disagreeing seed is a loud bug.
    */
@@ -97,11 +97,7 @@ export class EventHub {
     this.log = options.log;
     this.anomalies = options.anomalies;
     const seed = options.seed;
-    if (
-      seed.activity !== "idle" ||
-      seed.queuedMessages.length > 0 ||
-      seed.deliveredMessages.length > 0
-    ) {
+    if (seed.activity !== "idle" || seed.queuedMessages.length > 0) {
       throw new Error(
         "EventHub seed must be quiescent (idle, empty queues): the fresh queue model would disagree with it",
       );
@@ -153,21 +149,24 @@ export class EventHub {
   }
 
   /**
-   * Deliver a user message to the SDK (via the deliver callback) and advance
-   * the queue model, emitting the queued/dequeued events — one atomic step,
-   * so the model/queue lockstep is owned here, not by calling convention.
-   * Returns the queue-model id the acceptance assigned — the receipt that
-   * lets the submitter recognize its own dequeue on the event stream.
+   * Stamp a user message with its uuid, deliver it to the SDK (via the
+   * deliver callback) and advance the queue model, emitting the
+   * queued/dequeued events — one atomic step, so the model/queue lockstep
+   * is owned here, not by calling convention. Returns the stamped uuid —
+   * the message's id everywhere: the receipt that lets the submitter
+   * recognize its own dequeue on the event stream, and the uuid the CLI
+   * files the message under.
    */
-  deliverUserMessage(message: SDKUserMessage): number {
-    this.deliver(message);
+  deliverUserMessage(message: SDKUserMessage): UUID {
+    const stamped: SDKUserMessage = { ...message, uuid: randomUUID() };
+    this.deliver(stamped);
     const transition = QueueModel.acceptUserMessage(
       this.queueModel,
-      message,
+      stamped,
       isIdle(this.state),
     );
     this.applyTransition(transition);
-    return transition.id;
+    return transition.uuid;
   }
 
   /** Dedup first (merge model, Query-stream duplicates): a repeat of a

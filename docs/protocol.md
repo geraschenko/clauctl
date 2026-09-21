@@ -122,7 +122,7 @@ turn_duration, api_error, away_summary, informational, model_*_fallback}`,
   everything out as soon as it is available and lets a client that needs the
   two correlated do so ([`stream-merge.ts`](../src/core/stream-merge.ts),
   [`stream-merging.md`](stream-merging.md)): `AgentState` tells the client
-  which SDK messages the file has not yet caught up to, and which ids each
+  which SDK messages the file has not yet caught up to, and which uuids each
   fold step resolved (`SessionState.resolved`).
 - **One `Query` spans multiple session files.** `/clear` and `/new` start a
   new session id in the same process. This is why a clauctl agent id is not
@@ -172,16 +172,17 @@ the boundaries still waiting for an anchor.
 The fold's output: activity (`idle`/`pending`/`working`/`compacting`,
 derived — the SDK has no idle status), the predictive model/permission mode/effort for the
 next query, the CLI version, `cwd`, the prompt queue (`queuedMessages`,
-`deliveredMessages`), and a `SessionState` per session file this daemon
+keyed by the uuid the daemon stamps on each prompt), and a `SessionState` per session file this daemon
 lifetime has seen, keyed by session id, with `querySessionId` (the file the
 query stream is on) and `fileSessionId` (the file the follower is on).
 
 Two invariants a client can rely on:
 
 - **Prompt visibility.** Every accepted prompt is in exactly one of
-  `queuedMessages`, `deliveredMessages`, or the transcript at or before the
-  leaf. Each transition is one fold step, so no state shows a prompt twice
-  or not at all (see [`user-message-tracking.md`](user-message-tracking.md)).
+  `queuedMessages`, the query session's merge pending on `query` (dequeued,
+  its entry not yet filed), or the transcript. Each transition is one fold
+  step, so no state shows a prompt twice or not at all (see
+  [`user-message-tracking.md`](user-message-tracking.md)).
 - **Activity.** `activity === "idle"` implies no querying prompt remains
   queued; the fold never passes through a spurious idle between a finished
   turn and the queued turn that runs next.
@@ -189,7 +190,7 @@ Two invariants a client can rely on:
 **What the merge does not hide.** The two streams are unsynchronized; a
 client sees a message on one before its twin on the other, in either
 order. `SessionState.merge` (a `MergeState`, [`stream-merging.md`](stream-merging.md))
-tracks which ids are still pending on which stream, and a session is
+tracks which uuids are still pending on which stream, and a session is
 **settled** when nothing is pending on the query side and no boundary
 awaits its anchor. Requests that read the file (`get-entries`,
 `get-context`, `set-context`) wait for settlement inside the daemon, so a

@@ -61,12 +61,23 @@ function userMessage(text: string): SDKUserMessage {
   } as SDKUserMessage;
 }
 
-function queuedEvent(id: number, text: string): AgentEvent {
-  return { kind: "userMessageQueued", id, message: userMessage(text) };
+const uuidN = (n: number): UUID =>
+  `00000000-0000-0000-0000-${String(n).padStart(12, "0")}`;
+
+function queuedEvent(n: number, text: string): AgentEvent {
+  return {
+    kind: "userMessageQueued",
+    uuid: uuidN(n),
+    message: userMessage(text),
+  };
 }
 
-function dequeuedEvent(ids: number[]): AgentEvent {
-  return { kind: "userMessageDequeued", delivery: "turn", ids };
+function dequeuedEvent([first, ...rest]: [number, ...number[]]): AgentEvent {
+  return {
+    kind: "userMessageDequeued",
+    delivery: "turn",
+    uuids: [uuidN(first), ...rest.map(uuidN)],
+  };
 }
 
 function assistantEvent(uuid: UUID): AgentEvent {
@@ -212,7 +223,7 @@ test("--detach submits and prints nothing", async () => {
     {
       onPrompt: (request) => {
         seen.push(request);
-        return Promise.resolve({ id: 1 });
+        return Promise.resolve({ id: uuidN(1) });
       },
     },
     async (agentId) => {
@@ -231,7 +242,7 @@ test("--no-query implies detach and sends shouldQuery: false", async () => {
     {
       onPrompt: (request) => {
         seen.push(request);
-        return Promise.resolve({ id: 1 });
+        return Promise.resolve({ id: uuidN(1) });
       },
     },
     async (agentId) => {
@@ -291,7 +302,7 @@ test("events leg starts at our dequeue, inclusive, and ends at the result", asyn
         dequeuedEvent([1]),
         RESULT_EVENT,
       ],
-      onPrompt: () => Promise.resolve({ id: 1 }),
+      onPrompt: () => Promise.resolve({ id: uuidN(1) }),
     },
     async (agentId) => {
       const result = await runCommand([
@@ -317,7 +328,7 @@ test("a dequeue without our id does not open the gate; --timeout exits 3", async
     {
       seed: BUSY_STATE,
       events: [queuedEvent(1, "hi"), dequeuedEvent([7]), RESULT_EVENT],
-      onPrompt: () => Promise.resolve({ id: 1 }),
+      onPrompt: () => Promise.resolve({ id: uuidN(1) }),
     },
     async (agentId) => {
       const result = await runCommand([
@@ -354,7 +365,7 @@ test("messages leg renders only our turn's entries, not history", async () => {
         RESULT_EVENT,
       ],
       sessionEntries: [userEntry(UUID_H, "history")],
-      onPrompt: () => Promise.resolve({ id: 1 }),
+      onPrompt: () => Promise.resolve({ id: uuidN(1) }),
     },
     async (agentId) => {
       const result = await runCommand([
@@ -411,7 +422,7 @@ test("a stream close before the condition is met fails", async () => {
       seed: BUSY_STATE,
       events: [queuedEvent(1, "hi")],
       hangUp: true,
-      onPrompt: () => Promise.resolve({ id: 1 }),
+      onPrompt: () => Promise.resolve({ id: uuidN(1) }),
     },
     async (agentId) => {
       const result = await runCommand(["prompt", "-t", agentId, "hi"]);

@@ -831,7 +831,7 @@ test("stream ownership is the API message id: file A → message_start A → fil
   assert.equal(renderedText(container), "● reply A\n\n● reply B");
 });
 
-test("replaceContent updates the frame's item in place without re-creating tool items", () => {
+test("resolve with the frame's entry updates its item in place without re-creating tool items", () => {
   const { renderer, container } = makeRenderer();
   const content = [
     { type: "text", text: "cut off" },
@@ -839,18 +839,12 @@ test("replaceContent updates the frame's item in place without re-creating tool 
   ];
   renderer.append(assistantFrame("a1", "msg_1", content));
   const childrenBefore = container.children.length;
-  renderer.replaceContent(
+  renderer.resolve(
     "a1" as never,
     assistantEntry("a1", "msg_1", content, "max_tokens"),
   );
   assert.equal(container.children.length, childrenBefore);
   assert.match(renderedText(container), /maximum output token limit/);
-  // No item keyed under the uuid: nothing happens.
-  renderer.replaceContent(
-    "unknown" as never,
-    assistantEntry("unknown", "msg_9", TEXT_B),
-  );
-  assert.doesNotMatch(renderedText(container), /reply B/);
 });
 
 test("a user frame renders its prompt and resolves tool results; its entry renders nothing more", () => {
@@ -1151,4 +1145,83 @@ test("compact summary: collapsed one-liner, full markdown when expanded", () => 
   assert.doesNotMatch(text, /\u276f/u);
   renderer.setCompactSummaryExpanded(false);
   assert.doesNotMatch(renderedText(container), /All the context\./);
+});
+
+// Phase 3 (docs/specs/query-pending-list/phase-3-identity.md): a dequeue
+// echo's user turn is one item that its entry re-renders in place.
+test("resolve: a dequeue echo's user turn is replaced in place by its entry, keeping attached output and expansion", () => {
+  const { renderer, container } = makeRenderer();
+  const echo = userMessage(
+    "<command-name>/login</command-name><command-message>login</command-message><command-args></command-args>",
+  );
+  renderer.append(echo);
+  renderer.append({
+    type: "system",
+    subtype: "local_command_output",
+    uuid: "o1",
+    content: "Login successful",
+  } as unknown as SDKMessage);
+  renderer.setToolsExpanded(true);
+  const childrenBefore = container.children.length;
+  renderer.resolve(
+    echo.uuid as never,
+    sessionEntry({
+      type: "user",
+      uuid: echo.uuid,
+      message: {
+        role: "user",
+        content:
+          "<command-name>/login</command-name><command-message>login</command-message><command-args>--sso</command-args>",
+      },
+    }),
+  );
+  assert.equal(container.children.length, childrenBefore);
+  const lines = renderedText(container).split("\n");
+  assert.equal(lines[0], "❯ /login --sso");
+  assert.match(lines[1]!, /Login successful/);
+  assert.equal(renderedText(container).match(/Login successful/g)?.length, 1);
+  renderer.setToolsExpanded(false);
+  assert.match(
+    renderedText(container).split("\n")[1]!,
+    /⤷ {2}Login successful/u,
+  );
+});
+
+test("resolve: a steer's echo is replaced by its queued_command attachment under the source uuid", () => {
+  const { renderer, container } = makeRenderer();
+  const steer = userMessage("also say QUEUD");
+  renderer.append(steer);
+  assert.match(renderedText(container), /also say QUEUD/);
+  renderer.resolve(
+    steer.uuid as never,
+    sessionEntry({
+      type: "attachment",
+      uuid: "q1",
+      attachment: {
+        type: "queued_command",
+        prompt: "also say QUEUED",
+        source_uuid: steer.uuid,
+      },
+    }),
+  );
+  assert.equal(container.children.length, 1);
+  assert.match(renderedText(container), /❯ also say QUEUED/);
+  assert.doesNotMatch(renderedText(container), /QUEUD/);
+});
+
+test("resolve: a merged run's echo is replaced by the entry's joined text", () => {
+  const { renderer, container } = makeRenderer();
+  const run = userMessage("first\nsecond");
+  renderer.append(run);
+  renderer.resolve(
+    run.uuid as never,
+    sessionEntry({
+      type: "user",
+      uuid: run.uuid,
+      message: { role: "user", content: "first\nsecond\nthird" },
+    }),
+  );
+  assert.equal(container.children.length, 1);
+  assert.match(renderedText(container), /first[\s\S]*second[\s\S]*third/);
+  assert.equal(renderedText(container).match(/first/g)?.length, 1);
 });

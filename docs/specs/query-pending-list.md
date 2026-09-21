@@ -320,8 +320,9 @@ Three principles make the rule cheap to keep:
   after the tool result, and the tail may read the attachment line before
   or after that frame — so `excludeOther` is decided from state the fold
   has. The rule is the same for a run's `user` entry (uuid = last member)
-  and for a `source_uuid`: the uuid in `queuedMessages` (ours, dequeue
-  still to come) or already in the merge (dequeue folded) → `false`;
+  and for a `source_uuid`: the uuid in `queuedMessages` (awaits its
+  dequeue, the `query` observation still to come) or already in the
+  merge (dequeue folded) → `false`;
   otherwise historical (a prompt this daemon never dequeued: scan,
   previous daemon run) → `true`, consistent with the scan exclusion of
   everything before the first shared query uuid. Without the
@@ -703,10 +704,10 @@ export function joinedPrompt(messages: readonly SDKUserMessage[]): SDKUserMessag
 //   steer: remove ids; observe every id on `query`; pendingLeaf untouched.
 //   querySessionId undefined: remove ids only.
 // agent-state/fold-session-entry.ts
-//   ours(uuid) = uuid in queuedMessages || uuid in session.merge.nodes
-//   entry.uuid: excludeOther = first && !ours(uuid) && (!expectsSdkMessage || scanExcluded)
+//   awaitsDequeue(uuid) = uuid in queuedMessages (an existing merge node is `!first`)
+//   entry.uuid: excludeOther = first && !awaitsDequeue(uuid) && (!expectsSdkMessage || scanExcluded)
 //   a `queued_command` attachment with `attachment.source_uuid` also
-//   observes `source_uuid` on `session`; excludeOther = !ours(source_uuid).
+//   observes `source_uuid` on `session`; excludeOther = first && !awaitsDequeue(source_uuid).
 // agent-state/fold-sdk-message.ts, conversation_reset
 //   const last = pending(session.merge, "query")
 //     .filter((id) => !session.merge.nodes[id]!.excludedFrom.includes("session"))
@@ -1040,7 +1041,9 @@ Phase 3 (identity):
 - [x] Phase 2 queue-model per-run dequeue — implemented 2026-09-20; log
       in `query-pending-list/phase-2-per-run-dequeue.md`; awaiting
       Anton's review
-- [ ] Phase 3 identity; `git mv docs/thoughts/fold-resolved-events.md docs/thoughts/old/`
+- [x] Phase 3 identity — implemented 2026-09-20; log in
+      `query-pending-list/phase-3-identity.md`; awaiting Anton's review;
+      `git mv docs/thoughts/fold-resolved-events.md docs/thoughts/old/`
 - [ ] Follow-up (separate): SDK control-request flag audit
       (`cancel_queued` unreachable via `Query.interrupt()`)
 

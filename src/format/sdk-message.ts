@@ -33,7 +33,7 @@ export interface FormatState {
   toolNames: Map<string, string>;
   /** Full text of queued prompts, rendered at their dequeue (events mode);
    * seeded from a snapshot record's queued messages. */
-  queuedMessages: Map<number, SDKUserMessage>;
+  queuedMessages: Map<UUID, SDKUserMessage>;
   /** Each `compact_boundary` entry's metadata by boundary uuid, rendered
    *  at its `contextChanged` (events mode). */
   boundaryMetadata: Map<UUID, CompactionMetadata>;

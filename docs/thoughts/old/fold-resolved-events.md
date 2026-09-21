@@ -35,6 +35,12 @@ For that to be strictly correct:
   beside it (today they are neither pending nor resolved; they just
   pass through).
 
+Not closed yet: the uuid-less events (`contextChanged`, `compactSent`,
+…) still pass beside the merge, which is why `contextChangedAfter`
+exists in src/tui/session-model.ts. Stamping a uuid on every such event
+and observing it on its stream is planned as phase 2.5 of
+docs/specs/query-pending-list.md (see phase-3-identity.md, Deferred).
+
 ## Open
 
 - Return shape: `{ state, resolved: AgentEvent[] }` versus a separate

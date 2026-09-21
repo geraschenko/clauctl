@@ -18,6 +18,7 @@ import type { SessionEntry } from "../session/file.ts";
 import { AnomalyRecorder } from "./anomaly-bundle.ts";
 import { EventHub, type EventHubOptions } from "./event-hub.ts";
 import { SessionTracker } from "./session-tracker.ts";
+import { UUID_PATTERN } from "../uuid.ts";
 import { tempDir } from "../../test-support/temp-dir.ts";
 
 /** Bundle directory for hubs whose tests never raise an anomaly. */
@@ -80,18 +81,7 @@ test("a non-quiescent seed is rejected loudly", () => {
         seed: {
           ...initialAgentState(),
           cwd: "/work",
-          queuedMessages: [{ id: 1, message: userMessage() }],
-        },
-      }),
-    /quiescent/,
-  );
-  assert.throws(
-    () =>
-      hub({
-        seed: {
-          ...initialAgentState(),
-          cwd: "/work",
-          deliveredMessages: [userMessage()],
+          queuedMessages: [{ uuid: randomUUID(), message: userMessage() }],
         },
       }),
     /quiescent/,
@@ -116,20 +106,20 @@ test("deliverUserMessage calls deliver before its events reach sinks", () => {
   assert.deepEqual(order, ["deliver", "sink", "sink"]);
 });
 
-test("deliverUserMessage while idle passes the message through to deliveredMessages", () => {
+test("deliverUserMessage stamps a uuid, delivers the stamped message and accepts it", () => {
   const delivered: SDKUserMessage[] = [];
   const events = hub({ deliver: (message) => delivered.push(message) });
   const lines: AgentEvent[] = [];
   events.subscribe((event) => lines.push(event));
   const message = userMessage();
-  events.deliverUserMessage(message);
-  assert.deepEqual(delivered, [message]);
+  const uuid = events.deliverUserMessage(message);
+  assert.match(uuid, UUID_PATTERN);
+  assert.deepEqual(delivered, [{ ...message, uuid }]);
   assert.deepEqual(
     lines.map((event) => event.kind),
     ["userMessageQueued", "userMessageDequeued"],
   );
   assert.deepEqual(events.agentState.queuedMessages, []);
-  assert.equal(events.agentState.deliveredMessages.length, 1);
   assert.equal(events.agentState.activity, "pending");
 });
 

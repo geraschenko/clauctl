@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
 import { test } from "node:test";
 import type {
   SDKMessage,
@@ -25,7 +26,7 @@ const queryingMessage: SDKUserMessage = {
 const pendingState: AgentState = {
   ...initialAgentState(),
   activity: "pending",
-  queuedMessages: [{ id: 1, message: queryingMessage }],
+  queuedMessages: [{ uuid: randomUUID(), message: queryingMessage }],
 };
 
 const resultEvent: AgentEvent = {

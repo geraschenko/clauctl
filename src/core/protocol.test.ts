@@ -139,15 +139,16 @@ const queryingMessage: SDKUserMessage = {
 
 test("subscribe seeds the client fold and delivers (event, post-fold state) pairs", async () => {
   const socketPath = join(dir, "socket");
+  const queuedId = randomUUID();
   const queuedEvent: AgentEvent = {
     kind: "userMessageQueued",
-    id: 1,
+    uuid: queuedId,
     message: queryingMessage,
   };
   const dequeuedEvent: AgentEvent = {
     kind: "userMessageDequeued",
     delivery: "turn",
-    ids: [1],
+    uuids: [queuedId],
   };
   const server = startProtocolServer(socketPath, (request, connection) => {
     if (request.type === "subscribe") {
@@ -189,8 +190,8 @@ test("subscribe seeds the client fold and delivers (event, post-fold state) pair
       assert.equal(pairs[0]!.event.kind, "userMessageQueued");
       assert.equal(pairs[0]!.state.activity, "pending");
       assert.deepEqual(
-        pairs[0]!.state.queuedMessages.map((entry) => entry.id),
-        [1],
+        pairs[0]!.state.queuedMessages.map((entry) => entry.uuid),
+        [queuedId],
       );
       assert.deepEqual(pairs[1]!.state.queuedMessages, []);
       await assert.rejects(client.subscribe(), /already subscribed/);
@@ -233,7 +234,7 @@ test("socket close drains the events already received", async () => {
   const socketPath = join(dir, "drain.sock");
   const event: AgentEvent = {
     kind: "userMessageQueued",
-    id: 1,
+    uuid: randomUUID(),
     message: queryingMessage,
   };
   let daemonSocket: Socket | undefined;

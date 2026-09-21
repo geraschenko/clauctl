@@ -9,8 +9,14 @@
  */
 
 import type { UUID } from "node:crypto";
-import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
-import type { AgentState } from "../core/agent-state/agent-state.ts";
+import type {
+  SDKMessage,
+  SDKUserMessage,
+} from "@anthropic-ai/claude-agent-sdk";
+import {
+  type AgentState,
+  joinedPrompt,
+} from "../core/agent-state/agent-state.ts";
 import { type AgentEvent, sdkMessageOf } from "../core/protocol.ts";
 import type { SessionEntry } from "../core/session/file.ts";
 import { pending } from "../core/stream-merge.ts";
@@ -19,7 +25,7 @@ import { SessionModel } from "./session-model.ts";
 
 /** A step resolved `uuid` on `sessionId`, reported in resolution order
  *  after the session model pushed its entry into the trees; `entry` is
- *  what renders `uuid` (`entryFor`), undefined for a query-only id. */
+ *  what renders `uuid` (`entryFor`), undefined for a query-only uuid. */
 export type OnResolved = (
   sessionId: UUID,
   uuid: UUID,
@@ -39,6 +45,9 @@ interface HeldEvent {
 
 export class SessionModels {
   private readonly sessionModels = new Map<UUID, SessionModel>();
+  /** Accepted prompts by stamped uuid, from `userMessageQueued` and the
+   *  seed state; a dequeue takes its uuids out. */
+  private readonly queued = new Map<UUID, SDKUserMessage>();
   private readonly onInvalid: OnInvalid;
   private readonly onResolved: OnResolved;
   private readonly onContextChanged: OnContextChanged;
@@ -65,29 +74,43 @@ export class SessionModels {
     return this.sessionModels.get(sessionId);
   }
 
-  /** The seed state's query-pending ids (attaching mid-turn), recorded
-   *  without their frames so their resolutions are known ids, not
-   *  "never observed". */
-  seedPending(state: AgentState): void {
+  /** The seed state: its query-pending uuids (attaching mid-turn) recorded
+   *  without their frames so their resolutions are known uuids, not
+   *  "never observed"; its queued prompts held for their dequeues. */
+  seed(state: AgentState): void {
     for (const [sessionId, session] of Object.entries(state.sessions)) {
-      for (const id of pending(session.merge, "query")) {
-        this.sessionModelFor(sessionId as UUID).recordPending(id, undefined);
+      for (const uuid of pending(session.merge, "query")) {
+        this.sessionModelFor(sessionId as UUID).recordPending(uuid, undefined);
       }
+    }
+    for (const { uuid, message } of state.queuedMessages) {
+      this.queued.set(uuid, message);
     }
   }
 
   /** Every event of the subscription in socket order, with the state it
-   *  folded to. The query-stream message the event carries joins the
-   *  pending list of its session iff the fold observed its id on `query`;
-   *  the event's tree effects (`applyEntry`, `applyResolutions`) run now,
-   *  or wait for the snapshot; session models the state dropped go with
-   *  it. */
+   *  folded to. The query-stream message the event carries, or the prompt
+   *  a dequeue delivers (the run's joined prompt under its run key), joins
+   *  the pending list of its session iff the fold observed its uuid on
+   *  `query`; the event's tree effects
+   *  (`applyEntry`, `applyResolutions`) run now, or wait for the snapshot;
+   *  session models the state dropped go with it. */
   observe(event: AgentEvent, state: AgentState): void {
     this.eventsObserved += 1;
     this.latestState = state;
     const message = sdkMessageOf(event);
-    if (message !== undefined) {
-      this.recordPending(message, state);
+    if (message !== undefined && message.uuid !== undefined) {
+      this.recordIfObserved(
+        message.session_id as UUID,
+        message.uuid as UUID,
+        message,
+        state,
+      );
+    }
+    if (event.kind === "userMessageQueued") {
+      this.queued.set(event.uuid, event.message);
+    } else if (event.kind === "userMessageDequeued") {
+      this.recordDequeued(event, state);
     }
     if (this.heldForSnapshot !== undefined) {
       this.heldForSnapshot.push({
@@ -108,11 +131,11 @@ export class SessionModels {
    * answered against: the seed folded through the first `eventsBefore`
    * events. The snapshot is the file prefix, and file order is resolution
    * order among session ids, so each entry is enqueued and resolved in
-   * turn (`settled` rules out query-pending ids, not session-pending ones:
+   * turn (`settled` rules out query-pending uuids, not session-pending ones:
    * a tail entry whose echo has not arrived is pushed now, and its later
    * resolution finds it retained with nothing queued). Then the held
    * events replay their tree effects with their own states — resolutions
-   * for all of them, since ids recorded before the cut must still retire;
+   * for all of them, since uuids recorded before the cut must still retire;
    * entries, context changes and file switches only after the cut, the
    * snapshot (and the attach render) holds the rest. Session models they
    * or the snapshot revive for sessions the
@@ -192,21 +215,45 @@ export class SessionModels {
     }
   }
 
-  /** The store rule: recorded iff the fold observed the id on `query` —
+  /** A dequeue's prompts leave `queued` for the query session's pending
+   *  list, joined under the run key the fold observed. A run none of
+   *  whose prompts this process held (queued before an attach whose seed
+   *  lacked them) is recorded frameless, like a seed-pending uuid. */
+  private recordDequeued(
+    event: Extract<AgentEvent, { kind: "userMessageDequeued" }>,
+    state: AgentState,
+  ): void {
+    const messages = event.uuids.flatMap((uuid) => {
+      const message = this.queued.get(uuid);
+      this.queued.delete(uuid);
+      return message === undefined ? [] : [message];
+    });
+    if (state.querySessionId === undefined) {
+      return;
+    }
+    this.recordIfObserved(
+      state.querySessionId,
+      event.uuids.at(-1)!,
+      joinedPrompt(messages),
+      state,
+    );
+  }
+
+  /** The store rule: recorded iff the fold observed the uuid on `query` —
    *  its merge node has `query`, or the step resolved it with `query`
    *  (the merge forgets resolved nodes; a failed observation leaves an
-   *  existing session-only node untouched). An id resolved in its own
+   *  existing session-only node untouched). A uuid resolved in its own
    *  step is retired by `applyResolutions` right after. Types the file
    *  never carries are recorded too: they resolve with their `query`
    *  predecessors, so the list is the query tail past the last
    *  file-settled message, and a rebuild replays it through `append`
    *  exactly as the live stream did. */
-  private recordPending(message: SDKMessage, state: AgentState): void {
-    if (message.uuid === undefined) {
-      return;
-    }
-    const uuid = message.uuid as UUID;
-    const sessionId = message.session_id as UUID;
+  private recordIfObserved(
+    sessionId: UUID,
+    uuid: UUID,
+    message: SDKMessage | undefined,
+    state: AgentState,
+  ): void {
     const session = state.sessions[sessionId];
     const seenOn =
       session?.merge.nodes[uuid]?.seenOn ??

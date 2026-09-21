@@ -162,6 +162,21 @@ Pinned by
 `tests/sdk/queued-batches.test.ts`; evidence in
 [`derisk/queued-batches/`](derisk/queued-batches/README.md).
 
+## Slash commands are turns of their own
+
+A prompt that _is_ a `/command` — built-in or custom — is exempt from
+both rules above: pushed while a turn runs it is never steered, and
+queued next to other prompts it is never merged. It waits in the queue
+and runs as its own turn after the running turn's `result`, expanded the
+way an interactive `/command` is (a `<command-name>` user entry; a
+built-in may expand to its alias, `/cost` → `/usage`, and writes its
+`local_command` stdout; a custom command adds an `isMeta` user entry
+with the expanded prompt). A plain-text prompt that merely mentions a
+`/command` is an ordinary prompt: steered verbatim, unexpanded. Pinned by
+`tests/sdk/steer-slash-command.test.ts`. The daemon's queue model does not
+yet mirror the exemption (phase 2.5 of
+`specs/query-pending-list.md`).
+
 ## Hooks never reach the query stream
 
 `hook_*` messages exist in `sdk.d.ts` but have never been observed on the
