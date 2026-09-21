@@ -10,7 +10,7 @@ import type { SessionEntry } from "../session/file.ts";
 import { tempDir } from "../../test-support/temp-dir.ts";
 import { AnomalyRecorder } from "./anomaly-bundle.ts";
 import { EventHub } from "./event-hub.ts";
-import { SessionTracker } from "./session-tracker.ts";
+import { SessionTracker, type SessionTrackerEvent } from "./session-tracker.ts";
 
 function userEntry(uuid: UUID, text: string): SessionEntry {
   return {
@@ -39,7 +39,7 @@ function assistantEntry(uuid: UUID, parentUuid: UUID): SessionEntry {
 const line = (entry: SessionEntry): string => `${JSON.stringify(entry)}\n`;
 
 function sessionEntries(
-  events: readonly AgentEvent[],
+  events: readonly (AgentEvent | SessionTrackerEvent)[],
 ): Extract<AgentEvent, { kind: "sessionEntry" }>[] {
   return events.filter((event) => event.kind === "sessionEntry");
 }

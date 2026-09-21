@@ -24,6 +24,9 @@ import { tempDir } from "../../test-support/temp-dir.ts";
 /** Bundle directory for hubs whose tests never raise an anomaly. */
 const sharedBundleDir = tempDir("hub", { after });
 
+/** The daemon's chosen session id, seeded as `querySessionId`. */
+const SESSION: UUID = "aaaaaaaa-0000-0000-0000-000000000001";
+
 function userMessage(overrides: Partial<SDKUserMessage> = {}): SDKUserMessage {
   return {
     type: "user",
@@ -33,12 +36,14 @@ function userMessage(overrides: Partial<SDKUserMessage> = {}): SDKUserMessage {
   };
 }
 
+/** A query message on SESSION. */
 function sdkMessage(
   type: "assistant" | "result",
   fields: Record<string, unknown> = {},
 ): SDKMessage {
   return {
     type,
+    session_id: SESSION,
     // The state fold reads message.usage off every assistant message.
     ...(type === "assistant" && {
       message: { usage: { input_tokens: 5, output_tokens: 7 } },
@@ -49,7 +54,7 @@ function sdkMessage(
 
 function hub(options: Partial<EventHubOptions> = {}): EventHub {
   return new EventHub({
-    seed: { ...initialAgentState(), cwd: "/work" },
+    seed: { ...initialAgentState(), cwd: "/work", querySessionId: SESSION },
     deliver: () => {},
     tracker: () => undefined,
     log: () => {},
@@ -58,13 +63,34 @@ function hub(options: Partial<EventHubOptions> = {}): EventHub {
   });
 }
 
-test("seeded cwd and querySessionId are visible before any event", () => {
-  const seeded = hub({
-    seed: { ...initialAgentState(), cwd: "/work", querySessionId: SESSION },
-  });
+test("seeded cwd and querySessionId are visible before any event; the seeded session is announced at construction", () => {
+  const seeded = hub();
   assert.equal(seeded.agentState.cwd, "/work");
   assert.equal(seeded.agentState.querySessionId, SESSION);
   assert.equal(seeded.agentState.activity, "idle");
+  assert.deepEqual(
+    seeded.agentState.sessions[SESSION]?.merge.nodes[SESSION]?.seenOn,
+    ["query"],
+  );
+});
+
+test("a new session id on the query stream is announced before its first message reaches the sinks", () => {
+  const events = hub();
+  const other: UUID = "bbbbbbbb-0000-0000-0000-000000000002";
+  const lines: AgentEvent[] = [];
+  events.subscribe((event) => lines.push(event));
+  events.observeSdkMessage(sdkMessage("result", { session_id: other }));
+  events.observeSdkMessage(sdkMessage("result", { session_id: other }));
+  assert.deepEqual(
+    lines.map((event) =>
+      event.kind === "querySessionChanged"
+        ? `${event.kind}:${event.sessionId}`
+        : event.kind,
+    ),
+    [`querySessionChanged:${other}`, "sdkMessage", "sdkMessage"],
+  );
+  assert.equal(events.agentState.querySessionId, other);
+  assert.equal(events.agentState.anomaly, undefined);
 });
 
 test("a non-quiescent seed is rejected loudly", () => {
@@ -159,6 +185,7 @@ test("observeSdkMessage emits a steer dequeue before the assistant frame that tr
   events.deliverUserMessage(userMessage()); // queued behind the running turn
   events.observeSdkMessage(
     userMessage({
+      session_id: SESSION,
       message: {
         role: "user",
         content: [{ type: "tool_result", tool_use_id: "t1", content: "ok" }],
@@ -189,8 +216,6 @@ test("unsubscribe detaches the sink", () => {
 });
 
 // --- step 4: dedup, settle waits, anomaly reporting -------------------------
-
-const SESSION: UUID = "aaaaaaaa-0000-0000-0000-000000000001";
 
 function userEntry(uuid: UUID, text: string): SessionEntry {
   return {
@@ -293,7 +318,12 @@ test("dedup: a session-only uuid on the query stream is a classification anomaly
   assert.equal(bundle.anomaly.kind, "classification");
   assert.deepEqual(
     bundle.recentEvents.map((event) => event.kind),
-    ["sessionFileChanged", "sessionEntry", "trackerAnomaly"],
+    [
+      "querySessionChanged",
+      "sessionFileChanged",
+      "sessionEntry",
+      "trackerAnomaly",
+    ],
   );
   // The next fold clears the flag.
   events.emit({ kind: "interruptSent" });

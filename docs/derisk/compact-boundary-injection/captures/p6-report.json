@@ -27,7 +27,7 @@
     "name": "with-thinking",
     "error": null,
     "resultSubtype": "success",
-    "resultText": "I don't know the magic word — the fact.txt read was summarized as \"(details omitted)\" in my context, so I can't recall its contents. The color you picked was **Red**.",
+    "resultText": "I don't know the magic word — the contents of fact.txt were omitted from my context. The color you picked (that I named) was **red**.",
     "stderr": null,
     "apiStatuses": [
       200
@@ -48,7 +48,7 @@
     "name": "no-thinking",
     "error": null,
     "resultSubtype": "success",
-    "resultText": "I don't have access to the contents of fact.txt — the earlier read was summarized as \"details omitted\" in my context — so I can't tell you the magic word. The color you picked was **red**.",
+    "resultText": "I don't have access to the contents of fact.txt — the earlier read was summarized as \"details omitted\" in my context — but the color you picked was **Red**.",
     "stderr": null,
     "apiStatuses": [
       200

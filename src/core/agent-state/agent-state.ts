@@ -39,16 +39,19 @@ import type {
   SDKUserMessage,
 } from "@anthropic-ai/claude-agent-sdk";
 import type { AgentEvent } from "../protocol.ts";
+import { foldQuerySessionChanged } from "./fold-query-session-changed.ts";
 import { foldScanComplete } from "./fold-scan-complete.ts";
 import { foldSdkMessage } from "./fold-sdk-message.ts";
 import { foldSessionAppended } from "./fold-session-appended.ts";
 import { foldSessionEntry } from "./fold-session-entry.ts";
 import { foldSessionFileChanged } from "./fold-session-file-changed.ts";
+import { foldShutdown } from "./fold-shutdown.ts";
+import { foldStamped, observeStamped } from "./fold-stamped.ts";
 import { foldUserMessageDequeued } from "./fold-user-message-dequeued.ts";
 import { foldUserMessageQueued } from "./fold-user-message-queued.ts";
 import { withObservedPermissionMode } from "./observed-permission-mode.ts";
 import type { SessionState } from "./session-state.ts";
-import type { TrackerAnomaly } from "./tracker-anomaly.ts";
+import { type TrackerAnomaly, withAnomalies } from "./tracker-anomaly.ts";
 
 export {
   classOf,
@@ -67,6 +70,7 @@ export {
 } from "./selectors.ts";
 export {
   freshSessionState,
+  MERGE_STREAMS,
   type MergeStream,
   type SessionState,
 } from "./session-state.ts";
@@ -106,8 +110,9 @@ export interface AgentState {
   readonly queuedMessages: readonly { uuid: UUID; message: SDKUserMessage }[];
   /** Plain record (it crosses the wire in `subscribe`). */
   readonly sessions: Readonly<Record<UUID, SessionState>>;
-  /** The query file: the latest query message's `session_id`; undefined
-   *  on a fresh spawn until the first `system/init`. */
+  /** The query file: the session `querySessionChanged` last announced —
+   *  the daemon's chosen id from hub construction on, then each new id
+   *  before its first query message. */
   readonly querySessionId?: UUID;
   /** The tracked file; trails `querySessionId` until the switch;
    *  undefined until the first file exists. */
@@ -118,8 +123,9 @@ export interface AgentState {
   readonly anomaly?: TrackerAnomaly;
 }
 
-/** Per-agent fields only, no file: `sessions` is empty and both session ids
- *  undefined. The seed file, when it exists, enters through the
+/** Per-agent fields only, no session: `sessions` is empty and both session
+ *  ids undefined. The query session enters through the hub's
+ *  `querySessionChanged`, the seed file, when it exists, through the
  *  `sessionFileChanged` that `TrackedSessionLog.start` emits. daemon.ts
  *  spreads the settings cascade (`model`, `permissionMode`, `effortLevel`,
  *  `cwd`) over it. */
@@ -158,66 +164,82 @@ function clearedForFold(state: AgentState): AgentState {
   return { ...cleared, sessions };
 }
 
+/** Every event is observed on its stream (protocol.ts, `eventStream`);
+ *  the kinds with no other effect are pure observations. */
+// TDC: This is very poorly enforced. eventStream from protocol.ts has essentially no bite. Instead of using it, we hard-code "query" and "session" in all of these helper methods. There's nothing stopping eventStream from being completely out of sync with reality. Let's brainstorm how to actually make eventStream and eventUuid the source of truth rather than a performative attempt at documentation.
 function foldEvent(state: AgentState, event: AgentEvent): AgentState {
   switch (event.kind) {
     case "userMessageQueued":
-      return foldUserMessageQueued(state, event.uuid, event.message);
+      return foldStamped(
+        foldUserMessageQueued(state, event.message.uuid as UUID, event.message),
+        event,
+        "query",
+      );
     case "userMessageDequeued":
       return foldUserMessageDequeued(state, event);
     case "compactSent":
-      return { ...state, activity: "compacting" };
-    // State is unchanged when the interrupt is *sent*; the transition happens
-    // at the terminating `result` (its subtype alone does not flag the
-    // interrupt — the interruptSent event on the stream is the record).
+      return foldStamped({ ...state, activity: "compacting" }, event, "query");
+    // Activity is unchanged when the interrupt is *sent*; the transition
+    // happens at the terminating `result` (its subtype alone does not flag
+    // the interrupt — the interruptSent event on the stream is the record).
     case "interruptSent":
-      return state;
-    // The daemon's farewell: everything it implies (the process is going
-    // away) is outside the observable agent state, so the fold passes it
-    // through — consumers react to the event itself, not to a state change.
+      return foldStamped(state, event, "query");
     case "shutdown":
-      return state;
+      return foldShutdown(state, event);
     case "sessionEntry":
       return foldSessionEntry(state, event);
+    case "querySessionChanged":
+      return foldQuerySessionChanged(state, event.sessionId);
     case "sessionFileChanged":
-      return foldSessionFileChanged(state, event.sessionId);
+      return foldSessionFileChanged(state, event);
     case "scanComplete":
-      return foldScanComplete(state);
+      return foldStamped(foldScanComplete(state), event, "session");
     case "sessionAppended":
       return foldSessionAppended(state, event.message);
-    case "trackerAnomaly":
-      return { ...state, anomaly: event.anomaly };
+    case "trackerAnomaly": {
+      const observed = observeStamped(state, event, event.stream);
+      return observed.anomalies.length === 0
+        ? { ...observed.state, anomaly: event.anomaly }
+        : withAnomalies(observed.state, [event.anomaly, ...observed.anomalies]);
+    }
     // The tip it announces is already folded from the sessionEntry that
     // completed the boundary (SessionState.treeLeaf).
     case "contextChanged":
-      return state;
-    case "controlApplied": {
-      const request = event.request;
-      if (request.type === "set-model") {
-        // undefined model → the SDK's default; tracked as unset.
-        return { ...state, model: request.model };
-      }
-      if (request.type === "set-permission-mode") {
-        return withObservedPermissionMode(state, request.mode);
-      }
-      if (request.type === "apply-flag-settings") {
-        const effortLevel = request.settings.effortLevel;
-        if (effortLevel === undefined) {
-          return state;
-        }
-        if (effortLevel === null) {
-          // The daemon resolves a flag-tier clear to a concrete level before
-          // emitting (SdkControlApplied); null survives only when neither
-          // the spawn --effort flag nor the settings cascade specifies one,
-          // so the next query uses the CLI's model-dependent default —
-          // unknown here, tracked as unset.
-          const { effortLevel: _effortLevel, ...withoutEffort } = state;
-          return withoutEffort;
-        }
-        return { ...state, effortLevel };
-      }
+      return foldStamped(state, event, "session");
+    case "controlApplied":
+      return foldStamped(foldControlApplied(state, event), event, "query");
+    case "sdkMessage":
+      return foldSdkMessage(state, event);
+  }
+}
+
+function foldControlApplied(
+  state: AgentState,
+  event: Extract<AgentEvent, { kind: "controlApplied" }>,
+): AgentState {
+  const request = event.request;
+  if (request.type === "set-model") {
+    // undefined model → the SDK's default; tracked as unset.
+    return { ...state, model: request.model };
+  }
+  if (request.type === "set-permission-mode") {
+    return withObservedPermissionMode(state, request.mode);
+  }
+  if (request.type === "apply-flag-settings") {
+    const effortLevel = request.settings.effortLevel;
+    if (effortLevel === undefined) {
       return state;
     }
-    case "sdkMessage":
-      return foldSdkMessage(state, event.message);
+    if (effortLevel === null) {
+      // The daemon resolves a flag-tier clear to a concrete level before
+      // emitting (SdkControlApplied); null survives only when neither
+      // the spawn --effort flag nor the settings cascade specifies one,
+      // so the next query uses the CLI's model-dependent default —
+      // unknown here, tracked as unset.
+      const { effortLevel: _effortLevel, ...withoutEffort } = state;
+      return withoutEffort;
+    }
+    return { ...state, effortLevel };
   }
+  return state;
 }

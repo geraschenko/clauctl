@@ -405,7 +405,7 @@ undefined`** — empty → undefined; the `[first, ...rest]` destructuring
 9. Docs: `user-message-tracking.md` "file normally lags by ~200ms"
    wording (Anton's edit) kept.
 
-## Deferred (→ phase 2.5 spec, `query-pending-list/phase-2.5-*.md`)
+## Deferred (→ phase 3.5 spec, `query-pending-list/phase-3.5-*.md`)
 
 - **Uuid-less events.** Stamp a uuid on every `AgentEvent` variant that
   lacks one (event-hub, like prompts) and observe it on its stream with
@@ -469,7 +469,7 @@ undefined`** — empty → undefined; the `[first, ...rest]` destructuring
       `tests/sdk/steer-slash-command.test.ts` (3/3; finding in decision
       8 and docs/claude-agent-sdk.md); no `// TDC:` left in src; presubmit
       green (735 tests); LIVE `queued-batches` + `clear-session` 10/10.
-- [ ] Phase 2.5 spec: uuid-less events + slash-command exemption +
+- [ ] Phase 3.5 spec: uuid-less events + slash-command exemption +
       interrupt probes (Deferred) — draft in
-      `query-pending-list/phase-2.5-uuid-less-events.md`.
+      `query-pending-list/phase-3.5-uuid-less-events.md`.
 - [ ] TUI smoke under `/tmp/clauctl-cbi-derisk/`

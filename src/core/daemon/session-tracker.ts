@@ -9,7 +9,7 @@
 
 import type { UUID } from "node:crypto";
 import { excludedFromQuery } from "../agent-state/agent-state.ts";
-import type { AgentEvent } from "../protocol.ts";
+import type { AgentEvent, Unstamped } from "../protocol.ts";
 import {
   readEntriesAt,
   type ByteRange,
@@ -21,9 +21,9 @@ import { ContextTreeBuilder, type ContextTree } from "../tree/context-tree.ts";
 import type { OnInvalid } from "../tree/loader.ts";
 import { parseTreeNodeRef, type TreeNodeRef } from "../tree/nodes.ts";
 
-export type SessionTrackerEvent = Extract<
-  AgentEvent,
-  { kind: "sessionEntry" | "contextChanged" }
+/** Unstamped: the hub assigns the events' own uuids at emit. */
+export type SessionTrackerEvent = Unstamped<
+  Extract<AgentEvent, { kind: "sessionEntry" | "contextChanged" }>
 >;
 
 export class SessionTracker {

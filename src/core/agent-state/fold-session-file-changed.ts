@@ -1,4 +1,4 @@
-import type { UUID } from "node:crypto";
+import type { AgentEvent } from "../protocol.ts";
 import { pending } from "../stream-merge.ts";
 import type { AgentState } from "./agent-state.ts";
 import { observeOn } from "./observe-on.ts";
@@ -10,28 +10,38 @@ import {
 } from "./session-state.ts";
 import { type TrackerAnomaly, withAnomalies } from "./tracker-anomaly.ts";
 
-/** The follower moved: the old file's state is dropped, unless the move
- *  is a rescan of the same file, which keeps what the query side still
- *  knows (its pending observations with their exclusions, the leaf and
- *  usage evidence) and forgets everything the log told us. */
+/** The follower moved: the old file's state is dropped and the new file's
+ *  session (already announced by `querySessionChanged`, whose start node
+ *  this resolves) becomes the tracked one — unless the move is a rescan
+ *  of the same file, which keeps what the query side still knows (its
+ *  pending observations with their exclusions, the leaf and usage
+ *  evidence), forgets everything the log told us, and is a node of its
+ *  own on `session`. */
 export function foldSessionFileChanged(
   state: AgentState,
-  sessionId: UUID,
+  event: Extract<AgentEvent, { kind: "sessionFileChanged" }>,
 ): AgentState {
+  const sessionId = event.sessionId;
   const old =
     state.fileSessionId === undefined
       ? undefined
       : state.sessions[state.fileSessionId];
   const dropped = withoutFile(state, state.fileSessionId);
   if (old === undefined || sessionId !== state.fileSessionId) {
-    return {
-      ...withSession(
-        dropped,
-        sessionId,
-        dropped.sessions[sessionId] ?? freshSessionState(),
-      ),
-      fileSessionId: sessionId,
-    };
+    const observation = observeOn(
+      dropped.sessions[sessionId] ?? freshSessionState(),
+      "session",
+      sessionId,
+      "sessionFileChanged",
+      false,
+    );
+    return withAnomalies(
+      {
+        ...withSession(dropped, sessionId, observation.session),
+        fileSessionId: sessionId,
+      },
+      observation.anomalies,
+    );
   }
   let session: SessionState = {
     ...freshSessionState(),
@@ -51,8 +61,19 @@ export function foldSessionFileChanged(
     session = observation.session;
     anomalies.push(...observation.anomalies);
   }
+  const rescan = observeOn(
+    session,
+    "session",
+    event.uuid ?? sessionId,
+    "sessionFileChanged",
+    true,
+  );
+  anomalies.push(...rescan.anomalies);
   return withAnomalies(
-    { ...withSession(dropped, sessionId, session), fileSessionId: sessionId },
+    {
+      ...withSession(dropped, sessionId, rescan.session),
+      fileSessionId: sessionId,
+    },
     anomalies,
   );
 }

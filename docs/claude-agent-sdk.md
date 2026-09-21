@@ -162,20 +162,47 @@ Pinned by
 `tests/sdk/queued-batches.test.ts`; evidence in
 [`derisk/queued-batches/`](derisk/queued-batches/README.md).
 
+## An interrupt aborts the turn, not the queue
+
+`Query.interrupt()` and a `now` prompt abort only the running turn: every
+prompt waiting in the queue survives and is dequeued after the aborted
+`result` by the coalescing rule above (a `now` prompt runs first, a
+prompt queued before it right after, unsteered; a `later` prompt runs at
+once when it is the only one waiting). The interrupt receipt names the
+survivors in `still_queued` — provided the CLI has acknowledged them:
+an interrupt issued in the same tick as a push races the enqueue. A
+`/command` sent with `now` interrupts and runs expanded like any
+command. Pinned by `tests/sdk/interrupt-queue.test.ts`.
+
 ## Slash commands are turns of their own
 
-A prompt that _is_ a `/command` — built-in or custom — is exempt from
-both rules above: pushed while a turn runs it is never steered, and
-queued next to other prompts it is never merged. It waits in the queue
-and runs as its own turn after the running turn's `result`, expanded the
-way an interactive `/command` is (a `<command-name>` user entry; a
-built-in may expand to its alias, `/cost` → `/usage`, and writes its
-`local_command` stdout; a custom command adds an `isMeta` user entry
-with the expanded prompt). A plain-text prompt that merely mentions a
-`/command` is an ordinary prompt: steered verbatim, unexpanded. Pinned by
-`tests/sdk/steer-slash-command.test.ts`. The daemon's queue model does not
-yet mirror the exemption (phase 2.5 of
-`specs/query-pending-list.md`).
+A prompt whose **string** content starts with `/` is a command — built-in,
+custom, or unknown alike — and is exempt from both rules above: pushed
+while a turn runs it is never steered, and queued next to other prompts
+it is never merged (a command between two texts of one bucket splits it
+into three runs). It waits in the queue and runs as its own turn after
+the running turn's `result`, expanded the way an interactive `/command`
+is (a `<command-name>` user entry; a built-in may expand to its alias,
+`/cost` → `/usage`, and writes its `local_command` stdout; a custom
+command adds an `isMeta` user entry with the expanded prompt; an unknown
+one writes only `local_command` system entries — the name and "Unknown
+command" — no user entry, and its lifecycle still completes). The
+content's shape is the whole predicate: a plain text that mentions a
+`/command`, and a `/command` carried as a text **block**, are ordinary
+prompts, steered verbatim and unexpanded. `system/init.slash_commands`
+is not that predicate — it lists names without the slash and omits
+`cost`, which the CLI runs anyway. Pinned by
+`tests/sdk/steer-slash-command.test.ts` and
+`tests/sdk/session-id-option.test.ts`.
+
+## The session id may be chosen by the caller
+
+`Options.sessionId` makes a fresh session use the caller's uuid: the
+first `system/init` announces it. The session file does not exist until
+the first turn is processed — absent while the process idles before its
+first prompt and still absent at that turn's `init`; present at its
+`result` — so a file follower started at spawn must wait for the file
+without a deadline. Pinned by `tests/sdk/session-id-option.test.ts`.
 
 ## Hooks never reach the query stream
 

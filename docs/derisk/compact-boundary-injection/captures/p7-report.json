@@ -3,78 +3,78 @@
     "sdk": "0.3.258"
   },
   "reps": 12,
-  "sessionId": "c2bed8ae-948a-487c-b52a-cdac9f42f4ce",
+  "sessionId": "47ae79ac-a6f2-45b6-aef7-cb974b354a8e",
   "allAssertionsPassed": true,
   "leafOnDiskMs": {
-    "min": 96,
-    "median": 99,
-    "max": 99
+    "min": 95,
+    "median": 97,
+    "max": 106
   },
   "teardownMs": {
-    "min": 17,
-    "median": 24,
-    "max": 28
+    "min": 15,
+    "median": 20,
+    "max": 26
   },
   "cycles": [
     {
       "cycle": 0,
       "leafOnDiskMs": 98,
-      "teardownMs": 26
+      "teardownMs": 15
     },
     {
       "cycle": 1,
-      "leafOnDiskMs": 97,
-      "teardownMs": 23
+      "leafOnDiskMs": 98,
+      "teardownMs": 19
     },
     {
       "cycle": 2,
-      "leafOnDiskMs": 97,
-      "teardownMs": 23
+      "leafOnDiskMs": 96,
+      "teardownMs": 16
     },
     {
       "cycle": 3,
       "leafOnDiskMs": 97,
-      "teardownMs": 23
-    },
-    {
-      "cycle": 4,
-      "leafOnDiskMs": 99,
       "teardownMs": 24
     },
     {
+      "cycle": 4,
+      "leafOnDiskMs": 102,
+      "teardownMs": 26
+    },
+    {
       "cycle": 5,
-      "leafOnDiskMs": 99,
-      "teardownMs": 28
+      "leafOnDiskMs": 95,
+      "teardownMs": 24
     },
     {
       "cycle": 6,
-      "leafOnDiskMs": 99,
-      "teardownMs": 27
+      "leafOnDiskMs": 97,
+      "teardownMs": 15
     },
     {
       "cycle": 7,
-      "leafOnDiskMs": 98,
-      "teardownMs": 22
+      "leafOnDiskMs": 97,
+      "teardownMs": 20
     },
     {
       "cycle": 8,
-      "leafOnDiskMs": 96,
-      "teardownMs": 26
+      "leafOnDiskMs": 97,
+      "teardownMs": 23
     },
     {
       "cycle": 9,
-      "leafOnDiskMs": 99,
-      "teardownMs": 26
+      "leafOnDiskMs": 96,
+      "teardownMs": 17
     },
     {
       "cycle": 10,
-      "leafOnDiskMs": 99,
-      "teardownMs": 21
+      "leafOnDiskMs": 106,
+      "teardownMs": 19
     },
     {
       "cycle": 11,
       "leafOnDiskMs": 99,
-      "teardownMs": 17
+      "teardownMs": 24
     }
   ]
 }

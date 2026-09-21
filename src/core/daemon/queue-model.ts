@@ -48,14 +48,27 @@ export interface AcceptTransition extends QueueTransition {
   uuid: UUID;
 }
 
+/** A `/command` prompt: the CLI never steers or merges one — it waits for
+ *  a result and runs alone (docs/claude-agent-sdk.md, "Slash commands are
+ *  turns of their own"). Only string content counts: a `/command` in a
+ *  text block is an ordinary prompt. */
+function isSlashCommand(message: SDKUserMessage): boolean {
+  const content = message.message.content;
+  return typeof content === "string" && content.startsWith("/");
+}
+
 /**
- * Subject to the demote fork: priority next/default. Demotability also
- * requires acceptance while not idle, but every entry *resident* in the queue
- * was accepted while not idle (idle acceptance dequeues immediately), so for
- * queued messages this is purely a function of priority.
+ * Subject to the demote fork: priority next/default, not a slash command.
+ * Demotability also requires acceptance while not idle, but every entry
+ * *resident* in the queue was accepted while not idle (idle acceptance
+ * dequeues immediately), so for queued messages this is purely a function
+ * of the message.
  */
 function isDemotable(message: SDKUserMessage): boolean {
-  return message.priority === undefined || message.priority === "next";
+  return (
+    (message.priority === undefined || message.priority === "next") &&
+    !isSlashCommand(message)
+  );
 }
 
 /** `shouldQuery !== false` — whether this message predicts a future result. */
@@ -87,14 +100,16 @@ function dequeued(
 /**
  * Accept a turn from a client; emits `userMessageQueued` (plus the immediate
  * dequeue when idle — the message runs, or is appended, right away).
- * `message.uuid` is the uuid: the hub stamps it before delivery, so the
- * delivered message and the modeled one are the same object; an unstamped
- * message is a daemon bug.
+ * `message.uuid` is the prompt's uuid: the hub stamps it before delivery,
+ * so the delivered message and the modeled one are the same object; an
+ * unstamped message is a daemon bug. `eventUuid` is the queued event's
+ * own merge node, distinct from the prompt's (which the dequeue observes).
  */
 export function acceptUserMessage(
   state: QueueModelState,
   message: SDKUserMessage,
   isIdle: boolean,
+  eventUuid: UUID,
 ): AcceptTransition {
   const uuid = message.uuid;
   if (uuid === undefined) {
@@ -102,7 +117,7 @@ export function acceptUserMessage(
   }
   const queuedEvent: AgentEvent = {
     kind: "userMessageQueued",
-    uuid,
+    uuid: eventUuid,
     message,
   };
   if (isIdle) {
@@ -181,8 +196,9 @@ export function observeSdkMessage(
   // A result ends the running turn; the CLI dequeues one run of the
   // highest-priority bucket present (docs/claude-agent-sdk.md, "Queued
   // prompts coalesce by run"): an append (shouldQuery:false) at the head is
-  // a run of its own, entering the transcript with no turn; otherwise the
-  // head's maximal prefix of querying members merges into one turn with one
+  // a run of its own, entering the transcript with no turn; a slash command
+  // at the head is a run of its own turn; otherwise the head's maximal
+  // prefix of querying non-command members merges into one turn with one
   // future result. The rest of the bucket waits for that result, and the
   // bucket is recomputed then — a higher priority accepted meanwhile cuts
   // ahead.
@@ -212,12 +228,17 @@ export function observeSdkMessage(
   return { state, events: [] };
 }
 
-/** The run at the head of a bucket: an append alone, otherwise the maximal
- *  prefix of querying members. */
+/** Whether a queued message merges with its querying neighbours. */
+function isMergeable(message: SDKUserMessage): boolean {
+  return isQuerying(message) && !isSlashCommand(message);
+}
+
+/** The run at the head of a bucket: an append or a slash command alone,
+ *  otherwise the maximal prefix of mergeable members. */
 function nextRun(head: QueuedMessage, tail: QueuedMessage[]): QueuedMessage[] {
-  if (!isQuerying(head.message)) {
+  if (!isMergeable(head.message)) {
     return [head];
   }
-  const firstAppend = tail.findIndex((entry) => !isQuerying(entry.message));
-  return [head, ...(firstAppend === -1 ? tail : tail.slice(0, firstAppend))];
+  const firstCut = tail.findIndex((entry) => !isMergeable(entry.message));
+  return [head, ...(firstCut === -1 ? tail : tail.slice(0, firstCut))];
 }

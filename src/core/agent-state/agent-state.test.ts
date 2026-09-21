@@ -25,6 +25,11 @@ const SESSION_B = "bbbbbbbb-0000-0000-0000-000000000002" as const;
 const uuidN = (n: number): UUID =>
   `00000000-0000-0000-0000-${String(n).padStart(12, "0")}`;
 
+/** The hub's stamp on an event whose payload carries no uuid: distinct
+ *  per call, from 1000 up so it never collides with a test's own ids. */
+let stampCounter = 1000;
+const stamp = (): UUID => uuidN(stampCounter++);
+
 // The fold only inspects the fields each step reads, so minimal stubs
 // suffice; assistant messages get the usage payload and the (wire-mandatory)
 // parent_tool_use_id the fold reads. Every message names SESSION_A's file.
@@ -44,11 +49,17 @@ function queryMessage(
   } as unknown as SDKMessage;
 }
 
+/** A query message event as the hub emits it: stamped iff the message
+ *  carries no uuid. */
 function sdkMessage(
   type: Parameters<typeof queryMessage>[0],
   fields: Record<string, unknown> = {},
+  eventStamp: UUID = stamp(),
 ): AgentEvent {
-  return { kind: "sdkMessage", message: queryMessage(type, fields) };
+  const message = queryMessage(type, fields);
+  return message.uuid === undefined
+    ? { kind: "sdkMessage", message, uuid: eventStamp }
+    : { kind: "sdkMessage", message };
 }
 
 /** A tracker event as `TrackedSessionLog` would publish it: the
@@ -67,11 +78,25 @@ function sessionEntry(
   };
 }
 
+const queryChanged = (sessionId: UUID): AgentEvent => ({
+  kind: "querySessionChanged",
+  sessionId,
+});
 const fileChanged = (sessionId: UUID): AgentEvent => ({
   kind: "sessionFileChanged",
   sessionId,
 });
-const scanComplete: AgentEvent = { kind: "scanComplete" };
+const rescan = (n: number): AgentEvent => ({
+  kind: "sessionFileChanged",
+  sessionId: SESSION_A,
+  uuid: uuidN(n),
+});
+const scanComplete: AgentEvent = { kind: "scanComplete", uuid: uuidN(900) };
+const trackerAnomaly = (
+  n: number,
+  stream: "query" | "session",
+  anomaly: AgentState["anomaly"] & object,
+): AgentEvent => ({ kind: "trackerAnomaly", uuid: uuidN(n), stream, anomaly });
 
 function userMessage(overrides: Partial<SDKUserMessage> = {}): SDKUserMessage {
   return {
@@ -82,14 +107,17 @@ function userMessage(overrides: Partial<SDKUserMessage> = {}): SDKUserMessage {
   };
 }
 
+/** The prompt is stamped `uuidN(id)`; the event carries its own stamp,
+ *  a query node in its own right. */
 function queued(
   id: number,
   overrides: Partial<SDKUserMessage> = {},
+  eventStamp: UUID = stamp(),
 ): AgentEvent {
   return {
     kind: "userMessageQueued",
-    uuid: uuidN(id),
-    message: userMessage(overrides),
+    uuid: eventStamp,
+    message: userMessage({ uuid: uuidN(id), ...overrides }),
   };
 }
 
@@ -104,7 +132,14 @@ function dequeued(
   };
 }
 
-function run(events: AgentEvent[], from = initialAgentState()): AgentState {
+/** The hub's construction: SESSION_A announced as the query session before
+ *  anything is observed on it. */
+const announcedA: AgentState = nextAgentState(
+  initialAgentState(),
+  queryChanged(SESSION_A),
+);
+
+function run(events: AgentEvent[], from = announcedA): AgentState {
   return events.reduce(nextAgentState, from);
 }
 
@@ -228,6 +263,7 @@ test("non-querying entry may sit across idle; append dequeue clears it", () => {
 test("compact: compacting is exited by result, not assistant output", () => {
   const compactSent: AgentEvent = {
     kind: "compactSent",
+    uuid: stamp(),
     message: userMessage(),
   };
   const compacting = run([compactSent]);
@@ -241,7 +277,7 @@ test("compact: compacting is exited by result, not assistant output", () => {
 
 test("compact with a later turn queued behind it", () => {
   const state = run([
-    { kind: "compactSent", message: userMessage() },
+    { kind: "compactSent", uuid: stamp(), message: userMessage() },
     queued(1, { priority: "later" }),
     sdkMessage("result"), // compaction finished
   ]);
@@ -249,28 +285,50 @@ test("compact with a later turn queued behind it", () => {
   assert.deepEqual(queuedIds(state), [uuidN(1)]);
 });
 
-test("interruptSent and non-tracking controlApplied leave state unchanged", () => {
+test("interruptSent and non-tracking controlApplied only observe their node on query", () => {
   const working = run([
     queued(1),
     dequeued("turn", [1]),
-    sdkMessage("assistant"),
+    sdkMessage("assistant", {}, uuidN(2)),
   ]);
-  assert.equal(nextAgentState(working, { kind: "interruptSent" }), working);
-  assert.equal(
-    nextAgentState(working, {
-      kind: "controlApplied",
-      request: { type: "reload-plugins" },
-    }),
-    working,
-  );
+  const before = pending(fileA(working).merge, "query");
+  const interrupted = nextAgentState(working, {
+    kind: "interruptSent",
+    uuid: uuidN(3),
+  });
+  const reloaded = nextAgentState(interrupted, {
+    kind: "controlApplied",
+    uuid: uuidN(4),
+    request: { type: "reload-plugins" },
+  });
+  for (const state of [interrupted, reloaded]) {
+    assert.equal(state.activity, working.activity);
+    assert.deepEqual(state.queuedMessages, working.queuedMessages);
+    assert.equal(state.anomaly, undefined);
+  }
+  assert.deepEqual(pending(fileA(reloaded).merge, "query"), [
+    ...before,
+    uuidN(3),
+    uuidN(4),
+  ]);
+  assert.deepEqual(fileA(reloaded).merge.nodes[uuidN(4)]!.excludedFrom, [
+    "session",
+  ]);
 });
 
 test("unexpected result while idle stays idle", () => {
-  const state = nextAgentState(initialAgentState(), sdkMessage("result"));
+  const state = nextAgentState(announcedA, sdkMessage("result"));
   assert.equal(state.activity, "idle");
 });
 
-test("subagent user/assistant messages leave state unchanged", () => {
+test("a query message on a session never announced is a merge-error anomaly", () => {
+  const state = nextAgentState(initialAgentState(), sdkMessage("result"));
+  assert.equal(state.anomaly?.kind, "merge-error");
+  assert.match(state.anomaly!.detail, /not announced/);
+  assert.deepEqual(state.sessions, {});
+});
+
+test("subagent user/assistant messages are observed on query only, with no other effect", () => {
   const working = run([
     queued(1),
     dequeued("turn", [1]),
@@ -278,12 +336,13 @@ test("subagent user/assistant messages leave state unchanged", () => {
   ]);
   // A subagent assistant must not overwrite lastUsage, advance the leaf, or
   // clear the delivered hold; same for a subagent user message or
-  // stream_event (none of their ids can meet an entry in this file).
+  // stream_event. None of their ids can meet an entry in this file, so
+  // each is excluded from session.
   const afterSub = run(
     [
       sdkMessage("assistant", {
         parent_tool_use_id: "tool-1",
-        uuid: "sub-uuid",
+        uuid: uuidN(0xaa),
         message: { usage: { input_tokens: 999, output_tokens: 999 } },
       }),
       sdkMessage("stream_event", {
@@ -295,13 +354,28 @@ test("subagent user/assistant messages leave state unchanged", () => {
         kind: "sdkMessage",
         message: userMessage({
           parent_tool_use_id: "tool-1",
-          uuid: "00000000-0000-0000-0000-0000000000ab",
+          uuid: uuidN(0xab),
+          session_id: SESSION_A,
         }) as SDKMessage,
       },
     ],
     working,
   );
-  assert.equal(afterSub, working);
+  assert.equal(afterSub.activity, working.activity);
+  assert.equal(afterSub.anomaly, undefined);
+  assert.equal(fileA(afterSub).lastUsage?.input_tokens, 5);
+  assert.equal(fileA(afterSub).pendingLeaf, fileA(working).pendingLeaf);
+  assert.deepEqual(pending(fileA(afterSub).merge, "query"), [
+    ...pending(fileA(working).merge, "query"),
+    uuidN(0xaa),
+    uuidN(0xac),
+    uuidN(0xab),
+  ]);
+  for (const id of [uuidN(0xaa), uuidN(0xac), uuidN(0xab)]) {
+    assert.deepEqual(fileA(afterSub).merge.nodes[id]!.excludedFrom, [
+      "session",
+    ]);
+  }
 });
 
 test("compact_boundary with post_tokens becomes lastUsage; without, drops it", () => {
@@ -388,7 +462,7 @@ function init(fields: Record<string, unknown> = {}): AgentEvent {
 
 test("conversation_reset preserves queued work and activity", () => {
   const before: AgentState = {
-    ...initialAgentState(),
+    ...announcedA,
     activity: "working",
     queuedMessages: [
       { uuid: uuidN(2), message: userMessage({ priority: "later" }) },
@@ -404,19 +478,20 @@ test("conversation_reset preserves queued work and activity", () => {
   assert.equal(state.activity, "working");
 });
 
-test("system/init sets the query session, model, cwd, and observes the mode", () => {
+test("querySessionChanged sets the query session; system/init sets model, cwd, and observes the mode", () => {
+  assert.equal(initialAgentState().querySessionId, undefined);
+  assert.equal(announcedA.querySessionId, SESSION_A);
   const state = run([init()]);
-  assert.equal(state.querySessionId, SESSION_A);
   assert.equal(state.model, "opus");
   assert.equal(state.cwd, "/work");
   assert.equal(state.permissionMode, "default");
   assert.deepEqual(state.observedPermissionModes, ["default"]);
 });
 
-// A resumed session can fork: init announces a new session id whose file
-// never contains the resumed file's leaf. The leaf is per file, so an id
-// change moves the query file and the leaf follows.
-test("system/init announcing a different session id moves the query file; the leaf follows", () => {
+// A resumed session can fork: the query moves to a new session id whose
+// file never contains the resumed file's leaf. The leaf is per file, so
+// the announcement moves the query file and the leaf follows.
+test("querySessionChanged to a different session id moves the query file; the leaf follows", () => {
   const forked = "aaaaaaaa-0000-0000-0000-00000000000f" as UUID;
   const seeded: AgentState = {
     ...initialAgentState(),
@@ -431,7 +506,7 @@ test("system/init announcing a different session id moves the query file; the le
   assert.deepEqual(leaf(seeded), {
     uuid: "00000000-0000-0000-0000-00000000000a",
   });
-  const state = nextAgentState(seeded, init({ session_id: forked }));
+  const state = nextAgentState(seeded, queryChanged(forked));
   assert.equal(state.querySessionId, forked);
   assert.equal(leaf(state), null);
   assert.deepEqual(leaf(nextAgentState(seeded, init())), {
@@ -467,11 +542,16 @@ test("observedPermissionModes is duplicate-free, first-observed order", () => {
 test("controlApplied set-model updates model; undefined means SDK default", () => {
   const state = run([
     init(),
-    { kind: "controlApplied", request: { type: "set-model", model: "sonnet" } },
+    {
+      kind: "controlApplied",
+      uuid: stamp(),
+      request: { type: "set-model", model: "sonnet" },
+    },
   ]);
   assert.equal(state.model, "sonnet");
   const reset = nextAgentState(state, {
     kind: "controlApplied",
+    uuid: stamp(),
     request: { type: "set-model" },
   });
   assert.equal(reset.model, undefined);
@@ -482,6 +562,7 @@ test("controlApplied apply-flag-settings folds effortLevel; null unsets", () => 
     effortLevel?: "low" | "medium" | "high" | "xhigh" | null;
   }): AgentEvent => ({
     kind: "controlApplied",
+    uuid: stamp(),
     request: { type: "apply-flag-settings", settings },
   });
   const state = run([applied({ effortLevel: "xhigh" })]);
@@ -497,6 +578,7 @@ test("controlApplied set-permission-mode observes the mode", () => {
   const state = run([
     {
       kind: "controlApplied",
+      uuid: stamp(),
       request: { type: "set-permission-mode", mode: "acceptEdits" },
     },
   ]);
@@ -508,8 +590,9 @@ test("controlApplied set-permission-mode observes the mode", () => {
 // A prompt's dequeue is its `query` observation under the stamped uuid
 // (uuidN(n) here); its file entry — a merged run's under the last id, a
 // steer's `queued_command` attachment naming it as source_uuid — is the
-// `session` one. `withQuerySession` makes SESSION_A the query and tracked
-// file, scanned.
+// `session` one. `withQuerySession` makes SESSION_A (announced by
+// `announcedA`) the tracked file too, scanned: its start node resolves and
+// nothing pends.
 
 const withQuerySession: AgentEvent[] = [
   init(),
@@ -557,9 +640,13 @@ test("append dequeue observes like a turn; a dequeue without a query session onl
     dequeued("append", [1]),
   ]);
   assert.deepEqual(pending(fileA(appended).merge, "query"), [uuidN(1)]);
-  const sessionless = run([queued(1), dequeued("turn", [1])]);
+  const sessionless = run(
+    [queued(1), dequeued("turn", [1])],
+    initialAgentState(),
+  );
   assert.deepEqual(sessionless.queuedMessages, []);
   assert.deepEqual(sessionless.sessions, {});
+  assert.equal(sessionless.anomaly?.kind, "merge-error");
 });
 
 test("a prompt entry ahead of its dequeue pends on session, not excluded from query; the dequeue resolves it", () => {
@@ -616,16 +703,16 @@ test("dequeue ids not present in queuedMessages still observe: the entry may alr
   assert.deepEqual(pending(fileA(state).merge, "query"), [uuidN(99)]);
 });
 
-test("conversation_reset excludes the reset prompt (the last query-pending id) from the old file", () => {
+test("conversation_reset excludes the reset prompt (the last query-pending id awaiting the file) from the old file; its own stamp follows", () => {
   const state = run([
     ...withQuerySession,
     queued(1),
     dequeued("turn", [1]),
-    sdkMessage("conversation_reset", { new_conversation_id: "x" }),
+    sdkMessage("conversation_reset", { new_conversation_id: "x" }, uuidN(4)),
   ]);
   assert.deepEqual(fileA(state).merge.nodes, {});
   assert.equal(fileA(state).pendingLeaf, null);
-  assert.deepEqual(resolvedIds(state), [uuidN(1)]);
+  assert.deepEqual(resolvedIds(state), [uuidN(1), uuidN(4)]);
   assert.equal(state.anomaly, undefined);
 });
 
@@ -633,40 +720,78 @@ test("conversation_reset's exclusion resolves in stream order, behind earlier pe
   const reset = run([
     ...withQuerySession,
     assistantQuery(3),
-    queued(1),
+    queued(1, {}, uuidN(5)),
     dequeued("turn", [1]),
-    sdkMessage("conversation_reset", { new_conversation_id: "x" }),
+    sdkMessage("conversation_reset", { new_conversation_id: "x" }, uuidN(4)),
   ]);
-  assert.deepEqual(pending(fileA(reset).merge, "query"), [uuidN(3), uuidN(1)]);
+  assert.deepEqual(pending(fileA(reset).merge, "query"), [
+    uuidN(3),
+    uuidN(5),
+    uuidN(1),
+    uuidN(4),
+  ]);
   assert.deepEqual(fileA(reset).merge.nodes[uuidN(1)]!.excludedFrom, [
     "session",
   ]);
   const caughtUp = nextAgentState(reset, assistantEntry(3));
   assert.deepEqual(fileA(caughtUp).merge.nodes, {});
-  assert.deepEqual(resolvedIds(caughtUp), [uuidN(3), uuidN(1)]);
+  assert.deepEqual(resolvedIds(caughtUp), [
+    uuidN(3),
+    uuidN(5),
+    uuidN(1),
+    uuidN(4),
+  ]);
   assert.equal(caughtUp.anomaly, undefined);
 });
 
-test("conversation_reset with nothing pending on query resolves nothing", () => {
+test("conversation_reset with nothing pending on query resolves only its own stamp", () => {
   const state = run([
     ...withQuerySession,
-    sdkMessage("conversation_reset", { new_conversation_id: "x" }),
+    sdkMessage("conversation_reset", { new_conversation_id: "x" }, uuidN(4)),
   ]);
   assert.deepEqual(fileA(state).merge.nodes, {});
-  assert.deepEqual(resolvedIds(state), []);
+  assert.deepEqual(resolvedIds(state), [uuidN(4)]);
   assert.equal(state.anomaly, undefined);
 });
 
-test("contextChanged is pass-through: the tip it carries is folded from the completing entry", () => {
-  const state = initialAgentState();
-  assert.equal(
-    nextAgentState(state, {
-      kind: "contextChanged",
-      boundary: "00000000-0000-0000-0000-000000000002",
-      leaf: { uuid: "00000000-0000-0000-0000-000000000001" },
-    }),
-    state,
-  );
+test("contextChanged is a session node that resolves behind the entry it followed; the tip it carries is folded from that entry", () => {
+  const ahead = run([...withQuerySession, assistantEntry(2)]);
+  const changed = nextAgentState(ahead, {
+    kind: "contextChanged",
+    uuid: uuidN(9),
+    boundary: uuidN(7),
+    leaf: { uuid: uuidN(2) },
+  });
+  assert.deepEqual(pending(fileA(changed).merge, "session"), [
+    uuidN(2),
+    uuidN(9),
+  ]);
+  assert.equal(leaf(changed), leaf(ahead));
+  const caughtUp = nextAgentState(changed, assistantQuery(2));
+  assert.deepEqual(resolvedIds(caughtUp), [uuidN(2), uuidN(9)]);
+  assert.equal(caughtUp.anomaly, undefined);
+});
+
+const shutdown: AgentEvent = {
+  kind: "shutdown",
+  uuid: uuidN(9),
+  reason: "test",
+};
+
+test("shutdown is a query node of every session that resolves behind the query tail", () => {
+  const state = run([...withQuerySession, assistantQuery(2), shutdown]);
+  assert.deepEqual(pending(fileA(state).merge, "query"), [uuidN(2), uuidN(9)]);
+  assert.deepEqual(pending(fileA(state).merge, "session"), []);
+  const done = nextAgentState(state, assistantEntry(2));
+  assert.deepEqual(resolvedIds(done), [uuidN(2), uuidN(9)]);
+  assert.equal(done.anomaly, undefined);
+});
+
+test("shutdown leaves a session-pending id alone: it resolves in its own step, the entry still awaits its query twin", () => {
+  const state = run([...withQuerySession, assistantEntry(3), shutdown]);
+  assert.deepEqual(resolvedIds(state), [uuidN(9)]);
+  assert.deepEqual(pending(fileA(state).merge, "session"), [uuidN(3)]);
+  assert.equal(state.anomaly, undefined);
 });
 
 // --- merge rules (spec, Fold rules) ------------------------------------------
@@ -695,12 +820,39 @@ function fileA(state: AgentState) {
   return file!;
 }
 
-test("a query message creates its file; a query-only id resolves at once", () => {
+test("querySessionChanged creates the file headed by its start node; query-only ids pend behind it until sessionFileChanged resolves the start", () => {
+  assert.deepEqual(pending(fileA(announcedA).merge, "query"), [SESSION_A]);
+  assert.equal(settled(announcedA), true);
   const state = run([init({ uuid: uuidN(1) })]);
-  assert.equal(state.querySessionId, SESSION_A);
-  assert.deepEqual(fileA(state).merge.nodes, {});
+  assert.deepEqual(pending(fileA(state).merge, "query"), [SESSION_A, uuidN(1)]);
   assert.equal(settled(state), true);
   assert.equal(state.anomaly, undefined);
+  const started = nextAgentState(state, fileChanged(SESSION_A));
+  assert.deepEqual(fileA(started).merge.nodes, {});
+  assert.deepEqual(resolvedIds(started), [SESSION_A, uuidN(1)]);
+  assert.equal(started.anomaly, undefined);
+});
+
+test("a second session's start pends its query messages until the follower moves to it", () => {
+  const state = run([
+    ...withQuerySession,
+    queryChanged(SESSION_B),
+    sdkMessage("assistant", { uuid: uuidN(3), session_id: SESSION_B }),
+  ]);
+  assert.equal(state.querySessionId, SESSION_B);
+  assert.equal(state.fileSessionId, SESSION_A);
+  const fileB = state.sessions[SESSION_B]!;
+  assert.deepEqual(pending(fileB.merge, "query"), [SESSION_B, uuidN(3)]);
+  assert.equal(settled(state), false);
+  const switched = nextAgentState(state, fileChanged(SESSION_B));
+  assert.deepEqual(
+    switched.sessions[SESSION_B]!.resolved.map((node) => node.id),
+    [SESSION_B],
+  );
+  assert.deepEqual(pending(switched.sessions[SESSION_B]!.merge, "query"), [
+    uuidN(3),
+  ]);
+  assert.equal(switched.anomaly, undefined);
 });
 
 test("a shared query id pends on session and is the leaf until its entry resolves it", () => {
@@ -867,7 +1019,9 @@ test("resolved lists what the step resolved and is empty on the next state", () 
     fileChanged(SESSION_A),
     scanComplete,
   ]);
-  assert.deepEqual(fileA(pendingOnSession).resolved, []);
+  assert.deepEqual(fileA(pendingOnSession).resolved, [
+    { id: uuidN(900), seenOn: ["session"], excludedFrom: ["query"] },
+  ]);
   const entryResolves = nextAgentState(pendingOnSession, assistantEntry(2));
   assert.deepEqual(fileA(entryResolves).resolved, [
     { id: uuidN(2), seenOn: ["query", "session"], excludedFrom: [] },
@@ -876,8 +1030,13 @@ test("resolved lists what the step resolved and is empty on the next state", () 
   assert.deepEqual(fileA(sessionOnly).resolved, [
     { id: uuidN(3), seenOn: ["session"], excludedFrom: ["query"] },
   ]);
-  const unrelated = nextAgentState(sessionOnly, sdkMessage("result"));
-  assert.deepEqual(fileA(unrelated).resolved, []);
+  const stamped = nextAgentState(
+    sessionOnly,
+    sdkMessage("result", {}, uuidN(4)),
+  );
+  assert.deepEqual(fileA(stamped).resolved, [
+    { id: uuidN(4), seenOn: ["query"], excludedFrom: ["session"] },
+  ]);
 });
 
 test("resolved accumulates every resolution of one step, in resolution order", () => {
@@ -895,11 +1054,25 @@ test("resolved accumulates every resolution of one step, in resolution order", (
   );
 });
 
-test("trackerAnomaly sets the anomaly for one fold", () => {
+test("trackerAnomaly sets the anomaly for one fold and observes its node on its stream", () => {
   const anomaly = { kind: "malformed-line", detail: "bytes 10-20" } as const;
-  const state = run([init(), { kind: "trackerAnomaly", anomaly }]);
+  const state = run([
+    ...withQuerySession,
+    assistantQuery(2),
+    trackerAnomaly(8, "query", anomaly),
+  ]);
   assert.deepEqual(state.anomaly, anomaly);
-  assert.equal(nextAgentState(state, sdkMessage("result")).anomaly, undefined);
+  assert.deepEqual(pending(fileA(state).merge, "query"), [uuidN(2), uuidN(8)]);
+  const onSession = nextAgentState(
+    state,
+    trackerAnomaly(9, "session", anomaly),
+  );
+  assert.deepEqual(onSession.anomaly, anomaly);
+  assert.deepEqual(resolvedIds(onSession), [uuidN(9)]);
+  assert.equal(
+    nextAgentState(onSession, sdkMessage("result")).anomaly,
+    undefined,
+  );
 });
 
 test("sessionAppended ids are query action items resolved by their entries", () => {
@@ -930,11 +1103,12 @@ test("sessionAppended ids are query action items resolved by their entries", () 
   assert.equal(drained.anomaly, undefined);
 });
 
-test("sessionFileChanged to another id drops the old file and adopts a query-created one", () => {
+test("sessionFileChanged to another id drops the old file and adopts the announced one", () => {
   const state = run([
     fileChanged(SESSION_A),
     scanComplete,
     assistantQuery(2),
+    queryChanged(SESSION_B),
     sdkMessage("assistant", { uuid: uuidN(3), session_id: SESSION_B }),
     fileChanged(SESSION_B),
   ]);
@@ -945,7 +1119,7 @@ test("sessionFileChanged to another id drops the old file and adopts a query-cre
   ]);
 });
 
-test("sessionFileChanged to the same id rebuilds from the query side's pending observations", () => {
+test("a rescan (sessionFileChanged to the same id) rebuilds from the query side's pending observations; its own node resolves alone", () => {
   const before = run([
     assistantQuery(2),
     init({ uuid: uuidN(1) }),
@@ -954,7 +1128,10 @@ test("sessionFileChanged to the same id rebuilds from the query side's pending o
     promptEntry(3),
   ]);
   assert.notEqual(fileA(before).treeLeaf, null);
-  const rebuilt = fileA(nextAgentState(before, fileChanged(SESSION_A)));
+  const rescanned = nextAgentState(before, rescan(9));
+  assert.deepEqual(resolvedIds(rescanned), [uuidN(9)]);
+  assert.equal(rescanned.anomaly, undefined);
+  const rebuilt = fileA(rescanned);
   assert.deepEqual(pending(rebuilt.merge, "query"), [uuidN(2), uuidN(1)]);
   assert.deepEqual(rebuilt.merge.nodes[uuidN(1)]?.excludedFrom, ["session"]);
   assert.deepEqual(rebuilt.merge.nodes[uuidN(2)]?.excludedFrom, []);

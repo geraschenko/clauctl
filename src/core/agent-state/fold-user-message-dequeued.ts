@@ -21,10 +21,14 @@ export function foldUserMessageDequeued(
   const nextState = { ...state, queuedMessages };
   const sessionId = state.querySessionId;
   if (sessionId === undefined) {
-    // The daemon's first prompt: dequeued at acceptance, before any query
-    // message named a session. Its entry, no longer awaiting a dequeue, is
-    // excluded from `query` and resolves on arrival (fold-session-entry.ts).
-    return nextState;
+    // The hub announces the query session at construction; a dequeue
+    // before it is a daemon bug.
+    return withAnomalies(nextState, [
+      {
+        kind: "merge-error",
+        detail: `dequeue ${event.uuids.join(",")} on query: no query session`,
+      },
+    ]);
   }
   const session = state.sessions[sessionId] ?? freshSessionState();
   const runKey = event.uuids.at(-1)!;

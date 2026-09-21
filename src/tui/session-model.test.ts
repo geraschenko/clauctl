@@ -188,37 +188,16 @@ test("SessionModel: recordPending keeps query order; resolve retires the id and 
   sessionModel.recordPending(uuid(2), frame(2));
   sessionModel.recordPending(uuid(3), frame(3));
   assert.deepEqual([...sessionModel.queryMessages.keys()], [uuid(2), uuid(3)]);
-  assert.equal(sessionModel.resolve(uuid(2)).entry, undefined);
+  assert.equal(sessionModel.resolve(uuid(2)), undefined);
   assert.deepEqual([...sessionModel.queryMessages.keys()], [uuid(3)]);
-});
-
-test("SessionModel: a contextChanged after a queued entry is reported by the resolution that pushes it; after an empty queue it is due at once", () => {
-  const sessionModel = new SessionModel(failOnInvalid);
-  assert.equal(sessionModel.enqueueContextChange(), true);
-  sessionModel.enqueueEntry(ENTRIES[0]!);
-  sessionModel.enqueueEntry(ENTRIES[1]!);
-  assert.equal(sessionModel.enqueueContextChange(), false);
-  sessionModel.enqueueEntry(ENTRIES[2]!);
-  assert.equal(sessionModel.resolve(uuid(1)).contextChanged, false);
-  assert.equal(sessionModel.resolve(uuid(2)).contextChanged, true);
-  assert.equal(sessionModel.resolve(uuid(3)).contextChanged, false);
 });
 
 test("SessionModel: an id recorded without a frame (pending at the seed) resolves as a known query-only id", () => {
   const sessionModel = new SessionModel(failOnInvalid);
   sessionModel.recordPending(uuid(2), undefined);
   assert.deepEqual([...sessionModel.queryMessages.keys()], [uuid(2)]);
-  assert.equal(sessionModel.resolve(uuid(2)).entry, undefined);
+  assert.equal(sessionModel.resolve(uuid(2)), undefined);
   assert.equal(sessionModel.queryMessages.size, 0);
-});
-
-test("SessionModel: resetTrees drops a queued contextChanged with its entry", () => {
-  const sessionModel = new SessionModel(failOnInvalid);
-  sessionModel.enqueueEntry(ENTRIES[0]!);
-  sessionModel.enqueueContextChange();
-  sessionModel.resetTrees();
-  sessionModel.enqueueEntry(ENTRIES[0]!);
-  assert.equal(sessionModel.resolve(uuid(1)).contextChanged, false);
 });
 
 test("SessionModel: an enqueued entry is retained but outside the trees until its id resolves; resolving the head pushes it and returns it", () => {
@@ -226,7 +205,7 @@ test("SessionModel: an enqueued entry is retained but outside the trees until it
   sessionModel.enqueueEntry(ENTRIES[0]!);
   assert.deepEqual(sessionModel.byUuid.get(uuid(1)), ENTRIES[0]);
   assert.equal(sessionModel.leaf, null);
-  assert.deepEqual(sessionModel.resolve(uuid(1)).entry, ENTRIES[0]);
+  assert.deepEqual(sessionModel.resolve(uuid(1)), ENTRIES[0]);
   assert.deepEqual(sessionModel.leaf, { uuid: uuid(1) });
 });
 
@@ -236,26 +215,26 @@ test("SessionModel: resolving an id deeper in the queue pushes the prefix throug
   for (const entry of ENTRIES.slice(0, 3)) {
     sessionModel.enqueueEntry(entry);
   }
-  assert.deepEqual(sessionModel.resolve(uuid(2)).entry, ENTRIES[1]);
+  assert.deepEqual(sessionModel.resolve(uuid(2)), ENTRIES[1]);
   assert.deepEqual(sessionModel.leaf, { uuid: uuid(2) });
   assert.equal(reports.length, 1);
   assert.match(reports[0]!, /behind 1 queued/);
   // Entry 3 is still queued: resolving it now is the head case.
-  assert.deepEqual(sessionModel.resolve(uuid(3)).entry, ENTRIES[2]);
+  assert.deepEqual(sessionModel.resolve(uuid(3)), ENTRIES[2]);
   assert.deepEqual(sessionModel.leaf, { uuid: uuid(3) });
   assert.equal(reports.length, 1);
 });
 
 test("SessionModel: resolving a retained, unqueued id (a snapshot entry resolving after the cut) returns it and pushes nothing", () => {
   const sessionModel = sessionModelOver(ENTRIES.slice(0, 2));
-  assert.deepEqual(sessionModel.resolve(uuid(1)).entry, ENTRIES[0]);
+  assert.deepEqual(sessionModel.resolve(uuid(1)), ENTRIES[0]);
   assert.deepEqual(sessionModel.leaf, { uuid: uuid(2) });
 });
 
 test("SessionModel: resolving an id never observed is reported", () => {
   const reports: string[] = [];
   const sessionModel = new SessionModel((message) => reports.push(message));
-  assert.equal(sessionModel.resolve(uuid(9)).entry, undefined);
+  assert.equal(sessionModel.resolve(uuid(9)), undefined);
   assert.equal(reports.length, 1);
   assert.match(reports[0]!, /never observed/);
 });
@@ -266,7 +245,7 @@ test("SessionModel: resetTrees drops the queue; a uuid-less entry is never queue
   sessionModel.resetTrees();
   sessionModel.enqueueEntry({ type: "summary", summary: "s" } as SessionEntry);
   sessionModel.enqueueEntry(ENTRIES[1]!);
-  assert.deepEqual(sessionModel.resolve(uuid(2)).entry, ENTRIES[1]);
+  assert.deepEqual(sessionModel.resolve(uuid(2)), ENTRIES[1]);
   // Only entry 2 was pushed: entry 1 left the queue with the reset.
   assert.deepEqual(sessionModel.displayTree.parentMap.size, 1);
 });

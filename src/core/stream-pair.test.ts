@@ -6,7 +6,7 @@
 // id, settles, and raises no anomaly.
 
 import assert from "node:assert/strict";
-import type { UUID } from "node:crypto";
+import { randomUUID, type UUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
@@ -77,22 +77,27 @@ test("excludedFromQuery: a session entry is excluded iff the query stream never 
 // --- merge equivalence -------------------------------------------------------
 
 const sessionId = "42a85bcd-fc5b-46ee-ba69-39fa6be66287" as UUID;
+// As the hub publishes messages: a uuid-less one stamped.
 const queryEvents: AgentEvent[] = events.map((message) => ({
   kind: "sdkMessage",
   message,
+  ...(message.uuid === undefined ? { uuid: randomUUID() } : {}),
 }));
 // As TrackedSessionLog publishes entries: classified, the entry itself the
-// leaf, nothing awaiting an anchor (the pair has one ordinary compaction).
+// leaf, nothing awaiting an anchor (the pair has one ordinary compaction),
+// a uuid-less one stamped.
 const logEvents: AgentEvent[] = entries.map((entry) => ({
   kind: "sessionEntry",
   entry,
   expectsSdkMessage: !excludedFromQuery(entry),
   leaf: hasUuid(entry) ? { uuid: entry.uuid } : null,
   awaitingAnchors: [],
+  ...(hasUuid(entry) ? {} : { uuid: randomUUID() }),
 }));
 const fileOpened: AgentEvent[] = [
+  { kind: "querySessionChanged", sessionId },
   { kind: "sessionFileChanged", sessionId },
-  { kind: "scanComplete" },
+  { kind: "scanComplete", uuid: randomUUID() },
 ];
 
 function alternate(left: AgentEvent[], right: AgentEvent[]): AgentEvent[] {

@@ -6,17 +6,12 @@ import type {
 import type { AgentState } from "./agent-state.ts";
 import { classOf, excludedFromSession } from "./classification.ts";
 import { observeOn } from "./observe-on.ts";
-import {
-  freshSessionState,
-  type SessionState,
-  withSession,
-} from "./session-state.ts";
+import { type SessionState, withSession } from "./session-state.ts";
 import { toNonNullableUsage } from "./to-non-nullable-usage.ts";
-import { type TrackerAnomaly, withAnomalies } from "./tracker-anomaly.ts";
+import { withAnomalies } from "./tracker-anomaly.ts";
 
 /** A leaf-eligible query message: the file entry it becomes is a tree
- *  row (user/assistant with a uuid; subagent traffic is filtered before
- *  the fold reaches here). */
+ *  row (user/assistant with a uuid). */
 function isLeafEligible(message: SDKMessage): boolean {
   return (
     (message.type === "user" || message.type === "assistant") &&
@@ -24,29 +19,57 @@ function isLeafEligible(message: SDKMessage): boolean {
   );
 }
 
+/** Subagent traffic (user, assistant and their stream_events): its usage
+ *  describes the subagent's own context, not this agent's, and its
+ *  transcript lives in the subagent's own file, so none of its ids can
+ *  meet an entry here — a subagent's merge is a separate session model
+ *  over that file (docs/thoughts/subagent-activity.md). */
+export function isSubagentTraffic(message: SDKMessage): boolean {
+  return (
+    "parent_tool_use_id" in message &&
+    typeof message.parent_tool_use_id === "string"
+  );
+}
+
 /** A query message's merge rule on its `session_id` file (spec, Fold rules,
- *  sdkMessage): observe on `query`, first observations excluded from
- *  `session` per the classification; per-file usage/model evidence. */
+ *  sdkMessage): observe on `query` under its own uuid or the event's
+ *  stamp, first observations excluded from `session` per the
+ *  classification (always for a uuid-less message and for subagent
+ *  traffic); per-file usage/model evidence from top-level messages. The
+ *  session was announced by `querySessionChanged`; a message on an
+ *  unannounced session is a daemon bug and is reported. */
 export function foldQueryMessage(
   state: AgentState,
   message: SDKMessage,
+  eventUuid: UUID,
 ): AgentState {
   const sessionId = message.session_id as UUID;
-  let session = state.sessions[sessionId] ?? freshSessionState();
-  let anomalies: readonly TrackerAnomaly[] = [];
-  if (message.uuid !== undefined) {
-    const uuid = message.uuid as UUID;
-    if (isLeafEligible(message)) session = { ...session, pendingLeaf: uuid };
-    const first = !Object.hasOwn(session.merge.nodes, uuid);
-    ({ session, anomalies } = observeOn(
-      session,
-      "query",
-      uuid,
-      classOf(message),
-      first && excludedFromSession(message),
-    ));
+  let session = state.sessions[sessionId];
+  if (session === undefined) {
+    return withAnomalies(state, [
+      {
+        kind: "merge-error",
+        detail: `${classOf(message)} ${eventUuid} on query: session ${sessionId} not announced`,
+      },
+    ]);
   }
-  if (message.type === "assistant") {
+  const subagent = isSubagentTraffic(message);
+  if (!subagent && isLeafEligible(message)) {
+    session = { ...session, pendingLeaf: eventUuid };
+  }
+  const appearedInSession = Object.hasOwn(session.merge.nodes, eventUuid);
+  const excludeOther =
+    !appearedInSession &&
+    (message.uuid === undefined || subagent || excludedFromSession(message));
+  const observation = observeOn(
+    session,
+    "query",
+    eventUuid,
+    classOf(message),
+    excludeOther,
+  );
+  session = observation.session;
+  if (!subagent && message.type === "assistant") {
     session = {
       ...session,
       lastUsage: toNonNullableUsage(message.message.usage),
@@ -57,8 +80,8 @@ export function foldQueryMessage(
     session = withPostTokens(session, message.compact_metadata.post_tokens);
   }
   return withAnomalies(
-    withSession({ ...state, querySessionId: sessionId }, sessionId, session),
-    anomalies,
+    withSession(state, sessionId, session),
+    observation.anomalies,
   );
 }
 

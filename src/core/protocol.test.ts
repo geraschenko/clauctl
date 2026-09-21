@@ -142,8 +142,8 @@ test("subscribe seeds the client fold and delivers (event, post-fold state) pair
   const queuedId = randomUUID();
   const queuedEvent: AgentEvent = {
     kind: "userMessageQueued",
-    uuid: queuedId,
-    message: queryingMessage,
+    uuid: randomUUID(),
+    message: { ...queryingMessage, uuid: queuedId },
   };
   const dequeuedEvent: AgentEvent = {
     kind: "userMessageDequeued",

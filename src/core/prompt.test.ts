@@ -9,7 +9,7 @@
  */
 
 import assert from "node:assert/strict";
-import type { UUID } from "node:crypto";
+import { randomUUID, type UUID } from "node:crypto";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import type { Socket } from "node:net";
 import { tmpdir } from "node:os";
@@ -388,6 +388,7 @@ test("messages leg renders only our turn's entries, not history", async () => {
 test("/compact has no receipt and streams ungated until the result", async () => {
   const compactSent: AgentEvent = {
     kind: "compactSent",
+    uuid: randomUUID(),
     message: userMessage("/compact"),
   };
   await withPromptAgent(

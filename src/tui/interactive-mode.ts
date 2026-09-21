@@ -646,7 +646,10 @@ class InteractiveMode {
       );
     }
     if (event.kind === "userMessageQueued") {
-      this.pendingMessages.add(event.uuid, userText(event.message));
+      this.pendingMessages.add(
+        event.message.uuid as UUID,
+        userText(event.message),
+      );
     } else if (event.kind === "userMessageDequeued") {
       this.pendingMessages.take(event.uuids);
     } else if (event.kind === "contextChanged") {
@@ -698,10 +701,10 @@ class InteractiveMode {
         break;
       }
       case "compactSent":
-        this.addBanner("compacting…");
+        this.addEventBanner("compacting…", event.uuid);
         break;
       case "interruptSent":
-        this.addBanner("interrupted");
+        this.addEventBanner("interrupted", event.uuid);
         break;
       case "sdkMessage":
         if (
@@ -723,6 +726,7 @@ class InteractiveMode {
       case "userMessageQueued":
       case "controlApplied":
       case "trackerAnomaly":
+      case "querySessionChanged":
         break;
     }
   }
@@ -764,6 +768,17 @@ class InteractiveMode {
     // Through the renderer so banners keep their transcript position across
     // its fold-state rebuilds.
     this.transcript.addBanner(text, color);
+  }
+
+  /** A banner rendering the query-side event `uuid`, keyed so the
+   *  event's resolution moves it. The event folds (and the session models
+   *  observe) before it renders, so a resolution in its own step has
+   *  already fired: then the banner is resolved here. */
+  private addEventBanner(text: string, uuid: UUID): void {
+    this.transcript.addBanner(text, "dim", uuid);
+    if (this.querySessionModel()?.queryMessages.has(uuid) !== true) {
+      this.transcript.resolve(uuid, undefined);
+    }
   }
 
   private submit(text: string): void {

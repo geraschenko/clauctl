@@ -77,9 +77,10 @@ EventHub folds each event, writes it to subscribers, and serves state reads in
 one synchronous step, so no observer can catch a prompt in two states or none.
 
 When several prompts are queued, claude writes each run — a maximal
-prefix of querying same-priority prompts, or a lone append — as one
-`\n`-joined entry under the LAST member's uuid (`docs/claude-agent-sdk.md`,
-"Queued prompts coalesce by run"). A dequeue therefore observes only its
+prefix of querying same-priority prompts, a lone append, or a lone
+`/command` — as one `\n`-joined entry under the LAST member's uuid
+(`docs/claude-agent-sdk.md`, "Queued prompts coalesce by run" and "Slash
+commands are turns of their own"). A dequeue therefore observes only its
 last uuid, the run key, and the observer that renders the dequeue (the
 TUI, `format events`) joins the run's messages the way the CLI does
 (`joinedPrompt`) so what it shows is what the file will hold. A steered
@@ -96,15 +97,7 @@ area; everything else arrives exclusively as live events. A dequeue echo
 renders provisionally in the pending part and is replaced in place by its
 entry (or its attachment) at resolution.
 
-## Known limitations (accepted, documented so we don't re-derive them)
-
-- **Interrupt can leave a dequeued prompt pending.** A prompt dequeued as
-  turn/append is pending on `query` until its entry. If an interrupt lands
-  first and claude discards the prompt, nothing files it: the prompt stays
-  pending (the TUI keeps its provisional echo; `settled()` stays false)
-  until a `conversation_reset` excludes it or the daemon restarts. The
-  daemon has no signal that distinguishes "discarded" from "not yet
-  written". Whether an interrupt (or a `now`-priority prompt) actually
-  discards queued prompts is unprobed; the phase 2.5 spec
-  (`docs/specs/query-pending-list/phase-3-identity.md`, Deferred) plans
-  the LIVE tests and revises this entry from their findings.
+An interrupt needs no special handling: it aborts only the running turn,
+whose user entry is already filed, and every queued prompt survives to be
+dequeued after the aborted `result` (docs/claude-agent-sdk.md, "An
+interrupt aborts the turn, not the queue").

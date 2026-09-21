@@ -7,7 +7,7 @@
  * connects follower → tracker.push → hub.emit.
  */
 
-import type { UUID } from "node:crypto";
+import { randomUUID, type UUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import {
   awaitFileExists,
@@ -15,6 +15,7 @@ import {
 } from "../session/await-file-exists.ts";
 import { SessionLogFollower } from "../session/entry-stream.ts";
 import { malformedLineMessage } from "../session/file.ts";
+import { pending } from "../stream-merge.ts";
 import type { OnInvalid } from "../tree/loader.ts";
 import type { EventHub } from "./event-hub.ts";
 import type { RwGate } from "./rw-gate.ts";
@@ -67,23 +68,17 @@ export class TrackedSessionLog {
     this.deps = deps;
   }
 
-  /** When the seed file exists: emit `sessionFileChanged {sessionId: seed}`,
+  /** When the seed file exists (a resume; a fresh spawn's file appears
+   *  with its first turn): emit `sessionFileChanged {sessionId: seed}`,
    *  build the follower + tracker on it, scan, `scanComplete` (Data flow
-   *  1). Then start the switch worker, which subscribes to the hub and runs
-   *  whenever the folded state shows a defined querySessionId ≠
-   *  fileSessionId. */
-  start(seedSessionId: UUID | undefined): void {
-    if (seedSessionId !== undefined) {
-      const path = this.deps.sessionFilePath(seedSessionId);
-      if (existsSync(path)) {
-        this.open(seedSessionId, path);
-      }
+   *  1). Then start the switch worker, which runs whenever a fold leaves
+   *  a switch called for (`switchTarget`). */
+  start(seedSessionId: UUID): void {
+    const path = this.deps.sessionFilePath(seedSessionId);
+    if (existsSync(path)) {
+      this.open(seedSessionId, path);
     }
-    this.unsubscribe = this.deps.hub.subscribe((event) => {
-      if (event.kind === "sdkMessage") {
-        this.ensureWorker();
-      }
-    });
+    this.unsubscribe = this.deps.hub.subscribe(() => this.ensureWorker());
   }
 
   /** The tracked file's tracker; replaced at a switch (so handlers read it
@@ -109,21 +104,32 @@ export class TrackedSessionLog {
     }
   }
 
-  /** The switch the folded state calls for: a rescan of the tracked file
-   *  after a follower failure, else the query file when it is not the
-   *  tracked one. */
+  /** The switch called for: a rescan of the tracked file after a follower
+   *  failure, else the query session's file once the query has activity
+   *  on it and it is not the tracked one. Activity, not the announcement:
+   *  `querySessionId` is announced ahead of the first message (hub
+   *  construction, `Options.sessionId`) and the CLI creates the file only
+   *  with the first turn, so a switch at the announcement would time out
+   *  awaiting a file nobody is about to write. Activity is legible in the
+   *  merge: until `sessionFileChanged` resolves the start node, every
+   *  query node behind it pends. */
   private switchTarget(): { sessionId: UUID; rescan: boolean } | undefined {
     const state = this.deps.hub.agentState;
     if (this.rescanNeeded && state.fileSessionId !== undefined) {
       return { sessionId: state.fileSessionId, rescan: true };
     }
+    const querySessionId = state.querySessionId;
     if (
-      state.querySessionId !== undefined &&
-      state.querySessionId !== state.fileSessionId
+      querySessionId === undefined ||
+      querySessionId === state.fileSessionId
     ) {
-      return { sessionId: state.querySessionId, rescan: false };
+      return undefined;
     }
-    return undefined;
+    const querySession = state.sessions[querySessionId];
+    const active =
+      querySession !== undefined &&
+      pending(querySession.merge, "query").some((id) => id !== querySessionId);
+    return active ? { sessionId: querySessionId, rescan: false } : undefined;
   }
 
   // The flag is cleared in the same synchronous segment as the last target
@@ -183,13 +189,20 @@ export class TrackedSessionLog {
 
   /** The gated part of a switch: replace the pair, announce the file, scan
    *  it. A scan that cannot start leaves the file announced but
-   *  unfollowed and flags a rescan for the next worker run. */
+   *  unfollowed and flags a rescan for the next worker run. Why a rescan's
+   *  announcement carries its own uuid and a first announcement none:
+   *  protocol.ts, `sessionFileChanged.uuid`. */
   private open(sessionId: UUID, path: string): void {
     this.follower?.close();
     const tracker = new SessionTracker(path, this.deps.onInvalid);
     this.current = tracker;
+    const rescan = this.rescanNeeded;
     this.rescanNeeded = false;
-    this.deps.hub.emit({ kind: "sessionFileChanged", sessionId });
+    this.deps.hub.emit(
+      rescan
+        ? { kind: "sessionFileChanged", sessionId, uuid: randomUUID() }
+        : { kind: "sessionFileChanged", sessionId },
+    );
     let awaitingAnchors: readonly UUID[] = [];
     const follower = new SessionLogFollower(
       path,
@@ -210,6 +223,7 @@ export class TrackedSessionLog {
         if (detail !== undefined) {
           this.deps.hub.emit({
             kind: "trackerAnomaly",
+            stream: "session",
             anomaly: { kind: "awaiting-anchor", detail: `${path}: ${detail}` },
           });
         }
@@ -217,6 +231,7 @@ export class TrackedSessionLog {
       (line) =>
         this.deps.hub.emit({
           kind: "trackerAnomaly",
+          stream: "session",
           anomaly: {
             kind: "malformed-line",
             detail: `${path}:${line.lineNumber}: bytes ${line.range.offset}+${line.range.length}: ${malformedLineMessage(line)}`,
@@ -240,6 +255,7 @@ export class TrackedSessionLog {
     }
     this.deps.hub.emit({
       kind: "trackerAnomaly",
+      stream: "session",
       anomaly: { kind: "follower-failure", detail: error.message },
     });
     this.rescanNeeded = true;

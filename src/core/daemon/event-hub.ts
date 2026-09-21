@@ -12,7 +12,7 @@ import {
   settled,
   type AgentState,
 } from "../agent-state/agent-state.ts";
-import type { AgentEvent } from "../protocol.ts";
+import type { AgentEvent, Unstamped } from "../protocol.ts";
 import type { AnomalyRecorder } from "./anomaly-bundle.ts";
 import * as QueueModel from "./queue-model.ts";
 import type { SessionTracker } from "./session-tracker.ts";
@@ -103,6 +103,15 @@ export class EventHub {
       );
     }
     this.state = seed;
+    if (seed.querySessionId !== undefined) {
+      // The query session is announced before anything can be observed on
+      // it: the daemon chose the id (Options.sessionId / resume), so it
+      // is known from the start.
+      this.applyEvent({
+        kind: "querySessionChanged",
+        sessionId: seed.querySessionId,
+      });
+    }
   }
 
   get agentState(): AgentState {
@@ -126,26 +135,50 @@ export class EventHub {
   /**
    * Events with no queue-model involvement, session entries included.
    * Anything else must go through deliverUserMessage/observeSdkMessage.
+   * The hub stamps the event's own uuid — its merge node — where the
+   * payload has none (protocol.ts, `eventUuid`).
    */
   emit(
-    event: Extract<
-      AgentEvent,
-      {
-        kind:
-          | "interruptSent"
-          | "compactSent"
-          | "controlApplied"
-          | "shutdown"
-          | "sessionEntry"
-          | "contextChanged"
-          | "sessionFileChanged"
-          | "scanComplete"
-          | "sessionAppended"
-          | "trackerAnomaly";
-      }
+    event: Unstamped<
+      Extract<
+        AgentEvent,
+        {
+          kind:
+            | "interruptSent"
+            | "compactSent"
+            | "controlApplied"
+            | "shutdown"
+            | "sessionEntry"
+            | "contextChanged"
+            | "sessionFileChanged"
+            | "scanComplete"
+            | "sessionAppended"
+            | "trackerAnomaly";
+        }
+      >
     >,
   ): void {
-    this.applyEvent(event);
+    switch (event.kind) {
+      case "sessionEntry":
+        this.applyEvent(
+          event.entry.uuid === undefined
+            ? { ...event, uuid: randomUUID() }
+            : event,
+        );
+        return;
+      case "sessionFileChanged":
+      case "sessionAppended":
+        this.applyEvent(event);
+        return;
+      case "interruptSent":
+      case "compactSent":
+      case "controlApplied":
+      case "shutdown":
+      case "contextChanged":
+      case "scanComplete":
+      case "trackerAnomaly":
+        this.applyEvent({ ...event, uuid: randomUUID() });
+    }
   }
 
   /**
@@ -164,6 +197,7 @@ export class EventHub {
       this.queueModel,
       stamped,
       isIdle(this.state),
+      randomUUID(),
     );
     this.applyTransition(transition);
     return transition.uuid;
@@ -173,12 +207,13 @@ export class EventHub {
    *  uuid the tracked file's index holds and the merge has resolved is
    *  dropped — silently for a shared class, as a `classification`
    *  anomaly for a session-only one (the table said the query stream
-   *  would not carry it). Otherwise emit the sdkMessage event and the
-   *  dequeue the queue model implies, if any. */
+   *  would not carry it). Otherwise announce a new query session when the
+   *  message names one, then emit the sdkMessage event and the dequeue
+   *  the queue model implies, if any. */
   observeSdkMessage(message: SDKMessage): void {
+    const sessionId = message.session_id as UUID;
     if (message.uuid !== undefined) {
       const uuid = message.uuid as UUID;
-      const sessionId = message.session_id as UUID;
       const indexed =
         sessionId === this.state.fileSessionId
           ? this.tracker()?.index.get(uuid)
@@ -190,6 +225,8 @@ export class EventHub {
         if (!indexed.expectsSdkMessage) {
           this.applyEvent({
             kind: "trackerAnomaly",
+            uuid: randomUUID(),
+            stream: "query",
             anomaly: {
               kind: "classification",
               detail: `${message.type} ${uuid} on query: classified session-only, but the query stream carried it`,
@@ -199,8 +236,14 @@ export class EventHub {
         return;
       }
     }
+    if (sessionId !== this.state.querySessionId) {
+      this.applyEvent({ kind: "querySessionChanged", sessionId });
+    }
     const transition = QueueModel.observeSdkMessage(this.queueModel, message);
-    const sdkEvent: AgentEvent = { kind: "sdkMessage", message };
+    const sdkEvent: AgentEvent =
+      message.uuid === undefined
+        ? { kind: "sdkMessage", message, uuid: randomUUID() }
+        : { kind: "sdkMessage", message };
     // A steer's dequeue precedes its trigger: the file places the
     // queued_command attachment before the assistant frame that steered it,
     // and the stream keeps that order. A turn/append dequeue follows its
@@ -229,13 +272,13 @@ export class EventHub {
     );
   }
 
-  /** Resolves when `sessionSettled(sessions[sessionId])` (the switch's wait on
-   *  the old file); same bound as whenSettled. */
+  /** Resolves when `sessionSettled(sessions[sessionId], sessionId)` (the
+   *  switch's wait on the old file); same bound as whenSettled. */
   whenFileSettled(sessionId: UUID): Promise<void> {
     return this.awaitState(
       (state) => {
         const session = state.sessions[sessionId];
-        return session !== undefined && sessionSettled(session);
+        return session !== undefined && sessionSettled(session, sessionId);
       },
       (state) =>
         `file ${sessionId}: ${describeSession(state.sessions[sessionId])}`,

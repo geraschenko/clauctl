@@ -8,12 +8,13 @@
  * rendered as the one joined message claude files for it.
  */
 
+import type { UUID } from "node:crypto";
 import {
   classOf,
   joinedPrompt,
   type AgentState,
 } from "../core/agent-state/agent-state.ts";
-import type { AgentEvent } from "../core/protocol.ts";
+import { type AgentEvent, eventUuid } from "../core/protocol.ts";
 import { compactionMetadata } from "../core/session/file.ts";
 import { userText } from "../tui/sdk-render.ts";
 import {
@@ -70,15 +71,30 @@ function requestAnnotation(label: string, request: { type: string }): string {
   return annotation(`${label}: ${type} ${detail}`);
 }
 
+/** The record's chunks; the first carries the event's merge node
+ *  (`eventUuid`) so the tail can be read against the pending lists. */
 function eventChunks(
   event: AgentEvent,
   formatState: FormatState,
   options: MessageFormatOptions,
 ): string[] {
+  const chunks = eventBodyChunks(event, formatState, options);
+  return chunks.length === 0
+    ? chunks
+    : [`[event ${eventUuid(event)}]\n${chunks[0]}`, ...chunks.slice(1)];
+}
+
+function eventBodyChunks(
+  event: AgentEvent,
+  formatState: FormatState,
+  options: MessageFormatOptions,
+): string[] {
   switch (event.kind) {
-    case "userMessageQueued":
-      formatState.queuedMessages.set(event.uuid, event.message);
-      return [annotation(`queued ${event.uuid}: ${userText(event.message)}`)];
+    case "userMessageQueued": {
+      const promptUuid = event.message.uuid as UUID;
+      formatState.queuedMessages.set(promptUuid, event.message);
+      return [annotation(`queued ${promptUuid}: ${userText(event.message)}`)];
+    }
     case "userMessageDequeued": {
       const dequeued = `[dequeued (${event.delivery}): ${event.uuids.join(", ")}]`;
       // Unseen uuids drop out: the annotation alone still records the dequeue.
@@ -136,6 +152,8 @@ function eventChunks(
       ];
       return [`[${parts.join(" ")}]`];
     }
+    case "querySessionChanged":
+      return [annotation(`query session: ${event.sessionId}`)];
     case "sessionFileChanged":
       return [annotation(`session file: ${event.sessionId}`)];
     case "scanComplete":

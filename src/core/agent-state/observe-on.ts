@@ -83,6 +83,7 @@ function applyMergeStep(
  *  the other stream carries the id). */
 export function observeOn(
   session: SessionState,
+  // TDC: what do you think of removing the remaining arguments and taking `event: AgentEvent` as an argument instead? That way we could have a central place that enforces that stream is eventStream(event), uuid is eventUuid(event), className is classOf(event), and excludeOther is some new function of event.
   stream: MergeStream,
   uuid: UUID,
   className: string,

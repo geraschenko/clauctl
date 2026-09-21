@@ -17,11 +17,13 @@ const OPTIONS: MessageFormatOptions = {
 const uuidN = (n: number): UUID =>
   `00000000-0000-0000-0000-${String(n).padStart(12, "0")}`;
 
-function prompt(text: string): SDKUserMessage {
+/** A prompt stamped `uuidN(n)` — the uuid its entry and dequeue carry. */
+function prompt(text: string, n: number): SDKUserMessage {
   return {
     type: "user",
     message: { role: "user", content: text },
     parent_tool_use_id: null,
+    uuid: uuidN(n),
   };
 }
 
@@ -62,7 +64,7 @@ test("snapshot omits unobserved fields and lists queued prompts", () => {
   const output = format([
     snapshotRecord({
       activity: "pending",
-      queuedMessages: [{ uuid: uuidN(3), message: prompt("queued text") }],
+      queuedMessages: [{ uuid: uuidN(3), message: prompt("queued text", 3) }],
     }),
   ]);
   assert.equal(
@@ -74,27 +76,33 @@ test("snapshot omits unobserved fields and lists queued prompts", () => {
 test("queued prompts render one-line truncated, full at dequeue", () => {
   const long = `start ${"x".repeat(100)}`;
   const output = format([
-    event({ kind: "userMessageQueued", uuid: uuidN(3), message: prompt(long) }),
+    event({
+      kind: "userMessageQueued",
+      uuid: uuidN(10),
+      message: prompt(long, 3),
+    }),
     event({ kind: "userMessageDequeued", delivery: "turn", uuids: [uuidN(3)] }),
   ]);
   const [queuedChunk, dequeuedChunk] = output.split("\n\n");
+  const [queuedHeader, queuedLine] = queuedChunk!.split("\n");
+  assert.equal(queuedHeader, `[event ${uuidN(10)}]`);
   assert.match(
-    queuedChunk!,
+    queuedLine!,
     /^\[queued 0{8}-0{4}-0{4}-0{4}-0{11}3: start x+…\]$/u,
   );
   // The whole bracketed content truncates, so the line width is fixed
   // regardless of how wide the uuid prefix is.
-  assert.equal(queuedChunk!.length, "[]".length + 80);
+  assert.equal(queuedLine!.length, "[]".length + 80);
   assert.equal(
     dequeuedChunk,
-    `[dequeued (turn): ${uuidN(3)}]\n== user ==\n${long}\n`,
+    `[event ${uuidN(3)}]\n[dequeued (turn): ${uuidN(3)}]\n== user ==\n${long}\n`,
   );
 });
 
 test("snapshot queued messages seed the dequeue store", () => {
   const output = format([
     snapshotRecord({
-      queuedMessages: [{ uuid: uuidN(7), message: prompt("from snapshot") }],
+      queuedMessages: [{ uuid: uuidN(7), message: prompt("from snapshot", 7) }],
     }),
     event({
       kind: "userMessageDequeued",
@@ -113,13 +121,13 @@ test("a merged run's dequeue renders the one joined message", () => {
   const run = format([
     event({
       kind: "userMessageQueued",
-      uuid: uuidN(1),
-      message: prompt("first"),
+      uuid: uuidN(11),
+      message: prompt("first", 1),
     }),
     event({
       kind: "userMessageQueued",
-      uuid: uuidN(2),
-      message: prompt("second"),
+      uuid: uuidN(12),
+      message: prompt("second", 2),
     }),
     event({
       kind: "userMessageDequeued",
@@ -138,8 +146,8 @@ test("a new snapshot supersedes remembered queued messages", () => {
   const output = format([
     event({
       kind: "userMessageQueued",
-      uuid: uuidN(1),
-      message: prompt("stale"),
+      uuid: uuidN(11),
+      message: prompt("stale", 1),
     }),
     snapshotRecord({ queuedMessages: [] }),
     event({ kind: "userMessageDequeued", delivery: "turn", uuids: [uuidN(1)] }),
@@ -152,16 +160,20 @@ test("control details with newlines or excess length are one-lined", () => {
   const output = format([
     event({
       kind: "controlApplied",
+      uuid: uuidN(11),
       request: {
         type: "set-model",
         model: `spread\nover ${"x".repeat(100)}`,
       } as never,
     }),
   ]);
-  assert.match(output, /^\[control: set-model spread over x+…\]\n$/u);
+  assert.match(
+    output,
+    /^\[event [0-9a-f-]+\]\n\[control: set-model spread over x+…\]\n$/u,
+  );
 });
 
-test("a dequeue of an unremembered uuid degrades to the annotation alone", () => {
+test("a dequeue of an unremembered uuid degrades to the annotation alone, under the run key", () => {
   const output = format([
     event({
       kind: "userMessageDequeued",
@@ -169,23 +181,33 @@ test("a dequeue of an unremembered uuid degrades to the annotation alone", () =>
       uuids: [uuidN(1), uuidN(2)],
     }),
   ]);
-  assert.equal(output, `[dequeued (append): ${uuidN(1)}, ${uuidN(2)}]\n`);
+  assert.equal(
+    output,
+    `[event ${uuidN(2)}]\n[dequeued (append): ${uuidN(1)}, ${uuidN(2)}]\n`,
+  );
 });
 
-test("compact/interrupt/control events render one-liners", () => {
+test("compact/interrupt/control events render one-liners under their stamped uuid", () => {
   const output = format([
-    event({ kind: "compactSent", message: prompt("/compact") }),
-    event({ kind: "interruptSent" }),
+    event({
+      kind: "compactSent",
+      uuid: uuidN(11),
+      message: prompt("/compact", 1),
+    }),
+    event({ kind: "interruptSent", uuid: uuidN(12) }),
     event({
       kind: "controlApplied",
+      uuid: uuidN(13),
       request: { type: "set-model", model: "claude-opus-4-8" },
     }),
     event({
       kind: "controlApplied",
+      uuid: uuidN(14),
       request: { type: "reload-skills" },
     }),
     event({
       kind: "controlApplied",
+      uuid: uuidN(15),
       request: {
         type: "set-mcp-servers",
         servers: { srv: { type: "stdio", command: "run" } },
@@ -194,9 +216,10 @@ test("compact/interrupt/control events render one-liners", () => {
   ]);
   assert.equal(
     output,
-    "[compact sent]\n\n[interrupt sent]\n\n" +
-      "[control: set-model claude-opus-4-8]\n\n[control: reload-skills]\n\n" +
-      '[control: set-mcp-servers {"servers":{"srv":{"type":"stdio","command":"run"}}}]\n',
+    `[event ${uuidN(11)}]\n[compact sent]\n\n[event ${uuidN(12)}]\n[interrupt sent]\n\n` +
+      `[event ${uuidN(13)}]\n[control: set-model claude-opus-4-8]\n\n` +
+      `[event ${uuidN(14)}]\n[control: reload-skills]\n\n` +
+      `[event ${uuidN(15)}]\n[control: set-mcp-servers {"servers":{"srv":{"type":"stdio","command":"run"}}}]\n`,
   );
 });
 
@@ -204,7 +227,12 @@ test("contextChanged renders its boundary, with the metadata of a seen boundary 
   const boundary = "28972c69-9dd5-4524-bb56-d8aaeb982094";
   const unseen = "aaaaaaaa-0000-4000-8000-000000000000";
   const output = format([
-    event({ kind: "contextChanged", boundary: unseen, leaf: null }),
+    event({
+      kind: "contextChanged",
+      uuid: uuidN(11),
+      boundary: unseen,
+      leaf: null,
+    }),
     event({
       kind: "sessionEntry",
       entry: {
@@ -217,13 +245,18 @@ test("contextChanged renders its boundary, with the metadata of a seen boundary 
       leaf: { uuid: boundary },
       awaitingAnchors: [],
     }),
-    event({ kind: "contextChanged", boundary, leaf: { uuid: boundary } }),
+    event({
+      kind: "contextChanged",
+      uuid: uuidN(12),
+      boundary,
+      leaf: { uuid: boundary },
+    }),
   ]);
   assert.equal(
     output,
-    `[context changed: boundary ${unseen}]\n\n` +
-      `[entry ${boundary} system/compact_boundary sdk twin leaf ${boundary}]\n\n` +
-      `[context changed: boundary ${boundary}, manual, 1234 preTokens]\n`,
+    `[event ${uuidN(11)}]\n[context changed: boundary ${unseen}]\n\n` +
+      `[event ${boundary}]\n[entry ${boundary} system/compact_boundary sdk twin leaf ${boundary}]\n\n` +
+      `[event ${uuidN(12)}]\n[context changed: boundary ${boundary}, manual, 1234 preTokens]\n`,
   );
 });
 
@@ -245,14 +278,15 @@ test("sessionEntry renders identity only, untruncated", () => {
   ]);
   assert.equal(
     output,
-    `[entry ${uuid} attachment session-only leaf ${leaf}]\n`,
+    `[event ${uuid}]\n[entry ${uuid} attachment session-only leaf ${leaf}]\n`,
   );
 });
 
-test("sdkMessage events flow through the shared message renderer", () => {
+test("sdkMessage events flow through the shared message renderer; a uuid-less message prints under its stamp", () => {
   const output = format([
     event({
       kind: "sdkMessage",
+      uuid: uuidN(11),
       message: {
         type: "assistant",
         message: {
@@ -264,5 +298,5 @@ test("sdkMessage events flow through the shared message renderer", () => {
       } as never,
     }),
   ]);
-  assert.equal(output, "== assistant ==\nhi\n");
+  assert.equal(output, `[event ${uuidN(11)}]\n== assistant ==\nhi\n`);
 });

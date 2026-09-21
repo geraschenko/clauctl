@@ -7,7 +7,7 @@
  */
 
 import assert from "node:assert/strict";
-import type { UUID } from "node:crypto";
+import { randomUUID, type UUID } from "node:crypto";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import type { Socket } from "node:net";
 import { tmpdir } from "node:os";
@@ -40,9 +40,15 @@ const UUID_MISSING = "00000000-0000-4000-8000-0000000000ff" as UUID;
 const SESSION_S1 = "s1" as UUID;
 const SESSION_S2 = "s2" as UUID;
 
-/** The fake daemon tracking file s1 as the query file. */
+/** The fake daemon tracking file s1 as the query file, announced and
+ *  opened, nothing pending. */
 function withFile(base: AgentState): AgentState {
-  return { ...base, querySessionId: SESSION_S1, fileSessionId: SESSION_S1 };
+  return {
+    ...base,
+    querySessionId: SESSION_S1,
+    fileSessionId: SESSION_S1,
+    sessions: { [SESSION_S1]: freshSessionState() },
+  };
 }
 
 const IDLE_STATE = withFile(initialAgentState());
@@ -58,9 +64,11 @@ function withLeaf(base: AgentState, uuid: UUID): AgentState {
   };
 }
 
+/** A result, stamped as the hub stamps a uuid-less message. */
 function resultEvent(sessionId: UUID): AgentEvent {
   return {
     kind: "sdkMessage",
+    uuid: randomUUID(),
     message: { type: "result", session_id: sessionId } as unknown as SDKMessage,
   };
 }

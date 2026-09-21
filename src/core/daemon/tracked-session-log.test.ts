@@ -167,7 +167,13 @@ test("startup scan, then a switch to the query's file", async (t) => {
     await scanned;
     assert.deepEqual(
       drain().map((event) => event.kind),
-      ["sdkMessage", "sessionFileChanged", "sessionEntry", "scanComplete"],
+      [
+        "querySessionChanged",
+        "sdkMessage",
+        "sessionFileChanged",
+        "sessionEntry",
+        "scanComplete",
+      ],
     );
     assert.equal(hub.agentState.fileSessionId, fileB);
     assert.equal(settled(hub.agentState), true);
@@ -199,7 +205,13 @@ test("follower failure: anomaly, then a same-file rescan; the tracker settles on
     const events = drain();
     assert.deepEqual(
       events.map((event) => event.kind),
-      ["sdkMessage", "trackerAnomaly", "sessionFileChanged", "scanComplete"],
+      [
+        "querySessionChanged",
+        "sdkMessage",
+        "trackerAnomaly",
+        "sessionFileChanged",
+        "scanComplete",
+      ],
     );
     assert.equal(anomalies(events)[0]!.kind, "follower-failure");
     assert.equal(hub.agentState.fileSessionId, fileA);

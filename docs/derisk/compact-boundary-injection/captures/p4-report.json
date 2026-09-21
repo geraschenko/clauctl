@@ -18,31 +18,31 @@
     },
     "newBoundaryMetadata": {
       "trigger": "manual",
-      "preTokens": 23886,
-      "durationMs": 8421,
+      "preTokens": 23878,
+      "durationMs": 18983,
       "preservedSegment": {
-        "headUuid": "386da773-b739-402e-94a3-c6b61117aa95",
-        "anchorUuid": "1ed5ab92-ded3-4379-bd00-dc406439ebe5",
-        "tailUuid": "e79a3c05-25bc-473f-915e-c7ee1dbf470d"
+        "headUuid": "8668ad4a-ff70-419d-b3b8-278be48cfa54",
+        "anchorUuid": "02415b8b-c3f0-4235-a2ea-da42844e06bc",
+        "tailUuid": "90be2eac-0e49-4814-a289-8ae32fcf237f"
       },
       "preservedMessages": {
-        "anchorUuid": "1ed5ab92-ded3-4379-bd00-dc406439ebe5",
+        "anchorUuid": "02415b8b-c3f0-4235-a2ea-da42844e06bc",
         "uuids": [
-          "386da773-b739-402e-94a3-c6b61117aa95",
-          "e79a3c05-25bc-473f-915e-c7ee1dbf470d"
+          "8668ad4a-ff70-419d-b3b8-278be48cfa54",
+          "90be2eac-0e49-4814-a289-8ae32fcf237f"
         ],
         "allUuids": [
-          "386da773-b739-402e-94a3-c6b61117aa95",
-          "e79a3c05-25bc-473f-915e-c7ee1dbf470d"
+          "8668ad4a-ff70-419d-b3b8-278be48cfa54",
+          "90be2eac-0e49-4814-a289-8ae32fcf237f"
         ]
       },
-      "postTokens": 708,
-      "cumulativeDroppedTokens": 62178
+      "postTokens": 1595,
+      "cumulativeDroppedTokens": 61283
     },
     "postProbe": {
       "nMessages": 3,
-      "hasOldSynthSummary": false,
-      "hasFirstProbe": false
+      "hasOldSynthSummary": true,
+      "hasFirstProbe": true
     }
   },
   "q8": {

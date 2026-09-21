@@ -8,7 +8,7 @@
  * tracking; only the stream read loop stays (see its section comment).
  */
 
-import type { UUID } from "node:crypto";
+import { randomUUID, type UUID } from "node:crypto";
 import { once } from "node:events";
 import { closeSync, writeSync } from "node:fs";
 import { rm } from "node:fs/promises";
@@ -184,6 +184,11 @@ async function daemon(this: CommandContext, flags: DaemonFlags): Promise<void> {
   // CLI; while the former passes, this merge stays.
   const settings = await settingsSeed(record.persistedOptions, record.cwd);
 
+  // The query session is chosen here, not by claude: a fresh spawn names
+  // its session (`Options.sessionId`) so the hub can announce it before the
+  // first turn; a resume continues the named one. Either way the seed's
+  // querySessionId is known at construction.
+  const seedSessionId = (resumeSessionId ?? randomUUID()) as UUID;
   const buildOptions = (resume: string | undefined): Options => ({
     ...record.persistedOptions,
     ...(record.persistedOptions.permissionMode === undefined &&
@@ -193,7 +198,7 @@ async function daemon(this: CommandContext, flags: DaemonFlags): Promise<void> {
     ...invariantOptions(),
     cwd: record.cwd,
     env: childEnv(record.persistedOptions.env, agentId),
-    ...(resume !== undefined && { resume }),
+    ...(resume !== undefined ? { resume } : { sessionId: seedSessionId }),
   });
 
   // The Query and its TurnQueue are replaced by set-context (restartQuery
@@ -216,14 +221,13 @@ async function daemon(this: CommandContext, flags: DaemonFlags): Promise<void> {
   // Observable state (agent-state.ts) is folded by the hub; it is separate
   // from the persisted record — nothing here writes back to agent.json.
   //
-  // The seed carries the per-agent settings only; the session file enters
-  // through the tracked log's startup scan below. resumeSessionId covers
-  // both startup shapes: revival (the last recorded session) and a fresh
-  // `spawn -- --resume` (the wrapped session, which is in no record yet).
-  // Scanning it is what lets get-context serve the resumed transcript
-  // before the first turn — the streaming Query only initializes (and
-  // announces a session) once a prompt is sent.
-  const seedSessionId = resumeSessionId as UUID | undefined;
+  // The seed carries the per-agent settings and the query session only; the
+  // session file enters through the tracked log's startup scan below.
+  // resumeSessionId covers both startup shapes: revival (the last recorded
+  // session) and a fresh `spawn -- --resume` (the wrapped session, which is
+  // in no record yet). Scanning it is what lets get-context serve the
+  // resumed transcript before the first turn — the streaming Query only
+  // initializes once a prompt is sent.
   const events: EventHub = new EventHub({
     seed: {
       ...initialAgentState(),

@@ -17,8 +17,11 @@
 // more. A node is *resolved* once observed somewhere, closed w.r.t. every
 // non-excluded stream, and all its predecessors are resolved; resolution
 // order is therefore a topological sort and, once resolved, no future
-// observation can become an ancestor. *Pending* on S = observed on S and
-// unresolved. Resolved nodes are forgotten: a node is in the state iff it
+// observation can become an ancestor. Exclusion is never required for
+// resolution: a node unseen on T still becomes closed w.r.t. T once some
+// descendant of it — through any chain — is observed on T, making it an
+// ancestor of T's tail; exclusion only lets that proof happen earlier.
+// *Pending* on S = observed on S and unresolved. Resolved nodes are forgotten: a node is in the state iff it
 // is unresolved, which is what keeps memory proportional to stream lag.
 //
 // The state is plain data and every operation is a pure function of it:

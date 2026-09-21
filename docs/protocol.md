@@ -161,11 +161,23 @@ the boundaries still waiting for an anchor.
 | `compactSent`, `interruptSent`             | `/compact` and `interrupt` are requests the daemon makes; the stream shows their effects, not the requests.                                                                                                                     |
 | `controlApplied`                           | a passthrough mutation succeeded; observers learn the new model/mode/settings without polling.                                                                                                                                  |
 | `contextChanged`                           | a compact boundary completed (native or `set-context`) and the context leaf moved; the SDK has no set-context and no event for either.                                                                                          |
-| `sessionFileChanged`                       | `/clear`/`/new` start a new session id in the same process; the file follower moved to the new file and every client resets its per-file model.                                                                                 |
+| `querySessionChanged`                      | the query stream is on a new session id — the daemon's chosen id at start (`Options.sessionId` or `resume`), then each id a query message names first; announced before anything is observed on it.                             |
+| `sessionFileChanged`                       | `/clear`/`/new` start a new session id in the same process; the file follower moved to the new file and every client resets its per-file model. With a `uuid`: a same-file rescan after a follower failure.                     |
 | `scanComplete`                             | the file follower has delivered every line the file held when opened; what follows is live.                                                                                                                                     |
 | `sessionAppended`                          | the daemon appended this entry itself (`set-context`): its query-stream `SDKMessage` form, one event per entry in file order, emitted before the file stream delivers the entries so the fold can expect them.                  |
 | `trackerAnomaly`                           | the daemon observed something its model of the CLI says cannot happen; the fold sets `AgentState.anomaly` (see stream merging).                                                                                                 |
 | `shutdown`                                 | a deliberate stop, so a lost connection without it means a crash.                                                                                                                                                               |
+
+Every event is a node of the stream merge (`eventUuid` in
+[`protocol.ts`](../src/core/protocol.ts) names it): a payload's own uuid
+where it has one, a dequeue's run key, a session start's session id,
+else a uuid the daemon stamps on the event (`uuid`, beside an unmodified
+payload for `sdkMessage`/`sessionEntry`). Every event is a node of exactly
+one stream (`eventStream`); a stamped event is excluded from the other, so
+it resolves right behind its stream predecessors — a client acts on a
+`contextChanged` when the merge resolves it, after the entry it followed.
+`shutdown` is a stamped `query` node of every live session: it resolves
+behind each query tail and leaves the file's pending ids alone.
 
 ## `AgentState`
 
@@ -173,8 +185,9 @@ The fold's output: activity (`idle`/`pending`/`working`/`compacting`,
 derived — the SDK has no idle status), the predictive model/permission mode/effort for the
 next query, the CLI version, `cwd`, the prompt queue (`queuedMessages`,
 keyed by the uuid the daemon stamps on each prompt), and a `SessionState` per session file this daemon
-lifetime has seen, keyed by session id, with `querySessionId` (the file the
-query stream is on) and `fileSessionId` (the file the follower is on).
+lifetime has seen, keyed by session id, with `querySessionId` (the session
+`querySessionChanged` last announced) and `fileSessionId` (the file the
+follower is on).
 
 Two invariants a client can rely on:
 

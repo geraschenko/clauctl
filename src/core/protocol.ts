@@ -21,6 +21,7 @@ import type {
 import {
   nextAgentState,
   type AgentState,
+  type MergeStream,
   type TrackerAnomaly,
 } from "./agent-state/agent-state.ts";
 import type { SessionEntry } from "./session/file.ts";
@@ -59,64 +60,160 @@ export type MessageDelivery = "turn" | "steer" | "append";
  * with a single `result`, filed under the last uuid. A steer and an append
  * are always a run of one (queue-model.ts); consumers need not special-case
  * them.
+ *
+ * Every event is a node of its session's stream merge (`eventUuid`), on
+ * exactly one stream (`eventStream`): one whose payload carries no uuid is
+ * stamped by the hub at emission — `uuid` beside an unmutated payload —
+ * and observed on its stream, excluded from the other, so it resolves
+ * right behind its stream predecessors and a subscriber can place it in
+ * file order. `shutdown` is such a node on every live session.
  */
 export type AgentEvent =
+  // `uuid` is the event's own; `message.uuid` is the prompt's stamped uuid.
   | { kind: "userMessageQueued"; uuid: UUID; message: SDKUserMessage }
   | {
       kind: "userMessageDequeued";
       delivery: MessageDelivery;
       uuids: readonly [UUID, ...UUID[]];
     }
-  | { kind: "compactSent"; message: SDKUserMessage } // /compact issued while Idle
-  | { kind: "interruptSent" }
-  | { kind: "controlApplied"; request: SdkControlApplied }
+  | { kind: "compactSent"; uuid: UUID; message: SDKUserMessage } // /compact issued while Idle
+  | { kind: "interruptSent"; uuid: UUID }
+  | { kind: "controlApplied"; uuid: UUID; request: SdkControlApplied }
   // Emitted after the sessionEntry that completes a compact_boundary — the
   // boundary's own, or its anchor's when the block was deferred — whatever
   // wrote it (native compaction or set-context). `leaf` is the final
   // post-boundary context tip (null after a wipe).
-  | { kind: "contextChanged"; boundary: UUID; leaf: TreeNodeRef | null }
-  | { kind: "sdkMessage"; message: SDKMessage }
+  | {
+      kind: "contextChanged";
+      uuid: UUID;
+      boundary: UUID;
+      leaf: TreeNodeRef | null;
+    }
+  // `uuid` only when the message carries none (stream events, results,
+  // system frames).
+  | { kind: "sdkMessage"; message: SDKMessage; uuid?: UUID }
   // One per canonical log entry of the tracked file, in file order, emitted
   // as soon as the follower reads the line (never held for resolution:
   // subscribers run the same merge). `entry` is the complete entry for every
-  // class. `expectsSdkMessage` is the tracker's class decision (false =
-  // session-only; a prediction from the table, not an observation): the
-  // fold reads it rather than re-classifying, so daemon and subscribers
-  // cannot disagree. `leaf` is the context tree's leaf after
-  // this entry and `lastAssistant` the usage/model of the last
-  // non-excluded, non-sidechain assistant on contextAt(leaf) (absent when
-  // none; each field independently optional) — daemon-computed, so clients
-  // fold them without owning a tree. `awaitingAnchors` lists the boundaries
-  // whose blocks are still deferred (session tracker incomplete).
+  // class; `uuid` only when the entry carries none. `expectsSdkMessage` is
+  // the tracker's class decision (false = session-only; a prediction from
+  // the table, not an observation): the fold reads it rather than
+  // re-classifying, so daemon and subscribers cannot disagree. `leaf` is
+  // the context tree's leaf after this entry and `lastAssistant` the
+  // usage/model of the last non-excluded, non-sidechain assistant on
+  // contextAt(leaf) (absent when none; each field independently optional)
+  // — daemon-computed, so clients fold them without owning a tree.
+  // `awaitingAnchors` lists the boundaries whose blocks are still deferred
+  // (session tracker incomplete).
   | {
       kind: "sessionEntry";
       entry: SessionEntry;
+      uuid?: UUID;
       expectsSdkMessage: boolean;
       leaf: TreeNodeRef | null;
       lastAssistant?: { usage?: NonNullableUsage; model?: string };
       awaitingAnchors: readonly UUID[];
     }
+  // The head of a session's query chain, node `sessionId`: emitted before
+  // the first query message carrying it (for the daemon's seeded id, at hub
+  // construction). It resolves with the `sessionFileChanged` that starts
+  // the same session on the file side, so the session's query messages
+  // stay pending until its file is followed.
+  | { kind: "querySessionChanged"; sessionId: UUID }
   // The follower moved to `sessionId`: the old file's SessionState is dropped
   // and the new file is about to be scanned.
-  | { kind: "sessionFileChanged"; sessionId: UUID }
+  | {
+      kind: "sessionFileChanged";
+      sessionId: UUID;
+      /** Absent for a session start: its node is `sessionId`, the same
+       *  node `querySessionChanged` observes on `query`, so the session's
+       *  two chains meet at their heads. A same-file rescan re-announces a
+       *  session whose id already heads its `session` chain, and an id may
+       *  appear only once per stream, so it carries a fresh node of its own,
+       *  excluded from `query`. */
+      uuid?: UUID;
+    }
   // The follower's start() has returned for the tracked file: every entry
   // the file held when it was opened has been folded.
-  | { kind: "scanComplete" }
+  | { kind: "scanComplete"; uuid: UUID }
   // The daemon appended an entry to the query file itself (set-context):
   // its query-stream form, one event per entry in file order, emitted
   // before the drain that delivers the entries — the echo the CLI would
   // have produced had it written them.
   | { kind: "sessionAppended"; message: SDKMessage }
   // A daemon-detected anomaly (follower failure, malformed line,
-  // classification at the dedup site, awaiting-anchor); the fold sets
-  // `anomaly`. Fold-detected ones (merge errors, head-mismatch) need no
-  // event: every fold computes them.
-  | { kind: "trackerAnomaly"; anomaly: TrackerAnomaly }
+  // classification at the dedup site, awaiting-anchor) on `stream`; the
+  // fold sets `anomaly`. Fold-detected ones (merge errors, head-mismatch)
+  // need no event: every fold computes them.
+  | {
+      kind: "trackerAnomaly";
+      uuid: UUID;
+      stream: MergeStream;
+      anomaly: TrackerAnomaly;
+    }
   // Emitted by the daemon before any teardown, so subscribers can distinguish
   // a deliberate shutdown (archive → SIGTERM, stream end) from a crash (socket
   // close with no announcement). Delivery is best-effort: process exit races
   // kernel buffers, so a lost line degrades to an unannounced close.
-  | { kind: "shutdown"; reason: string };
+  | { kind: "shutdown"; uuid: UUID; reason: string };
+
+/** An event as its emitter hands it to the hub: without the uuid the hub
+ *  stamps (optional payload-side uuids are the emitter's to set). */
+export type Unstamped<E> = E extends { uuid: UUID } ? Omit<E, "uuid"> : E;
+
+/** The event's merge node: the payload's uuid when it carries one (an
+ *  SDK message's, an entry's, a dequeue's run key, a session start's
+ *  session id), else the stamped `uuid`. */
+export function eventUuid(event: AgentEvent): UUID {
+  switch (event.kind) {
+    case "userMessageDequeued":
+      return event.uuids[event.uuids.length - 1]!;
+    case "sdkMessage":
+      return (event.message.uuid as UUID | undefined) ?? event.uuid!;
+    case "sessionEntry":
+      // TDC: perhaps this is the appropriate place to record that a steer attachment should be assigned its source_uuid for purposes of merging streams. What do you think? Ideally we could get as much of that logic as possible out of client code and as close as possible to where the protocol is defined.
+      return event.entry.uuid ?? event.uuid!;
+    case "sessionAppended":
+      return event.message.uuid as UUID;
+    case "querySessionChanged":
+      return event.sessionId;
+    case "sessionFileChanged":
+      return event.uuid ?? event.sessionId;
+    case "userMessageQueued":
+    case "compactSent":
+    case "interruptSent":
+    case "controlApplied":
+    case "contextChanged":
+    case "scanComplete":
+    case "trackerAnomaly":
+    case "shutdown":
+      return event.uuid;
+  }
+}
+
+/** The one stream the event is a node of: the file's for what the
+ *  follower emits, the query's for everything else. */
+export function eventStream(event: AgentEvent): MergeStream {
+  switch (event.kind) {
+    case "sessionEntry":
+    case "sessionFileChanged":
+    case "scanComplete":
+    case "contextChanged":
+      return "session";
+    case "trackerAnomaly":
+      return event.stream;
+    case "userMessageQueued":
+    case "userMessageDequeued":
+    case "compactSent":
+    case "interruptSent":
+    case "controlApplied":
+    case "sdkMessage":
+    case "querySessionChanged":
+    case "sessionAppended":
+    case "shutdown":
+      return "query";
+  }
+}
 
 /** The SDKMessage an event carries: the CLI's own frame, or the daemon's
  *  echo of an entry it appended. Both are what the fold observes on

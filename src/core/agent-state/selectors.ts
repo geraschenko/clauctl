@@ -1,8 +1,9 @@
+import type { UUID } from "node:crypto";
 import type {
   NonNullableUsage,
   SDKUserMessage,
 } from "@anthropic-ai/claude-agent-sdk";
-import { hasPending, pending } from "../stream-merge.ts";
+import { pending } from "../stream-merge.ts";
 import type { TreeNodeRef } from "../tree/nodes.ts";
 import type { AgentState } from "./agent-state.ts";
 import type { SessionState } from "./session-state.ts";
@@ -27,14 +28,26 @@ export const leaf = (state: AgentState): TreeNodeRef | null => {
 export const lastUsage = (state: AgentState): NonNullableUsage | undefined =>
   querySession(state)?.lastUsage;
 
-export const sessionSettled = (file: SessionState): boolean =>
-  !hasPending(file.merge, "query") && file.awaitingAnchors.length === 0;
+/** "The file has caught up to the query": no query observation awaits
+ *  the log, except the session start itself (`sessionId`, pending until
+ *  the file exists and is followed; it cannot lag a file that is not
+ *  there) and what is queued behind it that the file never carries. */
+export const sessionSettled = (file: SessionState, sessionId: UUID): boolean =>
+  file.awaitingAnchors.length === 0 &&
+  pending(file.merge, "query").every(
+    (uuid) =>
+      uuid === sessionId ||
+      file.merge.nodes[uuid]!.excludedFrom.includes("session"),
+  );
 
-/** "The file has caught up to the query"; vacuously true before the
- *  query has a file (nothing has happened that could be pending). */
+/** Vacuously true before the query has a session. */
 export const settled = (state: AgentState): boolean => {
   const file = querySession(state);
-  return file === undefined || sessionSettled(file);
+  return (
+    file === undefined ||
+    state.querySessionId === undefined ||
+    sessionSettled(file, state.querySessionId)
+  );
 };
 
 /** Bound on any wait for settledness (the daemon's whenSettled, a client's

@@ -1,8 +1,8 @@
 import type { UUID } from "node:crypto";
-import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
+import { type AgentEvent, eventUuid } from "../protocol.ts";
 import { pending } from "../stream-merge.ts";
 import type { AgentState } from "./agent-state.ts";
-import { foldQueryMessage } from "./fold-query-message.ts";
+import { foldQueryMessage, isSubagentTraffic } from "./fold-query-message.ts";
 import { excludeOn } from "./observe-on.ts";
 import { withObservedPermissionMode } from "./observed-permission-mode.ts";
 import { queryingCount } from "./selectors.ts";
@@ -11,20 +11,15 @@ import { withAnomalies } from "./tracker-anomaly.ts";
 
 export function foldSdkMessage(
   state: AgentState,
-  message: SDKMessage,
+  event: Extract<AgentEvent, { kind: "sdkMessage" }>,
 ): AgentState {
-  if (
-    "parent_tool_use_id" in message &&
-    typeof message.parent_tool_use_id === "string"
-  ) {
-    // Subagent traffic (user, assistant and their stream_events): its
-    // usage describes the subagent's own context, not this agent's, and
-    // its transcript lives in the subagent's own file, so none of its ids
-    // can meet an entry here — a subagent's merge is a separate session
-    // model over that file (docs/thoughts/subagent-activity.md).
-    return state;
+  const message = event.message;
+  const next = foldQueryMessage(state, message, eventUuid(event));
+  if (isSubagentTraffic(message)) {
+    // Observed for its place in the query order only: the activity and
+    // settings below describe this agent's own turn.
+    return next;
   }
-  const next = foldQueryMessage(state, message);
   if (message.type === "conversation_reset") {
     // SDK 0.3.250 emits this before the new conversation's init. Despite
     // its name, new_conversation_id is not the transcript session_id
@@ -34,7 +29,8 @@ export function foldSdkMessage(
     // observation still awaiting this file — is filed under the NEXT
     // session instead, so it is excluded from this file's stream.
     const sessionId = message.session_id as UUID;
-    const session = next.sessions[sessionId]!;
+    const session = next.sessions[sessionId];
+    if (session === undefined) return next;
     const last = pending(session.merge, "query")
       .filter(
         (id) => !session.merge.nodes[id]!.excludedFrom.includes("session"),

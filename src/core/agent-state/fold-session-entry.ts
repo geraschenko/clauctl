@@ -1,4 +1,4 @@
-import type { AgentEvent } from "../protocol.ts";
+import { type AgentEvent, eventUuid } from "../protocol.ts";
 import { queuedCommandSourceUuid } from "../session/file.ts";
 import type { AgentState } from "./agent-state.ts";
 import { classOf } from "./classification.ts";
@@ -11,23 +11,41 @@ import { type TrackerAnomaly, withAnomalies } from "./tracker-anomaly.ts";
  *  sessionEntry): observe on `session`, first observations excluded from
  *  `query` when the tracker's classification or the scan exclusion says
  *  so — never for a prompt still in `queuedMessages`, whose `query`
- *  observation is its dequeue still to come. A `queued_command`
- *  attachment also observes its `source_uuid`, the steered prompt's
- *  stamped uuid, under the same rule. The log's leaf and anchors always,
- *  its usage/model/version only once the file is settled (the query side
- *  leads while it is not). */
+ *  observation is its dequeue still to come. A uuid-less entry is a
+ *  stamped event: observed under the event's uuid, excluded from `query`.
+ *  A `queued_command` attachment also observes its `source_uuid`, the
+ *  steered prompt's stamped uuid, under the same rule. The log's leaf and
+ *  anchors always, its usage/model/version only once the file is settled
+ *  (the query side leads while it is not). */
 export function foldSessionEntry(
   state: AgentState,
   event: Extract<AgentEvent, { kind: "sessionEntry" }>,
 ): AgentState {
   const sessionId = state.fileSessionId;
-  if (sessionId === undefined) return state;
+  if (sessionId === undefined) {
+    return withAnomalies(state, [
+      {
+        kind: "merge-error",
+        detail: `${classOf(event.entry)} ${eventUuid(event)} on session: no session file`,
+      },
+    ]);
+  }
   let session = state.sessions[sessionId] ?? freshSessionState();
   const anomalies: TrackerAnomaly[] = [];
   const awaitsDequeue = (uuid: string): boolean =>
     state.queuedMessages.some((entry) => entry.uuid === uuid);
   const uuid = event.entry.uuid;
-  if (uuid !== undefined) {
+  if (uuid === undefined) {
+    const observation = observeOn(
+      session,
+      "session",
+      eventUuid(event),
+      classOf(event.entry),
+      true,
+    );
+    session = observation.session;
+    anomalies.push(...observation.anomalies);
+  } else {
     const appearedInQuery = Object.hasOwn(session.merge.nodes, uuid);
     if (session.scanExcluded && appearedInQuery) {
       session = { ...session, scanExcluded: false };
@@ -69,7 +87,7 @@ export function foldSessionEntry(
     awaitingAnchors: event.awaitingAnchors,
   };
   let next = state;
-  if (sessionSettled(session)) {
+  if (sessionSettled(session, sessionId)) {
     const { lastUsage: _lastUsage, model: _model, ...evidenceless } = session;
     const usage = event.lastAssistant?.usage;
     const model = event.lastAssistant?.model;

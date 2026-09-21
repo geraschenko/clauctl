@@ -736,10 +736,11 @@ export class TranscriptRenderer {
   }
 
   /** A dim one-line notice in transcript order (also the caller's banner
-   *  surface, so banners survive rebuilds). Unkeyed: it resolves with
-   *  whatever precedes it. */
-  addBanner(text: string, color: ThemeColor = "dim"): void {
-    this.addPlain(bannerText(text, color), undefined, this.pendingItems);
+   *  surface, so banners survive rebuilds). Keyed by `uuid` when the
+   *  banner renders an event, so `resolve(uuid)` moves it; unkeyed it
+   *  resolves with whatever precedes it. */
+  addBanner(text: string, color: ThemeColor = "dim", uuid?: UUID): void {
+    this.addPlain(bannerText(text, color), uuid, this.pendingItems);
   }
 
   private addPlain(
