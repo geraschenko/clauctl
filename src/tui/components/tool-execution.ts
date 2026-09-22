@@ -126,6 +126,18 @@ export class ToolExecutionComponent extends CachedLinesComponent {
     this.subagentContainer.addChild(component);
   }
 
+  /** Nest `component` ahead of `sibling` (a finalized block ahead of the
+   *  stream still rendering the rest of its message); appended when
+   *  `sibling` is not nested here. */
+  addSubagentChildBefore(component: Component, sibling: Component): void {
+    const index = this.subagentContainer.children.indexOf(sibling);
+    if (index === -1) {
+      this.subagentContainer.addChild(component);
+    } else {
+      this.subagentContainer.children.splice(index, 0, component);
+    }
+  }
+
   override invalidate(): void {
     super.invalidate();
     this.subagentContainer.invalidate();

@@ -19,12 +19,13 @@ import type {
   Settings,
 } from "@anthropic-ai/claude-agent-sdk";
 import {
+  classOf,
   nextAgentState,
   type AgentState,
   type MergeStream,
   type TrackerAnomaly,
 } from "./agent-state/agent-state.ts";
-import type { SessionEntry } from "./session/file.ts";
+import { queuedCommandSourceUuid, type SessionEntry } from "./session/file.ts";
 import { AsyncQueue } from "./generated/streaming/async-queue.ts";
 import type {
   StreamEvent,
@@ -161,24 +162,29 @@ export type AgentEvent =
  *  stamps (optional payload-side uuids are the emitter's to set). */
 export type Unstamped<E> = E extends { uuid: UUID } ? Omit<E, "uuid"> : E;
 
-/** The event's merge node: the payload's uuid when it carries one (an
- *  SDK message's, an entry's, a dequeue's run key, a session start's
- *  session id), else the stamped `uuid`. */
-export function eventUuid(event: AgentEvent): UUID {
+/** The event's merge nodes: its identity first — the payload's uuid when
+ *  it carries one (an SDK message's, an entry's, a dequeue's run key, a
+ *  session start's session id), else the stamped `uuid`. A
+ *  `queued_command` attachment entry also observes the steered prompt's
+ *  `source_uuid` (the dequeue's `query` node it meets). */
+export function eventNodes(event: AgentEvent): readonly [UUID, ...UUID[]] {
   switch (event.kind) {
     case "userMessageDequeued":
-      return event.uuids[event.uuids.length - 1]!;
+      return [event.uuids[event.uuids.length - 1]!];
     case "sdkMessage":
-      return (event.message.uuid as UUID | undefined) ?? event.uuid!;
-    case "sessionEntry":
-      // TDC: perhaps this is the appropriate place to record that a steer attachment should be assigned its source_uuid for purposes of merging streams. What do you think? Ideally we could get as much of that logic as possible out of client code and as close as possible to where the protocol is defined.
-      return event.entry.uuid ?? event.uuid!;
+      return [(event.message.uuid as UUID | undefined) ?? event.uuid!];
+    case "sessionEntry": {
+      const sourceUuid = queuedCommandSourceUuid(event.entry);
+      return sourceUuid === undefined
+        ? [event.entry.uuid ?? event.uuid!]
+        : [event.entry.uuid!, sourceUuid];
+    }
     case "sessionAppended":
-      return event.message.uuid as UUID;
+      return [event.message.uuid as UUID];
     case "querySessionChanged":
-      return event.sessionId;
+      return [event.sessionId];
     case "sessionFileChanged":
-      return event.uuid ?? event.sessionId;
+      return [event.uuid ?? event.sessionId];
     case "userMessageQueued":
     case "compactSent":
     case "interruptSent":
@@ -187,7 +193,37 @@ export function eventUuid(event: AgentEvent): UUID {
     case "scanComplete":
     case "trackerAnomaly":
     case "shutdown":
-      return event.uuid;
+      return [event.uuid];
+  }
+}
+
+/** The event's identity: `eventNodes(event)[0]`. */
+export function eventUuid(event: AgentEvent): UUID {
+  return eventNodes(event)[0];
+}
+
+/** For anomaly details: `classOf` of the SDK message or entry the event
+ *  carries, `"prompt"` for a dequeue, the kind otherwise. */
+export function eventClass(event: AgentEvent): string {
+  switch (event.kind) {
+    case "userMessageDequeued":
+      return "prompt";
+    case "sdkMessage":
+    case "sessionAppended":
+      return classOf(event.message);
+    case "sessionEntry":
+      return classOf(event.entry);
+    case "userMessageQueued":
+    case "compactSent":
+    case "interruptSent":
+    case "controlApplied":
+    case "contextChanged":
+    case "querySessionChanged":
+    case "sessionFileChanged":
+    case "scanComplete":
+    case "trackerAnomaly":
+    case "shutdown":
+      return event.kind;
   }
 }
 

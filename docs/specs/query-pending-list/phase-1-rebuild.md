@@ -1,8 +1,8 @@
 # Phase 1: the rebuild
 
 > Work log for phase 1 of docs/specs/query-pending-list.md (Type Design,
-> "Phase 1 — the rebuild"; Data Flow, "Phase 1"). Status: **implemented,
-> awaiting review and commit**.
+> "Phase 1 — the rebuild"; Data Flow, "Phase 1"). Status: **implemented
+> and committed** (review rounds 1–3, 2026-09-19).
 
 ## Scope
 
@@ -242,5 +242,7 @@ Each step ends with `npm run check` and the affected tests green.
 - [x] Review round 3 (2026-09-19, 93f5394): summary rule —
       `isCompactSummary` for entries, single-slot anchor heuristic for
       frames; `sdkMessageOf`
-- [ ] Anton commits the review rounds
-- [ ] Phase 1.5 spec: trees fed at resolution, two-part transcript
+- [x] Anton commits the review rounds
+- [x] Phase 1.5 spec: trees fed at resolution, two-part transcript —
+      `query-pending-list/phase-1.5-render-at-resolution.md`
+- Deferred (`InteractiveMode` harness): docs/thoughts/interactive-mode-test-harness.md

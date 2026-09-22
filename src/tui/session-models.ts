@@ -1,8 +1,9 @@
 /**
  * The TUI's mirror of `AgentState.sessions`: one `SessionModel` per session
  * id, fed every subscription event with the state it folded to. Routing is
- * the fold's — an entry belongs to `state.fileSessionId`, a query message
- * to its `session_id`, and a session model lives exactly as long as its
+ * the fold's (`observedSessions`: an entry belongs to `state.fileSessionId`,
+ * a query message to `state.querySessionId`), and a session model lives
+ * exactly as long as its
  * `SessionState` — so they cannot disagree with the state about
  * which session anything belongs to (docs/specs/query-pending-list.md,
  * Decisions).
@@ -17,11 +18,12 @@ import {
   type AgentState,
   joinedPrompt,
   type MergeStream,
+  observedSessions,
 } from "../core/agent-state/agent-state.ts";
 import {
   type AgentEvent,
+  eventNodes,
   eventStream,
-  eventUuid,
   sdkMessageOf,
 } from "../core/protocol.ts";
 import type { SessionEntry } from "../core/session/file.ts";
@@ -282,36 +284,22 @@ export class SessionModels {
     );
   }
 
-  /** The event's merge node into the pending list of the session of the
-   *  stream it is observed on (`eventStream`; `shutdown`: every session):
-   *  a query message with its frame (the rebuild replays it), any other
-   *  event frameless — its resolution retires it quietly. An entry the
-   *  file names is the session model's `queuedEntries` business, not the
+  /** The event's merge nodes into the pending lists of the sessions the
+   *  fold observed it on (`observedSessions`, `eventNodes`): a query
+   *  message with its frame (the rebuild replays it), any other event
+   *  frameless — its resolution retires it quietly. An entry the file
+   *  names is the session model's `queuedEntries` business, not the
    *  pending list's. */
   private recordObserved(event: AgentEvent, state: AgentState): void {
-    const message = sdkMessageOf(event);
-    if (message !== undefined && message.uuid !== undefined) {
-      this.recordIfObserved(
-        message.session_id as UUID,
-        message.uuid as UUID,
-        message,
-        state,
-        "query",
-      );
-      return;
-    }
     if (event.kind === "sessionEntry" && event.entry.uuid !== undefined) {
       return;
     }
-    const uuid = eventUuid(event);
+    const message = sdkMessageOf(event);
+    const frame = message?.uuid === undefined ? undefined : message;
     const stream = eventStream(event);
-    const sessionIds =
-      event.kind === "shutdown"
-        ? (Object.keys(state.sessions) as UUID[])
-        : [stream === "query" ? state.querySessionId : state.fileSessionId];
-    for (const sessionId of sessionIds) {
-      if (sessionId !== undefined) {
-        this.recordIfObserved(sessionId, uuid, undefined, state, stream);
+    for (const sessionId of observedSessions(state, event)) {
+      for (const node of eventNodes(event)) {
+        this.recordIfObserved(sessionId, node, frame, state, stream);
       }
     }
   }

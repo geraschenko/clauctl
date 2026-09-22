@@ -39,25 +39,28 @@ import type {
   SDKUserMessage,
 } from "@anthropic-ai/claude-agent-sdk";
 import type { AgentEvent } from "../protocol.ts";
-import { foldQuerySessionChanged } from "./fold-query-session-changed.ts";
-import { foldScanComplete } from "./fold-scan-complete.ts";
 import { foldSdkMessage } from "./fold-sdk-message.ts";
-import { foldSessionAppended } from "./fold-session-appended.ts";
-import { foldSessionEntry } from "./fold-session-entry.ts";
-import { foldSessionFileChanged } from "./fold-session-file-changed.ts";
-import { foldShutdown } from "./fold-shutdown.ts";
-import { foldStamped, observeStamped } from "./fold-stamped.ts";
-import { foldUserMessageDequeued } from "./fold-user-message-dequeued.ts";
-import { foldUserMessageQueued } from "./fold-user-message-queued.ts";
+import {
+  foldSessionEntry,
+  withScanExclusionEnded,
+} from "./fold-session-entry.ts";
+import { observeEvent } from "./observe-event/index.ts";
 import { withObservedPermissionMode } from "./observed-permission-mode.ts";
+import { withPendingLeaf } from "./query-message.ts";
 import type { SessionState } from "./session-state.ts";
 import { type TrackerAnomaly, withAnomalies } from "./tracker-anomaly.ts";
+import { withQuerySessionAnnounced } from "./with-query-session-announced.ts";
+import { withQueueDrained } from "./with-queue-drained.ts";
+import { withQueuedMessage } from "./with-queued-message.ts";
+import { withScanEnded } from "./with-scan-ended.ts";
+import { withTrackedFile } from "./with-tracked-file.ts";
 
 export {
   classOf,
   excludedFromQuery,
   excludedFromSession,
 } from "./classification.ts";
+export { observedSessions } from "./observe-event/index.ts";
 export {
   describeSession,
   isIdle,
@@ -164,56 +167,58 @@ function clearedForFold(state: AgentState): AgentState {
   return { ...cleared, sessions };
 }
 
-/** Every event is observed on its stream (protocol.ts, `eventStream`);
- *  the kinds with no other effect are pure observations. */
-// TDC: This is very poorly enforced. eventStream from protocol.ts has essentially no bite. Instead of using it, we hard-code "query" and "session" in all of these helper methods. There's nothing stopping eventStream from being completely out of sync with reality. Let's brainstorm how to actually make eventStream and eventUuid the source of truth rather than a performative attempt at documentation.
+/** Every event is observed here, by `observeEvent` (observe-event/), the
+ *  only path to a session's merge. A kind's own effects are `with<Effect>`
+ *  helpers before the observation and `fold<Kind>` helpers after it; the
+ *  kinds with no other effect are pure observations. `shutdown` is a
+ *  stamped query node of every session: what it implies beyond that (the
+ *  process is going away) is outside the observable agent state. */
 function foldEvent(state: AgentState, event: AgentEvent): AgentState {
   switch (event.kind) {
     case "userMessageQueued":
-      return foldStamped(
-        foldUserMessageQueued(state, event.message.uuid as UUID, event.message),
+      return observeEvent(
+        withQueuedMessage(state, event.message.uuid as UUID, event.message),
         event,
-        "query",
       );
     case "userMessageDequeued":
-      return foldUserMessageDequeued(state, event);
+      return observeEvent(withQueueDrained(state, event), event);
     case "compactSent":
-      return foldStamped({ ...state, activity: "compacting" }, event, "query");
+      return observeEvent({ ...state, activity: "compacting" }, event);
     // Activity is unchanged when the interrupt is *sent*; the transition
     // happens at the terminating `result` (its subtype alone does not flag
     // the interrupt — the interruptSent event on the stream is the record).
     case "interruptSent":
-      return foldStamped(state, event, "query");
     case "shutdown":
-      return foldShutdown(state, event);
-    case "sessionEntry":
-      return foldSessionEntry(state, event);
-    case "querySessionChanged":
-      return foldQuerySessionChanged(state, event.sessionId);
-    case "sessionFileChanged":
-      return foldSessionFileChanged(state, event);
-    case "scanComplete":
-      return foldStamped(foldScanComplete(state), event, "session");
     case "sessionAppended":
-      return foldSessionAppended(state, event.message);
-    case "trackerAnomaly": {
-      const observed = observeStamped(state, event, event.stream);
-      return observed.anomalies.length === 0
-        ? { ...observed.state, anomaly: event.anomaly }
-        : withAnomalies(observed.state, [event.anomaly, ...observed.anomalies]);
-    }
+      return observeEvent(state, event);
+    case "sessionEntry":
+      return foldSessionEntry(
+        observeEvent(withScanExclusionEnded(state, event), event),
+        event,
+      );
+    case "querySessionChanged":
+      return observeEvent(withQuerySessionAnnounced(state, event), event);
+    case "sessionFileChanged":
+      return observeEvent(withTrackedFile(state, event), event);
+    case "scanComplete":
+      return observeEvent(withScanEnded(state), event);
+    case "trackerAnomaly":
+      return withAnomalies(observeEvent(state, event), [event.anomaly]);
     // The tip it announces is already folded from the sessionEntry that
     // completed the boundary (SessionState.treeLeaf).
     case "contextChanged":
-      return foldStamped(state, event, "session");
+      return observeEvent(state, event);
     case "controlApplied":
-      return foldStamped(foldControlApplied(state, event), event, "query");
+      return observeEvent(withControlApplied(state, event), event);
     case "sdkMessage":
-      return foldSdkMessage(state, event);
+      return foldSdkMessage(
+        observeEvent(withPendingLeaf(state, event), event),
+        event,
+      );
   }
 }
 
-function foldControlApplied(
+function withControlApplied(
   state: AgentState,
   event: Extract<AgentEvent, { kind: "controlApplied" }>,
 ): AgentState {

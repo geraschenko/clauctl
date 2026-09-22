@@ -5,13 +5,13 @@ import {
   type MergeError,
   type MergeStep,
   observe,
-} from "../stream-merge.ts";
+} from "../../stream-merge.ts";
 import {
   MERGE_STREAMS,
   type MergeStream,
   type SessionState,
-} from "./session-state.ts";
-import type { TrackerAnomaly } from "./tracker-anomaly.ts";
+} from "../session-state.ts";
+import type { TrackerAnomaly } from "../tracker-anomaly.ts";
 
 const otherStream = (stream: MergeStream): MergeStream =>
   stream === "query" ? "session" : "query";
@@ -83,25 +83,24 @@ function applyMergeStep(
  *  the other stream carries the id). */
 export function observeOn(
   session: SessionState,
-  // TDC: what do you think of removing the remaining arguments and taking `event: AgentEvent` as an argument instead? That way we could have a central place that enforces that stream is eventStream(event), uuid is eventUuid(event), className is classOf(event), and excludeOther is some new function of event.
   stream: MergeStream,
   uuid: UUID,
   className: string,
   excludeOther: boolean,
 ): Observation {
-  const excluded = excludeOther
+  const exclusion = excludeOther
     ? excludeOn(session, otherStream(stream), uuid, className)
     : { session, anomalies: [] };
-  const observed = applyMergeStep(
-    excluded.session,
-    observe(excluded.session.merge, stream, uuid),
+  const observation = applyMergeStep(
+    exclusion.session,
+    observe(exclusion.session.merge, stream, uuid),
     className,
     uuid,
     stream,
   );
   return {
-    session: observed.session,
-    anomalies: [...excluded.anomalies, ...observed.anomalies],
+    session: observation.session,
+    anomalies: [...exclusion.anomalies, ...observation.anomalies],
   };
 }
 

@@ -605,7 +605,8 @@ Consulted while derisking (2026-09-10); none is a drop-in.
       examples, 5 error, 4 snapshot, 5 properties), presubmit green.
 - [x] Pure rewrite — 2026-09-10; 20 tests (9 examples, 6 error, 5
       properties), presubmit green.
-- [ ] Rewind package handed to the session-tracker agent
+- [x] Rewind package handed to the session-tracker agent (2026-09-11;
+      docs/specs/session-tracker.md "REWRITE DECISIONS")
 
 ## Implementation-Time Decisions
 

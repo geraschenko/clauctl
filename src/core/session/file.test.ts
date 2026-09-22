@@ -12,6 +12,8 @@ import {
   entryOrThrow,
   entryToSessionMessage,
   projectKey,
+  queuedCommandPrompt,
+  queuedCommandSourceUuid,
   readEntriesAt,
   readSessionEntries,
   SessionEntryParser,
@@ -20,6 +22,31 @@ import {
 } from "./file.ts";
 
 const uuid = (): UUID => randomUUID();
+
+test("queuedCommandPrompt/SourceUuid read string and block-form attachments alike", () => {
+  const sourceUuid = uuid();
+  const attachment = (prompt: unknown): SessionEntry =>
+    ({
+      type: "attachment",
+      uuid: uuid(),
+      attachment: { type: "queued_command", prompt, source_uuid: sourceUuid },
+    }) as unknown as SessionEntry;
+  const stringForm = attachment("also say QUEUED");
+  assert.equal(queuedCommandPrompt(stringForm), "also say QUEUED");
+  assert.equal(queuedCommandSourceUuid(stringForm), sourceUuid);
+  const blockForm = attachment([
+    { type: "text", text: "first block" },
+    { type: "image", source: {} },
+    { type: "text", text: "second block" },
+  ]);
+  assert.equal(queuedCommandPrompt(blockForm), "first block\nsecond block");
+  assert.equal(queuedCommandSourceUuid(blockForm), sourceUuid);
+  const malformed = attachment(42);
+  assert.equal(queuedCommandPrompt(malformed), undefined);
+  assert.equal(queuedCommandSourceUuid(malformed), undefined);
+  const user = { type: "user", uuid: uuid() } as unknown as SessionEntry;
+  assert.equal(queuedCommandPrompt(user), undefined);
+});
 
 test("projectKey replaces every non-alphanumeric character", () => {
   assert.equal(projectKey("/home/user/my_repo.git"), "-home-user-my-repo-git");

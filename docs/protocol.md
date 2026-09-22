@@ -172,12 +172,19 @@ Every event is a node of the stream merge (`eventUuid` in
 [`protocol.ts`](../src/core/protocol.ts) names it): a payload's own uuid
 where it has one, a dequeue's run key, a session start's session id,
 else a uuid the daemon stamps on the event (`uuid`, beside an unmodified
-payload for `sdkMessage`/`sessionEntry`). Every event is a node of exactly
-one stream (`eventStream`); a stamped event is excluded from the other, so
-it resolves right behind its stream predecessors — a client acts on a
+payload for `sdkMessage`/`sessionEntry`). A `queued_command` attachment
+entry is two nodes (`eventNodes`): its own and the steered prompt's
+`source_uuid`. Every event is a node of exactly one stream
+(`eventStream`); a stamped event is excluded from the other, so it
+resolves right behind its stream predecessors — a client acts on a
 `contextChanged` when the merge resolves it, after the entry it followed.
 `shutdown` is a stamped `query` node of every live session: it resolves
-behind each query tail and leaves the file's pending ids alone.
+behind each query tail and leaves the file's pending ids alone. The fold
+observes every event through one function, `observeEvent`
+([`agent-state/observe-event/`](../src/core/agent-state/observe-event/index.ts)),
+which reads stream, nodes and class from `protocol.ts` and the exclusion
+from the classification table — so what the protocol says about an
+event's place in the merge is what the fold does.
 
 ## `AgentState`
 

@@ -639,11 +639,9 @@ class InteractiveMode {
     }
     // `anomaly` names the event just folded (agent-state.ts), so reading it
     // per event shows each anomaly once, whichever event's fold raised it.
+    // `detail` already carries each accumulated anomaly's kind.
     if (state.anomaly !== undefined) {
-      this.addBanner(
-        `tracker anomaly ${state.anomaly.kind}: ${state.anomaly.detail}`,
-        "warning",
-      );
+      this.addBanner(`tracker anomaly ${state.anomaly.detail}`, "warning");
     }
     if (event.kind === "userMessageQueued") {
       this.pendingMessages.add(

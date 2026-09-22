@@ -382,7 +382,7 @@ test("SessionModels: a same-file rescan restarts the trees and keeps the entries
     entryEvent(assistantEntry(2, 1)),
     assistantQuery(3),
   );
-  h.feed(fileChanged(SESSION_A));
+  h.feed({ kind: "sessionFileChanged", sessionId: SESSION_A, uuid: uuidN(9) });
   const sessionModel = h.sessionModels.get(SESSION_A)!;
   assert.deepEqual(sessionModel.displayTree.parentMap, new Map());
   assert.deepEqual(h.byUuidKeys(SESSION_A), [uuidN(1), uuidN(2)]);

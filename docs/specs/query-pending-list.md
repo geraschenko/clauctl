@@ -1,8 +1,12 @@
 # Spec: the query pending list — prompts with identity, and rebuilding a transcript from the local model
 
-> Status: **SPEC APPROVED 2026-09-16** (type design + data flow); design
-> revised 2026-09-18 after reviewer pass 3 (full entries on the wire,
-> per-session models, resolution-driven retirement); not yet implemented.
+> Status: **IMPLEMENTED** — phases 0–4 committed 2026-09-22; TUI smoke
+> passed (Anton, 2026-09-22). Spec approved 2026-09-16 (type design + data
+> flow); design revised 2026-09-18 after reviewer pass 3 (full entries on
+> the wire, per-session models, resolution-driven retirement). Deferred
+> items: docs/thoughts/session-tracker-follow-ups.md,
+> docs/thoughts/interactive-mode-test-harness.md,
+> docs/thoughts/large-sessions.md.
 > Follow-up to docs/specs/session-tracker.md (phase 4 introduced the
 > rebuild on live `contextChanged`) and
 > docs/thoughts/delivered-prompt-identity.md. SDK ground truth this rests
@@ -452,6 +456,12 @@ src/core/agent-state/
   observed-permission-mode.ts  withObservedPermissionMode (shared by the `controlApplied` case and
                             fold-sdk-message; a sibling so no fold imports agent-state.ts at runtime)
 ```
+
+Phase 4 (phase-4-observe-event.md) reshaped the fold helpers: observe-on.ts
+moved into the `observe-event/` barrel, and the `fold-*` files became
+before-observation `with-*.ts` helpers plus `query-message.ts`,
+`fold-session-entry.ts` and `fold-sdk-message.ts`; see that spec's Type
+Design for the current layout.
 
 Every symbol keeps its name and signature. Importers of
 `core/agent-state.ts` (27 files) switch to `core/agent-state/agent-state.ts`.
@@ -1039,13 +1049,20 @@ Phase 3 (identity):
       (stream discard only on matching API id; stdout renders at its
       entry)
 - [x] Phase 2 queue-model per-run dequeue — implemented 2026-09-20; log
-      in `query-pending-list/phase-2-per-run-dequeue.md`; awaiting
-      Anton's review
+      in `query-pending-list/phase-2-per-run-dequeue.md`; committed
 - [x] Phase 3 identity — implemented 2026-09-20; log in
-      `query-pending-list/phase-3-identity.md`; awaiting Anton's review;
-      `git mv docs/thoughts/fold-resolved-events.md docs/thoughts/old/`
-- [ ] Follow-up (separate): SDK control-request flag audit
-      (`cancel_queued` unreachable via `Query.interrupt()`)
+      `query-pending-list/phase-3-identity.md`; committed;
+      docs/thoughts/fold-resolved-events.md moved to docs/thoughts/old/
+- [x] Phase 3.5 uuid-less events, slash-command runs, interrupt probes —
+      implemented 2026-09-21; log in
+      `query-pending-list/phase-3.5-uuid-less-events.md`; committed
+- [x] Phase 4 `observeEvent` — implemented 2026-09-22; log in
+      `query-pending-list/phase-4-observe-event.md`; committed
+- [x] TUI smoke (Anton, 2026-09-22): works; large sessions load slower
+      than before — docs/thoughts/large-sessions.md
+- [x] Follow-up (separate): SDK control-request flag audit
+      (`cancel_queued` unreachable via `Query.interrupt()`) — recorded in
+      docs/thoughts/session-tracker-follow-ups.md
 
 ## 2026-09-16 — diagnosis
 

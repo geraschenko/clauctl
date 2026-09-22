@@ -10,11 +10,15 @@
  * Each uuid's visible content renders once (`renderedUuids`), whichever
  * side delivers it first — the query stream's frame or the session file's
  * entry; the loser still does its non-content work (a `user` frame resolves
- * tool results, an `assistant` frame finalizes or discards the stream it
+ * tool results, an `assistant` frame takes its block out of the stream it
  * owns). Streams are owned by API `message.id`, not transcript uuid: the
  * two sides are delayed independently, so the stream open at a key need
- * not belong to the message being finalized. `itemsByUuid` lets a resolved
- * entry re-render its frame's item in place (`replaceItem`).
+ * not belong to the message arriving. A stream renders a whole response's
+ * partials; the CLI files each content block as its own `assistant`
+ * message, which renders as its own item ahead of the stream and leaves
+ * the partial (`StreamingComponent.finalizedUuids`); `message_stop` drops
+ * the stream. `itemsByUuid` lets a resolved entry re-render its frame's
+ * item in place (`replaceItem`).
  *
  * The transcript is two item lists, resolved then pending
  * (docs/specs/query-pending-list/phase-1.5-render-at-resolution.md). A
@@ -25,13 +29,12 @@
  * unkeyed items after them (banners: query-side notices that resolve as
  * soon as nothing unresolved precedes them; they join the resolved part
  * directly when the pending part is empty), stopping at the next keyed
- * item or open stream. An open stream's item is conceptually keyed by the
- * uuid of the `assistant` frame that will finalize it, which nothing
- * carries ahead of time (the `message_start` names only the API
- * `message.id`, shared by every block of the response), so as a workaround
- * it is always pending and blocks the move: a file-only entry resolving
- * while it streams lands above it, in file order. The pending part is
- * therefore empty or starts with a keyed item or an open stream's item.
+ * item or open stream. A stream's item is never keyed (the `message_start`
+ * names only the API `message.id`, shared by every block of the response)
+ * and stays pending, blocking the move, until `message_stop` drops it; a
+ * file-only entry resolving while it streams lands above it, in file
+ * order. The pending part is therefore empty or starts with a keyed item
+ * or an open stream's item.
  *
  * A compaction summary's entry says so (`isCompactSummary`); its frame
  * carries no flag, so a boundary frame's `preserved_messages.anchor_uuid`
@@ -85,6 +88,7 @@ import {
   toolResultsOf,
   userTurnViews,
   userTurnViewsFromText,
+  withoutBlock,
   type StreamingMessage,
   type UserTurnView,
 } from "./sdk-render.ts";
@@ -137,18 +141,25 @@ interface UserTurnItem extends ItemKey {
 
 type TranscriptItem = AssistantItem | ToolItem | PlainItem | UserTurnItem;
 
-/** A stream's item before its `assistant` frame keyed it: the only unkeyed
- *  assistant item there is (subagent streams are nested, not items). */
+/** A stream's item: the only unkeyed assistant item there is (subagent
+ *  streams are nested, not items). */
 const isOpenStream = (item: TranscriptItem): boolean =>
   item.kind === "assistant" && item.uuid === undefined;
 
 interface StreamingComponent {
   component: AssistantMessageComponent;
   state: StreamingMessage;
-  /** The top-level item to finalize; undefined for subagent streams. */
+  /** The top-level item to drop at `message_stop`; undefined for subagent
+   *  streams. */
   item: AssistantItem | undefined;
   /** The API message id from `message_start`: the stream's owner. */
   apiMessageId: string;
+  /** Uuids of the response's `assistant` messages seen so far, from either
+   *  side: the CLI emits one per content block, in block order, between
+   *  the block's `content_block_start` and `content_block_stop`
+   *  (tests/sdk/stream-classification.test.ts), so the count is the next
+   *  block index to leave the partial. */
+  finalizedUuids: Set<UUID>;
 }
 
 function hasThinking(rendered: RenderAssistant): boolean {
@@ -234,20 +245,30 @@ export class TranscriptRenderer {
             message.parent_tool_use_id,
             undefined, // uuid
             part,
+            undefined, // stream
           );
           this.streaming.set(key, {
             component,
             state: beginMessage(),
             item,
             apiMessageId: message.event.message.id,
+            finalizedUuids: new Set(),
           });
           break;
         }
         const live = this.streaming.get(key);
-        if (live !== undefined) {
-          live.state = foldStreamEvent(live.state, message.event);
-          live.component.updateContent(live.state.partial);
+        if (live === undefined) {
+          break;
         }
+        if (message.event.type === "message_stop") {
+          // The response's end: every block has left the stream for its
+          // own item (StreamingComponent.finalizedUuids), so what remains
+          // is at most blocks the render model dropped.
+          this.discardStream(key, live);
+          break;
+        }
+        live.state = foldStreamEvent(live.state, message.event);
+        live.component.updateContent(live.state.partial);
         break;
       }
       case "assistant": {
@@ -258,22 +279,25 @@ export class TranscriptRenderer {
         // after B's message_start opened the stream at this key.
         const ownStream =
           live?.apiMessageId === message.message.id ? live : undefined;
-        // DEFERRED (docs/specs/query-pending-list/phase-1.5-render-at-resolution.md,
-        // IMPLEMENTATION IDEAS): the CLI emits one `assistant` frame per
-        // content block of a response, interleaved with the partials, and
-        // the stream is deleted below on the first of them; the later
-        // blocks lose their partials and render whole on arrival. The
-        // response's real end is `message_stop`.
+        // The message is one block of the response its stream renders:
+        // the block leaves the partial (once, whichever side delivers the
+        // message first) and renders as its own item ahead of the stream.
+        if (
+          ownStream !== undefined &&
+          !ownStream.finalizedUuids.has(message.uuid)
+        ) {
+          ownStream.state = withoutBlock(
+            ownStream.state,
+            ownStream.finalizedUuids.size,
+          );
+          ownStream.finalizedUuids.add(message.uuid);
+          ownStream.component.updateContent(ownStream.state.partial);
+        }
         if (
           message.parent_tool_use_id === null &&
           this.renderedUuids.has(message.uuid)
         ) {
-          // The entry rendered this message; a stream still open for it is
-          // the provisional rendering the entry superseded.
-          if (ownStream !== undefined) {
-            this.discardStream(key, ownStream);
-          }
-          break;
+          break; // the entry rendered this message
         }
         const rendered = suppressNoResponse(renderAssistant(message));
         const thinkingSeconds =
@@ -283,29 +307,16 @@ export class TranscriptRenderer {
         if (message.parent_tool_use_id === null) {
           this.stampEntry(message);
         }
-        // A top-level item is keyed by the message; a stream's item was
-        // unkeyed until now.
+        // A top-level item is keyed by the message; a stream's item never is.
         const uuid =
           message.parent_tool_use_id === null ? message.uuid : undefined;
-        let item: AssistantItem | undefined;
-        if (ownStream !== undefined) {
-          ownStream.component.updateContent(rendered);
-          item = ownStream.item;
-          if (item !== undefined) {
-            item.uuid = uuid;
-          }
-          this.streaming.delete(key);
-        } else {
-          // No partials of this message seen (subscribed mid-message, or the
-          // entry outran its stream): render whole.
-          const component = this.newAssistantComponent(rendered);
-          item = this.attachAssistant(
-            component,
-            message.parent_tool_use_id,
-            uuid,
-            part,
-          );
-        }
+        const item = this.attachAssistant(
+          this.newAssistantComponent(rendered),
+          message.parent_tool_use_id,
+          uuid,
+          part,
+          ownStream,
+        );
         if (item !== undefined) {
           item.rendered = rendered;
           item.thinkingSeconds = thinkingSeconds;
@@ -335,9 +346,11 @@ export class TranscriptRenderer {
                 view: toolViewFor(block.name),
               };
               this.toolItems.set(block.id, item);
-              this.partFor(item, part).push(item);
-            } else {
+              this.insertItem(item, part, ownStream);
+            } else if (ownStream === undefined) {
               parent.addSubagentChild(tool);
+            } else {
+              parent.addSubagentChildBefore(tool, ownStream.component);
             }
           }
         }
@@ -598,15 +611,7 @@ export class TranscriptRenderer {
   resolve(uuid: UUID, entry: SessionEntry | undefined): void {
     const last = this.pendingItems.findLastIndex((item) => item.uuid === uuid);
     if (last !== -1) {
-      let end = last + 1;
-      while (
-        end < this.pendingItems.length &&
-        this.pendingItems[end]!.uuid === undefined &&
-        !isOpenStream(this.pendingItems[end]!)
-      ) {
-        end += 1;
-      }
-      this.resolvedItems.push(...this.pendingItems.splice(0, end));
+      this.resolvePrefix(last + 1);
     }
     if (entry !== undefined) {
       // Branch on an item keyed `uuid`, not on `renderedUuids`: a user
@@ -620,6 +625,19 @@ export class TranscriptRenderer {
     }
     // No rebuild for the move alone: the container is the concatenation
     // of the two parts, which the move leaves unchanged.
+  }
+
+  /** The pending items before `end`, plus the unkeyed ones after them up
+   *  to the next keyed item or open stream, join the resolved part. */
+  private resolvePrefix(end: number): void {
+    while (
+      end < this.pendingItems.length &&
+      this.pendingItems[end]!.uuid === undefined &&
+      !isOpenStream(this.pendingItems[end]!)
+    ) {
+      end += 1;
+    }
+    this.resolvedItems.push(...this.pendingItems.splice(0, end));
   }
 
   /** Re-render `item`, the frame's rendering of `entry`'s uuid, from the
@@ -682,7 +700,9 @@ export class TranscriptRenderer {
     return true;
   }
 
-  /** Drop an open stream's provisional component and top-level item. */
+  /** Drop a stream's component and top-level item at the response's end.
+   *  The banners the item held back resolve once it is gone (file comment:
+   *  the pending part never starts with an unkeyed item). */
   private discardStream(key: string, stream: StreamingComponent): void {
     this.streaming.delete(key);
     const componentIndex = this.assistantComponents.indexOf(stream.component);
@@ -690,10 +710,11 @@ export class TranscriptRenderer {
       this.assistantComponents.splice(componentIndex, 1);
     }
     if (stream.item !== undefined) {
-      for (const part of [this.resolvedItems, this.pendingItems]) {
-        const itemIndex = part.indexOf(stream.item);
-        if (itemIndex !== -1) {
-          part.splice(itemIndex, 1);
+      const itemIndex = this.pendingItems.indexOf(stream.item);
+      if (itemIndex !== -1) {
+        this.pendingItems.splice(itemIndex, 1);
+        if (itemIndex === 0) {
+          this.resolvePrefix(0);
         }
       }
     }
@@ -752,8 +773,25 @@ export class TranscriptRenderer {
   }
 
   private addItem(item: TranscriptItem, part: TranscriptItem[]): void {
-    this.partFor(item, part).push(item);
+    this.insertItem(item, part, undefined);
     this.rebuild();
+  }
+
+  /** `item` into its part (`partFor`), ahead of `stream`'s item when the
+   *  two share that part (a finalized block ahead of the rest of its
+   *  response), else at the end. */
+  private insertItem(
+    item: TranscriptItem,
+    part: TranscriptItem[],
+    stream: StreamingComponent | undefined,
+  ): void {
+    const target = this.partFor(item, part);
+    const index = stream?.item === undefined ? -1 : target.indexOf(stream.item);
+    if (index === -1) {
+      target.push(item);
+    } else {
+      target.splice(index, 0, item);
+    }
   }
 
   /** Where a new item goes: a keyed item to `part`; an open stream's item
@@ -804,20 +842,27 @@ export class TranscriptRenderer {
   }
 
   /** Add an assistant component as a top-level item (returned) or nested
-   *  under the owning subagent tool (undefined). */
+   *  under the owning subagent tool (undefined); ahead of `stream`'s
+   *  component when given (`insertItem`). */
   private attachAssistant(
     component: AssistantMessageComponent,
     parentToolUseId: string | null,
     uuid: UUID | undefined,
     part: TranscriptItem[],
+    stream: StreamingComponent | undefined,
   ): AssistantItem | undefined {
     const parent = this.parentTool(parentToolUseId);
     if (parent !== undefined) {
-      parent.addSubagentChild(component);
+      if (stream === undefined) {
+        parent.addSubagentChild(component);
+      } else {
+        parent.addSubagentChildBefore(component, stream.component);
+      }
       return undefined;
     }
     const item: AssistantItem = { kind: "assistant", uuid, component };
-    this.addItem(item, part);
+    this.insertItem(item, part, stream);
+    this.rebuild();
     return item;
   }
 

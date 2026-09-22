@@ -13,10 +13,11 @@ import {
   isIdle,
   leaf,
   nextAgentState,
+  observedSessions,
   querySession,
   settled,
 } from "./agent-state.ts";
-import type { AgentEvent } from "../protocol.ts";
+import { type AgentEvent, eventStream, eventUuid } from "../protocol.ts";
 import type { SessionEntry } from "../session/file.ts";
 import { hasPending, pending } from "../stream-merge.ts";
 
@@ -326,6 +327,14 @@ test("a query message on a session never announced is a merge-error anomaly", ()
   assert.equal(state.anomaly?.kind, "merge-error");
   assert.match(state.anomaly!.detail, /not announced/);
   assert.deepEqual(state.sessions, {});
+});
+
+test("a query message on a retained session that is not the announced one changes nothing but the anomaly", () => {
+  const baseState = run([...withQuerySession, queryChanged(SESSION_B)]);
+  const state = nextAgentState(baseState, assistantQuery(3));
+  assert.equal(state.anomaly?.kind, "merge-error");
+  assert.match(state.anomaly!.detail, /not announced/);
+  assert.deepEqual(state.sessions, baseState.sessions);
 });
 
 test("subagent user/assistant messages are observed on query only, with no other effect", () => {
@@ -1056,18 +1065,22 @@ test("resolved accumulates every resolution of one step, in resolution order", (
 
 test("trackerAnomaly sets the anomaly for one fold and observes its node on its stream", () => {
   const anomaly = { kind: "malformed-line", detail: "bytes 10-20" } as const;
+  const foldedAnomaly = {
+    kind: "malformed-line",
+    detail: "malformed-line: bytes 10-20",
+  };
   const state = run([
     ...withQuerySession,
     assistantQuery(2),
     trackerAnomaly(8, "query", anomaly),
   ]);
-  assert.deepEqual(state.anomaly, anomaly);
+  assert.deepEqual(state.anomaly, foldedAnomaly);
   assert.deepEqual(pending(fileA(state).merge, "query"), [uuidN(2), uuidN(8)]);
   const onSession = nextAgentState(
     state,
     trackerAnomaly(9, "session", anomaly),
   );
-  assert.deepEqual(onSession.anomaly, anomaly);
+  assert.deepEqual(onSession.anomaly, foldedAnomaly);
   assert.deepEqual(resolvedIds(onSession), [uuidN(9)]);
   assert.equal(
     nextAgentState(onSession, sdkMessage("result")).anomaly,
@@ -1145,4 +1158,67 @@ test("scanComplete ends the scan exclusion without a query-reported id", () => {
   const state = run([fileChanged(SESSION_A), scanComplete, assistantEntry(2)]);
   assert.equal(fileA(state).scanExcluded, false);
   assert.deepEqual(pending(fileA(state).merge, "session"), [uuidN(2)]);
+});
+
+// --- every kind through observeEvent -----------------------------------------
+// One well-formed event per kind (a new kind fails to compile until it is
+// added), folded from a state where SESSION_A is announced, followed and
+// scanned with prompt 1 queued; each must be observed under its `eventUuid`
+// on its `eventStream` in every `observedSessions` session, without a
+// fold-detected anomaly.
+
+test("every event kind is observed under eventUuid on eventStream in every observedSessions session", () => {
+  const baseState = run([...withQuerySession, queued(1)]);
+  const fixtures: Record<AgentEvent["kind"], AgentEvent> = {
+    userMessageQueued: queued(2),
+    userMessageDequeued: dequeued("turn", [1]),
+    compactSent: { kind: "compactSent", uuid: stamp(), message: userMessage() },
+    interruptSent: { kind: "interruptSent", uuid: stamp() },
+    controlApplied: {
+      kind: "controlApplied",
+      uuid: stamp(),
+      request: { type: "reload-plugins" },
+    },
+    contextChanged: {
+      kind: "contextChanged",
+      uuid: stamp(),
+      boundary: uuidN(5),
+      leaf: null,
+    },
+    sdkMessage: assistantQuery(3),
+    sessionEntry: assistantEntry(4),
+    querySessionChanged: queryChanged(SESSION_B),
+    sessionFileChanged: rescan(9),
+    scanComplete: { kind: "scanComplete", uuid: stamp() },
+    sessionAppended: {
+      kind: "sessionAppended",
+      message: userMessage({ uuid: uuidN(6), session_id: SESSION_A }),
+    },
+    trackerAnomaly: trackerAnomaly(7, "session", {
+      kind: "malformed-line",
+      detail: "bytes 1-2",
+    }),
+    shutdown: { kind: "shutdown", uuid: stamp(), reason: "test" },
+  };
+  for (const [kind, event] of Object.entries(fixtures)) {
+    assert.equal(event.kind, kind);
+    const state = nextAgentState(baseState, event);
+    assert.equal(
+      state.anomaly?.kind,
+      kind === "trackerAnomaly" ? "malformed-line" : undefined,
+      `${kind}: ${state.anomaly?.detail}`,
+    );
+    const sessionIds = observedSessions(baseState, event);
+    assert.notEqual(sessionIds.length, 0, kind);
+    for (const sessionId of sessionIds) {
+      const session = state.sessions[sessionId]!;
+      const seenOn =
+        session.merge.nodes[eventUuid(event)]?.seenOn ??
+        session.resolved.find((node) => node.id === eventUuid(event))?.seenOn;
+      assert.ok(
+        seenOn?.includes(eventStream(event)),
+        `${kind} on ${sessionId}: seen on ${seenOn?.join(",") ?? "nothing"}`,
+      );
+    }
+  }
 });

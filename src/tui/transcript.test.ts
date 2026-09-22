@@ -201,7 +201,91 @@ test("stream events drive a streaming component that the assistant message final
   const text = renderedText(container);
   assert.match(text, /final text/);
   assert.doesNotMatch(text, /partial/);
-  // One component: the finalizing message replaced the streaming content.
+  // The block's own item, then the (now empty) stream still open for the
+  // rest of the response.
+  assert.equal(container.children.length, 2);
+  renderer.append(streamEvent({ type: "message_stop" }));
+  assert.equal(container.children.length, 1);
+  assert.match(renderedText(container), /final text/);
+});
+
+test("each assistant frame of a response takes its block out of the stream, in order", () => {
+  const { renderer, container } = makeRenderer();
+  const streamEvent = (event: Record<string, unknown>): SDKMessage =>
+    ({
+      type: "stream_event",
+      uuid: "s-uuid",
+      parent_tool_use_id: null,
+      event,
+    }) as unknown as SDKMessage;
+  const textBlock = (index: number, text: string): void => {
+    renderer.append(
+      streamEvent({
+        type: "content_block_start",
+        index,
+        content_block: { type: "text", text },
+      }),
+    );
+  };
+  renderer.append(
+    streamEvent({ type: "message_start", message: { id: "msg_m" } }),
+  );
+  textBlock(0, "first block");
+  renderer.append(
+    assistantFrame("m1", "msg_m", [{ type: "text", text: "first block" }]),
+  );
+  textBlock(1, "second partial");
+  // Item for block 0 ahead of the stream rendering block 1.
+  assert.match(renderedText(container), /first block[\s\S]*second partial/);
+  assert.equal(container.children.length, 2);
+  renderer.append(
+    assistantFrame("m2", "msg_m", [{ type: "text", text: "second block" }]),
+  );
+  renderer.append(streamEvent({ type: "message_stop" }));
+  const text = renderedText(container);
+  assert.match(text, /first block[\s\S]*second block/);
+  assert.doesNotMatch(text, /partial/);
+  assert.equal(container.children.length, 2);
+});
+
+test("a block's entry ahead of its frame leaves the stream open for the rest of the response", () => {
+  const { renderer, container } = makeRenderer();
+  const streamEvent = (event: Record<string, unknown>): SDKMessage =>
+    ({
+      type: "stream_event",
+      uuid: "s-uuid",
+      parent_tool_use_id: null,
+      event,
+    }) as unknown as SDKMessage;
+  renderer.append(
+    streamEvent({ type: "message_start", message: { id: "msg_e" } }),
+  );
+  renderer.append(
+    streamEvent({
+      type: "content_block_start",
+      index: 0,
+      content_block: { type: "text", text: "partial" },
+    }),
+  );
+  renderer.appendEntry(
+    assistantEntry("e1", "msg_e", [{ type: "text", text: "entry text" }]),
+  );
+  // The entry's item, then the stream.
+  assert.equal(container.children.length, 2);
+  assert.doesNotMatch(renderedText(container), /partial/);
+  renderer.append(
+    assistantFrame("e1", "msg_e", [{ type: "text", text: "entry text" }]),
+  );
+  assert.equal(container.children.length, 2);
+  renderer.append(
+    streamEvent({
+      type: "content_block_start",
+      index: 1,
+      content_block: { type: "text", text: "still streaming" },
+    }),
+  );
+  assert.match(renderedText(container), /entry text[\s\S]*still streaming/);
+  renderer.append(streamEvent({ type: "message_stop" }));
   assert.equal(container.children.length, 1);
 });
 
@@ -712,6 +796,15 @@ function messageStart(apiMessageId: string): SDKMessage {
   } as unknown as SDKMessage;
 }
 
+function messageStop(): SDKMessage {
+  return {
+    type: "stream_event",
+    uuid: "stream-stop",
+    parent_tool_use_id: null,
+    event: { type: "message_stop" },
+  } as unknown as SDKMessage;
+}
+
 function textDelta(text: string): SDKMessage {
   return {
     type: "stream_event",
@@ -801,33 +894,22 @@ test("render-once: a compact boundary banners once from either side", () => {
   assert.match(renderedText(entryFirst.container), /context compacted/);
 });
 
-test("an entry outrunning its open stream finalizes it; the late frame renders nothing", () => {
-  const { renderer, container } = makeRenderer();
-  renderer.append(messageStart("msg_1"));
-  renderer.append(textDelta("partial"));
-  assert.match(renderedText(container), /partial/);
-  renderer.appendEntry(assistantEntry("a1", "msg_1", TEXT_A));
-  assert.equal(container.children.length, 1);
-  assert.equal(renderedText(container), "● reply A");
-  renderer.append(assistantFrame("a1", "msg_1", TEXT_A));
-  assert.equal(container.children.length, 1);
-  assert.equal(renderedText(container), "● reply A");
-});
-
 test("stream ownership is the API message id: file A → message_start A → file B → frame A", () => {
   const { renderer, container } = makeRenderer();
   renderer.appendEntry(assistantEntry("a1", "msg_A", TEXT_A));
   renderer.append(messageStart("msg_A"));
   renderer.append(textDelta("partial A"));
-  // B's entry is not the open stream's owner: it renders whole and leaves
-  // the stream alone.
+  // B's entry is not the open stream's owner: it renders whole, above the
+  // pending stream, and leaves it alone.
   renderer.appendEntry(assistantEntry("b1", "msg_B", TEXT_B));
   assert.match(renderedText(container), /partial A/);
   assert.match(renderedText(container), /reply B/);
-  // A's keyed frame discards its own provisional stream.
+  // A's frame takes its block out of its own stream, which stays open.
   renderer.append(assistantFrame("a1", "msg_A", TEXT_A));
-  assert.equal(container.children.length, 2);
+  assert.equal(container.children.length, 3);
   assert.doesNotMatch(renderedText(container), /partial A/);
+  renderer.append(messageStop());
+  assert.equal(container.children.length, 2);
   assert.equal(renderedText(container), "● reply A\n\n● reply B");
 });
 
@@ -1037,6 +1119,27 @@ test("resolve: a tool_use frame's tool item moves with its frame; the tool resul
   assert.match(renderedText(container), /ls[\s\S]*a prompt[\s\S]*reply B/);
 });
 
+test("message_stop on a stream nothing precedes releases the banners behind it", () => {
+  const { renderer, container } = makeRenderer();
+  renderer.append(messageStart("msg_2"));
+  renderer.append(textDelta("partial B"));
+  renderer.addBanner("interrupted");
+  renderer.append(assistantFrame("a2", "msg_2", TEXT_B));
+  renderer.resolve("a2" as never, assistantEntry("a2", "msg_2", TEXT_B));
+  // The stream, still open, holds the banner back from a2's resolution.
+  renderer.resolve("u3" as never, userEntry("u3", "a later prompt"));
+  assert.match(
+    renderedText(container),
+    /reply B[\s\S]*a later prompt[\s\S]*interrupted/,
+  );
+  renderer.append(messageStop());
+  renderer.resolve("u4" as never, userEntry("u4", "a final prompt"));
+  assert.match(
+    renderedText(container),
+    /reply B[\s\S]*a later prompt[\s\S]*interrupted[\s\S]*a final prompt/,
+  );
+});
+
 test("resolve: an open stream stays pending and stops the prefix move; a file-only entry resolving meanwhile lands above it", () => {
   const { renderer, container } = makeRenderer();
   renderer.append(assistantFrame("a1", "msg_1", TEXT_A));
@@ -1049,6 +1152,7 @@ test("resolve: an open stream stays pending and stops the prefix move; a file-on
     /reply A[\s\S]*a steer[\s\S]*partial B/,
   );
   renderer.append(assistantFrame("a2", "msg_2", TEXT_B));
+  renderer.append(messageStop());
   renderer.resolve(
     "a2" as never,
     assistantEntry("a2", "msg_2", TEXT_B, "max_tokens"),
@@ -1060,7 +1164,7 @@ test("resolve: an open stream stays pending and stops the prefix move; a file-on
   );
 });
 
-test("resolve: an open stream with nothing pending is still pending; a banner after it moves with the stream's resolution", () => {
+test("resolve: an open stream with nothing pending is still pending; a banner after it moves with the last block's resolution", () => {
   const { renderer, container } = makeRenderer();
   renderer.append(messageStart("msg_2"));
   renderer.append(textDelta("partial B"));
@@ -1071,6 +1175,7 @@ test("resolve: an open stream with nothing pending is still pending; a banner af
     /a prompt[\s\S]*partial B[\s\S]*interrupted/,
   );
   renderer.append(assistantFrame("a2", "msg_2", TEXT_B));
+  renderer.append(messageStop());
   renderer.resolve("a2" as never, assistantEntry("a2", "msg_2", TEXT_B));
   renderer.resolve("u3" as never, userEntry("u3", "a later prompt"));
   assert.match(

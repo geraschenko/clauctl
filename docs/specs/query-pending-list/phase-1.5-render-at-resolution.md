@@ -358,16 +358,21 @@ sections are affected) and the WORK LOG before the next step begins.
   - False "resolved but never observed" for ids query-pending in the seed
     state. Decision (Anton): seed the session models (`seedPending`,
     `queryMessages` values optional).
-- DEFERRED follow-up (Anton, 2026-09-20; cleanup list after the main spec):
-  `streaming.delete` on the first `assistant` frame of a response is early
-  when the response has several content blocks — the CLI emits one
-  `assistant` frame per block, interleaved with the partials
-  (`content_block_start i` … `assistant` … `content_block_stop i`), and
-  `message_stop` is the response's real end. Blocks after the first lose
-  their partials and render whole on arrival. Fix sketch: on each
-  `assistant` for the stream's API id, drop partial block _n_ (the count
-  of frames seen for that id; the frame carries no block index) from the
-  stream's rendering and keep the stream until `message_stop`.
+- Multi-block responses (deferred 2026-09-20, fixed 2026-09-22): the CLI
+  emits one `assistant` message per content block, interleaved with the
+  partials (`content_block_start i` … `assistant` … `content_block_stop
+  i`), and `message_stop` is the response's real end; `streaming.delete`
+  on the first of them lost the later blocks' partials. Now a stream lives
+  until `message_stop`; each `assistant` message for its API id — from
+  either side, once per uuid (`StreamingComponent.finalizedUuids`) —
+  removes partial block _n_ (_n_ = messages seen so far; a message carries
+  no block index) via `withoutBlock` and renders as its own item inserted
+  ahead of the stream's item (`insertItem`; nested:
+  `ToolExecutionComponent.addSubagentChildBefore`). The per-block
+  ordering is asserted LIVE in tests/sdk/stream-classification.test.ts.
+  Consequence for the two-part invariant: dropping a stream's item that
+  headed the pending part releases the banners behind it
+  (`discardStream` → `resolvePrefix(0)`).
 - Command output attachment (review 2026-09-20): `attachCommandOutput`
   attaches to the last item overall (pending's last, else resolved's),
   because before phase 3 the command block is the unkeyed dequeue echo —
@@ -476,3 +481,12 @@ uuid, part)`; `appendEntry` names its part once; `resolve` replaces
       step; main spec Decisions/Type Design/Data Flow/Edge cases updated.
       Test: "a query-only frame with nothing pending ahead resolves in
       its own step as a known id".
+- [x] Multi-block streaming fix (2026-09-22; IMPLEMENTATION IDEAS):
+      `withoutBlock` (sdk-render.ts), `StreamingComponent.finalizedUuids`,
+      `insertItem`/`resolvePrefix`, `message_stop` → `discardStream`,
+      `addSubagentChildBefore`. transcript.test.ts: streaming test
+      extended, 3 new (two-block, entry-first, message_stop releases
+      banners), 2 resolve tests gain the `message_stop`, the
+      "entry outrunning its open stream" test folded into the entry-first
+      one. LIVE: stream-classification suite 7/7 with the new ordering
+      assertion.

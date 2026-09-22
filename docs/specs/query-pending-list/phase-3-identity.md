@@ -3,7 +3,8 @@
 > Work log for phase 3 of docs/specs/query-pending-list.md (Type Design,
 > "Phase 3 — identity"; Data Flow, "Phase 3"; Decisions, "Steers", the
 > dequeue-fold leaf rule, `conversation_reset`, merged runs). Status:
-> **approved 2026-09-20, implementing**.
+> **implemented and committed** (review round 1, 2026-09-21); the
+> Deferred section below became phase 3.5, also done.
 
 ## Scope
 
@@ -469,7 +470,7 @@ undefined`** — empty → undefined; the `[first, ...rest]` destructuring
       `tests/sdk/steer-slash-command.test.ts` (3/3; finding in decision
       8 and docs/claude-agent-sdk.md); no `// TDC:` left in src; presubmit
       green (735 tests); LIVE `queued-batches` + `clear-session` 10/10.
-- [ ] Phase 3.5 spec: uuid-less events + slash-command exemption +
-      interrupt probes (Deferred) — draft in
-      `query-pending-list/phase-3.5-uuid-less-events.md`.
-- [ ] TUI smoke under `/tmp/clauctl-cbi-derisk/`
+- [x] Phase 3.5 spec: uuid-less events + slash-command exemption +
+      interrupt probes (Deferred) —
+      `query-pending-list/phase-3.5-uuid-less-events.md`, done.
+- [x] TUI smoke (Anton, 2026-09-22, after phase 4): works.

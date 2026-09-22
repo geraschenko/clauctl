@@ -56,6 +56,21 @@ function withBlock(
   };
 }
 
+/** The partial without block `index`, once an `assistant` frame carries
+ *  that block finalized (transcript.ts); a slot the render model never
+ *  filled is already empty. */
+export function withoutBlock(
+  streaming: StreamingMessage,
+  index: number,
+): StreamingMessage {
+  const blocks = [...streaming.blocks];
+  blocks[index] = undefined;
+  return {
+    blocks,
+    partial: { content: blocks.filter((b) => b !== undefined) },
+  };
+}
+
 /**
  * Fold one raw stream event into the partial message. Tool-input JSON deltas
  * are deliberately not accumulated: arguments render from the authoritative

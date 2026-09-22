@@ -2,7 +2,7 @@
 
 > Work log for phase 2 of docs/specs/query-pending-list.md (Type Design,
 > "Phase 2 — queue model per-run dequeue"; Data Flow, "Phase 2";
-> Decisions, "Steers"). Status: **implemented, awaiting Anton's review**.
+> Decisions, "Steers"). Status: **implemented and committed**.
 
 ## Scope
 

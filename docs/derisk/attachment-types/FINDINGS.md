@@ -54,12 +54,43 @@ entries; the CLI's rendering of each into the API request (the
 `<system-reminder>` text the model sees) was not captured and is not in the
 file — only the structured payload is.
 
+## Presence in assistant context
+
+Static inspection of the bundled Claude Code 2.1.258 binary
+(`node_modules/@anthropic-ai/claude-agent-sdk-linux-x64/claude`, attachment
+renderers around byte offset 186366158) shows that presence in the session
+chain does **not** imply presentation to the assistant. This is source
+inspection, not wire validation.
+
+- `command_permissions`, `already_read_file`, `batching_reminder_sent`, and
+  `secondary_reminder_sent` render to no API messages. Several hook
+  bookkeeping types also render to nothing.
+- `batching_reminder_sent` records an injection that happened separately:
+  an ephemeral `batching_reminder` is inserted before inference. Replaying
+  the persisted record does not itself recreate that injection.
+- Attachments that do render can become user-role messages marked internally
+  `isMeta`, with text wrapped in `<system-reminder>`. The persisted attachment
+  itself need not be `isMeta`; the tag does not make the API role `system`.
+- System-prompt sections and tool descriptions can also inject instructions
+  without an attachment entry.
+
+## TODO: validate attachment rendering on the wire
+
+Add a mitmproxy-based mechanism to capture outbound inference requests and
+compare persisted attachments with the messages actually presented to the
+assistant. Consider a synthetic session containing valid payloads for each
+attachment type, with distinguishable markers. Account for tool-result and
+mode dependencies, attachments that render to nothing, and ephemeral
+injections whose persisted records are only bookkeeping. Pin the CLI version
+and record relevant settings and experiment assignments.
+
 ## Consequences
 
 - The inventory is open-ended: the CLI adds types with releases (the
   `task_*`, skill and agent listings are recent). Code must treat
   `attachment.type` as an open string and render nothing for unknown types,
   which it does.
-- The only type with user-visible content is `queued_command`; the rest
-  are harness state the model sees and the user does not, which is why
-  the display tree hides them and the context tree keeps them.
+- Of the observed types, clauctl renders only `queued_command`. The context
+  tree keeps all attachments because they are links in the persisted chain,
+  not because every attachment is presented to the model. Other attachments
+  can supply model-visible context or merely record harness bookkeeping.

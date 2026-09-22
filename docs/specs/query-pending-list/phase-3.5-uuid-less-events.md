@@ -2,7 +2,8 @@
 
 > Work log for the deferrals of phase 3
 > (docs/specs/query-pending-list/phase-3-identity.md, Deferred). Status:
-> **IMPLEMENTED 2026-09-21 — awaiting Anton's review** (WORK LOG).
+> **implemented and committed** (review round 83641a3 addressed; WORK
+> LOG). Side findings: docs/thoughts/session-tracker-follow-ups.md.
 
 ## Scope
 
@@ -353,8 +354,9 @@ private readonly pendingEvents = new Map<UUID, AgentEvent>(); // stamped events 
       sections: interrupt, session id, slash predicate);
       user-message-tracking.md's limitation replaced. Side finding:
       `queuedCommandSourceUuid` (file.ts) reads string prompts only, so a
-      block-form steer's attachment would not resolve its dequeue — the
-      daemon never sends block-form prompts today; not addressed here.
+      block-form steer's attachment would not resolve its dequeue — fixed
+      2026-09-22 (`queuedCommandAttachment` accepts string or block-array
+      prompts; `queuedCommandPrompt` joins the text blocks).
 - [x] Item 2 implemented 2026-09-21: queue-model.ts (`isSlashCommand`,
       `isMergeable`, `nextRun`), three queue-model tests.
 - [x] Item 3 implemented 2026-09-21 (protocol → hub → fold → TUI → docs;
@@ -403,4 +405,4 @@ private readonly pendingEvents = new Map<UUID, AgentEvent>(); // stamped events 
       (the events leg has no settlement wait, only `promptLive` does);
       after `/clear` the switch to the new file runs between prompts, so
       the next prompt's gated window shows only the late tail entries.
-- [ ] TUI smoke (manual, Anton).
+- [x] TUI smoke (Anton, 2026-09-22, after phase 4): works.

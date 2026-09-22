@@ -266,6 +266,64 @@ test("stamped SDKUserMessage.uuid becomes the file's user entry uuid; a steered 
   }
 });
 
+// The transcript keeps one stream per response and takes each block out of
+// it as the block's `assistant` message arrives (src/tui/transcript.ts,
+// StreamingComponent.finalizedUuids), which relies on this ordering.
+test("the CLI emits one assistant message per content block, between the block's start and stop, before message_stop", async () => {
+  const { events } = await capture;
+  let open:
+    | { apiMessageId: string; blocksStarted: number; framesSeen: number }
+    | undefined;
+  let responsesSeen = 0;
+  for (const message of events) {
+    if (
+      "parent_tool_use_id" in message &&
+      message.parent_tool_use_id !== null
+    ) {
+      continue;
+    }
+    if (message.type === "stream_event") {
+      const event = message.event;
+      if (event.type === "message_start") {
+        assert.equal(open, undefined, "message_start inside a response");
+        open = {
+          apiMessageId: event.message.id,
+          blocksStarted: 0,
+          framesSeen: 0,
+        };
+      } else if (event.type === "content_block_start") {
+        assert.ok(open);
+        assert.equal(event.index, open.blocksStarted);
+        open.blocksStarted += 1;
+      } else if (event.type === "content_block_stop") {
+        assert.ok(open);
+        assert.equal(
+          open.framesSeen,
+          event.index + 1,
+          `block ${event.index} stopped before its assistant message`,
+        );
+      } else if (event.type === "message_stop") {
+        assert.ok(open);
+        assert.equal(open.framesSeen, open.blocksStarted);
+        responsesSeen += 1;
+        open = undefined;
+      }
+    } else if (message.type === "assistant" && open !== undefined) {
+      // Assistant messages outside a stream (local-command synthesis) have
+      // no partials to relate to.
+      assert.equal(message.message.id, open.apiMessageId);
+      assert.equal(message.message.content.length, 1);
+      assert.equal(
+        open.framesSeen,
+        open.blocksStarted - 1,
+        `assistant message for block ${open.framesSeen} arrived outside its block`,
+      );
+      open.framesSeen += 1;
+    }
+  }
+  assert.ok(responsesSeen >= 2);
+});
+
 // The query stream can repeat a shared uuid (observed: the /cost output
 // re-emitted after /compact when it was the compaction's preserved tail), so
 // the daemon dedups query uuids first-wins before merging; the invariant it

@@ -120,26 +120,48 @@ export function appendedEntryToSdkMessage(entry: SessionEntry): SDKMessage {
   return message as SDKMessage;
 }
 
-/** The prompt of a steered message: one queued mid-turn and absorbed at
- *  a tool result is recorded not as a `user` entry but as a
- *  `queued_command` attachment after that result
- *  (docs/derisk/uuid-stamping/). Undefined for every other entry. */
-export function queuedCommandPrompt(entry: SessionEntry): string | undefined {
-  return entry.type === "attachment" &&
-    isRecord(entry.attachment) &&
-    entry.attachment.type === "queued_command" &&
-    typeof entry.attachment.prompt === "string"
-    ? entry.attachment.prompt
+/** A steered message — one queued mid-turn and absorbed at a tool result
+ *  — is recorded not as a `user` entry but as a `queued_command`
+ *  attachment after that result (docs/derisk/uuid-stamping/), carrying
+ *  the message's content verbatim: a string, or its content blocks
+ *  (tests/sdk/steer-slash-command.test.ts). Undefined for every other
+ *  entry. */
+function queuedCommandAttachment(
+  entry: SessionEntry,
+): { prompt: string | readonly unknown[]; source_uuid?: unknown } | undefined {
+  if (
+    entry.type !== "attachment" ||
+    !isRecord(entry.attachment) ||
+    entry.attachment.type !== "queued_command"
+  ) {
+    return undefined;
+  }
+  const prompt = entry.attachment.prompt;
+  return typeof prompt === "string" || Array.isArray(prompt)
+    ? { prompt, source_uuid: entry.attachment.source_uuid }
     : undefined;
+}
+
+/** The prompt text of a steered message: its string content, or its text
+ *  blocks joined by newlines; undefined for every other entry. */
+export function queuedCommandPrompt(entry: SessionEntry): string | undefined {
+  const prompt = queuedCommandAttachment(entry)?.prompt;
+  if (typeof prompt === "string" || prompt === undefined) {
+    return prompt;
+  }
+  return prompt
+    .flatMap((block) =>
+      isRecord(block) && block.type === "text" && typeof block.text === "string"
+        ? [block.text]
+        : [],
+    )
+    .join("\n");
 }
 
 /** The uuid of the prompt a `queued_command` attachment records (the
  *  steer's own transcript identity); undefined for every other entry. */
 export function queuedCommandSourceUuid(entry: SessionEntry): UUID | undefined {
-  const sourceUuid =
-    queuedCommandPrompt(entry) === undefined
-      ? undefined
-      : (entry.attachment as { source_uuid?: unknown }).source_uuid;
+  const sourceUuid = queuedCommandAttachment(entry)?.source_uuid;
   return typeof sourceUuid === "string" ? (sourceUuid as UUID) : undefined;
 }
 
