@@ -15,8 +15,9 @@ of the CLI's five-stage load pipeline (relink + cut + walk):
 
 1. **loadedContext under-reports.** It omits stage 3 (parallel-group
    expansion: the walk loses off-path results and calls of native
-   parallel tool turns) and stage 4 (resume sanitization: result-less
-   tool_use entries and thinking-only turns are dropped). Its answer
+   parallel tool turns) and stage 4 (resume sanitization: tool_use
+   entries of wholly unanswered turns and thinking-only turns are
+   dropped). Its answer
    therefore diverges from what the assistant actually sees, for every
    consumer: set-context verification, get-messages synthesize, seed,
    get-entries, tree-selector.
@@ -89,7 +90,8 @@ child of callA; resultB (written first) is a child of callB; resultA
    in the splice order above; the chain's last element equals the
    file's last user/assistant entry (`.at(-1)` leaf invariant).
 2. Unit tests (node --test) cover: splice position and ordering;
-   result-less tool_use entry dropped (p20 shape); thinking-only turn
+   result-less tool_use entry dropped (p20-kill0 shape); a half-answered
+   turn kept whole (p20-kill1 shape, 2.1.280); thinking-only turn
    dropped (p19 shape); single-call and interleaved same-id turns pass
    through untouched.
 3. `normalizePreservedUuids` unit tests: completion adds the missing
@@ -293,7 +295,7 @@ not serialize).
   message twice". Tell the caller: if that deletion is what you want,
   send the shorter list explicitly.
 - **Sanitization can shorten the chain's tail**: a file whose last turn
-  was killed mid-parallel-write ends in result-less call entries;
+  was killed before any result landed ends in result-less call entries;
   stage 4 drops them, so `.at(-1)` reports the effective context tip,
   which may predate the raw file tip. That is the truth every
   consumer of loadedContext wants (the dropped call is not in
@@ -301,6 +303,14 @@ not serialize).
   question and unchanged by this spec. Consequence: get-entries
   snapshot.leaf and seed's leaf move off the dangling call for such
   files.
+- **An interrupted trailing turn is healed, not cut** (2.1.280,
+  p20-kill1 / p20-kill1-later): when the chain ends inside an API-message
+  group at a tool result, the group's unanswered call entries stay, and
+  the CLI answers each with a synthetic `is_error` tool_result ("[Request
+  interrupted by user for tool use]") on the wire. That result is no file
+  entry, so the presented context holds messages loadedContext cannot
+  name; entry granularity reports the call and stops there. The same
+  group followed by a later turn is cut as before.
 - **Mixed-content entries** (text + result-less tool_use in ONE entry —
   not a shape the CLI writes, one block per assistant entry): the CLI
   drops the dead block and keeps the text; our entry-granularity model

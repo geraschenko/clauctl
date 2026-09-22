@@ -1,0 +1,260 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>TUI parity diff catalog — claude 2.1.280</title>
+<style>
+  body { background: #16161e; color: #d4d4d4; font-family: system-ui, sans-serif;
+         max-width: 1500px; margin: 0 auto; padding: 1rem 2rem 4rem; }
+  h1 { font-weight: 600; }
+  h2 { margin-top: 3rem; border-bottom: 1px solid #333; padding-bottom: .3rem; font-weight: 600; }
+  h3 { margin-top: 2.2rem; font-family: ui-monospace, monospace; font-weight: 600; }
+  p, li { line-height: 1.45; max-width: 75ch; }
+  table { border-collapse: collapse; margin: 1rem 0; }
+  th, td { border: 1px solid #333; padding: .3rem .7rem; text-align: left; font-size: .85rem; }
+  th { color: #aaa; font-weight: 600; }
+  .badge { display: inline-block; font-size: .75rem; font-family: ui-monospace, monospace;
+           padding: .1rem .5rem; border-radius: 999px; vertical-align: middle; margin-left: .6rem; }
+  .match { background: #1c3a1c; color: #7ec87e; }
+  .differ { background: #3a2c1c; color: #d8a860; }
+  .skip { background: #333; color: #999; }
+  .investigate { background: #1c2c3a; color: #6fb3d8; }
+  .pair { display: grid; grid-template-columns: 1fr 1fr; gap: .8rem; margin: .8rem 0; }
+  .pane { min-width: 0; }
+  .pane .label { font-size: .75rem; font-family: ui-monospace, monospace; color: #888;
+                 text-transform: uppercase; letter-spacing: .08em; margin-bottom: .25rem; }
+  pre { background: #0d0d12; border: 1px solid #2a2a35; border-radius: 6px; padding: .7rem .9rem;
+        overflow-x: auto; font-size: .78rem; line-height: 1.35; margin: 0;
+        font-family: ui-monospace, "Cascadia Code", Menlo, monospace; }
+  .src { color: #666; font-size: .72rem; font-family: ui-monospace, monospace; margin-top: .2rem; }
+  .note { color: #aaa; font-size: .9rem; }
+  .om { color: #666; font-style: italic; }
+  .dim { color: #8a8a8a; }
+</style>
+</head>
+<body>
+
+<h1>TUI parity diff catalog — claude 2.1.280</h1>
+<p>Rendering differences between native claude (v2.1.280, left) and the clauctl
+transcript renderer (right), from the <code>scripts/tui-parity/out/</code>
+regeneration of 2026-09-22 (all five scenarios regenerated under 2.1.280;
+0/5 identical). Successor to <code>diff-catalog-2.1.258.html</code>
+(2026-09-01). Two changes since: the slash-command scenario's
+<code>/compact</code> now actually compacts (it was a no-op in every earlier
+corpus), so claude's boundary rendering is captured for the first time; and
+clauctl's tool glyphs changed by decision on 2026-09-03. Four entries need
+triage.</p>
+
+<table>
+<tr><th>Entry</th><th>Status</th><th>Proposed triage</th><th>Scenarios</th></tr>
+<tr><td>tool-glyphs</td><td>decided 2026-09-03 (tui-rendering-parity spec, "decided divergence: transcript glyphs")</td><td>differ (keep decision)</td><td>tools, subagent</td></tr>
+<tr><td>compact-history-hidden</td><td>new (first capture of claude's boundary)</td><td>differ (decided)</td><td>slash-command</td></tr>
+<tr><td>compact-boundary-line</td><td>new</td><td>differ (decided)</td><td>slash-command</td></tr>
+<tr><td>compact-command-result</td><td>new; reverses the 2.1.211 observation clauctl was built on</td><td>match (decided, implemented)</td><td>slash-command</td></tr>
+<tr><td>compact-block-spacing</td><td>new; block-spacing was decided match</td><td>match (decided, implemented)</td><td>slash-command</td></tr>
+<tr><td>write-success-preview</td><td>re-attested</td><td>match (keep decision)</td><td>tools</td></tr>
+<tr><td>readonly-fold</td><td>decided, unchanged</td><td>differ (keep decision)</td><td>tools</td></tr>
+<tr><td>welcome-banner-compact, input-footer</td><td>decided, unchanged</td><td>differ (keep decisions)</td><td>all</td></tr>
+<tr><td>code-fence-keep, table-header-centering</td><td>decided, unchanged</td><td>differ (keep decisions)</td><td>markdown</td></tr>
+<tr><td>subagent-expand-hint</td><td>harness artifact, unchanged</td><td>skip (keep decision)</td><td>subagent</td></tr>
+</table>
+
+<p class="note">Also observed, invisible in the collapsed render: the Agent
+tool's hand-back <code>tool_result</code> is now framed "[Subagent hand-back]
+The text below is the final report…" — both sides collapse it to the same
+"Done (…)" line. Unattested in this corpus (stamps left at 2.1.250): Bash
+"(No output)", WebSearch rendering, the trust dialog, an update-type Write
+with a non-empty diff.</p>
+
+<h2>Decided since the last catalog</h2>
+
+<h3>tool-glyphs <span class="badge differ">decided: differ (keep decision)</span></h3>
+<p class="note">Tool-call header <code>▸</code> (claude <code>●</code>) and
+result prefix <code>⤷</code> (claude <code>⎿</code>); same colors and column
+widths. Approved 2026-09-03 as the TUI glyph unification with the session
+tree; not in any earlier catalog because the captures predate it.</p>
+<div class="pair">
+<div class="pane"><div class="label">claude</div><pre>
+● Write(notes.txt)
+  ⎿  Wrote 1 line to notes.txt
+      1 hello parity
+
+● Agent(Count files in directory)
+  ⎿  Done (1 tool use · 18.0k tokens · 5s)
+</pre><div class="src">tools.claude.txt, subagent.claude.txt</div></div>
+<div class="pane"><div class="label">clauctl</div><pre>
+▸ Write(notes.txt)
+  ⤷  Wrote 1 line to notes.txt
+      1 hello parity
+
+▸ Agent(Count files in directory)
+  ⤷  Done (1 tool use · 18.0k tokens · 5s)
+</pre><div class="src">tools.clauctl.txt, subagent.clauctl.txt</div></div>
+</div>
+
+<h2>New in 2.1.280 — need triage</h2>
+
+<p class="note">All four come from one hunk of the slash-command scenario,
+shown whole here and split into entries below. The session file holds: user
+prompt, assistant answer, <code>compact_boundary</code> (17122 → 1403
+tokens), the <code>isCompactSummary</code> user entry, the
+<code>&lt;command-name&gt;/compact&lt;/command-name&gt;</code> user entry,
+a <code>&lt;local-command-stdout&gt;Compacted&lt;/local-command-stdout&gt;</code>
+user entry, then the second prompt and answer.</p>
+<div class="pair">
+<div class="pane"><div class="label">claude</div><pre>
+
+· Conversation compacted (ctrl+o for history)
+
+
+❯ <span class="dim">/compact</span>
+  ⎿  Compacted
+
+❯ Reply with exactly one more short sentence.
+
+● Ready for your next task.
+</pre><div class="src">slash-command.claude.txt</div></div>
+<div class="pane"><div class="label">clauctl</div><pre>
+❯ Reply with exactly one short sentence.
+
+● I'm ready to help—what would you like me to work on?
+
+ context compacted (17k → 1.4k tokens)
+
+
+ Compacted (ctrl+o to see full summary)
+
+
+❯ <span class="dim">/compact</span>
+
+❯ Reply with exactly one more short sentence.
+
+● Ready for your next task.
+</pre><div class="src">slash-command.clauctl.txt</div></div>
+</div>
+
+<h3>compact-history-hidden <span class="badge differ">decided: differ</span></h3>
+<p class="note">claude's resumed scrollback drops every turn before the
+boundary and offers them behind <code>ctrl+o</code>; clauctl renders the
+whole file (the pre-compact prompt and answer stay visible above the
+boundary). Proposed differ: clauctl's transcript is the session file, the
+tree and context views already distinguish "in context" from "on disk", and
+hiding history would remove the only place a reader sees what the summary
+replaced. Revisit if the transcript grows a context-only mode.</p>
+
+<h3>compact-boundary-line <span class="badge differ">decided: differ</span></h3>
+<p class="note">claude's marker is <code>· Conversation compacted (ctrl+o for
+history)</code>; clauctl's is <code>context compacted (17k → 1.4k
+tokens)</code> — the token counts are the point of the line (they come from
+<code>compactMetadata</code>, absent on claude's line), and the ctrl+o hint
+would be false under the entry above. Proposed differ; the collapsed
+<code>Compacted (ctrl+o to see full summary)</code> summary line beneath it
+is the already-decided compact-boundary entry (differ: full summary on
+expand).</p>
+
+<h3>compact-command-result <span class="badge match">decided: match (implemented)</span></h3>
+<p class="note">claude now renders the command's stdout as a
+<code>⎿  Compacted</code> result line under <code>❯ /compact</code>. clauctl
+hides <code>/compact</code> stdout on purpose (transcript.test.ts "/compact
+stdout and 'No response requested.' are hidden"), matching the 2.1.211
+capture where claude showed a bare <code>❯ /compact</code>; that observation
+was of a no-op compact. Proposed match: drop the hide so
+<code>/compact</code> gets the same <code>⎿</code> result line as
+<code>/login</code> (slash-command entry, decided match). The "No response
+requested." suppression is unaffected — claude still hides that.</p>
+<div class="pair">
+<div class="pane"><div class="label">claude</div><pre>
+❯ <span class="dim">/compact</span>
+  ⎿  Compacted
+</pre><div class="src">slash-command.claude.txt</div></div>
+<div class="pane"><div class="label">clauctl</div><pre>
+❯ <span class="dim">/compact</span>
+</pre><div class="src">slash-command.clauctl.txt</div></div>
+</div>
+
+<h3>compact-block-spacing <span class="badge match">decided: match (implemented)</span></h3>
+<p class="note">clauctl leaves two blank lines after the boundary line and two
+after the summary line (one between every other pair of blocks). Block
+spacing was decided match in the 2.1.211 catalog (exactly one blank line
+between blocks); the boundary and summary components each carry their own
+top/bottom padding on top of the turn spacing. Proposed match: one blank
+line, as around every other block.</p>
+
+<h2>Previously decided, still visible</h2>
+
+<h3>readonly-fold <span class="badge differ">decided: differ (keep decision)</span></h3>
+<p class="note">Two read-only Bash calls collapse into "Searched for 2
+patterns" in claude; clauctl keeps Bash visible (Bash never folds, decided
+2026-07). Note claude now capitalizes the fold label and the first Bash call
+echoes the absolute workdir path on our side (the model wrote it that way;
+not a rendering difference).</p>
+<div class="pair">
+<div class="pane"><div class="label">claude</div><pre>
+  Searched for 2 patterns (ctrl+o to expand)
+
+● The current directory contains only notes.txt, while /usr/share/doc has 200+ sorted entries for
+</pre><div class="src">tools.claude.txt</div></div>
+<div class="pane"><div class="label">clauctl</div><pre>
+▸ Bash(find ~/.cache/clauctl-tui-parity/workdir/tools -type f)
+  ⤷  ~/.cache/clauctl-tui-parity/workdir/tools/notes.txt
+
+▸ Bash(find /usr/share/doc -maxdepth 1 | sort | head -200)
+  ⤷  /usr/share/doc
+     /usr/share/doc/7zip
+     /usr/share/doc/accountsservice
+     … +197 lines (ctrl+o to expand)
+
+● The current directory contains only notes.txt, while /usr/share/doc has 200+ sorted entries for
+</pre><div class="src">tools.clauctl.txt</div></div>
+</div>
+
+<h3>table-header-centering, code-fence-keep <span class="badge differ">decided: differ (keep decisions)</span></h3>
+<div class="pair">
+<div class="pane"><div class="label">claude</div><pre>
+  │    Feature     │ Support │
+<span class="om"> …</span>
+  function greet(name: string): string {
+</pre><div class="src">markdown.claude.txt</div></div>
+<div class="pane"><div class="label">clauctl</div><pre>
+  │ Feature        │ Support │
+<span class="om"> …</span>
+  ```ts
+  function greet(name: string): string {
+</pre><div class="src">markdown.clauctl.txt</div></div>
+</div>
+
+<h3>welcome-banner-compact, input-footer <span class="badge differ">decided: differ (keep decisions)</span></h3>
+<p class="note">Unchanged shapes; the footer's tmux focus-events hint line
+appears on scenarios without an effort indicator.</p>
+<div class="pair">
+<div class="pane"><div class="label">claude</div><pre>
+ ▐▛███▛█   Claude Code v2.1.280
+▝▜██████▀  Haiku 4.5 · Claude Max
+  ▝▝ ▝▝    ~/.cache/clauctl-tui-parity/workdir/tools
+<span class="om"> …</span>
+────────────────────────────────────────────────────────────────────────────────────────────────────
+❯
+────────────────────────────────────────────────────────────────────────────────────────────────────
+  ⏸ manual mode on · ? for shortcuts · ← for agents
+  tmux focus-events off · add 'set -g focus-events on' to ~/.tmux.conf and reattach for focus tra…
+</pre><div class="src">tools.claude.txt</div></div>
+<div class="pane"><div class="label">clauctl</div><pre>
+<span class="om">(absent)</span>
+</pre></div>
+</div>
+
+<h3>subagent-expand-hint <span class="badge skip">decided: skip (harness artifact)</span></h3>
+<div class="pair">
+<div class="pane"><div class="label">claude</div><pre>
+● Agent(Count files in directory)
+  ⎿  Done (1 tool use · 18.0k tokens · 5s)
+  (ctrl+o to expand)
+</pre><div class="src">subagent.claude.txt</div></div>
+<div class="pane"><div class="label">clauctl</div><pre>
+▸ Agent(Count files in directory)
+  ⤷  Done (1 tool use · 18.0k tokens · 5s)
+</pre><div class="src">subagent.clauctl.txt</div></div>
+</div>
+
+</body>
+</html>

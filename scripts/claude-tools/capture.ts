@@ -63,7 +63,9 @@ const READY_TIMEOUT_MS = 15_000;
 interface RawCapture {
   tools: {
     name: string;
-    input_schema: Record<string, unknown>;
+    /** Absent on server-side tools (`type: "<name>_<date>"`, e.g. advisor),
+     *  whose inputs the API defines, not the CLI. */
+    input_schema?: Record<string, unknown>;
     defer_loading?: boolean;
   }[];
   deferred_tool_roster: string[] | null;
@@ -147,6 +149,13 @@ async function runClaude(prompt: string, maxTurns: number): Promise<void> {
 
 function isBuiltIn(name: string): boolean {
   return !name.startsWith("mcp__");
+}
+
+/** A CLI-defined built-in with a schema to generate a type from. */
+function isTypedBuiltIn(
+  tool: RawCapture["tools"][number],
+): tool is ToolSchemas["tools"][number] {
+  return isBuiltIn(tool.name) && tool.input_schema !== undefined;
 }
 
 /** ToolSearch prompt loading every deferred built-in tool's schema. */
@@ -264,7 +273,7 @@ async function main(): Promise<void> {
   const output: ToolSchemas = {
     claudeVersion: await claudeVersion(),
     sdkVersion: await sdkVersion(),
-    tools: capture.tools.filter((tool) => isBuiltIn(tool.name)),
+    tools: capture.tools.filter(isTypedBuiltIn),
   };
   await writeFile(toolSchemasPath, JSON.stringify(output, null, 2) + "\n");
   console.log(

@@ -791,7 +791,7 @@ test("output entry with unknown parent renders standalone", () => {
   assert.match(renderedText(container), /Login successful/);
 });
 
-test("/compact stdout and 'No response requested.' are hidden", () => {
+test("/compact stdout attaches as the command's result line; 'No response requested.' is hidden", () => {
   const { renderer, container } = makeRenderer();
   const command = userMessage(
     "<command-name>/compact</command-name>\n            <command-message>compact</command-message>\n            <command-args></command-args>",
@@ -810,7 +810,9 @@ test("/compact stdout and 'No response requested.' are hidden", () => {
   renderer.append(
     assistantMessage([{ type: "text", text: "No response requested." }]),
   );
-  assert.equal(renderedText(container), "\u276f /compact");
+  const lines = renderedText(container).split("\n");
+  assert.deepEqual([lines[0], lines.length], ["\u276f /compact", 2]);
+  assert.match(lines[1]!, /\u2937 {2}Not enough messages to compact\./u);
 });
 
 test("bash passthrough: \u276f ! command with unescaped collapsed output", () => {

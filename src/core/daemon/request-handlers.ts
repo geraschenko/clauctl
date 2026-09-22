@@ -258,8 +258,9 @@ export function createRequestHandler(
         try {
           const receipt = await deps.getQuery().interrupt();
           events.emit({ kind: "interruptSent" });
-          // SDK 0.3.250 returns the still-queued receipt when the bundled CLI
-          // advertises interrupt_receipt_v1; preserve the Query passthrough.
+          // The SDK (0.3.250 through 0.3.280, tests/sdk/interrupt-queue.test.ts)
+          // returns the still-queued receipt when the bundled CLI advertises
+          // interrupt_receipt_v1; preserve the Query passthrough.
           return receipt;
         } finally {
           releaseQuery();

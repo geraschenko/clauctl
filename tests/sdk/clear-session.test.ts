@@ -83,7 +83,7 @@ function userMessage(text: string, uuid: UUID): SDKUserMessage {
   };
 }
 
-/** Emitted per stamped submission but not declared in sdk.d.ts 0.3.258. */
+/** Emitted per stamped submission but not declared in sdk.d.ts 0.3.280 (only mentioned in interrupt prose). */
 interface CommandLifecycleMessage {
   type: "command_lifecycle";
   command_uuid: UUID;

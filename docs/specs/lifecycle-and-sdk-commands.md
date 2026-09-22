@@ -54,19 +54,16 @@ parse and validate subcommand arguments — "don't expose" ≠ "don't use".
 > subcommand must carry a code comment explaining the deviation** at its mapping
 > site, so the gap is intentional and obvious, never an oversight.
 
-**Plain passthrough subcommands** (mutations / control):
-`interrupt`, `setPermissionMode`, `setMcpPermissionModeOverride`, `setModel`,
-`setMcpServers`, `reconnectMcpServer`, `toggleMcpServer`, `applyFlagSettings`,
-`updateSettings`, `reloadPlugins`, `reloadSkills`, `rewindFiles`, `seedReadState`, `stopTask`,
-`backgroundTasks`, and the deprecated `setMaxThinkingTokens` (kept because it is
-the only _runtime_ thinking-level control, which DECISION-5 requires us to change
-mid-session and persist; comment the deprecation at the mapping site).
-
-**Plain passthrough subcommands** (reads / introspection — these also back `status`):
-`initializationResult`, `supportedCommands`, `supportedModels`, `supportedAgents`,
-`mcpServerStatus`, `getContextUsage`, `accountInfo`, `readFile`, and
-`usage_EXPERIMENTAL_…` (exposed under a stable alias `usage`; comment that the SDK
-method is experimental and the underlying name will change — pin the SDK version).
+The subcommand set is not enumerated here: it is `sdkRoutes` in
+`src/core/sdk-commands.ts` (each method under its kebab-case name), and
+`src/core/sdk-commands.test.ts` asserts the invariant against the pinned
+`sdk.d.ts` — every `Query` method has a subcommand or is named in the
+exclusion comment at the daemon mapping site (`src/core/sdk-passthrough.ts`).
+Two mapping-site notes stand: the deprecated `setMaxThinkingTokens` is kept
+because it is the only _runtime_ thinking-level control, which DECISION-5
+requires us to change mid-session and persist; `usage_EXPERIMENTAL_…` is
+exposed under the stable alias `usage` (the SDK method is experimental and
+its name will change — pin the SDK version).
 
 **Methods deliberately NOT exposed as passthrough** (each requires a comment at its
 mapping site explaining why):

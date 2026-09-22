@@ -1,5 +1,5 @@
 {
-  "sdkVersion": "0.3.258",
+  "sdkVersion": "0.3.280",
   "cases": {
     "p18-native": {
       "resultSubtype": "success",
@@ -12,11 +12,11 @@
         "assistant:done"
       ],
       "requestMessages": [
-        "user: [{\"type\":\"text\",\"text\":\"<system-reminder>\\nAs you answer the user's questions, you can use the following context:\\n# userEmail\\nThe user's e",
+        "user: \"Run both marker commands in parallel, then say done. (tag: NONCE-P18Q)\"",
         "assistant: [{\"type\":\"tool_use\",\"id\":\"toolu_synthPARA00000000000001\",\"name\":\"Bash\",\"input\":{\"command\":\"echo PAR-A-CMD\"}},{\"type\":\"tool_use\",\"id\":\"toolu_",
         "user: [{\"type\":\"tool_result\",\"tool_use_id\":\"toolu_synthPARA00000000000001\",\"content\":\"PAR-A-RESULT\"},{\"type\":\"tool_result\",\"tool_use_id\":\"toolu_sy",
         "assistant: [{\"type\":\"text\",\"text\":\"Both ran. PAR-DONE-TEXT\"}]",
-        "user: [{\"type\":\"text\",\"text\":\"<system-reminder>\\nAvailable agent types for the Agent tool:\\n- claude: Catch-all for any task that doesn't fit a mo"
+        "user: [{\"type\":\"text\",\"text\":\"<system-reminder>\\n# Environment\\nYou have been invoked in the following environment: \\n - Primary working directory"
       ]
     },
     "p18-grouped": {
@@ -30,11 +30,11 @@
         "assistant:done"
       ],
       "requestMessages": [
-        "user: [{\"type\":\"text\",\"text\":\"<system-reminder>\\nAs you answer the user's questions, you can use the following context:\\n# userEmail\\nThe user's e",
+        "user: [{\"type\":\"text\",\"text\":\"Earlier: a parallel marker exchange. (tag: SYNTH-P18-SUMMARY)\\n\"},{\"type\":\"text\",\"text\":\"Run both marker commands in",
         "assistant: [{\"type\":\"tool_use\",\"id\":\"toolu_synthPARA00000000000001\",\"name\":\"Bash\",\"input\":{\"command\":\"echo PAR-A-CMD\"}},{\"type\":\"tool_use\",\"id\":\"toolu_",
         "user: [{\"type\":\"tool_result\",\"tool_use_id\":\"toolu_synthPARA00000000000001\",\"content\":\"PAR-A-RESULT\"},{\"type\":\"tool_result\",\"tool_use_id\":\"toolu_sy",
         "assistant: [{\"type\":\"text\",\"text\":\"Both ran. PAR-DONE-TEXT\"}]",
-        "user: [{\"type\":\"text\",\"text\":\"<system-reminder>\\nAvailable agent types for the Agent tool:\\n- claude: Catch-all for any task that doesn't fit a mo"
+        "user: [{\"type\":\"text\",\"text\":\"<system-reminder>\\n# Environment\\nYou have been invoked in the following environment: \\n - Primary working directory"
       ]
     },
     "p18-interleaved": {
@@ -48,11 +48,11 @@
         "assistant:done"
       ],
       "requestMessages": [
-        "user: [{\"type\":\"text\",\"text\":\"<system-reminder>\\nAs you answer the user's questions, you can use the following context:\\n# userEmail\\nThe user's e",
+        "user: [{\"type\":\"text\",\"text\":\"Earlier: a parallel marker exchange. (tag: SYNTH-P18-SUMMARY)\\n\"},{\"type\":\"text\",\"text\":\"Run both marker commands in",
         "assistant: [{\"type\":\"tool_use\",\"id\":\"toolu_synthPARA00000000000001\",\"name\":\"Bash\",\"input\":{\"command\":\"echo PAR-A-CMD\"}},{\"type\":\"tool_use\",\"id\":\"toolu_",
         "user: [{\"type\":\"tool_result\",\"tool_use_id\":\"toolu_synthPARA00000000000001\",\"content\":\"PAR-A-RESULT\"},{\"type\":\"tool_result\",\"tool_use_id\":\"toolu_sy",
         "assistant: [{\"type\":\"text\",\"text\":\"Both ran. PAR-DONE-TEXT\"}]",
-        "user: [{\"type\":\"text\",\"text\":\"<system-reminder>\\nAvailable agent types for the Agent tool:\\n- claude: Catch-all for any task that doesn't fit a mo"
+        "user: [{\"type\":\"text\",\"text\":\"<system-reminder>\\n# Environment\\nYou have been invoked in the following environment: \\n - Primary working directory"
       ]
     }
   },

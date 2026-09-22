@@ -1,5 +1,5 @@
 {
-  "sdkVersion": "0.3.258",
+  "sdkVersion": "0.3.280",
   "cases": {
     "p20-kill0": {
       "resultSubtype": "success",
@@ -29,9 +29,9 @@
         "drops-calls-keeps-text"
       ],
       "requestMessages": [
-        "user: [{\"type\":\"text\",\"text\":\"<system-reminder>\\nAs you answer the user's questions, you can use the following context:\\n# userEmail\\nThe user's e",
+        "user: \"Announce, then run both marker commands, then say done. (tag: NONCE-P20Q)\"",
         "assistant: [{\"type\":\"text\",\"text\":\"Running both: P20-TEXT-MARKER\"}]",
-        "user: [{\"type\":\"text\",\"text\":\"<system-reminder>\\nAvailable agent types for the Agent tool:\\n- claude: Catch-all for any task that doesn't fit a mo"
+        "user: [{\"type\":\"text\",\"text\":\"<system-reminder>\\n# Environment\\nYou have been invoked in the following environment: \\n - Primary working directory"
       ]
     },
     "p20-kill1": {
@@ -42,7 +42,6 @@
         "kept-healed-partial": {
           "matches": false,
           "mismatches": [
-            "missing: P20-B-CMD",
             "missing: Tool result missing"
           ]
         },
@@ -51,23 +50,65 @@
           "mismatches": [
             "unexpectedly present: P20-TEXT-MARKER",
             "unexpectedly present: P20-A-CMD",
+            "unexpectedly present: P20-B-CMD",
             "unexpectedly present: P20-A-RESULT"
           ]
         },
         "drops-unresolved-block": {
+          "matches": false,
+          "mismatches": [
+            "unexpectedly present: P20-B-CMD"
+          ]
+        },
+        "kept-healed-interrupt": {
           "matches": true,
           "mismatches": []
         }
       },
       "matching": [
-        "drops-unresolved-block"
+        "kept-healed-interrupt"
       ],
       "requestMessages": [
-        "user: [{\"type\":\"text\",\"text\":\"<system-reminder>\\nAs you answer the user's questions, you can use the following context:\\n# userEmail\\nThe user's e",
+        "user: \"Announce, then run both marker commands, then say done. (tag: NONCE-P20Q)\"",
         "assistant: [{\"type\":\"text\",\"text\":\"Running both: P20-TEXT-MARKER\"},{\"type\":\"tool_use\",\"id\":\"toolu_synthP20A00000000000001\",\"name\":\"Bash\",\"input\":{\"comm",
-        "user: [{\"type\":\"tool_result\",\"tool_use_id\":\"toolu_synthP20A00000000000001\",\"content\":\"P20-A-RESULT\"},{\"type\":\"text\",\"text\":\"Continue from where yo",
+        "user: [{\"type\":\"tool_result\",\"tool_use_id\":\"toolu_synthP20A00000000000001\",\"content\":\"P20-A-RESULT\"},{\"type\":\"tool_result\",\"content\":\"[Request int",
         "assistant: [{\"type\":\"text\",\"text\":\"No response requested.\"}]",
-        "user: [{\"type\":\"text\",\"text\":\"<system-reminder>\\nAvailable agent types for the Agent tool:\\n- claude: Catch-all for any task that doesn't fit a mo"
+        "user: [{\"type\":\"text\",\"text\":\"<system-reminder>\\n# Environment\\nYou have been invoked in the following environment: \\n - Primary working directory"
+      ]
+    },
+    "p20-kill1-later": {
+      "resultSubtype": "success",
+      "error": null,
+      "stderr": null,
+      "verdicts": {
+        "tail-heal-only": {
+          "matches": true,
+          "mismatches": []
+        },
+        "group-heal": {
+          "matches": false,
+          "mismatches": [
+            "missing: P20-B-CMD",
+            "missing: [Request interrupted by user for tool us"
+          ]
+        },
+        "stage5-heal": {
+          "matches": false,
+          "mismatches": [
+            "missing: P20-B-CMD",
+            "missing: Tool result missing"
+          ]
+        }
+      },
+      "matching": [
+        "tail-heal-only"
+      ],
+      "requestMessages": [
+        "user: \"Announce, then run both marker commands, then say done. (tag: NONCE-P20Q)\"",
+        "assistant: [{\"type\":\"text\",\"text\":\"Running both: P20-TEXT-MARKER\"},{\"type\":\"tool_use\",\"id\":\"toolu_synthP20A00000000000001\",\"name\":\"Bash\",\"input\":{\"comm",
+        "user: [{\"type\":\"tool_result\",\"tool_use_id\":\"toolu_synthP20A00000000000001\",\"content\":\"P20-A-RESULT\"},{\"type\":\"text\",\"text\":\"Carry on. (tag: P20-US",
+        "assistant: [{\"type\":\"text\",\"text\":\"Carrying on. P20-DONE2-TEXT\"}]",
+        "user: [{\"type\":\"text\",\"text\":\"<system-reminder>\\n# Environment\\nYou have been invoked in the following environment: \\n - Primary working directory"
       ]
     },
     "p20-part1": {
@@ -92,11 +133,11 @@
         "cut-per-entry"
       ],
       "requestMessages": [
-        "user: [{\"type\":\"text\",\"text\":\"<system-reminder>\\nAs you answer the user's questions, you can use the following context:\\n# userEmail\\nThe user's e",
+        "user: [{\"type\":\"text\",\"text\":\"Earlier: marker exchange. (tag: SYNTH-P20-PART1-SUMMARY)\\n\"},{\"type\":\"text\",\"text\":\"Announce, then run both marker c",
         "assistant: [{\"type\":\"tool_use\",\"id\":\"toolu_synthP20A00000000000001\",\"name\":\"Bash\",\"input\":{\"command\":\"echo P20-A-CMD\"}}]",
         "user: [{\"type\":\"tool_result\",\"tool_use_id\":\"toolu_synthP20A00000000000001\",\"content\":\"P20-A-RESULT\"}]",
         "assistant: [{\"type\":\"text\",\"text\":\"Both ran. P20-DONE-TEXT\"}]",
-        "user: [{\"type\":\"text\",\"text\":\"<system-reminder>\\nAvailable agent types for the Agent tool:\\n- claude: Catch-all for any task that doesn't fit a mo"
+        "user: [{\"type\":\"text\",\"text\":\"<system-reminder>\\n# Environment\\nYou have been invoked in the following environment: \\n - Primary working directory"
       ]
     },
     "p20-part2": {
@@ -120,11 +161,11 @@
         "cut-per-entry"
       ],
       "requestMessages": [
-        "user: [{\"type\":\"text\",\"text\":\"<system-reminder>\\nAs you answer the user's questions, you can use the following context:\\n# userEmail\\nThe user's e",
+        "user: [{\"type\":\"text\",\"text\":\"Earlier: marker exchange. (tag: SYNTH-P20-PART2-SUMMARY)\\n\"},{\"type\":\"text\",\"text\":\"Announce, then run both marker c",
         "assistant: [{\"type\":\"text\",\"text\":\"Running both: P20-TEXT-MARKER\"},{\"type\":\"tool_use\",\"id\":\"toolu_synthP20A00000000000001\",\"name\":\"Bash\",\"input\":{\"comm",
         "user: [{\"type\":\"tool_result\",\"tool_use_id\":\"toolu_synthP20A00000000000001\",\"content\":\"P20-A-RESULT\"}]",
         "assistant: [{\"type\":\"text\",\"text\":\"Both ran. P20-DONE-TEXT\"}]",
-        "user: [{\"type\":\"text\",\"text\":\"<system-reminder>\\nAvailable agent types for the Agent tool:\\n- claude: Catch-all for any task that doesn't fit a mo"
+        "user: [{\"type\":\"text\",\"text\":\"<system-reminder>\\n# Environment\\nYou have been invoked in the following environment: \\n - Primary working directory"
       ]
     }
   },

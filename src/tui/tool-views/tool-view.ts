@@ -67,9 +67,11 @@ export const READ_ONLY_TOOLS: ReadonlySet<string> = new Set([
   "ToolSearch",
   "TaskGet",
   "TaskList",
-  "TaskOutput",
   "ListMcpResources",
   "ReadMcpResource",
+  // Removed from the CLI in 2.1.280; kept so older transcripts still fold.
+  // Remove after 2026-12-22.
+  "TaskOutput",
 ]);
 
 export const toolViews: { [K in ToolName]?: ToolView<ToolInputMap[K]> } = {

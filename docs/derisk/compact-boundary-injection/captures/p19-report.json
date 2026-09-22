@@ -1,5 +1,5 @@
 {
-  "sdkVersion": "0.3.258",
+  "sdkVersion": "0.3.280",
   "control": {
     "resultSubtype": "success",
     "error": null,
@@ -36,7 +36,7 @@
       "assistant: [{\"type\":\"thinking\",\"thinking\":\"The user is asking a simple math question: 2+2. They want just the number as the answer.\\n\\n2+2 = 4\\n\\nThey ",
       "user: \"Name any primary color, one word. (tag: NONCE-U3)\"",
       "assistant: [{\"type\":\"thinking\",\"thinking\":\"The user is asking me to name any primary color in one word. The primary colors are typically red, blue, and",
-      "user: [{\"type\":\"text\",\"text\":\"<system-reminder>\\nThe following skills are available for use with the Skill tool:\\n\\n- dataviz: Use this skill when"
+      "user: [{\"type\":\"text\",\"text\":\"<system-reminder>\\n# Environment\\nYou have been invoked in the following environment: \\n - Primary working directory"
     ]
   },
   "exclText": {
@@ -73,7 +73,7 @@
       "assistant: [{\"type\":\"thinking\",\"thinking\":\"The user is asking a simple math question: 2+2. They want just the number as the answer.\\n\\n2+2 = 4\\n\\nThey ",
       "user: \"Name any primary color, one word. (tag: NONCE-U3)\"",
       "assistant: [{\"type\":\"thinking\",\"thinking\":\"The user is asking me to name any primary color in one word. The primary colors are typically red, blue, and",
-      "user: [{\"type\":\"text\",\"text\":\"<system-reminder>\\nThe following skills are available for use with the Skill tool:\\n\\n- dataviz: Use this skill when"
+      "user: [{\"type\":\"text\",\"text\":\"<system-reminder>\\n# Environment\\nYou have been invoked in the following environment: \\n - Primary working directory"
     ]
   },
   "violations": []

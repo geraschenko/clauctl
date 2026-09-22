@@ -2,7 +2,7 @@
  * The four-bucket partition of the SDK `Options` type (spec: Phase 1,
  * "Options handling"), and the `claude`-flag → `Options` parser that `spawn`
  * uses — the inverse of the SDK's `initialize()` argv builder, pinned to SDK
- * 0.3.258.
+ * 0.3.280.
  *
  * OPTION_BUCKETS is exhaustive over `keyof Options` via `satisfies`, so an SDK
  * bump that adds or removes a field breaks the build until it is classified —
@@ -39,6 +39,10 @@ export const OPTION_BUCKETS = {
   agents: "persist",
   cwd: "persist",
   additionalDirectories: "persist",
+  projectConfigRoot: "persist",
+  // No `claude` flag carries it (an SDK stdin-side behavior), so no spawn
+  // flag sets it yet.
+  verbatimPrompts: "persist",
   env: "persist",
   extraArgs: "persist",
   betas: "persist",
@@ -93,6 +97,12 @@ export const OPTION_BUCKETS = {
   debug: "invariant",
   debugFile: "invariant",
   permissionPromptToolName: "invariant",
+  // Client-capability declaration of who answers permission prompts: 'none'
+  // until the TUI can answer them, then 'host' (see invariantOptions).
+  permissionPrompts: "invariant",
+  // How the plugin list reaches the CLI process (argv vs the initialize
+  // request); no session-observable effect, so the SDK default stands.
+  pluginDelivery: "invariant",
   // Stays unset (fail-closed: dialog-gated CLI flows degrade to their
   // no-dialog behavior) until the TUI has an onUserDialog renderer, then
   // declares exactly the kinds it renders.
@@ -135,11 +145,16 @@ export function invariantOptions(): Pick<
   | "includePartialMessages"
   | "includeHookEvents"
   | "forwardSubagentText"
+  | "permissionPrompts"
 > {
   return {
     persistSession: true,
     includePartialMessages: true,
     includeHookEvents: true,
+    // No canUseTool is supplied, so a prompt could never be answered anyway;
+    // declaring it lets the CLI deny with a message telling the model the
+    // session has no approval surface. Mode, rules and hooks still decide.
+    permissionPrompts: "none",
     // The augmented stream is the full observable record (DECISION-6): the
     // TUI renders subagent activity nested under its Task/Agent tool, which
     // only exists on the stream when subagent text is forwarded.
@@ -210,6 +225,7 @@ const REJECTED_FLAGS = new Set([
   "--debug-file",
   "--debug-to-stderr",
   "--permission-prompt-tool",
+  "--permission-prompts",
   "--continue",
   "--fork-session",
   "--resume-session-at",
@@ -279,10 +295,10 @@ function parsePositiveNumber(flag: string, value: string): number {
 }
 
 /**
- * The SDK sends a bare-string `systemPrompt` as an unrecorded custom prompt
- * and reads `snapshot` only off the object shapes, so attaching
- * `--system-prompt-snapshot` promotes the current value to the shape that
- * carries it (the bare `claude_code` preset when no prompt flag was given).
+ * The SDK reads `snapshot` only off the object `systemPrompt` shapes (a
+ * bare string follows the default), so attaching `--system-prompt-snapshot`
+ * promotes the current value to the shape that carries it (the bare
+ * `claude_code` preset when no prompt flag was given).
  */
 function withSystemPromptSnapshot(
   current: Options["systemPrompt"],
@@ -393,6 +409,9 @@ export function parseClaudeFlags(args: readonly string[]): ParsedClaudeFlags {
         break;
       case "--add-dir":
         addDirs.push(next(flag));
+        break;
+      case "--project-config-root":
+        options.projectConfigRoot = next(flag);
         break;
       case "--betas":
         options.betas = splitCommaList(next(flag)) as Options["betas"];

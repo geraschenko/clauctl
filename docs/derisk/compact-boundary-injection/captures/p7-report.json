@@ -1,80 +1,80 @@
 {
   "versions": {
-    "sdk": "0.3.258"
+    "sdk": "0.3.280"
   },
   "reps": 12,
-  "sessionId": "47ae79ac-a6f2-45b6-aef7-cb974b354a8e",
+  "sessionId": "ee4bb806-590b-4570-9803-73757b758026",
   "allAssertionsPassed": true,
   "leafOnDiskMs": {
-    "min": 95,
-    "median": 97,
-    "max": 106
+    "min": 30,
+    "median": 34,
+    "max": 37
   },
   "teardownMs": {
-    "min": 15,
-    "median": 20,
+    "min": 17,
+    "median": 19,
     "max": 26
   },
   "cycles": [
     {
       "cycle": 0,
-      "leafOnDiskMs": 98,
-      "teardownMs": 15
+      "leafOnDiskMs": 35,
+      "teardownMs": 21
     },
     {
       "cycle": 1,
-      "leafOnDiskMs": 98,
-      "teardownMs": 19
-    },
-    {
-      "cycle": 2,
-      "leafOnDiskMs": 96,
-      "teardownMs": 16
-    },
-    {
-      "cycle": 3,
-      "leafOnDiskMs": 97,
-      "teardownMs": 24
-    },
-    {
-      "cycle": 4,
-      "leafOnDiskMs": 102,
-      "teardownMs": 26
-    },
-    {
-      "cycle": 5,
-      "leafOnDiskMs": 95,
-      "teardownMs": 24
-    },
-    {
-      "cycle": 6,
-      "leafOnDiskMs": 97,
-      "teardownMs": 15
-    },
-    {
-      "cycle": 7,
-      "leafOnDiskMs": 97,
-      "teardownMs": 20
-    },
-    {
-      "cycle": 8,
-      "leafOnDiskMs": 97,
-      "teardownMs": 23
-    },
-    {
-      "cycle": 9,
-      "leafOnDiskMs": 96,
+      "leafOnDiskMs": 30,
       "teardownMs": 17
     },
     {
-      "cycle": 10,
-      "leafOnDiskMs": 106,
+      "cycle": 2,
+      "leafOnDiskMs": 34,
+      "teardownMs": 20
+    },
+    {
+      "cycle": 3,
+      "leafOnDiskMs": 34,
+      "teardownMs": 26
+    },
+    {
+      "cycle": 4,
+      "leafOnDiskMs": 33,
+      "teardownMs": 17
+    },
+    {
+      "cycle": 5,
+      "leafOnDiskMs": 33,
+      "teardownMs": 17
+    },
+    {
+      "cycle": 6,
+      "leafOnDiskMs": 36,
+      "teardownMs": 20
+    },
+    {
+      "cycle": 7,
+      "leafOnDiskMs": 36,
+      "teardownMs": 24
+    },
+    {
+      "cycle": 8,
+      "leafOnDiskMs": 33,
       "teardownMs": 19
     },
     {
+      "cycle": 9,
+      "leafOnDiskMs": 33,
+      "teardownMs": 19
+    },
+    {
+      "cycle": 10,
+      "leafOnDiskMs": 37,
+      "teardownMs": 18
+    },
+    {
       "cycle": 11,
-      "leafOnDiskMs": 99,
-      "teardownMs": 24
+      "leafOnDiskMs": 34,
+      "teardownMs": 18
     }
   ]
 }

@@ -23,9 +23,10 @@ export function foldSdkMessage(
     return stateWithEvidence;
   }
   if (message.type === "conversation_reset") {
-    // SDK 0.3.258 emits this before the new conversation's init. Despite
+    // The CLI emits this before the new conversation's init. Despite
     // its name, new_conversation_id is not the transcript session_id
-    // announced by that init (verified live); the old context's evidence
+    // announced by that init (tests/sdk/clear-session.test.ts, verified
+    // through SDK 0.3.280); the old context's evidence
     // stays with its file. Queued future turns still belong to the
     // running process. The reset command's own prompt is filed under the
     // NEXT session instead, so it is excluded from this file's stream.

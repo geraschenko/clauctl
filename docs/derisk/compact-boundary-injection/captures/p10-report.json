@@ -1,11 +1,11 @@
 {
-  "sdkVersion": "0.3.258",
+  "sdkVersion": "0.3.280",
   "resultSubtype": "success",
   "error": null,
   "stderr": null,
   "nRequestMessages": 1,
   "requestMessages": [
-    "user: [{\"type\":\"text\",\"text\":\"<system-reminder>\\nAvailable agent types for the Agent tool:\\n- claude: Catch-all for any task t"
+    "user: [{\"type\":\"text\",\"text\":\"<system-reminder>\\n# Environment\\nYou have been invoked in the following environment: \\n - Prima"
   ],
   "markerPresence": {
     "u1Tag": false,
@@ -15,7 +15,7 @@
     "u3Tag": false,
     "red": false
   },
-  "boundaryUuid": "c2f9b28e",
-  "firstNewUserParent": "c2f9b28e",
+  "boundaryUuid": "594970bf",
+  "firstNewUserParent": "594970bf",
   "violations": []
 }

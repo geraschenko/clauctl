@@ -235,8 +235,9 @@ function rewindsFixture(): SessionEntry[] {
 /** The readonly-fold parallel turn (docs/specs/session-tree.md): thinking
  *  → callA; callB chains off callA; resultB is written first, resultA
  *  last; the continuation parents on resultA. Then a killed turn (a call
- *  with no result, the next prompt parented on it) and a thinking-only
- *  turn the next prompt parents on. */
+ *  with no result, the next prompt parented on it), a thinking-only turn
+ *  the next prompt parents on, and a half-answered parallel turn (one of
+ *  two calls got its result; the loader keeps both). */
 function toolTurnsFixture(): SessionEntry[] {
   const sid = uuid();
   const u1 = userEntry(null, sid);
@@ -251,6 +252,11 @@ function toolTurnsFixture(): SessionEntry[] {
   const thinkingOnly = thinkingEntry(u3.uuid, sid, "msg_thinking");
   const u4 = userEntry(thinkingOnly.uuid, sid);
   const a4 = assistantEntry(u4.uuid, sid);
+  const u5 = userEntry(a4.uuid, sid);
+  const halfC = callEntry(u5.uuid, sid, "msg_half", "toolu_C", "T7");
+  const halfD = callEntry(halfC.uuid, sid, "msg_half", "toolu_D", "T8");
+  const halfResultC = resultEntry(halfC, sid, "T9");
+  const u6 = userEntry(halfResultC.uuid, sid);
   return [
     u1,
     thinking,
@@ -264,6 +270,11 @@ function toolTurnsFixture(): SessionEntry[] {
     thinkingOnly,
     u4,
     a4,
+    u5,
+    halfC,
+    halfD,
+    halfResultC,
+    u6,
   ];
 }
 

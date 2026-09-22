@@ -410,18 +410,29 @@ test("a slash command mid-turn is not steered: it runs as its own turn at the re
   assert.deepEqual(scenario.state.queued, []);
 });
 
-test("a /command in block-form content is an ordinary prompt: steered", () => {
+test("a /command in a text block is a command too: not steered, its own turn at the result", () => {
   let scenario = accept(
     start(),
     userMessage({
-      message: { role: "user", content: [{ type: "text", text: "/cost" }] },
+      message: {
+        role: "user",
+        content: [
+          {
+            type: "image",
+            source: { type: "base64", media_type: "image/png", data: "" },
+          },
+          { type: "text", text: "/cost" },
+        ],
+      },
     }),
     false,
   );
   scenario = observe(scenario, toolResult);
   scenario = observe(scenario, assistant);
+  assert.deepEqual(dequeues(scenario), []);
+  scenario = observe(scenario, result);
   assert.deepEqual(dequeues(scenario), [
-    { kind: "userMessageDequeued", delivery: "steer", uuids: [uuidN(1)] },
+    { kind: "userMessageDequeued", delivery: "turn", uuids: [uuidN(1)] },
   ]);
 });
 

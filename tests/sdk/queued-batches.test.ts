@@ -117,7 +117,7 @@ function hasToolUse(message: SDKMessage): boolean {
 }
 
 /** Emitted per stamped submission (docs/derisk/uuid-stamping/) but not
- *  declared in sdk.d.ts 0.3.258. */
+ *  declared in sdk.d.ts 0.3.280 (only mentioned in interrupt prose). */
 interface CommandLifecycleMessage {
   type: "command_lifecycle";
   command_uuid: UUID;
@@ -142,11 +142,14 @@ function isLifecycleCompleted(
 }
 
 interface Stamped {
+  sleepTurn: UUID;
   steer: [UUID, UUID, UUID];
+  textTurn: UUID;
   /** Default priority, queued during a text-only turn. */
   defaultRun: [UUID, UUID, UUID];
   /** Idle appends back to back, then a turn. */
   idleAppend: [UUID, UUID, UUID];
+  secondSleepTurn: UUID;
   /** `later`: querying (image + text), querying, append, querying. */
   mixed: [UUID, UUID, UUID, UUID];
   /** Default priority, pushed during the turn of `mixed`'s first run. */
@@ -156,6 +159,8 @@ interface Stamped {
 interface Capture {
   entries: SessionEntry[];
   stamped: Stamped;
+  /** The query stream in order. */
+  events: SDKMessage[];
 }
 
 /** One session, four batches. Each batch is pushed at the moment that
@@ -166,9 +171,12 @@ async function runSession(): Promise<Capture> {
   const configDir = makeConfigDir("queued-batches");
   const cwd = mkdtempSync(join(tmpdir(), "clauctl-sdktest-"));
   const stamped: Stamped = {
+    sleepTurn: randomUUID(),
     steer: [randomUUID(), randomUUID(), randomUUID()],
+    textTurn: randomUUID(),
     defaultRun: [randomUUID(), randomUUID(), randomUUID()],
     idleAppend: [randomUUID(), randomUUID(), randomUUID()],
+    secondSleepTurn: randomUUID(),
     mixed: [randomUUID(), randomUUID(), randomUUID(), randomUUID()],
     midDrain: randomUUID(),
   };
@@ -206,7 +214,7 @@ async function runSession(): Promise<Capture> {
       // The steers complete inside the running turn; wait for its result so
       // the text turn is the one the next batch is queued into.
       trigger: (message) => message.type === "result",
-      run: () => channel.push(userMessage(TEXT_TURN, randomUUID())),
+      run: () => channel.push(userMessage(TEXT_TURN, stamped.textTurn)),
     },
     {
       trigger: (message) => message.type === "stream_event",
@@ -234,7 +242,7 @@ async function runSession(): Promise<Capture> {
     {
       trigger: (message) =>
         isLifecycleCompleted(message, stamped.idleAppend[2]),
-      run: () => channel.push(userMessage(SLEEP_TURN, randomUUID())),
+      run: () => channel.push(userMessage(SLEEP_TURN, stamped.secondSleepTurn)),
     },
     {
       trigger: hasToolUse,
@@ -281,7 +289,7 @@ async function runSession(): Promise<Capture> {
   ];
   const events: SDKMessage[] = [];
   let sessionId: UUID | undefined;
-  channel.push(userMessage(SLEEP_TURN, randomUUID()));
+  channel.push(userMessage(SLEEP_TURN, stamped.sleepTurn));
   try {
     for await (const message of q) {
       events.push(message);
@@ -303,10 +311,17 @@ async function runSession(): Promise<Capture> {
     events.map((message) => JSON.stringify(message)).join("\n") + "\n",
   );
   copyFileSync(filePath, join(configDir, "session.jsonl"));
-  return { entries, stamped };
+  return { entries, stamped, events };
 }
 
 const capture = runSession();
+
+/** Each result frame's consumed prompt uuids, in stream order. */
+function resultUuidLists(events: SDKMessage[]): (string[] | undefined)[] {
+  return events.flatMap((message) =>
+    message.type === "result" ? [message.user_message_uuids] : [],
+  );
+}
 
 function userEntryContent(entries: SessionEntry[], uuid: UUID): unknown {
   const entry = entries.find(
@@ -377,6 +392,31 @@ test("an append splits a bucket into runs, and a block-form member makes the run
   ]);
   assert.equal(userEntryText(entries, append), "Note the word TAU.");
   assert.equal(userEntryText(entries, lastQuery), "Reply UPSILON.");
+});
+
+test("each result's user_message_uuids lists the turn's prompt, then its merged run members or folded-in steers", async () => {
+  const { events, stamped } = await capture;
+  const [firstQuery, secondQuery, append, lastQuery] = stamped.mixed;
+  assert.deepEqual(resultUuidLists(events), [
+    [stamped.sleepTurn, ...stamped.steer],
+    [stamped.textTurn],
+    stamped.defaultRun,
+    ...stamped.idleAppend.map((uuid) => [uuid]),
+    [stamped.secondSleepTurn],
+    [firstQuery, secondQuery],
+    [stamped.midDrain],
+    [append],
+    [lastQuery],
+  ]);
+  const mergedRunResult = events.find(
+    (message) =>
+      message.type === "result" &&
+      message.user_message_uuids?.includes(stamped.defaultRun[0]),
+  );
+  assert.equal(
+    mergedRunResult?.type === "result" && mergedRunResult.user_message_uuid,
+    stamped.defaultRun[2],
+  );
 });
 
 test("a higher-priority prompt accepted mid-drain runs before the bucket's remaining runs", async () => {

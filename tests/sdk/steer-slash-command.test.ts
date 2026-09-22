@@ -1,18 +1,18 @@
 // SDK expectation: how the CLI treats slash commands pushed while a turn
 // runs (docs/claude-agent-sdk.md, "Slash commands are turns of their own").
-// A prompt whose STRING content starts with `/` is a command — built-in,
-// custom, or unknown alike — and is never steered and never merged: it
-// waits in the queue and runs as its own turn after the running turn's
-// result, expanded into the `<command-name>` form (a built-in may expand
-// to its alias: `/cost` → `/usage`; an unknown one writes only
-// `local_command` system entries, no user entry). Everything else is an
-// ordinary prompt: a text that merely mentions a `/command`, and a
-// `/command` in block-form content, are steered verbatim as a
+// A prompt whose string content, or any text block of whose block-form
+// content, starts with `/` is a command — built-in, custom, or unknown
+// alike — and is never steered and never merged: it waits in the queue
+// and runs as its own turn after the running turn's result, expanded into
+// the `<command-name>` form in place (a built-in may expand to its alias:
+// `/cost` → `/usage`; other blocks of a block-form prompt stay; an unknown
+// one is forwarded to the model as plain text). A text that merely
+// mentions a `/command` is an ordinary prompt, steered verbatim as a
 // queued_command attachment (unexpanded — so the TUI renders an
 // attachment as plain prompt text, transcript.ts entryUserViews). This is
 // the predicate the queue model mirrors (queue-model.ts, isSlashCommand);
 // a `later` command and a command between two texts in one bucket pin
-// its placement. LIVE: one haiku session, ~10 calls.
+// its placement. LIVE: one haiku session, ~12 calls.
 
 import assert from "node:assert/strict";
 import { randomUUID, type UUID } from "node:crypto";
@@ -46,6 +46,8 @@ const SLEEP_TURN =
 const TEXT_TURN =
   "Write the numbers 1 through 60 in words, separated by commas, nothing else.";
 const COMMAND = "/cost";
+const ONE_PIXEL_PNG =
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
 /** A CLI that never closes a lifecycle would hang the probe; a quiet
  *  stream this long ends the session so the assertions report instead. */
 const INACTIVITY_MS = 60_000;
@@ -115,7 +117,7 @@ function hasToolUse(message: SDKMessage): boolean {
 }
 
 /** Emitted per stamped submission (docs/derisk/uuid-stamping/) but not
- *  declared in sdk.d.ts 0.3.258. */
+ *  declared in sdk.d.ts 0.3.280 (only mentioned in interrupt prose). */
 interface CommandLifecycleMessage {
   type: "command_lifecycle";
   command_uuid: UUID;
@@ -129,16 +131,22 @@ function isCommandLifecycle(
 }
 
 interface Stamped {
+  sleepTurn: UUID;
   /** Pushed in the sleep turn's steer window. */
   steer: UUID;
   customSteer: UUID;
   embeddedSteer: UUID;
   unknownSteer: UUID;
   blockSteer: UUID;
+  /** `[image, text "/cost"]` — clauctl's `--image` prompt shape. */
+  imageBlockSteer: UUID;
+  /** `[text "hello", text "/cost"]` — the command not in the first block. */
+  textTextBlockSteer: UUID;
   laterSteer: UUID;
   /** Pushed at the sleep turn's result. */
   turn: UUID;
   customTurn: UUID;
+  textTurn: UUID;
   /** Pushed into a text-only turn: text, command, text. */
   split: [UUID, UUID, UUID];
 }
@@ -146,6 +154,8 @@ interface Stamped {
 interface Capture {
   entries: SessionEntry[];
   stamped: Stamped;
+  /** The query stream in order. */
+  events: SDKMessage[];
   /** Lifecycle states per uuid, in stream order. */
   lifecycles: Map<UUID, CommandLifecycleMessage["state"][]>;
 }
@@ -165,14 +175,18 @@ async function runSession(): Promise<Capture> {
   );
   const cwd = mkdtempSync(join(tmpdir(), "clauctl-sdktest-"));
   const stamped: Stamped = {
+    sleepTurn: randomUUID(),
     steer: randomUUID(),
     customSteer: randomUUID(),
     embeddedSteer: randomUUID(),
     unknownSteer: randomUUID(),
     blockSteer: randomUUID(),
+    imageBlockSteer: randomUUID(),
+    textTextBlockSteer: randomUUID(),
     laterSteer: randomUUID(),
     turn: randomUUID(),
     customTurn: randomUUID(),
+    textTurn: randomUUID(),
     split: [randomUUID(), randomUUID(), randomUUID()],
   };
   const lifecycles = new Map<UUID, CommandLifecycleMessage["state"][]>();
@@ -211,6 +225,31 @@ async function runSession(): Promise<Capture> {
           userMessage([{ type: "text", text: COMMAND }], stamped.blockSteer),
         );
         channel.push(
+          userMessage(
+            [
+              {
+                type: "image",
+                source: {
+                  type: "base64",
+                  media_type: "image/png",
+                  data: ONE_PIXEL_PNG,
+                },
+              },
+              { type: "text", text: COMMAND },
+            ],
+            stamped.imageBlockSteer,
+          ),
+        );
+        channel.push(
+          userMessage(
+            [
+              { type: "text", text: "hello" },
+              { type: "text", text: COMMAND },
+            ],
+            stamped.textTextBlockSteer,
+          ),
+        );
+        channel.push(
           userMessage(COMMAND, stamped.laterSteer, { priority: "later" }),
         );
       },
@@ -229,11 +268,13 @@ async function runSession(): Promise<Capture> {
           stamped.customSteer,
           stamped.unknownSteer,
           stamped.blockSteer,
+          stamped.imageBlockSteer,
+          stamped.textTextBlockSteer,
           stamped.laterSteer,
           stamped.turn,
           stamped.customTurn,
         ]),
-      run: () => channel.push(userMessage(TEXT_TURN, randomUUID())),
+      run: () => channel.push(userMessage(TEXT_TURN, stamped.textTurn)),
     },
     {
       trigger: (message) => message.type === "stream_event",
@@ -251,7 +292,7 @@ async function runSession(): Promise<Capture> {
   const events: SDKMessage[] = [];
   let sessionId: UUID | undefined;
   let inactivity = setTimeout(() => channel.end(), INACTIVITY_MS);
-  channel.push(userMessage(SLEEP_TURN, randomUUID()));
+  channel.push(userMessage(SLEEP_TURN, stamped.sleepTurn));
   try {
     for await (const message of q) {
       clearTimeout(inactivity);
@@ -283,21 +324,45 @@ async function runSession(): Promise<Capture> {
     events.map((message) => JSON.stringify(message)).join("\n") + "\n",
   );
   copyFileSync(filePath, join(configDir, "session.jsonl"));
-  return { entries, stamped, lifecycles };
+  return { entries, stamped, events, lifecycles };
 }
 
 const capture = runSession();
+
+/** Each result frame's consumed prompt uuids, in stream order. */
+function resultUuidLists(events: SDKMessage[]): (string[] | undefined)[] {
+  return events.flatMap((message) =>
+    message.type === "result" ? [message.user_message_uuids] : [],
+  );
+}
+
+function userEntryContent(entries: SessionEntry[], uuid: UUID): unknown {
+  const entry = entries.find(
+    (candidate) => candidate.uuid === uuid && candidate.type === "user",
+  );
+  return (entry?.message as { content?: unknown } | undefined)?.content;
+}
 
 function userEntryText(
   entries: SessionEntry[],
   uuid: UUID,
 ): string | undefined {
-  const entry = entries.find(
-    (candidate) => candidate.uuid === uuid && candidate.type === "user",
-  );
-  const content = (entry?.message as { content?: unknown } | undefined)
-    ?.content;
+  const content = userEntryContent(entries, uuid);
   return typeof content === "string" ? content : undefined;
+}
+
+/** The entry's content as block types, text blocks replaced by their
+ *  text — undefined for string content. */
+function userEntryBlocks(
+  entries: SessionEntry[],
+  uuid: UUID,
+): string[] | undefined {
+  const content = userEntryContent(entries, uuid);
+  return Array.isArray(content)
+    ? (content as { type: string; text?: string }[]).map((block) =>
+        block.type === "text" ? (block.text ?? "") : `<${block.type}>`,
+      )
+    : undefined;
 }
 
 function userEntryIndex(entries: SessionEntry[], uuid: UUID): number {
@@ -339,7 +404,7 @@ test("a text mentioning a /command is steered verbatim: one attachment, unexpand
   console.log(`lifecycles: ${JSON.stringify([...lifecycles])}`);
   assert.deepEqual(
     [...queuedCommandPrompts(entries).keys()],
-    [stamped.embeddedSteer, stamped.blockSteer],
+    [stamped.embeddedSteer],
   );
   const attachment = entries.find(
     (entry) => queuedCommandSourceUuid(entry) === stamped.embeddedSteer,
@@ -348,12 +413,29 @@ test("a text mentioning a /command is steered verbatim: one attachment, unexpand
   assert.equal(userEntryText(entries, stamped.embeddedSteer), undefined);
 });
 
-test("a /command in block-form content is not a command: steered as a block-form attachment", async () => {
+test("a /command in a text block is a command whatever precedes it: its own turn, expanded in place, other blocks kept", async () => {
   const { entries, stamped } = await capture;
-  assert.deepEqual(queuedCommandPrompts(entries).get(stamped.blockSteer), [
-    { type: "text", text: COMMAND },
-  ]);
-  assert.equal(userEntryIndex(entries, stamped.blockSteer), -1);
+  const expanded = /^<command-name>\/usage<\/command-name>/u;
+  for (const uuid of [
+    stamped.blockSteer,
+    stamped.imageBlockSteer,
+    stamped.textTextBlockSteer,
+  ]) {
+    assert.equal(queuedCommandPrompts(entries).has(uuid), false, uuid);
+  }
+  const blocksOf = (uuid: UUID): string[] => {
+    const blocks = userEntryBlocks(entries, uuid);
+    assert.ok(blocks !== undefined, `no block-form user entry for ${uuid}`);
+    return blocks;
+  };
+  // A lone text block is written as string content.
+  assert.match(userEntryText(entries, stamped.blockSteer) ?? "", expanded);
+  const [image, afterImage] = blocksOf(stamped.imageBlockSteer);
+  assert.equal(image, "<image>");
+  assert.match(afterImage ?? "", expanded);
+  const [hello, afterText] = blocksOf(stamped.textTextBlockSteer);
+  assert.equal(hello, "hello");
+  assert.match(afterText ?? "", expanded);
 });
 
 test("a /command pushed in the steer window is not steered: it runs as its own expanded turn after the result", async () => {
@@ -393,7 +475,7 @@ test("queued /commands are not merged: each keeps its own entry, and each turn e
   );
 });
 
-test("an unknown /name is a command too: not steered, its own run, local_command output only", async () => {
+test("an unknown /name is a command too: not steered, its own run, forwarded to the model as plain text", async () => {
   const { entries, stamped, lifecycles } = await capture;
   assert.deepEqual(lifecycles.get(stamped.unknownSteer), [
     "queued",
@@ -401,11 +483,12 @@ test("an unknown /name is a command too: not steered, its own run, local_command
     "completed",
   ]);
   assert.equal(queuedCommandPrompts(entries).has(stamped.unknownSteer), false);
-  assert.equal(userEntryIndex(entries, stamped.unknownSteer), -1);
-  assert.ok(
+  assert.equal(userEntryText(entries, stamped.unknownSteer), "/nonexistent");
+  assert.equal(
     localCommandOutputs(entries).some((output) =>
-      output.includes("Unknown command: /nonexistent"),
+      output.includes("Unknown command"),
     ),
+    false,
   );
 });
 
@@ -422,6 +505,24 @@ test("a `later` command runs expanded after the default-priority turns pushed af
         userEntryIndex(entries, stamped.customTurn),
       ),
   );
+});
+
+test("results list the folded-in steer with its turn and every command as a turn of its own", async () => {
+  const { events, stamped } = await capture;
+  assert.deepEqual(resultUuidLists(events), [
+    [stamped.sleepTurn, stamped.embeddedSteer],
+    [stamped.steer],
+    [stamped.customSteer],
+    [stamped.unknownSteer],
+    [stamped.blockSteer],
+    [stamped.imageBlockSteer],
+    [stamped.textTextBlockSteer],
+    [stamped.turn],
+    [stamped.customTurn],
+    [stamped.laterSteer],
+    [stamped.textTurn],
+    ...stamped.split.map((uuid) => [uuid]),
+  ]);
 });
 
 test("a /command between two texts in one bucket splits it into three runs", async () => {

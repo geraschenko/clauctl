@@ -836,7 +836,7 @@ test("stage 3: single-call and interleaved same-id turns pass through untouched"
 
 // --- loadedContext: stage 4 (resume sanitization) ----------------------------
 
-test("stage 4: a result-less tool_use entry is dropped (p20, killed turn; see file comment)", () => {
+test("stage 4: a result-less tool_use entry is dropped (p20-kill0, killed turn; see file comment)", () => {
   const sid = uuid();
   const u1 = userEntry(null, sid);
   const a1 = assistantEntry(u1.uuid, sid);
@@ -845,6 +845,38 @@ test("stage 4: a result-less tool_use entry is dropped (p20, killed turn; see fi
     u1.uuid,
     a1.uuid,
   ]);
+  // Two calls, zero results: both dropped, the text sibling kept.
+  const text = {
+    ...assistantEntry(u1.uuid, sid),
+    message: {
+      role: "assistant",
+      id: "msg_killed2",
+      content: [{ type: "text", text: "ok" }],
+    },
+  };
+  const callA = callEntry(text.uuid, sid, "msg_killed2", "toolu_A", "T1");
+  const callB = callEntry(callA.uuid, sid, "msg_killed2", "toolu_B", "T2");
+  assert.deepEqual(
+    loadedContextUuids([u1, text, callA, callB], failOnInvalid),
+    [u1.uuid, text.uuid],
+  );
+});
+
+test("stage 4: an interrupted trailing turn keeps its unanswered calls (p20-kill1, healed; see file comment); a later turn makes them dead (p20-kill1-later)", () => {
+  const sid = uuid();
+  const u1 = userEntry(null, sid);
+  const callA = callEntry(u1.uuid, sid, "msg_partial", "toolu_A", "T1");
+  const callB = callEntry(callA.uuid, sid, "msg_partial", "toolu_B", "T2");
+  const resultA = resultEntry(callA, sid, "T3");
+  assert.deepEqual(
+    loadedContextUuids([u1, callA, callB, resultA], failOnInvalid),
+    [u1.uuid, callA.uuid, callB.uuid, resultA.uuid],
+  );
+  const u2 = userEntry(resultA.uuid, sid);
+  assert.deepEqual(
+    loadedContextUuids([u1, callA, callB, resultA, u2], failOnInvalid),
+    [u1.uuid, callA.uuid, resultA.uuid, u2.uuid],
+  );
 });
 
 test("stage 4: a thinking-only turn is dropped whole (p19; see file comment), including one reduced by the call drop", () => {

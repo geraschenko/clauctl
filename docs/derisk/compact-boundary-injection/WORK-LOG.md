@@ -587,3 +587,23 @@ version recorded in the report): resume + probe turn succeeded, the captured
 request contained exactly 1 message (the probe; no fixture markers), and the
 first new write's `parentUuid` was the boundary uuid. Empty-context reset
 works; `set-context --empty` / TUI new-root rewind are viable.
+
+## 2026-09-22 — 0.3.280: suite rerun + binary re-read (2.1.258 → 2.1.280)
+
+Suite rerun on SDK 0.3.280: check-reports 74/74 after pinning p20 kill1
+to `kept-healed-interrupt` for 0.3.280 (the p1e metadata-less boundary
+and p4 q7 keep-reach flipped shapes again; see FINDINGS "Version drift").
+The heal rule inferred from kill1 ("≥1 answered call keeps the group")
+was ported into `sanitizeForResume` / `ToolGroup.excludedAtEnd`. A full
+binary diff of the loader followed (README-20260922.md): stages 1–2
+token-identical; stage 3 splice order changed (equivalent on native
+shapes) plus a new recovered-tails pass; stage 4's heal is NEW and
+conditioned on the call being in the file's trailing turn, not on the
+group having a result — kill1's file ends at its result and cannot
+discriminate. Added `p20-kill1-later` (kill1 + a later user turn and
+reply; models tail-heal-only / group-heal / stage5-heal, pre-registered
+from the source reading): one run, `tail-heal-only`; kill1 re-confirmed.
+`sanitizeForResume` / `ToolGroup.excludedAtEnd(atFileEnd)` corrected to
+the positional rule; check-reports gains the kill1-later row (75
+assertions). Two-pass >5 MiB reader now admits same-id siblings, progress
+rows and tails; still an untested consumer.

@@ -1,11 +1,11 @@
 {
-  "sdkVersion": "0.3.258",
+  "sdkVersion": "0.3.280",
   "plain": {
     "resultSubtype": "success",
     "requestMessages": [
-      "user: [{\"type\":\"text\",\"text\":\"<system-reminder>\\nAs you answer the user's questions, you can use the following context:\\n# userEmail\\nThe user's e",
+      "user: [{\"type\":\"text\",\"text\":\"Earlier: three short prompts. (tag: SYNTH-P12-SUMMARY)\\n\"},{\"type\":\"text\",\"text\":\"Read the file fact.txt and tell me",
       "assistant: [{\"type\":\"text\",\"text\":\"No response requested.\"}]",
-      "user: [{\"type\":\"text\",\"text\":\"<system-reminder>\\nAvailable agent types for the Agent tool:\\n- claude: Catch-all for any task that doesn't fit a mo"
+      "user: [{\"type\":\"text\",\"text\":\"<system-reminder>\\n# Environment\\nYou have been invoked in the following environment: \\n - Primary working directory"
     ],
     "verdicts": {
       "merge": {
@@ -36,13 +36,13 @@
   "results": {
     "resultSubtype": "success",
     "requestMessages": [
-      "user: [{\"type\":\"text\",\"text\":\"<system-reminder>\\nAs you answer the user's questions, you can use the following context:\\n# userEmail\\nThe user's e",
+      "user: \"Earlier: two file reads. (tag: SYNTH-P12B-SUMMARY)\"",
       "assistant: [{\"type\":\"tool_use\",\"id\":\"toolu_015ii13XPD3MW32k6MfRj7eN\",\"name\":\"Read\",\"input\":{\"file_path\":\"/fact.txt\"}}]",
       "user: [{\"type\":\"tool_result\",\"tool_use_id\":\"toolu_015ii13XPD3MW32k6MfRj7eN\",\"content\":\"[Tool result missing due to internal error]\",\"is_error\":tru",
       "assistant: [{\"type\":\"tool_use\",\"id\":\"toolu_019QEjxGUTxVVwrPKv3YWPD2\",\"name\":\"Read\",\"input\":{\"file_path\":\"/tmp/clauctl-cbi-derisk/p0b-native-compact-cwd",
       "user: [{\"tool_use_id\":\"toolu_019QEjxGUTxVVwrPKv3YWPD2\",\"type\":\"tool_result\",\"content\":\"1\\tThe magic word is XYLOPHONE-77431.\\n2\\t\"},{\"type\":\"text\"",
       "assistant: [{\"type\":\"text\",\"text\":\"No response requested.\"}]",
-      "user: [{\"type\":\"text\",\"text\":\"<system-reminder>\\nAvailable agent types for the Agent tool:\\n- claude: Catch-all for any task that doesn't fit a mo"
+      "user: [{\"type\":\"text\",\"text\":\"<system-reminder>\\n# Environment\\nYou have been invoked in the following environment: \\n - Primary working directory"
     ],
     "wire": {
       "call1": true,

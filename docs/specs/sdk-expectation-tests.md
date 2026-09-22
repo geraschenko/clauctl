@@ -173,7 +173,8 @@ Config:
 
 - Evidence trail (probes run 2026-09-02 from the repo cwd, real user
   settings unless noted):
-  - SDK 0.3.258 / 0.3.250 / 0.3.220, `permissionMode` unset → init `default`.
+  - SDK 0.3.280 / 0.3.258 / 0.3.250 / 0.3.220, `permissionMode` unset → init
+    `default` (0.3.280: 2026-09-22 rerun, workaround still required).
   - 0.3.258, scratch config `acceptEdits` and `auto` → `default` (not
     auto-specific).
   - Direct `claude -p` honors both `auto` and `acceptEdits`.
@@ -219,6 +220,13 @@ Config:
       74 check-reports assertions on 0.3.258). p4.q7 passed, consistent
       with its across-run nondeterminism; Anton's earlier manual run was red
       on it. Still an open item outside this spec.
+- [x] `npm run test:sdk` on 0.3.280 (2026-09-22): permission-mode both
+      cases green; compact suite green, 25 probes + 75 check-reports
+      assertions (p20 kill1 pinned to the 2.1.274+ heal, new kill1-later
+      row; p4.q7 keep-reach and the p1e metadata-less boundary flipped shape
+      again and are version-conditioned in check-reports). The
+      `user_message_uuids` result-frame assertions in queued-batches,
+      steer-slash-command and steer-parallel-tools passed live.
 - [x] presubmit green (597 tests)
 - [x] scratch cleanup: `tmp-probe/` and `/tmp/sdk*` removed by Anton;
       `/tmp/cfg-*` still present (harmless, `/tmp`)

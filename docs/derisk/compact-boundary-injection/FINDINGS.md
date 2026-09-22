@@ -24,6 +24,10 @@ Provenance:
   same-id assistant entries reassemble across an intervening tool_result
   user entry (revised); and an assistant turn reduced to only thinking is
   dropped whole (new finding).
+- **0.3.280 re-read** (2026-09-22): suite rerun on SDK 0.3.280 / CLI
+  2.1.280 (one loader drift, p20-kill1 healed) plus a binary diff
+  2.1.258 → 2.1.280 of every pipeline stage, names and offsets in
+  [README-20260922.md](README-20260922.md).
 
 Evidence classes, strongest first: **wire** = captured outbound API request
 through the recording shim (never model recall alone; relink probes
@@ -129,7 +133,9 @@ repair can still fire after stage 4's drops: stage 4 removes calls whose
 result is absent from the loaded context ENTIRELY ("never answered");
 stage 5's repair handles calls whose result exists but lands non-adjacent
 after linearization ("answered but misfiled", p12). A call caught by
-stage 4 never reaches repair (p20-kill1: no synthetic result).
+stage 4 never reaches repair (p20-kill1 through 2.1.258: no synthetic
+result; since 2.1.280 stage 4 itself heals the trailing turn's unresolved
+calls, see §4).
 
 Outgoing-message STRUCTURE (as opposed to content) matters only
 instrumentally: the model may well be unable to perceive message
@@ -281,12 +287,25 @@ matching the one block-level model:
   results), plain --resume → the text is presented alone; both calls
   absent, no synthetic results (p20-kill0 — falsified both "whole
   message dropped" and "kept + healed").
-- Same but ONE call has a result → text + that call + its real result
-  presented; the unresolved call's block absent, no synthetic heal (the
-  block is gone before `_vt` could heal it; p20-kill1). Side
-  observation: on a file ending at a tool result the CLI appends a
-  "Continue from where you left off" user text (merged into the result
-  message) and a "No response requested." assistant turn.
+- Same but ONE call has a result → through 2.1.258: text + that call +
+  its real result presented; the unresolved call's block absent, no
+  synthetic heal (the block is gone before `_vt` could heal it;
+  p20-kill1). **Since 2.1.280** (changelog 2.1.274, "corrupted
+  transcripts now self-heal where possible"): both calls kept, the
+  unresolved one answered by a synthetic `is_error` tool_result
+  "[Request interrupted by user for tool use]" (kill0, zero results,
+  still drops). The heal is positional, not group-conditioned (source,
+  README-20260922.md; wire, p20-kill1-later): the resume entry collects
+  the unresolved tool_use ids between the file tail and the last plain
+  user prompt and heals only those, and only when the tail classifies as
+  an interrupted turn (ends at a tool result — kill0, ending at the call,
+  still drops). The same half-answered group followed by a later user
+  turn loses its dead call block-level with no synthetic result, exactly
+  as before 2.1.274 (p20-kill1-later, one run, matched its
+  source-predicted model). Side observation, both versions: on a file ending at a tool
+  result the CLI appends a "Continue from where you left off" user text
+  (merged into the result message) and a "No response requested."
+  assistant turn.
 - Playlist keeping one call + its result from a text+2-calls turn →
   presented: an assistant message containing JUST that call, then its
   result; the text and the other pair absent (p20-part1).
@@ -296,7 +315,8 @@ matching the one block-level model:
 So this is NOT "include every entry of a turn or lose them all":
 exclusion is per-entry (step 1's cut removes exactly the excluded
 entries), and the sanitizer then removes result-less tool_use blocks
-from whatever remains.
+from whatever remains — since 2.1.280 except those in an interrupted
+trailing turn, which are healed instead.
 
 ### 5. Request normalization (every turn, not resume-specific)
 
@@ -512,7 +532,7 @@ The CLI separately re-injects recent tool calls/results from the summarized
 region as `<system-reminder>` text after a NATIVE compaction; synthetic
 injection doesn't get this unless we add it.
 
-## Version drift observed (2.1.195 → 2.1.250 → 2.1.258)
+## Version drift observed (2.1.195 → 2.1.250 → 2.1.258 → 2.1.280)
 
 The full round-1 rerun found **zero loader-side drift** — every relink,
 navigation, lifecycle, and sanitization assertion held identically. One
@@ -544,6 +564,38 @@ so a boundary whose metadata omits `postTokens` is fine. clauctl always
 writes `compactMetadata` without `postTokens` (`src/core/session/file.ts`),
 and p9/p10/p11b/p17 exercise that shape and passed, so no product change
 follows.
+
+The 2.1.280 suite run (2026-09-22): the metadata-less boundary resumes
+again (p1e variant 1 back to the 2.1.250 shape — summary shown, no relink),
+the p4 q7 keep-reach produced the old-summary shape again (still two
+shapes, no trend), and one loader-side drift inside the fixture space
+clauctl writes: **the stage-4 sanitizer now heals a partially answered
+tool group instead of cutting its dead call.** p20-kill1 (text + 2 calls,
+one result) presented all three blocks, the real result, and a synthetic
+`tool_result` for the unanswered call — `is_error: true`, content
+"[Request interrupted by user for tool use]" — followed by the usual
+"Continue from where you left off." text; kill0 (zero results) still
+drops the calls and keeps the text, and p17 (a tool_use-only turn with
+no result) still drops the turn. Changelog 2.1.274: "corrupted transcripts
+now self-heal where possible". The rule first inferred from that single
+shape — "a group with at least one answered call keeps every call and
+heals the rest" — was ported into `sanitizeForResume`
+(src/core/tree/loader.ts) and `ToolGroup.excludedAtEnd`
+(tree/tool-group.ts) and pinned in `check-reports.mjs` (p20 kill1 →
+`kept-healed-interrupt` on 0.3.280). The same-day binary re-read
+(README-20260922.md) showed the actual condition is positional: only
+unresolved calls in the file's interrupted TRAILING turn are healed; a
+half-answered group followed by later turns is still cut block-level as
+in 2.1.258. kill1 cannot discriminate the two (its file ends at the
+answered result); the added p20-kill1-later (kill1 + a later user turn
+and reply, one wire call) matched the source-predicted `tail-heal-only`
+model, and `sanitizeForResume` / `ToolGroup.excludedAtEnd` now model the
+positional rule (healed only when the file ends inside the group at a
+tool result). Stages
+1–2 are token-identical to 2.1.258; stage 3 changed its splice order
+(equivalent on native shapes) and gained a recovered-tails pass we do not
+model; the >5 MiB two-pass reader now admits same-id siblings, progress
+rows and tails in pass 2 (untested consumer, unchanged status).
 
 ## Deviations from the approved plans
 

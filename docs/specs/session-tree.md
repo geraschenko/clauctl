@@ -111,12 +111,17 @@ model (they operate on API-message content, not the uuid chain):
    unrecoverable (wire: p11a, p11b, p19). Whether a third loader concept
    ("effective API context") should model this is a future spec decision,
    not part of this spec.
-8. **Resume sanitization** (resume-only, once at load): tool_use blocks
-   whose result is nowhere in the loaded context are dropped block-level
-   with no synthetic repair (p17, p20); an assistant turn left with
-   nothing presentable vanishes, as does one reduced to only thinking
-   (p19 — whether the thinking-only drop happens here or during request
-   normalization is untraced).
+8. **Resume sanitization** (resume-only, once at load): in an API-message
+   group none of whose tool_use blocks has a result in the loaded
+   context, the tool_use blocks are dropped block-level with no synthetic
+   repair (p17, p20-kill0, p20-kill1-later); the exception is an
+   interrupted trailing turn — the file ends inside the group at a tool
+   result — whose unanswered calls stay and get a synthetic error
+   tool_result on the wire (p20-kill1, since 2.1.274's transcript
+   self-heal; derisk README-20260922.md). An
+   assistant turn left with nothing presentable vanishes, as does one
+   reduced to only thinking (p19 — whether the thinking-only drop happens
+   here or during request normalization is untraced).
 9. **Request normalization** (every turn): adjacent user messages merge
    into one API message (plain user content survives the merge stage
    without loss — p12); same-`message.id` assistant entries reassemble

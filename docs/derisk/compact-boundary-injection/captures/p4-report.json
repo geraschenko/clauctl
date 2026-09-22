@@ -1,12 +1,12 @@
 {
   "versions": {
-    "sdk": "0.3.258"
+    "sdk": "0.3.280"
   },
   "q7": {
     "probeUsage": {
       "input": 10,
-      "cacheCreate": 2767,
-      "cacheRead": 21036
+      "cacheCreate": 3075,
+      "cacheRead": 20819
     },
     "compactSubtype": "success",
     "compactReqScope": {
@@ -18,26 +18,28 @@
     },
     "newBoundaryMetadata": {
       "trigger": "manual",
-      "preTokens": 23878,
-      "durationMs": 18983,
+      "preTokens": 23966,
+      "durationMs": 16565,
       "preservedSegment": {
-        "headUuid": "8668ad4a-ff70-419d-b3b8-278be48cfa54",
-        "anchorUuid": "02415b8b-c3f0-4235-a2ea-da42844e06bc",
-        "tailUuid": "90be2eac-0e49-4814-a289-8ae32fcf237f"
+        "headUuid": "cdddbc6b-dafe-469a-8765-fa3adbeccea4",
+        "anchorUuid": "8b1adcca-e371-41a4-8695-f5457b686d6e",
+        "tailUuid": "c64926a6-8955-4f41-b427-eb88384b7911"
       },
       "preservedMessages": {
-        "anchorUuid": "02415b8b-c3f0-4235-a2ea-da42844e06bc",
+        "anchorUuid": "8b1adcca-e371-41a4-8695-f5457b686d6e",
         "uuids": [
-          "8668ad4a-ff70-419d-b3b8-278be48cfa54",
-          "90be2eac-0e49-4814-a289-8ae32fcf237f"
+          "cdddbc6b-dafe-469a-8765-fa3adbeccea4",
+          "d3d23a2c-6138-4db0-b874-cac1447c7be0",
+          "c64926a6-8955-4f41-b427-eb88384b7911"
         ],
         "allUuids": [
-          "8668ad4a-ff70-419d-b3b8-278be48cfa54",
-          "90be2eac-0e49-4814-a289-8ae32fcf237f"
+          "cdddbc6b-dafe-469a-8765-fa3adbeccea4",
+          "d3d23a2c-6138-4db0-b874-cac1447c7be0",
+          "c64926a6-8955-4f41-b427-eb88384b7911"
         ]
       },
-      "postTokens": 1595,
-      "cumulativeDroppedTokens": 61283
+      "postTokens": 1709,
+      "cumulativeDroppedTokens": 61257
     },
     "postProbe": {
       "nMessages": 3,
@@ -70,12 +72,13 @@
     "contentAfterOnChain": "V1"
   },
   "q9": {
-    "resultToLeafOnDiskMs": 177,
+    "resultToLeafOnDiskMs": 1,
     "fileGrewAfterLeaf": false,
     "bytesAfterLeaf": 0,
     "sentinelSurvivedClose": true,
     "entriesAfterSentinel": [
-      "last-prompt"
+      "last-prompt",
+      "cost-state"
     ]
   }
 }

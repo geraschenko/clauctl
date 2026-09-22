@@ -1,15 +1,14 @@
 {
-  "sdkVersion": "0.3.258",
+  "sdkVersion": "0.3.280",
   "resultSubtype": "success",
   "error": null,
   "stderr": null,
-  "nRequestMessages": 5,
+  "nRequestMessages": 4,
   "requestMessages": [
-    "user: \"<system-reminder>\\nAs you answer the user's questions, you can use the following context:\\n# userEmail\\nThe user's email address is gerasch",
     "assistant: [{\"type\":\"text\",\"text\":\"4\"}]",
     "user: [{\"type\":\"text\",\"text\":\"What is 2+2? Answer with just the number. (tag: NONCE-U2)\\n\"},{\"type\":\"text\",\"text\":\"Anchor-child marker. (tag: NONC",
     "assistant: [{\"type\":\"text\",\"text\":\"No response requested.\"}]",
-    "user: [{\"type\":\"text\",\"text\":\"<system-reminder>\\nAvailable agent types for the Agent tool:\\n- claude: Catch-all for any task that doesn't fit a mo"
+    "user: [{\"type\":\"text\",\"text\":\"<system-reminder>\\n# Environment\\nYou have been invoked in the following environment: \\n - Primary working directory"
   ],
   "verdicts": {
     "unchecked-rewrite": {

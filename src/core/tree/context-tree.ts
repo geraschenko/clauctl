@@ -158,11 +158,11 @@ export class ContextTreeBuilder {
     }
   }
 
-  /** End of input: the open tool group ends, so its unanswered calls are
-   *  dead. The daemon never calls it; live, a call awaits its result. */
+  /** End of input: the open tool group ends at the file's end. The daemon
+   *  never calls it; live, a call awaits its result. */
   finish(): void {
     this.finished = true;
-    this.endGroup();
+    this.endGroup(true);
   }
 
   /** usage/model of the last non-excluded, non-sidechain assistant on
@@ -194,8 +194,8 @@ export class ContextTreeBuilder {
     return entry;
   }
 
-  private endGroup(): void {
-    for (const uuid of this.group?.excludedAtEnd() ?? []) {
+  private endGroup(atFileEnd: boolean): void {
+    for (const uuid of this.group?.excludedAtEnd(atFileEnd) ?? []) {
       this.excluded.add(uuid);
     }
     this.group = undefined;
@@ -232,7 +232,7 @@ export class ContextTreeBuilder {
       if (groupPredecessor !== undefined) {
         parent = groupPredecessor;
       } else {
-        this.endGroup();
+        this.endGroup(false);
         this.group =
           entry.type === "assistant" ? new ToolGroup(entry) : undefined;
       }

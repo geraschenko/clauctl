@@ -85,12 +85,9 @@ export class UserTurnComponent extends Container {
     }
   }
 
-  /** Output under the turn's command child. True when attached, or when
-   *  that command is /compact (its transient stdout stays hidden — claude
-   *  does, observed on the failed-compact capture; the success path renders
-   *  the boundary banner + summary instead); false when the turn has no
-   *  command child or it already holds output — the caller renders the
-   *  output standalone. */
+  /** Output under the turn's command child. True when attached; false when
+   *  the turn has no command child or it already holds output — the caller
+   *  renders the output standalone. */
   attachOutput(text: string): boolean {
     const attached = this.attachToCommand(text);
     if (attached) {
@@ -119,10 +116,8 @@ export class UserTurnComponent extends Container {
     if (this.commandChild === undefined || this.commandChild.hasOutput) {
       return false;
     }
-    if (this.commandChild.command !== "/compact") {
-      this.commandChild.hasOutput = true;
-      this.commandChild.component.setOutput(text);
-    }
+    this.commandChild.hasOutput = true;
+    this.commandChild.component.setOutput(text);
     return true;
   }
 

@@ -23,14 +23,24 @@ from mitmproxy import http
 def parse_deferred_roster(text: str) -> list[str] | None:
     """Extract deferred tool names from claude's roster message.
 
-    As of claude 2.1.211 the roster arrives as a role:"system" message (no
-    <system-reminder> wrapper): an intro sentence ending in ":", then one
-    tool name per line, then a blank line before unrelated content.
+    As of claude 2.1.211 the roster arrives in a role:"system" message (no
+    <system-reminder> wrapper); since 2.1.280 that message also carries the
+    environment block and other ":"-terminated intros ahead of it, so the
+    anchor is the roster's own intro sentence (mentions "deferred tools",
+    ends in ":"), then one tool name per line, then a blank line before
+    unrelated content.
     """
-    if "deferred tools" not in text.lower() or "ToolSearch" not in text:
+    if "ToolSearch" not in text:
         return None
     lines = text.splitlines()
-    intro = next((i for i, line in enumerate(lines) if line.rstrip().endswith(":")), None)
+    intro = next(
+        (
+            i
+            for i, line in enumerate(lines)
+            if "deferred tools" in line.lower() and line.rstrip().endswith(":")
+        ),
+        None,
+    )
     if intro is None:
         return None
     names = []

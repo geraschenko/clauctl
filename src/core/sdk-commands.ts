@@ -198,7 +198,12 @@ async function setMcpPermissionModeOverride(
   });
 }
 
-const THINKING_DISPLAYS = ["summarized", "omitted", "clear"] as const;
+const THINKING_DISPLAYS = [
+  "summarized",
+  "omitted",
+  "highlights",
+  "clear",
+] as const;
 
 const setMaxThinkingTokensFlags = {
   thinkingDisplay: enumFlag(
@@ -263,7 +268,7 @@ async function applyFlagSettings(
   });
 }
 
-const SETTINGS_SOURCES = ["localSettings"] as const;
+const SETTINGS_SOURCES = ["localSettings", "userSettings"] as const;
 
 async function updateSettings(
   this: CommandContext,
@@ -364,6 +369,24 @@ async function rewindFiles(
         ...(flags.dryRun && { dryRun: true }),
       }),
     );
+  });
+}
+
+const reloadPluginsFlags = {
+  holdOnCacheImpact: booleanFlag(
+    "Apply nothing when the reload would change the tool list the prompt cache depends on (response carries held: true)",
+  ),
+};
+
+type ReloadPluginsFlags = InferFlags<typeof reloadPluginsFlags>;
+
+async function reloadPlugins(
+  this: CommandContext,
+  flags: ReloadPluginsFlags,
+): Promise<void> {
+  await sendRequest(this, {
+    type: "reload-plugins",
+    ...(flags.holdOnCacheImpact && { holdOnCacheImpact: true }),
   });
 }
 
@@ -596,6 +619,30 @@ async function getContextUsage(
     type: "get-context-usage",
     ...(flags.detail !== undefined && { detail: flags.detail }),
   });
+}
+
+const usageFlags = {
+  skipBehaviors: booleanFlag(
+    "Skip the local-transcript scan behind `behaviors` (left null); plan rate limits only",
+  ),
+};
+
+type UsageFlags = InferFlags<typeof usageFlags>;
+
+async function usage(this: CommandContext, flags: UsageFlags): Promise<void> {
+  await sendRequest(this, {
+    type: "usage",
+    ...(flags.skipBehaviors && { skipBehaviors: true }),
+  });
+}
+
+async function readMcpResource(
+  this: CommandContext,
+  _flags: Record<never, never>,
+  serverName: string,
+  uri: string,
+): Promise<void> {
+  await sendRequest(this, { type: "read-mcp-resource", serverName, uri });
 }
 
 const readFileFlags = {
@@ -839,14 +886,20 @@ export const sdkRoutes = {
     audited: true,
     func: seedReadState,
   }),
-  "reload-plugins": bareRequestCommand(
-    "reload plugins from disk",
-    { type: "reload-plugins" },
-    true,
-  ),
+  "reload-plugins": commandOneTarget<ReloadPluginsFlags>({
+    docs: { brief: "reload plugins from disk" },
+    parameters: { flags: reloadPluginsFlags },
+    audited: true,
+    func: reloadPlugins,
+  }),
   "reload-skills": bareRequestCommand(
     "reload skills from disk",
     { type: "reload-skills" },
+    true,
+  ),
+  "reload-output-styles": bareRequestCommand(
+    "re-read output styles from disk (also drops the markdown-file scan cache)",
+    { type: "reload-output-styles" },
     true,
   ),
   // JSONL rather than a pretty-printed array: one record per line, the shape
@@ -903,8 +956,10 @@ export const sdkRoutes = {
     parameters: { flags: getContextUsageFlags },
     func: getContextUsage,
   }),
-  usage: bareRequestCommand("print session cost/usage and plan rate limits", {
-    type: "usage",
+  usage: commandOneTarget<UsageFlags>({
+    docs: { brief: "print session cost/usage and plan rate limits" },
+    parameters: { flags: usageFlags },
+    func: usage,
   }),
   "account-info": bareRequestCommand("print authenticated account info", {
     type: "account-info",
@@ -922,6 +977,24 @@ export const sdkRoutes = {
     },
     func: readFileCommand,
   }),
+  "read-mcp-resource": commandOneTarget<Record<never, never>, [string, string]>(
+    {
+      docs: {
+        brief:
+          "read an MCP Apps ui:// resource from a connected server (untrusted HTML)",
+      },
+      parameters: {
+        positional: {
+          kind: "tuple",
+          parameters: [
+            stringArg("MCP server name", "server"),
+            stringArg("ui:// resource URI", "uri"),
+          ],
+        },
+      },
+      func: readMcpResource,
+    },
+  ),
   "resolve-settings": commandNoTarget<ResolveSettingsFlags>({
     docs: { brief: "print the effective settings a spawn would see" },
     parameters: { flags: resolveSettingsFlags },

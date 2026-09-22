@@ -1,6 +1,6 @@
 {
   "versions": {
-    "sdk": "0.3.258"
+    "sdk": "0.3.280"
   },
   "a": {
     "name": "a-upto",
@@ -64,7 +64,7 @@
       },
       "probeIdx": 8
     },
-    "firstNewUserParent": "a6a46bf1-8b0b-473c-b601-48a7d205e89e",
+    "firstNewUserParent": "a3fda0fb-7b52-4868-8d9f-d5cf01b14b09",
     "expect": {
       "note": "open question: prefix+summary order and next-write parent"
     }
@@ -157,7 +157,7 @@
     "name": "f-nonexistent",
     "error": null,
     "resultSubtype": "error_during_execution",
-    "stderr": "No message found with message.uuid of: 2b5aa896-a83b-447d-a1a9-86c773eb1f63",
+    "stderr": "No message found with message.uuid of: 79593272-5215-4228-b8ce-18aec0af8bc5",
     "sameSessionId": false,
     "sessionFiles": [
       "d3d313fa-9bc8-4dca-8549-5b20aa96dc4f.jsonl"
@@ -197,7 +197,7 @@
       },
       "probeIdx": 8
     },
-    "firstNewUserParent": "dd79cbd6-c667-4816-974f-c5b8b05c5867",
+    "firstNewUserParent": "9ae297b1-5ad1-4168-9693-b448328d8117",
     "expect": {
       "parent": "91d9474f",
       "note": "if leaf selection follows last entry: U1..U3 active, U2B absent"
@@ -281,7 +281,7 @@
       },
       "probeIdx": 6
     },
-    "firstNewUserParent": "28db657c-8061-43bc-af13-fa4bc9f7a72b",
+    "firstNewUserParent": "2084b21c-84ba-4c28-b6ba-dcff4dedfb43",
     "expect": {
       "note": "U1 turn + summary only; U2/U3/U2B absent; relink overrides natural leaf 6"
     }

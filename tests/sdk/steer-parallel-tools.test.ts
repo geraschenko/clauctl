@@ -106,6 +106,7 @@ interface Capture {
   events: SDKMessage[];
   /** Index in `events` of the frame at which the steer was pushed. */
   steerPushedAt: number;
+  turn: UUID;
   steer: UUID;
 }
 
@@ -115,6 +116,7 @@ async function runSession(): Promise<Capture> {
   assertVersions();
   const configDir = makeConfigDir("steer-parallel-tools");
   const cwd = mkdtempSync(join(tmpdir(), "clauctl-sdktest-"));
+  const turn = randomUUID();
   const steer = randomUUID();
   const channel = inputChannel();
   const q = query({
@@ -132,7 +134,7 @@ async function runSession(): Promise<Capture> {
   let steerPushedAt = -1;
   let sessionId: UUID | undefined;
   let inactivity = setTimeout(() => channel.end(), INACTIVITY_MS);
-  channel.push(userMessage(PARALLEL_TURN, randomUUID()));
+  channel.push(userMessage(PARALLEL_TURN, turn));
   try {
     for await (const message of q) {
       clearTimeout(inactivity);
@@ -161,7 +163,7 @@ async function runSession(): Promise<Capture> {
     events.map((message) => JSON.stringify(message)).join("\n") + "\n",
   );
   copyFileSync(filePath, join(configDir, "session.jsonl"));
-  return { entries, events, steerPushedAt, steer };
+  return { entries, events, steerPushedAt, turn, steer };
 }
 
 const capture = runSession();
@@ -230,6 +232,13 @@ test("the CLI files the steer's attachment after the last tool_result of the par
     attachmentIndex < nextAssistantIndex,
     `attachment at ${attachmentIndex}, next assistant entry at ${nextAssistantIndex}`,
   );
+});
+
+test("the turn's result lists the prompt, then the folded-in steer", async () => {
+  const { events, turn, steer } = await capture;
+  const results = events.filter((message) => message.type === "result");
+  assert.equal(results.length, 1);
+  assert.deepEqual(results[0]!.user_message_uuids, [turn, steer]);
 });
 
 test("the queue model replays the capture with the steer dequeue at the next response's first assistant frame", async () => {

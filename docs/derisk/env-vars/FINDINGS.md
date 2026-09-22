@@ -7,7 +7,7 @@ what does the assistant see, and can the injections be disabled independently?
 
 Method: static inspection of embedded JavaScript in
 `node_modules/@anthropic-ai/claude-agent-sdk-linux-x64/claude`:
-**Claude Code 2.1.258**, SDK platform package **0.3.258**. No CLI execution,
+**Claude Code 2.1.280**, SDK platform package **0.3.280**. No CLI execution,
 wire probes, or behavioral experiments. This is a scoped inventory of the
 controls investigated, not an exhaustive environment-variable reference.
 Byte offsets below identify evidence in this particular binary; they are not
@@ -24,6 +24,11 @@ the TODO for mitmproxy wire validation. Presence in the session chain does
 not imply presentation to the model. Conversely, system-prompt sections,
 tool descriptions, and ephemeral request-time injections need not have a
 persisted attachment containing the instruction.
+
+Binary identity: 233,709,640 bytes; SHA-256
+`1e08503dbdf3c2cb0d706d32f3408277388d1c76ef108673e8fe42c1b322925b`.
+All evidence offsets refer to this binary. This document describes current
+behavior only, not the history of these internal controls.
 
 ## Summary: controls and preferences
 
@@ -44,11 +49,23 @@ opt-out is recommended. All variable names in the table have the prefix
 | `GORSE_PLOVER`                                         | Run straightforward Bash commands rather than deliberate first.                          | Preference-dependent; `false` is not a reliable opt-out.                                                                                   |
 | `AMBER_ASTROLABE`                                      | Autonomy and task-continuation instructions.                                             | No recommendation; disabling is a personal experiment to consider, but `false` may not disable it.                                         |
 | `PARCHMENT_FERN`                                       | Narrows advertised read-before-edit/write requirements to outside the working directory. | Preference-dependent; `false` is not a reliable opt-out.                                                                                   |
-| `GAULT_KESTREL`                                        | Removes a caution about unexpected target state before deletion/overwrite.               | Preference-dependent; `false` is not a reliable opt-out.                                                                                   |
 | `LARCH_CISTERN`                                        | Discourages excessive self-correction.                                                   | Preference-dependent; `false` is not a reliable opt-out.                                                                                   |
 | `WILLOW_TERN`                                          | Self-contained final answers with restrictive writing rules.                             | Preference-dependent; `false` is not a reliable opt-out.                                                                                   |
 | `SIMPLE_SYSTEM_PROMPT`                                 | Lean system prompt and tool descriptions.                                                | Preference-dependent; full variant diff not audited.                                                                                       |
 | `DISABLE_ATTACHMENTS`                                  | Skips much of normal attachment collection, including useful context.                    | Depends on desired context discovery; not a universal no-injection switch.                                                                 |
+
+Related selection and context controls (same `CLAUDE_CODE_` prefix):
+
+| Variable              | Controls                                                              | Assessment                                                 |
+| --------------------- | --------------------------------------------------------------------- | ---------------------------------------------------------- |
+| `COZY_TEAPOT`         | Strict versus relaxed Bash-first wording.                             | Preference-dependent; does not itself enable Bash-first.   |
+| `MODEL_CAPABILITIES`  | Model-scoped capability overrides, including some prompt gates.       | Useful for targeted experiments; interactions matter.      |
+| `PARSED_WILLOW`       | Whether queued human prompts are separated from system announcements. | Placement control, not a reminder opt-out.                 |
+| `WISE_COMET`          | Stripping retained thinking blocks at compaction.                     | Context-retention preference, not injected guidance.       |
+| `RUSTLING_PIXEL`      | Keeping thinking across model changes.                                | Context-retention preference; provider/server gates apply. |
+| `POLISHED_DEWDROP`    | Drop/block behavior for invalid thinking blocks.                      | Request-validation policy, not injected guidance.          |
+| `OCHRE_KITE`          | One same-model continuation after a classifier-stopped response.      | No recommendation; adds explicit refusal context.          |
+| `MAX_EFFORT_REMINDER` | Human-facing max-effort cost/latency warning.                         | Not an assistant attachment despite the name.              |
 
 The Thrifty Sonic recommendation reflects the user's reported experience:
 Bash-based file reads hit a 2KB output limit, encouraging the model to read
@@ -70,9 +87,48 @@ Do not generalize from one variable's parser to another:
 - Several other experiment flags use `env || model/client/experiment`; false
   does **not** override an enabled experiment.
 
+## Capability overrides
+
+### `CLAUDE_CODE_MODEL_CAPABILITIES`
+
+This is a capability-lookup override, not a text injection or a universal
+experiment switch. It is a string, **not JSON**:
+
+```sh
+CLAUDE_CODE_MODEL_CAPABILITIES='-larch_cistern,-amber_astrolabe'
+CLAUDE_CODE_MODEL_CAPABILITIES='claude-opus-5*=-larch_cistern;claude-sonnet-5=thrifty_sonic'
+```
+
+Semicolon-separated clauses contain comma-separated capability names. A bare
+name enables the capability; a leading `-` disables it. An optional
+`model-pattern=` restricts a clause to an exact model name or a trailing-`*`
+prefix match. Without `model-pattern=`, the clause applies to all models.
+Matching uses the model identifier supplied by the caller, with `[1m]` removed;
+model-pattern matching is otherwise case-sensitive. Whitespace around tokens
+and patterns is trimmed. The last matching assignment for a capability wins.
+A leading `+` has no special meaning; use the bare name to enable.
+
+The override precedes normal capability lookup. The prompt-capability resolver
+then applies this precedence: explicit dedicated boolean, capability value,
+applicable model bundle, per-model client data, otherwise false. Individual
+callers can discard dedicated false or have independent enabling branches.
+Consequently:
+
+- `-larch_cistern` disables its section unless its dedicated flag is true.
+- `-amber_astrolabe` does not disable the independent mitigation predicate.
+- `-thrifty_sonic` blocks automatic selection, but dedicated true wins.
+- `-lean_prompt` does not bypass later lean-prompt experiment fallbacks.
+
+These are targeted static-source examples, not runtime-verified recipes.
+Unknown names do nothing unless a consumer asks for that capability. Broader
+capability changes can affect behavior beyond the prompt experiments here.
+
+Evidence: lookup/parser at 191996920–191997780; prompt-capability resolver at
+193877602; individual consumers cited in their sections.
+
 ## Attachment-based reminders
 
-Unless stated otherwise, the reminder renderers create user-role messages,
+The ordinary reminder renderers create intermediate user-role messages,
 marked internally `isMeta`, with their text wrapped as follows:
 
 ```xml
@@ -81,9 +137,19 @@ REMINDER_TEXT
 </system-reminder>
 ```
 
-This tag does not change the API role to `system`. The persisted attachment
-itself need not be marked `isMeta`. Wrapper evidence: byte 186339607;
-user-message constructor: 186295185.
+The tag itself does not change the API role. **Final placement is
+model-dependent:** the request converter folds eligible attachment text
+(including token, task, silent-turn, and auto-mode reminders) into
+mid-conversation `api_system` messages when that capability is active.
+Otherwise it retains/merges user messages and can append reminder text
+inside a tool result. The system path normally removes the wrapper; a
+model-specific branch preserves it. Neither the persisted attachment nor
+its intermediate renderer alone establishes the exact wire representation.
+
+Evidence: wrapper at 201313645; user-message constructor at 201264894;
+system-message constructor at 197643156; model gate at 193055286;
+request conversion at 201285723–201296900; tool-result merging at
+201301615–201303300. These paths were read, not wire-tested.
 
 ### Total-token reminder
 
@@ -93,9 +159,16 @@ Controls:
 - `CLAUDE_CODE_TOTAL_TOKENS_REMINDER_BUDGET`
 - `CLAUDE_CODE_TOTAL_TOKENS_REMINDER_AFTER_USER_TURN`
 
-**Insertion:** `total_tokens_reminder` attachment, rendered as the user-role
-reminder above. Generated between tool rounds and, by default, on regular
+**Insertion:** `total_tokens_reminder` attachment through the conversion
+paths above. Generated between tool rounds and, by default, on regular
 user prompts. The producer also supports per-agent accounting.
+
+The same body is also appended directly to the main/subagent system prompt,
+without an enclosing `<system-reminder>` tag. That initial text uses the full
+configured budget for padded mode or model capacity for countdown mode,
+not the attachment's usage-subtracted value. `off` suppresses both sources;
+`CLAUDE_CODE_DISABLE_ATTACHMENTS` and `CLAUDE_CODE_SIMPLE` also suppress the
+initial system-prompt addition.
 
 Exact body template:
 
@@ -131,8 +204,10 @@ For `padded-countdown`:
   context usage into it. Within an anchor period, accumulated usage cannot
   decrease: the implementation retains a high-water mark.
 - Accounting uses the latest assistant usage record: input, cache creation,
-  cache read, and output tokens. It is not the sum of billed tokens across
-  requests and is not the account's five-hour allowance.
+  cache read, and output tokens. When valid server-side iterations are
+  available, the usage normalizer takes the last non-advisor/non-compaction
+  message iteration rather than the aggregate. It is not the sum of billed
+  tokens across requests and is not the account's five-hour allowance.
 - This producer does not enforce stopping when the displayed number reaches
   zero. `fixed` and `infinite` are literal presentation modes.
 
@@ -148,9 +223,10 @@ budget scarcity, potentially discouraging premature wrap-up or conserving
 work according to an experimental task budget. The source proves the
 mechanism, not the intended behavioral effect or its effectiveness.
 
-Evidence: configuration and accumulator at 182418334–182420300; latest usage
-lookup at 182872406; producer at 186130977; renderer near 186361572;
-compaction rollover call sites at 185061713 and 185098313.
+Evidence: configuration/accumulator at 199012040–199014780; usage
+normalization/lookup at 198578070–198579900; producer at 200742898;
+renderer at 201337548; initial system-prompt addition at 199054981 and
+199057248; compaction rollover calls at 204987681 and 205029477.
 
 ### Context token usage: a separate mechanism
 
@@ -176,8 +252,10 @@ not account for every subsequently appended block.
 Enablement is opt-in through this variable; unset or false does not generate
 it. It does not replace or disable the total-token reminder.
 
-Evidence: producer at 186130600–186130977; effective-window helper at
-182867888; renderer near 186361572.
+Evidence: producer at 200742741; effective-window helper at 198622836;
+renderer at 201337420. The effective window reserves up to 20,000 output
+tokens; the normal auto-compaction trigger subtracts another 13,000
+(198619254), reinforcing that this is not the trigger countdown.
 
 ### Silent-turn reminder
 
@@ -207,8 +285,13 @@ Purpose is apparent from the text: encourage progress updates during long
 stretches of tool use. Whether those messages reach a particular UI is a
 separate question.
 
-Evidence: 186082056–186082700; main-agent gate near 186091837;
-producer at 186097339.
+Enablement goes through the model-capability resolver with the explicit
+environment boolean passed through unchanged. False wins; otherwise
+`silent_turn_reminder` capability/bundle/client-data selection applies.
+The fallback interval is five turns, with a three-reminder cap.
+
+Evidence: configuration at 200685814–200686600; capability resolver at
+193877602; main-agent gate at 200697419–200697589; producer at 200703745.
 
 ### Todo and task reminders
 
@@ -216,9 +299,8 @@ producer at 186097339.
 
 **Insertion:** controls generation of both `todo_reminder` and
 `task_reminder`. The value `off` disables reminders without removing the
-corresponding tools. The experiment
-fallback is `baseline` (`tengu_soft_slate_nudge`). Producers require eligible
-tools and history; the baseline checks ten assistant turns since relevant
+corresponding tools. The experiment fallback is `baseline`
+(`tengu_soft_slate_nudge`). Producers require eligible tools and history; the baseline checks ten assistant turns since relevant
 task management and ten since the previous reminder. Renderers also have
 tool-mode availability gates.
 
@@ -255,18 +337,20 @@ The base bodies end with a newline; nonempty-list suffixes begin with two
 more newlines. Each task occupies its own line.
 
 Purpose is apparent: encourage progress tracking and removal of stale tasks.
-Evidence: mode selection at 186088089; producers at 186125822–186127000;
-renderers at 186369586 and 186370214.
+Evidence: mode selection at 200692947; producers and brief-mode gate at
+200737140–200738680; renderers at 201349504 and 201350132.
 
-## Ephemeral request-time reminders
+## Request-time reminders
 
 ### Batching: `CLAUDE_CODE_TOASTY_THIMBLE`
 
-**Insertion:** ephemeral `batching_reminder` attachment inserted near the
-last eligible user-role tool-result message immediately before inference.
-It renders with the same user-role `<system-reminder>` wrapper. Generation
-has model eligibility and tool-result/error guards; it is not unconditional
-on every request.
+**Insertion:** request-time batching reminder after eligible tool results.
+The transient path creates `batching_reminder`, then the request converter
+folds it into model-capable system-message content. A retained path instead
+writes `batching_reminder_sent` with `clearAt: "next_user_message"` and
+converts that record into system content with API `clear_at`. A third
+selection result suppresses delivery. Model, provider, and tool-result/error
+gates apply; this is not unconditional on every request.
 
 Exact built-in text for the model family selected by the source's model gate:
 
@@ -283,23 +367,29 @@ This is a string override:
   can supply model-pattern-specific text; otherwise a model-specific
   built-in fallback may apply.
 
-Selections are latched per conversation/model. The transcript records
-`batching_reminder_sent` with text/model as bookkeeping; that record's
-renderer returns no messages. It is not a persisted copy that is repeatedly
-rendered into subsequent requests.
+Selections are latched per conversation/model. A plain
+`batching_reminder_sent` record remains bookkeeping and its ordinary
+renderer returns no messages. **Retained records with `clearAt` are
+different:** a dedicated converter consumes their text, even though that
+ordinary renderer is empty. Do not infer absence from the API from the
+empty renderer alone. See Sleepy Snowflake below for the delivery gate.
 
 Purpose is apparent: encourage independent tool calls in parallel to reduce
 sequential inference rounds. It explicitly requests private planning first.
 
-Evidence: text/configuration/selection around 184921500–184923230;
-insertion at 184924119; recording at 185072331; empty renderer at 186366158.
+Evidence: text/configuration/selection at 204901974–204904100; transient
+insertion at 204904294; retained-record calculation at 204904999;
+delivery decision at 199556191; recording/branching at 205000183;
+retained-record conversion at 201293780–201294130; wire `clear_at` at
+199565058; ordinary empty renderer at 201343254.
 
 ### Secondary reminder: `CLAUDE_CODE_GENTLE_PARASOL`
 
-**Insertion:** ephemeral `secondary_reminder` through the same request-time
-mechanism, with a `secondary_reminder_sent` bookkeeping record. It has its
+**Insertion:** `secondary_reminder` through the same transient/retained
+request-time mechanism, with `secondary_reminder_sent` records. It has its
 own selection and latch. Some batching-specific suppression guards do not
-apply to this secondary reminder.
+apply to this secondary reminder. As with batching, a retained record with
+`clearAt` can contribute model-visible system content.
 
 There is **no built-in default text** in this configuration. Exact text comes
 from the environment variable or a model-pattern map under client-data key
@@ -314,6 +404,34 @@ particular behavior.
 
 Evidence: same request-time configuration and insertion sites as above.
 
+### Retained delivery: Sleepy Snowflake
+
+The remote `tengu_sleepy_snowflake` assignment chooses `off`, `threads`, or
+`all`. A per-model client-data map takes precedence over GrowthBook, whose
+fallback is `all`. This is a delivery scope, not a text override. `threads`
+requires the Message Threads gate; `all` does not. First-party provider/base-URL,
+request-mode, endpoint-support, and session-retirement checks still apply.
+The selection is cached by conversation/model. Rejection by the server can
+retire the retained path for the session. Thus `all` is not evidence that every
+SDK request receives retained reminders.
+
+**The apparent environment overrides are not functional in this binary.**
+Source references `CLAUDE_CODE_SLEEPY_SNOWFLAKE` and
+`CLAUDE_CODE_TETHER_LIVE`, but both are read from an accessor constructed
+from an empty schema with a null prototype. Its factory defines environment
+getters only for schema entries, not a generic `process.env` proxy. These
+references therefore read undefined; merely setting those variables does
+not override the remote gates. A name found in embedded source is not proof
+of a usable environment control.
+
+Use Toasty Thimble/Gentle Parasol text suppression for targeted opt-outs,
+subject to the caveat about existing retained records. Retained delivery
+changes placement/lifetime, not the quoted reminder text.
+
+Evidence: accessor factory/empty schema at 190819257–190819689;
+selection/gates at 199545550–199547300; delivery decision at 199556191;
+server-rejection fallback at 199622000–199624500.
+
 ## Bash-first instructions
 
 ### `CLAUDE_CODE_THRIFTY_SONIC`
@@ -321,19 +439,19 @@ Evidence: same request-time configuration and insertion sites as above.
 `false` is an explicit override ahead of automatic model/cohort selection;
 `true` forces enablement. The remote experiment is `tengu_thrifty_sonic`.
 
-**Verified insertion:** the `auto_mode` attachment, rendered as a user-role
-system reminder. It can be generated in **auto or bypass-permissions mode**,
-requires appropriate tools, and is not injected afresh every turn once the
-mode attachment is present. False disables this Bash-first branch; it does
+**Verified insertion:** the `auto_mode` attachment, routed through the
+user/system conversion described above. It can be generated in **auto or
+bypass-permissions mode**, requires appropriate tools, and is not injected
+afresh every turn once the mode attachment is present. False disables this Bash-first branch; it does
 not necessarily suppress other auto-mode guidance.
 
-Exact Bash-first paragraph:
+Exact **strict** Bash-first paragraph:
 
 ```text
 Do your work through the Bash tool wherever it can accomplish the job: read files with cat, head, or sed -n, search with grep and find, and make file changes with sed, heredocs, or short scripts, rather than using the dedicated Read, Edit, or Write tools. Fall back to a dedicated tool only when Bash genuinely cannot do the job.
 ```
 
-In bypass mode the complete body for this branch is:
+In bypass mode the complete body for the strict branch is:
 
 ```text
 While bypass permissions mode is active:
@@ -354,8 +472,40 @@ reported behavioral concern, not something established by static inspection.
 a Bash-first workflow. The codename alone does not establish the metric or
 rationale.
 
-Evidence: precedence at 179492653; attachment producer at 186100055;
-text near 186377172.
+Automatic assignment honors `thrifty_sonic: false` through model
+capabilities before cohort selection, and recognizes the `opus_5_5_prompt_bundle`
+capability. Explicit `CLAUDE_CODE_THRIFTY_SONIC=false` wins over all
+automatic assignments. The `bashFirstSteer` attachment field selects the
+wording variant; see Cozy Teapot below.
+
+Evidence: precedence at 193879728–193880076; attachment producer at
+200706206; strict/relaxed text at 201357060–201358300.
+
+### `CLAUDE_CODE_COZY_TEAPOT`
+
+Selects `strict` or `relaxed` wording **when Bash-first is enabled**. It does
+not itself enable Thrifty Sonic. A valid environment value wins; otherwise
+selection uses a valid client-data value under `tengu_cozy_teapot`, then the
+`opus_5_5_prompt_bundle` capability (selecting relaxed), then a valid remote
+experiment value, then strict. Invalid values do not disable Bash-first.
+
+The strict paragraph is quoted above. Exact relaxed paragraph:
+
+```text
+You can do much of your work through the Bash tool when it is the simpler route: read files with cat, head, or sed -n, search with grep and find, and make small, mechanical file changes with sed, heredocs, or short scripts instead of the dedicated Read, Edit, or Write tools. The choice is yours: prefer Edit or Write when a shell edit would be fragile, such as exact or multi-line replacements, or sed/awk flags that differ between GNU and BSD/macOS.
+```
+
+Insertion uses the same `auto_mode` attachment and surrounding mode text as
+strict. An existing attachment's `bashFirstSteer` is reused; a missing field
+selects strict. Changing the environment is not a rewrite of persisted mode
+attachments.
+
+**Hypothesis:** preserve Bash-first efficiency while avoiding fragile shell
+edits. The relaxed wording explicitly permits choosing Edit/Write; it does
+not address the reported output-limit concern.
+
+Evidence: selector at 193880076–193880420; producer at 200706206;
+text/variant renderer at 201357060–201358150.
 
 ### `CLAUDE_CODE_GORSE_PLOVER`
 
@@ -377,16 +527,22 @@ errors as cheap feedback. The text asserts commands are cheap without
 qualifying their side effects; this is prompt guidance, not a permissions
 change or exemption from other instructions.
 
-Evidence: helper at 179493285; insertion at 185363299.
+Evidence: helper at 193880416–193880563; insertion at 198552181.
 
 ## Other prompt experiments traced
 
 ### `CLAUDE_CODE_AMBER_ASTROLABE`
 
 **Insertion:** `autonomy_append` system-prompt section. The section has an
-additional `tengu_amber_sextant` gate, defaulting on. Either a model predicate
-or the Astrolabe helper can enable it. The helper combines the environment
-flag with remote assignment using OR, so false does not reliably suppress it.
+additional `tengu_amber_sextant` gate, defaulting on. Either the separate
+`fable_5_mitigations` model predicate or the Astrolabe helper can enable it.
+The helper passes `CLAUDE_CODE_AMBER_ASTROLABE || undefined` to the
+capability resolver: true forces it on, while false is discarded. Selection
+then uses the `amber_astrolabe` model capability or per-model client data.
+
+`CLAUDE_CODE_MODEL_CAPABILITIES=-amber_astrolabe` disables that capability
+branch, but **not** the independent mitigation predicate. It is therefore
+not a universal opt-out from the whole section.
 
 Exact section:
 
@@ -406,8 +562,9 @@ inspection did not establish that every environment receiving the section
 actually has that property. Its assessment-only exception also needs to be
 read alongside its broad instruction not to end with analysis.
 
-Evidence: helper at 179493368; text at 185691900–185693500;
-section selection near 185714417.
+Evidence: helper at 193880563; capability resolver at 193877602;
+independent mitigation predicate at 193853722; section text/gate at
+199031665–199033300; prompt-section selection near 199054490.
 
 ### `CLAUDE_CODE_PARCHMENT_FERN`
 
@@ -468,39 +625,17 @@ instead of:
 Only the prompt wording was traced here; these quotes are not independent
 verification of runtime enforcement.
 
-Evidence: selection at 179494241; Write at 180396500–180398000;
-Edit at 182757300–182759500.
-
-### `CLAUDE_CODE_GAULT_KESTREL`
-
-**Insertion:** removes a cautionary clause from the `action_caution` system
-prompt section. The affected fragment when enabled is:
-
-```text
-Before deleting or overwriting, look at the target.
-```
-
-When disabled, the fragment is:
-
-```text
-Before deleting or overwriting, look at the target. If what you find contradicts how it was described, or you didn't create it, surface that instead of proceeding.
-```
-
-This is a wording subtraction, not a new attachment or permissions change.
-Enablement includes environment, model-bundle, client-data, and GrowthBook
-paths combined with OR; false is not a reliable opt-out.
-
-**Hypothesis:** reduce unnecessary hesitation or clarification before edits.
-The removed clause also supplied a specific caution about unexpected target
-state, so it is not merely a stylistic shortening.
-
-Evidence: helper at 179493193; affected template at 185686144.
+Evidence: selection at 193881464; Write at 195705621–195706970;
+Edit at 201058254–201060500.
 
 ### `CLAUDE_CODE_LARCH_CISTERN`
 
-**Insertion:** `overcorrection` system-prompt section. OR-style enablement
-includes the environment flag, model bundle, and remote assignments; false
-is not a reliable opt-out.
+**Insertion:** `overcorrection` system-prompt section. The helper passes
+`CLAUDE_CODE_LARCH_CISTERN || undefined` to the capability resolver. True
+forces it on; false is discarded. The `larch_cistern` capability, applicable
+model bundle, or per-model client data then determines enablement.
+`CLAUDE_CODE_MODEL_CAPABILITIES=-larch_cistern` can explicitly disable this
+capability branch when the dedicated flag is not forcing it on.
 
 Exact section:
 
@@ -514,8 +649,8 @@ A follow-up question about your earlier work is not, by itself, a signal that yo
 Purpose is apparent: suppress unnecessary self-correction and repeated
 re-auditing without suppressing consequential corrections.
 
-Evidence: helper at 179493494; text at 185711834;
-section selection near 185714417.
+Evidence: helper at 193880729; capability resolver at 193877602;
+text at 199051771; section selection at 199054037.
 
 ### `CLAUDE_CODE_WILLOW_TERN`
 
@@ -548,8 +683,8 @@ not reliably display intermediate activity, with unusually specific style
 constraints. Whether those constraints improve technical communication is
 not established by this inspection.
 
-Evidence: selection at 179493600–179494000;
-text at 185689400–185691471; section selection near 185714417.
+Evidence: selection at 193880816–193881291;
+text at 199029412; section selection near 199054467.
 
 ### `CLAUDE_CODE_SIMPLE_SYSTEM_PROMPT`
 
@@ -567,7 +702,141 @@ opt-out from all prompt experiments.
 **Hypothesis:** reduce prompt overhead and tailor instructions to different
 model generations. It changes more than the attachment reminders.
 
-Evidence: selector at 179494241–179495000; consumers cited above.
+The automatic selection recognizes explicit `lean_prompt` capability
+values, including false, before its model-family heuristics. The
+dedicated environment setting remains the first override. A negative
+capability does not bypass later GrowthBook/client-data fallback branches.
+
+Evidence: selector at 193881564–193882233; consumers cited above.
+
+## Other context controls
+
+### `CLAUDE_CODE_PARSED_WILLOW`
+
+Explicit boolean override of `tengu_parsed_willow`, whose fallback is true.
+For eligible queued human prompts on the system-message conversion path,
+true separates non-meta human content from attachment announcements and
+removes its reminder wrapper. Meta content can still enter the announcement
+path. Human-turn provenance, prompt mode, and other eligibility checks apply.
+
+This adds no fixed instruction and is not a universal system-reminder opt-out.
+False selects the ordinary conversion path; it does not discard the prompt.
+
+Evidence: selector at 201277097; queued-human conversion at
+201294780–201295600.
+
+### `CLAUDE_CODE_WISE_COMET`
+
+Controls stripping thinking retained across compaction. An explicit boolean
+wins; otherwise only adaptive thinking consults `tengu_wise_comet`, with a
+false fallback. If a compaction's kept tail contains thinking blocks and the
+selection is true, it emits a `thinking_stripped` marker with scope `all`.
+Request normalization consumes the marker to strip preceding thinking.
+
+This changes retained context, not whether the model may reason on its next
+turn. It injects no fixed instruction. False suppresses this particular
+compaction marker, not every other reason thinking can be removed.
+
+Evidence: selector at 198618012; compaction producer at
+199467150–199467800; marker consumption at 201382015–201382541.
+
+### `CLAUDE_CODE_RUSTLING_PIXEL`
+
+Controls retention of foreign-model thinking during request normalization:
+
+| Value     | Selection                                                                |
+| --------- | ------------------------------------------------------------------------ |
+| `all`     | Retain eligible foreign thinking with a recorded source model.           |
+| `upgrade` | Retain it only when the model-compatibility upgrade predicate allows it. |
+| `none`    | Strip foreign-model thinking.                                            |
+
+First-party/endpoint eligibility applies before the override. Precedence is
+environment, client-data string under `tengu_rustling_pixel`, then GrowthBook
+with fallback `all`. Invalid strings select `upgrade`; invalid environment
+values also log a warning. Assignment is cached in session state and can be
+retired on failure. Other thinking-validity/stripping rules still apply.
+The complete model-upgrade compatibility map was not audited here.
+
+No fixed instruction is added. This is a context-retention policy, not a
+request to expose thinking or a guarantee the server accepts it.
+
+Evidence: selector/cache at 199537575–199538800; request-normalization input
+at 199615489; foreign-model filtering at 201381341–201381729.
+
+### `CLAUDE_CODE_POLISHED_DEWDROP`
+
+Controls a thinking-block binding-validation request policy on the eligible
+first-party path. A valid environment enum overrides `tengu_polished_dewdrop`:
+
+| Value   | Request policy                           |
+| ------- | ---------------------------------------- |
+| `drop`  | `prefix_mismatch_behavior: "drop_block"` |
+| `block` | `prefix_mismatch_behavior: "error"`      |
+| `off`   | No policy from this selector.            |
+
+The policy is inserted under `thinking.block_binding` for eligible enabled
+or adaptive thinking requests. Provider, request, and beta gates apply.
+`off` does not disable all validation. No model-facing instruction is added;
+server enforcement was not tested.
+
+Evidence: selector at 199535720–199536050; request gating at
+199619250–199619900; request field construction at 199629800–199630200.
+
+### `CLAUDE_CODE_OCHRE_KITE`
+
+Enables one same-model continuation after an eligible response is stopped
+by a safety classifier. Enablement is environment true **or**
+`tengu_ochre_kite` (false fallback); dedicated false is not a reliable opt-out.
+Auxiliary queries and an already-attempted retry are excluded. Tool deferral,
+continuation-prevention, and end-turn signals can prevent the retry.
+
+**Insertion:** a meta user message marked as a turn companion, not a
+`<system-reminder>`-wrapped attachment. Exact text:
+
+```text
+Your response above was stopped by a safety classifier — this is not a tool or API error. The rest of it was withheld, and tool calls in it that had not finished did not run. Do not produce that content again, even reworded.
+```
+
+If a tool call was already running, append a space and:
+
+```text
+Exception: a tool call whose result reads "Interrupted" was already running when the response was stopped; it may have partially or fully completed.
+```
+
+Unanswered tool calls receive synthetic error results. Exact bodies, depending
+on whether the tool had started:
+
+```text
+Not run: the response that made this tool call was stopped by a safety classifier.
+```
+
+```text
+Interrupted: the response that made this tool call was stopped by a safety classifier while the call was running; it may have partially or fully completed.
+```
+
+Purpose is apparent: continue with explicit refusal and partial-execution
+context, rather than treating the stop as a tool/API error. It does not
+instruct the model to reproduce withheld content. Actual retry behavior and
+final wire messages have not been tested.
+
+Evidence: instruction constants at 191939403–191939792; gate/message builder
+at 204949350–204951060; continuation branch at 205025900–205027050.
+
+### `CLAUDE_CODE_MAX_EFFORT_REMINDER`: human-facing only
+
+Explicit boolean override of `tengu_proud_clover`, with a false fallback.
+It enables max-effort warnings in UI surfaces, not an assistant attachment.
+Exact shared warning body:
+
+```text
+May use excessive tokens resulting in long response times or overthinking. Use sparingly for the hardest tasks.
+```
+
+UI wrappers vary by surface. The name is not evidence that this text is
+injected into model context.
+
+Evidence: warning body at 191014591; selector at 193854118; UI consumers at
+212945501, 217547219, 217632758, and 226985240.
 
 ## Broad attachment suppression
 
@@ -586,7 +855,7 @@ and environment/model/session-setting updates, subject to their own gates.
 
 It is **not** a universal no-injection flag:
 
-- The ephemeral batching/secondary mechanism is separate.
+- The request-time batching/secondary mechanism is separate.
 - System-prompt sections and tool descriptions remain separate.
 - Existing persisted attachments are not necessarily filtered from rendering.
 - Other code paths can create attachments outside the collector.
@@ -595,14 +864,23 @@ It is **not** a universal no-injection flag:
 surgical preference for fewer behavioral nudges. Targeted opt-outs avoid
 losing useful context discovery along with reminders.
 
-Evidence: collector branch at 186088101.
+Environment/model/session settings are collected by one retained helper.
+This flag also suppresses the initial total-token system-prompt text and
+disables the kept-deferred-tool feature; its effects extend beyond reminders.
+
+Evidence: collector branch at 200694127; retained helper at 200709966;
+initial total-token gate at 199054981; kept-tools gate at 196325793.
 
 ## Open questions and validation
 
 - Wire-test the targeted opt-outs on fresh and resumed sessions. Determine
-  which historical reminders remain visible after their producers are off.
+  which persisted reminders remain visible after their producers are off.
 - Capture actual client/model assignments separately from fallback values;
   source defaults do not establish a particular user's active experiments.
+- Audit `CLAUDE_CODE_FORWARD_USER_INTENT` end to end: its source references
+  provenance-labeled parent context forwarded to subagents, but its complete
+  selection/insertion behavior is outside this report's verified inventory.
+  Artifact-related controls are also outside this scoped audit.
 - Audit the complete lean/non-lean prompt diff before recommending
   `CLAUDE_CODE_SIMPLE_SYSTEM_PROMPT` as a workaround.
 - Verify the practical relation between the `token_usage` total and each

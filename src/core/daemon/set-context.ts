@@ -114,7 +114,8 @@ export function normalizePreservedUuids(
         reason:
           `tool call ${entryUuid} (${toolCallIdsOf(entry).join(", ")}) has ` +
           "no tool_result anywhere in the file (killed turn) — the loader " +
-          "would silently drop the call entry; omit it explicitly",
+          "would silently drop the call entry or answer it with a synthetic " +
+          "error result; omit it explicitly",
       };
     }
   }

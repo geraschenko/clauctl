@@ -22,9 +22,7 @@ export class ToolGroup {
   private lastRow: UUID;
   /** Tool call id → uuid of the entry that made the call, until answered. */
   private readonly awaitingResult = new Map<string, UUID>();
-  /** Call entries with at least one answered call: the sanitizer keeps an
-   *  entry unless every call in it is dead. */
-  private readonly answeredCallEntries = new Set<UUID>();
+  private lastRowIsResult = false;
   private readonly thinkingOnly: UUID[] = [];
   /** The group has presentable content: an assistant member that is
    *  neither thinking-only nor a dead call, or an answered call. */
@@ -59,6 +57,7 @@ export class ToolGroup {
   }
 
   private admit(entry: UuidEntry): void {
+    this.lastRowIsResult = entry.type !== "assistant";
     if (entry.type === "assistant") {
       if (isToolCallEntry(entry)) {
         for (const callId of toolCallIdsOf(entry)) {
@@ -71,10 +70,7 @@ export class ToolGroup {
       }
     } else {
       for (const callId of toolResultIdsOf(entry)) {
-        const callEntry = this.awaitingResult.get(callId);
-        if (callEntry !== undefined) {
-          this.awaitingResult.delete(callId);
-          this.answeredCallEntries.add(callEntry);
+        if (this.awaitingResult.delete(callId)) {
           this.hasSurvivor = true;
         }
       }
@@ -86,14 +82,15 @@ export class ToolGroup {
     return this.awaitingResult.size > 0;
   }
 
-  /** Uuids the resume sanitizer drops once the group has ended: call
-   *  entries none of whose calls was answered, and thinking-only members
-   *  when nothing survives. */
-  excludedAtEnd(): UUID[] {
+  /** Uuids the resume sanitizer drops once the group has ended: its
+   *  unanswered call entries — except when the file ends inside the group
+   *  at a tool result (an interrupted turn, p20-kill1), which the CLI heals
+   *  with synthetic error results instead — and thinking-only members when
+   *  nothing survives. */
+  excludedAtEnd(atFileEnd: boolean): UUID[] {
+    const healed = atFileEnd && this.lastRowIsResult;
     return [
-      ...[...this.awaitingResult.values()].filter(
-        (callEntry) => !this.answeredCallEntries.has(callEntry),
-      ),
+      ...(healed ? [] : this.awaitingResult.values()),
       ...(this.hasSurvivor ? [] : this.thinkingOnly),
     ];
   }

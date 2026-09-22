@@ -73,6 +73,7 @@ const starts = (u, p) => typeof u === "string" && u.startsWith(p);
   check("p1e missing compactMetadata (known writer behavior per version)",
     r.versions.sdk === "0.3.250" ? noMeta.nMessages === 3 && noMeta.summaryPresent && !noMeta.relinked
     : r.versions.sdk === "0.3.258" ? noMeta.resultSubtype === "error_during_execution" && noMeta.nMessages === 0
+    : r.versions.sdk === "0.3.280" ? noMeta.nMessages === 3 && noMeta.summaryPresent && !noMeta.relinked
     : false);
 }
 
@@ -151,10 +152,11 @@ const starts = (u, p) => typeof u === "string" && u.startsWith(p);
   // unchanged): 2.1.195 kept a segment from the old summary through the
   // probe turn; 2.1.250 kept only the trailing assistant turn — old summary
   // and first probe gone, post-compact context = [new summary, assistant
-  // turn, probe] (3 messages). 2.1.258 has produced BOTH shapes (see
-  // FINDINGS "Version drift"); pinned to the latest observation so a flip
-  // is noticed rather than absorbed. Known versions only: an unknown SDK
-  // version FAILS here so drift gets characterized, not silently accepted.
+  // turn, probe] (3 messages). 2.1.258 has produced BOTH shapes and 2.1.280
+  // the old-summary shape (see FINDINGS "Version drift"); each version is
+  // pinned to its latest observation so a flip is noticed rather than
+  // absorbed. Known versions only: an unknown SDK version FAILS here so
+  // drift gets characterized, not silently accepted.
   const keptOld = r.q7.postProbe.hasOldSynthSummary && r.q7.postProbe.hasFirstProbe;
   const keptTailOnly = !r.q7.postProbe.hasOldSynthSummary && !r.q7.postProbe.hasFirstProbe
     && r.q7.postProbe.nMessages === 3;
@@ -162,6 +164,7 @@ const starts = (u, p) => typeof u === "string" && u.startsWith(p);
     r.versions.sdk === "0.3.195" ? keptOld
     : r.versions.sdk === "0.3.250" ? keptTailOnly
     : r.versions.sdk === "0.3.258" ? keptTailOnly
+    : r.versions.sdk === "0.3.280" ? keptOld
     : false);
   check("p4.q8 live dry-run rewind works", r.q8.liveDryRun.canRewind === true);
   check("p4.q8 behind-boundary rewind refused", r.q8.behindBoundaryDryRun.canRewind === false
@@ -301,8 +304,17 @@ const starts = (u, p) => typeof u === "string" && u.startsWith(p);
   check("p20 no violations", r.violations.length === 0);
   check("p20 kill0: unresolved tool_use BLOCKS dropped, bundled text kept",
     m("kill0").length === 1 && m("kill0")[0] === "drops-calls-keeps-text");
-  check("p20 kill1: only the unresolved call's block dropped, no synthetic heal",
-    m("kill1").length === 1 && m("kill1")[0] === "drops-unresolved-block");
+  // kill1 drifted in 2.1.274 ("corrupted transcripts now self-heal"): the
+  // file's interrupted trailing turn keeps its unanswered call, healed with
+  // an interrupt-shaped error result (see FINDINGS "Version drift").
+  const kill1Expected = r.sdkVersion === "0.3.280" ? "kept-healed-interrupt"
+    : ["0.3.195", "0.3.250", "0.3.258"].includes(r.sdkVersion) ? "drops-unresolved-block" : null;
+  check(`p20 kill1: unanswered call handling matches the pinned model for SDK ${r.sdkVersion}`,
+    m("kill1").length === 1 && m("kill1")[0] === kill1Expected);
+  // The heal is positional: the same half-answered group followed by a
+  // later turn is cut as before (2.1.280 source reading, README-20260922.md).
+  check("p20 kill1-later: unanswered call before a later turn dropped, no heal",
+    m("kill1-later").length === 1 && m("kill1-later")[0] === "tail-heal-only");
   check("p20 part1: playlist keeping one call+result presents exactly that",
     m("part1").length === 1 && m("part1")[0] === "cut-per-entry");
   check("p20 part2: text + one pair kept, other pair absent",

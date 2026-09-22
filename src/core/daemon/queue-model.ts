@@ -55,11 +55,15 @@ export interface AcceptTransition extends QueueTransition {
 
 /** A `/command` prompt: the CLI never steers or merges one — it waits for
  *  a result and runs alone (docs/claude-agent-sdk.md, "Slash commands are
- *  turns of their own"). Only string content counts: a `/command` in a
- *  text block is an ordinary prompt. */
+ *  turns of their own"). String content or any text block starting with
+ *  `/` counts (an `--image` prompt carries its text as a block). */
 function isSlashCommand(message: SDKUserMessage): boolean {
   const content = message.message.content;
-  return typeof content === "string" && content.startsWith("/");
+  return typeof content === "string"
+    ? content.startsWith("/")
+    : content.some(
+        (block) => block.type === "text" && block.text.startsWith("/"),
+      );
 }
 
 /**

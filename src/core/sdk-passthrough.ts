@@ -41,6 +41,7 @@ const MUTATION_TYPES: Record<SdkControlMutation["type"], true> = {
   "seed-read-state": true,
   "reload-plugins": true,
   "reload-skills": true,
+  "reload-output-styles": true,
 };
 
 export function isControlMutation(
@@ -62,6 +63,7 @@ const READ_TYPES: Record<SdkControlRead["type"], true> = {
   usage: true,
   "account-info": true,
   "read-file": true,
+  "read-mcp-resource": true,
 };
 
 export function isControlRead(
@@ -141,9 +143,15 @@ export async function applyMutation(
     case "seed-read-state":
       return await query.seedReadState(mutation.path, mutation.mtime);
     case "reload-plugins":
-      return await query.reloadPlugins();
+      return await query.reloadPlugins({
+        ...(mutation.holdOnCacheImpact !== undefined && {
+          holdOnCacheImpact: mutation.holdOnCacheImpact,
+        }),
+      });
     case "reload-skills":
       return await query.reloadSkills();
+    case "reload-output-styles":
+      return await query.reloadOutputStyles();
   }
 }
 
@@ -204,6 +212,7 @@ export async function persistedOptionsAfter(
     case "seed-read-state":
     case "reload-plugins":
     case "reload-skills":
+    case "reload-output-styles":
       return undefined;
   }
 }
@@ -231,7 +240,13 @@ export async function runRead(
     case "usage":
       // Stable alias for the experimental method; rename here when the SDK
       // stabilizes it.
-      return await query.usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET();
+      return await query.usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET(
+        {
+          ...(read.skipBehaviors !== undefined && {
+            skipBehaviors: read.skipBehaviors,
+          }),
+        },
+      );
     case "account-info":
       return await query.accountInfo();
     case "read-file":
@@ -239,6 +254,8 @@ export async function runRead(
         ...(read.maxBytes !== undefined && { maxBytes: read.maxBytes }),
         ...(read.encoding !== undefined && { encoding: read.encoding }),
       });
+    case "read-mcp-resource":
+      return await query.readMcpResource(read.serverName, read.uri);
     // Coverage invariant (DECISION-4): between applyMutation and runRead,
     // every Query method is reachable except close (the daemon's teardown owns
     // the connection lifecycle), streamInput (the daemon's TurnQueue IS the

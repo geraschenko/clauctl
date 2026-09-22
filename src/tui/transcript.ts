@@ -964,11 +964,7 @@ class CompactSummaryComponent implements Component {
   private expanded = false;
 
   constructor(text: string) {
-    this.collapsedView = new Text(
-      theme.fg("dim", "Compacted (ctrl+o to see full summary)"),
-      1,
-      1,
-    );
+    this.collapsedView = bannerText("Compacted (ctrl+o to see full summary)");
     const container = new Container();
     container.addChild(new Spacer(1));
     container.addChild(new Markdown(text, 2, 0, getMarkdownTheme()));
@@ -1013,8 +1009,14 @@ function entryUserViews(
   return message?.type === "user" ? userTurnViews(message) : [];
 }
 
-function bannerText(text: string, color: ThemeColor = "dim"): Text {
-  return new Text(theme.fg(color, text), 1, 1);
+/** A one-line block: like every transcript block it leads with its own
+ *  blank line and trails with none, so consecutive blocks sit one blank
+ *  line apart. */
+function bannerText(text: string, color: ThemeColor = "dim"): Component {
+  const container = new Container();
+  container.addChild(new Spacer(1));
+  container.addChild(new Text(theme.fg(color, text), 1, 0));
+  return container;
 }
 
 /** "context compacted (156k → 12k tokens)". Unknown-typed so replayed

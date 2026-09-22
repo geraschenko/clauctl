@@ -82,6 +82,15 @@ range.
    file headings). Consult `README.diff`, `package-json.diff`, or `manifest.diff` only
    when they contain a change relevant to clauctl.
 
+   Read the Claude Code changelog for every bundled-claude version between the
+   old and new `manifest.json` `version` (the declarations do not describe
+   runtime-only changes: resume/compaction loading, headless lifecycle, tool
+   removals, subagent result framing). https://code.claude.com/docs/en/changelog
+   carries only recent releases; for older entries in the range use
+   `https://raw.githubusercontent.com/anthropics/claude-code/main/CHANGELOG.md`.
+   Keep only bullets that touch SDK/headless sessions, resume, compaction,
+   transcripts, hooks, permissions, queueing, or tools clauctl renders.
+
 3. Update the dependency and lockfile together, then compile early:
 
    ```bash

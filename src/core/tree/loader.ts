@@ -1,8 +1,14 @@
 /**
- * The CLI loader's load-time transform, ported from the decompiled binary
- * (v2.1.258), in stages: 1 boundary relink + cut, 2 root-to-leaf walk,
- * 3 parallel-tool-group expansion, 4 resume sanitization. (Stage 5, wire
- * normalization, happens per request inside the CLI — out of scope here.)
+ * The CLI loader's load-time transform in stages: 1 boundary relink + cut,
+ * 2 root-to-leaf walk, 3 parallel-tool-group expansion, 4 resume
+ * sanitization. (Stage 5, wire normalization, happens per request inside
+ * the CLI — out of scope here.) Ported from the decompiled 2.1.258 binary
+ * and re-read against 2.1.280 (docs/derisk/compact-boundary-injection/
+ * README-20260922.md): stages 1–2 identical, stage 3 order-equivalent on
+ * native shapes (a new recovered-tails pass is not modeled). Wire behavior
+ * pinned through 2.1.280 by the probe suite (run-suite.mjs +
+ * check-reports.mjs); stage 4's heal rule is the 2.1.280 source's,
+ * wire-confirmed by p20-kill1 and p20-kill1-later.
  * "The load pipeline" section of
  * docs/derisk/compact-boundary-injection/FINDINGS.md specifies the stages;
  * probe ids in comments (e.g. P10, p14) cite the same file. This module
@@ -342,41 +348,52 @@ export function expandParallelToolGroups(
   return expanded;
 }
 
-/** Stage 4, resume sanitization, entry-level, in order: drop assistant
- *  entries whose content is only tool_use blocks none of which has a
- *  tool_result anywhere on the expanded chain (killed turns, p20; see file
- *  comment); then drop API-message groups reduced to thinking-only entries
- *  (p19; see file comment).
- *  Entry-granularity approximation: a mixed text + dead-tool_use entry is
- *  kept whole where the CLI drops just the dead block (not a shape the CLI
- *  writes — one block per assistant entry). */
+/** Stage 4, resume sanitization, entry-level, in order: drop tool_use-only
+ *  entries none of whose calls has a tool_result anywhere on the expanded
+ *  chain (killed turns, p20-kill0, p20-kill1-later; see file comment) —
+ *  except in an interrupted trailing turn, an API-message group the chain
+ *  ends in at a tool result: its unanswered calls stay, the CLI healing
+ *  each with a synthetic error result (p20-kill1; a wire-level message,
+ *  not a file entry, so the presented context holds one more message than
+ *  the chain); then drop groups reduced to thinking-only entries (p19; see
+ *  file comment). Entry-granularity approximation: a mixed text +
+ *  dead-tool_use entry is kept whole where the CLI drops just the dead
+ *  block (not a shape the CLI writes — one block per assistant entry). */
 function sanitizeForResume(
   chain: TreeNodeRef[],
   byUuid: Map<UUID, SessionEntry>,
 ): TreeNodeRef[] {
+  const groupOf = (entry: SessionEntry, entryUuid: UUID): string =>
+    apiMessageIdOf(entry) ?? entryUuid;
+  const groupOfCallId = new Map<string, string>();
   const resolvedCallIds = new Set<string>();
   for (const ref of chain) {
     const entry = byUuid.get(ref.uuid);
-    if (entry?.type === "user") {
-      for (const block of contentBlocks(entry)) {
-        if (block.type === "tool_result" && block.tool_use_id !== undefined) {
-          resolvedCallIds.add(block.tool_use_id);
-        }
-      }
+    if (entry === undefined) {
+      continue;
+    }
+    for (const callId of toolCallIdsOf(entry)) {
+      groupOfCallId.set(callId, groupOf(entry, ref.uuid));
+    }
+    for (const callId of toolResultIdsOf(entry)) {
+      resolvedCallIds.add(callId);
     }
   }
-  const isDeadCall = (entry: SessionEntry): boolean => {
+  const tailEntry = byUuid.get(chain.at(-1)?.uuid as UUID);
+  const healedGroup =
+    tailEntry !== undefined && isToolResultEntry(tailEntry)
+      ? groupOfCallId.get(toolResultIdsOf(tailEntry)[0]!)
+      : undefined;
+  const isDeadCall = (entry: SessionEntry, entryUuid: UUID): boolean => {
     if (entry.type !== "assistant") {
       return false;
     }
     const blocks = contentBlocks(entry);
     return (
       blocks.length > 0 &&
-      blocks.every(
-        (block) =>
-          block.type === "tool_use" &&
-          !(block.id !== undefined && resolvedCallIds.has(block.id)),
-      )
+      blocks.every((block) => block.type === "tool_use") &&
+      !toolCallIdsOf(entry).some((callId) => resolvedCallIds.has(callId)) &&
+      groupOf(entry, entryUuid) !== healedGroup
     );
   };
   /** Remaining assistant members per API message id (id-less assistants
@@ -385,11 +402,11 @@ function sanitizeForResume(
   const afterCallDrop: TreeNodeRef[] = [];
   for (const ref of chain) {
     const entry = byUuid.get(ref.uuid);
-    if (entry !== undefined && isDeadCall(entry)) {
+    if (entry !== undefined && isDeadCall(entry, ref.uuid)) {
       continue;
     }
     if (entry?.type === "assistant") {
-      appendToGroup(groupMembers, apiMessageIdOf(entry) ?? ref.uuid, ref.uuid);
+      appendToGroup(groupMembers, groupOf(entry, ref.uuid), ref.uuid);
     }
     afterCallDrop.push(ref);
   }

@@ -1,6 +1,6 @@
 // Custom (formerly a verbatim port of pi coding-agent's user-message.ts;
 // taken out of scripts/update-ports.sh when it stopped tracking pi's
-// layout). Renders claude 2.1.258's user-prompt look —
+// layout). Renders claude 2.1.280's user-prompt look —
 //
 //   ❯ prompt text, word-wrapped,
 //     continuation lines indented 2
@@ -79,7 +79,7 @@ function styleInlineMarkdown(text: string): string {
 /** The prompt echo's band lines: inline markdown styled (markers consumed,
  *  so wrap points match the styled text), wrapped ANSI-aware — the active
  *  styles re-open on continuation lines. Claude leaves the last column of
- *  the prompt band empty (observed: 2.1.258 prompt lines top out one short
+ *  the prompt band empty (observed: 2.1.280 prompt lines top out one short
  *  of the terminal width), so the wrap capacity reserves it too. */
 function promptEchoLines(text: string, width: number): string[] {
   const capacity = Math.max(1, width - GUTTER_WIDTH - 1);

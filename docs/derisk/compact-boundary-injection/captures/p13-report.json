@@ -1,15 +1,15 @@
 {
-  "sdkVersion": "0.3.258",
+  "sdkVersion": "0.3.280",
   "resultSubtype": "success",
   "error": null,
   "stderr": null,
   "nRequestMessages": 5,
   "requestMessages": [
-    "user: [{\"type\":\"text\",\"text\":\"<system-reminder>\\nAs you answer the user's questions, you can use the following context:\\n# userEmail\\nThe user's e",
+    "user: \"Run both marker commands in parallel, then say done. (tag: NONCE-FORKQ)\"",
     "assistant: [{\"type\":\"tool_use\",\"id\":\"toolu_synthFORKA0000000000001\",\"name\":\"Bash\",\"input\":{\"command\":\"echo FORK-A-CMD\"}},{\"type\":\"tool_use\",\"id\":\"toolu",
-    "user: [{\"type\":\"tool_result\",\"tool_use_id\":\"toolu_synthFORKB0000000000002\",\"content\":\"FORK-B-RESULT\"},{\"type\":\"tool_result\",\"tool_use_id\":\"toolu_s",
+    "user: [{\"type\":\"tool_result\",\"tool_use_id\":\"toolu_synthFORKA0000000000001\",\"content\":\"FORK-A-RESULT\"},{\"type\":\"tool_result\",\"tool_use_id\":\"toolu_s",
     "assistant: [{\"type\":\"text\",\"text\":\"Both ran. FORK-DONE-TEXT\"}]",
-    "user: [{\"type\":\"text\",\"text\":\"<system-reminder>\\nAvailable agent types for the Agent tool:\\n- claude: Catch-all for any task that doesn't fit a mo"
+    "user: [{\"type\":\"text\",\"text\":\"<system-reminder>\\n# Environment\\nYou have been invoked in the following environment: \\n - Primary working directory"
   ],
   "verdicts": {
     "expansion-active": {

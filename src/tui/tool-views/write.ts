@@ -1,4 +1,4 @@
-// claude 2.1.258's Write rendering: success is "Wrote N lines to <path>"
+// claude 2.1.280's Write rendering: success is "Wrote N lines to <path>"
 // (the path cwd-relative, unlike the ~-abbreviated header) with the written
 // content as a line-numbered resultBody preview, truncated past the first
 // 10 lines by a "… +N lines (ctrl+o to expand)" marker; errors a fixed

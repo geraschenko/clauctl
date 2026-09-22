@@ -313,15 +313,15 @@ export type SdkControlMutation =
   | {
       type: "set-max-thinking-tokens";
       maxThinkingTokens: number | null;
-      thinkingDisplay?: "summarized" | "omitted" | null;
+      thinkingDisplay?: "summarized" | "omitted" | "highlights" | null;
     }
   | { type: "apply-flag-settings"; settings: FlagSettings }
   // Writes a settings FILE through the CLI's own writer and live-applies it;
-  // the SDK accepts only an explicit key allowlist (outputStyle today) with
-  // string values, and only the project's local settings file as target.
+  // the SDK accepts only an explicit key allowlist per file (localSettings:
+  // outputStyle; userSettings: effortLevel).
   | {
       type: "update-settings";
-      source: "localSettings";
+      source: "localSettings" | "userSettings";
       settings: Record<string, unknown>;
     }
   | { type: "set-mcp-servers"; servers: Record<string, McpServerConfig> }
@@ -331,8 +331,11 @@ export type SdkControlMutation =
   | { type: "background-tasks"; toolUseId?: string }
   | { type: "rewind-files"; userMessageId: string; dryRun?: boolean }
   | { type: "seed-read-state"; path: string; mtime: number }
-  | { type: "reload-plugins" }
-  | { type: "reload-skills" };
+  // holdOnCacheImpact: apply nothing when the reload would change the tool
+  // list the prompt cache depends on; the response then carries `held: true`.
+  | { type: "reload-plugins"; holdOnCacheImpact?: boolean }
+  | { type: "reload-skills" }
+  | { type: "reload-output-styles" };
 
 /**
  * The mutation as broadcast on `controlApplied`: the request as received,
@@ -355,14 +358,19 @@ export type SdkControlRead =
   // "full" (default) counts each category with the token-count API;
   // "summary" answers from the last response's usage and local estimates.
   | { type: "get-context-usage"; detail?: "summary" | "full" }
-  | { type: "usage" }
+  // skipBehaviors: leave the response's `behaviors` null instead of scanning
+  // local transcripts for it.
+  | { type: "usage"; skipBehaviors?: boolean }
   | { type: "account-info" }
   | {
       type: "read-file";
       path: string;
       maxBytes?: number;
       encoding?: "utf-8" | "base64";
-    };
+    }
+  // An MCP Apps `ui://` resource from a connected server (alpha SDK method;
+  // the contents are untrusted third-party HTML).
+  | { type: "read-mcp-resource"; serverName: string; uri: string };
 /** Exactly one of `uuids` / `rewindTo`. */
 export type SetContextRequest =
   // Append a compact_boundary (+ optional summary) to the session jsonl and

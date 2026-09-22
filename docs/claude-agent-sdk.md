@@ -180,22 +180,27 @@ command. Pinned by `tests/sdk/interrupt-queue.test.ts`.
 
 ## Slash commands are turns of their own
 
-A prompt whose **string** content starts with `/` is a command — built-in,
-custom, or unknown alike — and is exempt from both rules above: pushed
-while a turn runs it is never steered, and queued next to other prompts
-it is never merged (a command between two texts of one bucket splits it
-into three runs). It waits in the queue and runs as its own turn after
-the running turn's `result`, expanded the way an interactive `/command`
-is (a `<command-name>` user entry; a built-in may expand to its alias,
-`/cost` → `/usage`, and writes its `local_command` stdout; a custom
-command adds an `isMeta` user entry with the expanded prompt; an unknown
-one writes only `local_command` system entries — the name and "Unknown
-command" — no user entry, and its lifecycle still completes). The
-content's shape is the whole predicate: a plain text that mentions a
-`/command`, and a `/command` carried as a text **block**, are ordinary
-prompts, steered verbatim and unexpanded. `system/init.slash_commands`
-is not that predicate — it lists names without the slash and omits
-`cost`, which the CLI runs anyway. Pinned by
+A prompt whose string content, or **any text block** of whose block-form
+content, starts with `/` is a command — built-in, custom, or unknown
+alike — and is exempt from both rules above: pushed while a turn runs it
+is never steered, and queued next to other prompts it is never merged (a
+command between two texts of one bucket splits it into three runs). It
+waits in the queue and runs as its own turn after the running turn's
+`result`, expanded the way an interactive `/command` is: the text
+becomes the `<command-name>` form in place — a block-form prompt keeps
+its other blocks around the expanded one (an image block is additionally
+written aside as an `isMeta` `[Image: source: …]` entry), while a lone
+text block is written as string content; a built-in may
+expand to its alias, `/cost` → `/usage`, and writes its `local_command`
+stdout; a custom command adds an `isMeta` user entry with the expanded
+prompt; an unknown one is forwarded to the model as a plain user entry
+(`"/nonexistent"`, an `unknown_command_fallback` attachment, no
+`local_command` output), and its lifecycle still completes. A plain text
+that merely mentions a `/command` is an ordinary prompt, steered verbatim
+and unexpanded. Which text block the CLI inspects when several could
+qualify is untraced — clauctl never sends more than one text block.
+`system/init.slash_commands` is not the predicate — it lists names
+without the slash and omits `cost`, which the CLI runs anyway. Pinned by
 `tests/sdk/steer-slash-command.test.ts` and
 `tests/sdk/session-id-option.test.ts`.
 
