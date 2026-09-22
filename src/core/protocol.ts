@@ -142,15 +142,17 @@ export type AgentEvent =
   // before the drain that delivers the entries — the echo the CLI would
   // have produced had it written them.
   | { kind: "sessionAppended"; message: SDKMessage }
-  // A daemon-detected anomaly (follower failure, malformed line,
-  // classification at the dedup site, awaiting-anchor) on `stream`; the
-  // fold sets `anomaly`. Fold-detected ones (merge errors, head-mismatch)
-  // need no event: every fold computes them.
+  // An anomaly the daemon detected — by its fold (merge errors,
+  // head-mismatch: reported right after the event whose fold raised it)
+  // or by its tracker (follower failure, malformed line, classification at
+  // the dedup site, awaiting-anchor) — with the diagnostic bundle it wrote.
+  // Clients react to this event; the fold only observes its node.
   | {
       kind: "trackerAnomaly";
       uuid: UUID;
       stream: MergeStream;
       anomaly: TrackerAnomaly;
+      bundlePath: string;
     }
   // Emitted by the daemon before any teardown, so subscribers can distinguish
   // a deliberate shutdown (archive → SIGTERM, stream end) from a crash (socket
@@ -160,7 +162,9 @@ export type AgentEvent =
 
 /** An event as its emitter hands it to the hub: without the uuid the hub
  *  stamps (optional payload-side uuids are the emitter's to set). */
-export type Unstamped<E> = E extends { uuid: UUID } ? Omit<E, "uuid"> : E;
+export type Unstamped<E> = E extends { uuid: UUID }
+  ? Omit<E, "uuid" | "bundlePath">
+  : E;
 
 /** The event's merge nodes: its identity first — the payload's uuid when
  *  it carries one (an SDK message's, an entry's, a dequeue's run key, a
@@ -227,8 +231,11 @@ export function eventClass(event: AgentEvent): string {
   }
 }
 
-/** The one stream the event is a node of: the file's for what the
- *  follower emits, the query's for everything else. */
+/** The one stream the event is a node of — what its position is
+ *  synchronized with, not where it originated: `session` when the
+ *  event's place is fixed relative to the file's append order, `query`
+ *  when it is fixed relative to the SDK message sequence
+ *  (docs/protocol.md, "The event stream"). */
 export function eventStream(event: AgentEvent): MergeStream {
   switch (event.kind) {
     case "sessionEntry":

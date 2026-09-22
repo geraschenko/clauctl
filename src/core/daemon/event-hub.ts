@@ -6,11 +6,14 @@ import type {
 import {
   describeSession,
   isIdle,
+  labeledAnomaly,
   nextAgentState,
   SETTLE_TIMEOUT_MS,
   sessionSettled,
   settled,
   type AgentState,
+  type MergeStream,
+  type TrackerAnomaly,
 } from "../agent-state/agent-state.ts";
 import type { AgentEvent, Unstamped } from "../protocol.ts";
 import type { AnomalyRecorder } from "./anomaly-bundle.ts";
@@ -74,8 +77,10 @@ interface SettleWaiter {
  * immutable by convention — agent-state.ts), and the deliver and sink
  * callbacks carry the behavioral contracts documented on them.
  *
- * Anomaly reporting lives here, not in the fold: a fold whose state carries
- * `anomaly` is logged at error and written as a diagnostic bundle.
+ * Anomaly reporting lives here, not in the fold: every anomaly — one a
+ * fold detected (`state.anomaly`) or one the tracker emitted — is written
+ * as a diagnostic bundle, logged at error and reported as a
+ * `trackerAnomaly` event naming the bundle; clients react to that event.
  *
  * Events emitted while no subscriber is connected are observable only through
  * their effects (agent state, agent.json, session JSONL).
@@ -176,9 +181,37 @@ export class EventHub {
       case "shutdown":
       case "contextChanged":
       case "scanComplete":
-      case "trackerAnomaly":
         this.applyEvent({ ...event, uuid: randomUUID() });
+        return;
+      case "trackerAnomaly":
+        this.reportAnomaly(
+          event.stream,
+          labeledAnomaly(event.anomaly),
+          this.state,
+        );
     }
+  }
+
+  /** Writes the bundle, logs, and applies the stamped `trackerAnomaly`
+   *  event. `foldInput` is the state the anomalous fold started from, so
+   *  the bundle reproduces the failure; a tracker-detected anomaly has no
+   *  failing fold, and its callers pass the current state. */
+  private reportAnomaly(
+    stream: MergeStream,
+    anomaly: TrackerAnomaly,
+    foldInput: AgentState,
+  ): void {
+    const bundlePath = this.anomalies.write(anomaly, foldInput, this.state);
+    this.log(
+      `error: tracker anomaly ${anomaly.detail} (bundle: ${bundlePath})`,
+    );
+    this.applyEvent({
+      kind: "trackerAnomaly",
+      uuid: randomUUID(),
+      stream,
+      anomaly,
+      bundlePath,
+    });
   }
 
   /**
@@ -223,15 +256,14 @@ export class EventHub {
         !Object.hasOwn(this.state.sessions[sessionId]?.merge.nodes ?? {}, uuid)
       ) {
         if (!indexed.expectsSdkMessage) {
-          this.applyEvent({
-            kind: "trackerAnomaly",
-            uuid: randomUUID(),
-            stream: "query",
-            anomaly: {
+          this.reportAnomaly(
+            "query",
+            labeledAnomaly({
               kind: "classification",
               detail: `${message.type} ${uuid} on query: classified session-only, but the query stream carried it`,
-            },
-          });
+            }),
+            this.state,
+          );
         }
         return;
       }
@@ -318,24 +350,15 @@ export class EventHub {
     }
   }
 
-  // Per-event ordering: fold state, report an anomaly, write sinks, then
-  // settle waiters — a synchronous sink sees post-event state. The anomaly
-  // needs no event of its own: sinks fold the same event and compute it
-  // (spec, Anomalies); daemon-detected ones arrive here as trackerAnomaly.
+  // Per-event ordering: fold state, write sinks, settle waiters — a
+  // synchronous sink sees post-event state — then report an anomaly the
+  // fold detected as the next event (its own fold detects nothing, so the
+  // nesting ends there). Sinks fold the same event and compute the same
+  // anomaly (spec, Anomalies), but only the report names the bundle.
   private applyEvent(event: AgentEvent): void {
-    const before = this.state;
-    this.state = nextAgentState(before, event);
+    const foldInput = this.state;
+    this.state = nextAgentState(foldInput, event);
     this.anomalies.record(event);
-    if (this.state.anomaly !== undefined) {
-      const bundle = this.anomalies.write(
-        this.state.anomaly,
-        before,
-        this.state,
-      );
-      this.log(
-        `error: tracker anomaly ${this.state.anomaly.kind}: ${this.state.anomaly.detail} (bundle: ${bundle})`,
-      );
-    }
     for (const sink of this.sinks) {
       sink(event);
     }
@@ -345,6 +368,9 @@ export class EventHub {
         this.waiters.delete(waiter);
         waiter.resolve();
       }
+    }
+    if (this.state.anomaly !== undefined) {
+      this.reportAnomaly("query", this.state.anomaly, foldInput);
     }
   }
 }

@@ -708,6 +708,7 @@ test("slash command with stdout renders a \u276f command block with \u2937 outpu
     sessionEntry({
       type: "system",
       subtype: "local_command",
+      uuid: "login-command",
       content:
         "<command-name>/login</command-name>\n            <command-message>login</command-message>\n            <command-args></command-args>",
     }),
@@ -716,6 +717,8 @@ test("slash command with stdout renders a \u276f command block with \u2937 outpu
     sessionEntry({
       type: "system",
       subtype: "local_command",
+      uuid: "login-output",
+      parentUuid: "login-command",
       content: "<local-command-stdout>Login successful</local-command-stdout>",
     }),
   );
@@ -724,17 +727,82 @@ test("slash command with stdout renders a \u276f command block with \u2937 outpu
   assert.match(lines[1]!, /\u2937 {2}Login successful/u);
 });
 
-test("/compact stdout and 'No response requested.' are hidden", () => {
+test("output entry attaches to its parent command even when a pending item follows", () => {
   const { renderer, container } = makeRenderer();
-  renderer.append(
-    userMessage(
-      "<command-name>/compact</command-name>\n            <command-message>compact</command-message>\n            <command-args></command-args>",
-    ),
+  renderer.appendEntry(
+    sessionEntry({
+      type: "system",
+      subtype: "local_command",
+      uuid: "login-command",
+      content:
+        "<command-name>/login</command-name><command-message>login</command-message><command-args></command-args>",
+    }),
+  );
+  renderer.append(assistantMessage([{ type: "text", text: "hello" }]));
+  renderer.appendEntry(
+    sessionEntry({
+      type: "system",
+      subtype: "local_command",
+      uuid: "login-output",
+      parentUuid: "login-command",
+      content: "<local-command-stdout>Login successful</local-command-stdout>",
+    }),
+  );
+  const lines = renderedText(container).split("\n");
+  assert.equal(lines[0], "\u276f /login");
+  assert.match(lines[1]!, /\u2937 {2}Login successful/u);
+  assert.equal(lines.at(-1), "\u25cf hello");
+});
+
+test("showResolvedBoundary draws a full-width rule between the resolved and pending parts, also with nothing pending", () => {
+  const container = new Container();
+  const renderer = new TranscriptRenderer(container, true);
+  renderer.appendEntry(userEntry("r1", "resolved prompt"));
+  const rule = "─".repeat(80);
+  assert.equal(renderedText(container).split("\n").at(-1), rule);
+  renderer.append(assistantMessage([{ type: "text", text: "pending" }]));
+  const lines = renderedText(container).split("\n");
+  assert.equal(lines[0], "❯ resolved prompt");
+  assert.equal(lines.at(-1), "● pending");
+  assert.ok(lines.indexOf(rule) > 0 && lines.indexOf(rule) < lines.length - 1);
+});
+
+test("output entry with unknown parent renders standalone", () => {
+  const { renderer, container } = makeRenderer();
+  renderer.appendEntry(
+    sessionEntry({
+      type: "system",
+      subtype: "local_command",
+      uuid: "login-command",
+      content:
+        "<command-name>/login</command-name><command-message>login</command-message><command-args></command-args>",
+    }),
   );
   renderer.appendEntry(
     sessionEntry({
       type: "system",
       subtype: "local_command",
+      uuid: "login-output",
+      parentUuid: "pruned-command",
+      content: "<local-command-stdout>Login successful</local-command-stdout>",
+    }),
+  );
+  assert.equal(container.children.length, 2);
+  assert.match(renderedText(container), /Login successful/);
+});
+
+test("/compact stdout and 'No response requested.' are hidden", () => {
+  const { renderer, container } = makeRenderer();
+  const command = userMessage(
+    "<command-name>/compact</command-name>\n            <command-message>compact</command-message>\n            <command-args></command-args>",
+  );
+  renderer.append(command);
+  renderer.appendEntry(
+    sessionEntry({
+      type: "system",
+      subtype: "local_command",
+      uuid: "compact-output",
+      parentUuid: command.uuid,
       content:
         "<local-command-stdout>Not enough messages to compact.</local-command-stdout>",
     }),
@@ -1005,11 +1073,10 @@ test("a relinked summary entry renders as the summary under a boundary that is n
 
 test("output-only frame then entry attaches the output once", () => {
   const { renderer, container } = makeRenderer();
-  renderer.append(
-    userMessage(
-      "<command-name>/login</command-name><command-message>login</command-message><command-args></command-args>",
-    ),
+  const command = userMessage(
+    "<command-name>/login</command-name><command-message>login</command-message><command-args></command-args>",
   );
+  renderer.append(command);
   const output =
     "<local-command-stdout>Login successful</local-command-stdout>";
   renderer.append({
@@ -1024,6 +1091,7 @@ test("output-only frame then entry attaches the output once", () => {
     sessionEntry({
       type: "user",
       uuid: "o1",
+      parentUuid: command.uuid,
       message: { role: "user", content: output },
     }),
   );
@@ -1031,6 +1099,7 @@ test("output-only frame then entry attaches the output once", () => {
     sessionEntry({
       type: "user",
       uuid: "o1",
+      parentUuid: command.uuid,
       message: { role: "user", content: output },
     }),
   );

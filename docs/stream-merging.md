@@ -10,17 +10,24 @@ of it); this page is the living explanation.
 ## Two views of one process
 
 The `claude` process does things in some order we cannot see. We observe
-it through two streams, each faithful and ordered but lossy:
+it through two sequences, each faithful and ordered but lossy: the
+`SDKMessage`s the `Query` yields, and the canonical entries of the
+session jsonl, delivered by a `tail -f`-style follower
+(`src/core/session/entry-stream.ts`). The two **merge streams** are named
+for them, `query` and `session`, and a stream is the set of events whose
+position is **synchronized with** that sequence — not the set of events
+that sequence produced. Every `AgentEvent` is a node of exactly one
+stream (`eventStream` in protocol.ts; the per-event table is in
+[`protocol.md`](protocol.md), "The event stream"): SDK frames and the
+daemon's echoes of what it sends the `Query` (dequeues, `compactSent`,
+`sessionAppended`, …) are `query` nodes; file entries and the follower's
+own marks (`scanComplete`, `sessionFileChanged`, `contextChanged`) are
+`session` nodes. The names are slated for a rename to `sdk`/`file`
+([`thoughts/stream-naming.md`](thoughts/stream-naming.md)).
 
-- the **query stream** — the `SDKMessage`s the `Query` yields (plus the
-  entries `set-context` appends, which are serialized with it);
-- the **file stream** — the canonical entries of the session jsonl,
-  delivered by a `tail -f`-style follower
-  (`src/core/session/entry-stream.ts`).
-
-Neither suffices alone. The query stream never echoes a prompt, never
+Neither sequence suffices alone. The SDK never echoes a prompt, never
 shows a steered prompt or an attachment, and cannot be replayed after the
-fact; the file has all of that but lags the query stream by a flush,
+fact; the file has all of that but lags the SDK by a flush,
 omits everything that is not persisted (`result`, `stream_event`, status
 and rate-limit messages, hook events), and cannot tell a client what the
 model is doing _now_. Together they can, if we know which stream carries
@@ -90,14 +97,19 @@ holds only unresolved nodes, so memory is proportional to the lag between
 the streams, not to the session.
 
 The fold keeps one `MergeState<UUID, "query" | "session">` per session
-file in `SessionState.merge`. Every uuid-bearing query message is observed
-on `query`; every canonical uuid-bearing entry of the tracked file on
-`session`; at an id's first observation the fold excludes the stream the
-table says never carries it. Exclusion is extra information handed to the
+file in `SessionState.merge`. Every event is observed on its stream
+(`eventStream`) under its nodes (`eventNodes`): an SDK frame on `query`
+and a file entry on `session` under the payload's uuid, a daemon
+bookkeeping event on the stream its order belongs to under the uuid the
+daemon stamps on it. At an id's first observation the fold excludes the
+stream that will never carry it: for a shared-class payload neither, for
+a one-sided class the other stream per the table, for a stamped event
+always the other stream. Exclusion is extra information handed to the
 merge: without it the id would wait for the other stream to move past it;
-with it the id resolves as soon as its predecessors do. Prompts the daemon
-submits are _not_ query observations: nothing on the query stream will
-ever name them.
+with it the id resolves as soon as its predecessors do. A prompt the
+daemon submits is observed on `query` by its dequeue echo and on
+`session` by its entry, so it is pending on `query` in between
+([`user-message-tracking.md`](user-message-tracking.md)).
 
 **Settled.** A session file is settled when nothing is pending on `query`
 and no boundary awaits its anchor: the file has caught up with everything
@@ -140,12 +152,21 @@ An anomaly is an observation our model says cannot happen. Kinds:
 - `malformed-line`: a jsonl line is not valid json
 - follower failure: file truncation, inode replacement, or read error
 
-None is fatal. The fold sets `AgentState.anomaly` on the state it
-produces, which means "the event just folded was anomalous" and the next
-fold clears it. The daemon logs it and writes a diagnostic bundle
-(`<agent dir>/anomaly-<timestamp>.json`: the anomaly, the merge state
-before the failing observation, the last 50 events of both streams as
-identities), and the TUI shows a banner. A merge error leaves the failing
+None is fatal. The daemon reports every anomaly as one `trackerAnomaly`
+event, whether its fold detected it (the fold sets `AgentState.anomaly`
+on the state it produces, meaning "the event just folded was anomalous";
+the daemon reads it and reports right after that event) or something
+outside the fold did (the tracker's malformed line or follower failure,
+the hub's classification miss at dedup). Reporting writes the diagnostic bundle named by the event's
+`bundlePath` (`<agent dir>/anomaly-<timestamp>.json`: the anomaly, the
+merge the failing fold started from, the last 50 context events of both
+streams as identities — no `stream_event`s or subagent traffic — with
+each entry's `apiMessageId` and `parentUuid`) and logs it; clients show
+the banner from the event alone, so a late subscriber and a live one show
+the same thing and `anomaly` stays a fold-internal signal. The report is
+a node of the stream whose observation was anomalous, and its own fold
+raises nothing (else a report on a stream with no session yet would be
+reported again without end). A merge error leaves the failing
 observation unapplied and nothing else; the message or entry is still
 folded and broadcast. A follower failure re-opens and rescans the file as
 a switch to the same session id.
@@ -185,11 +206,12 @@ re-reports the file, so the startup scan resolves entirely at once. The
 fold state after the scan _is_ the seed: settled, with the tree leaf, the
 last assistant's usage and model, and nothing pending.
 
-**Live.** A query message is deduped, folded (routed by `session_id`,
-observed on `query`, class exclusion applied) and broadcast. A file
-change wakes the follower, which reads the new bytes, parses them, pushes
-each entry through the tracker and folds and broadcasts the resulting
-events (observed on `session`). Sinks run synchronously inside the read,
+**Live.** An SDK frame is deduped, folded (routed by `session_id`,
+observed on `query`, class exclusion applied) and broadcast, with the
+dequeue the queue model implies emitted beside it. A file change wakes
+the follower, which reads the new bytes, parses them, pushes each entry
+through the tracker and folds and broadcasts the resulting events
+(observed on `session`). Sinks run synchronously inside the read,
 which is what makes the snapshot/stream handoff cursor-free
 (protocol.md, Requests).
 

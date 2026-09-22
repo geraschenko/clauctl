@@ -30,10 +30,15 @@ export interface QueuedMessage {
 
 export interface QueueModelState {
   queued: QueuedMessage[];
+  /** `message.id` of the last top-level `assistant` frame: the API response
+   *  in progress (all its blocks share the id). A frame with another id
+   *  opens the next response. */
+  currentApiMessageId: string | undefined;
 }
 
 export const INITIAL_QUEUE_MODEL_STATE: QueueModelState = {
   queued: [],
+  currentApiMessageId: undefined,
 };
 
 export interface QueueTransition {
@@ -133,6 +138,7 @@ export function acceptUserMessage(
   return {
     uuid,
     state: {
+      ...state,
       queued: [...state.queued, { uuid, message, toolResultSeen: false }],
     },
     events: [queuedEvent],
@@ -145,6 +151,15 @@ function hasToolResult(message: SDKUserMessage): boolean {
     Array.isArray(content) &&
     content.some((block) => block.type === "tool_result")
   );
+}
+
+/** Subagent traffic (`parent_tool_use_id` a string) never marks or steers:
+ *  a steer bundles with the next outgoing API request of the agent it is
+ *  directed at, the main agent, so a subagent's requests and results
+ *  cannot absorb it — only the top-level response that follows the
+ *  subagent's `Task` result can. */
+function isTopLevel(message: SDKMessage): boolean {
+  return "parent_tool_use_id" in message && message.parent_tool_use_id === null;
 }
 
 /**
@@ -160,9 +175,12 @@ export function observeSdkMessage(
   // A tool_result block marks every currently queued demotable message: the
   // FINDINGS rule is "what follows the first tool_result AFTER acceptance",
   // so the marker is per message, not global — a straggler accepted between a
-  // tool_result and the following assistant activity waits for its own
-  // boundary.
-  if (message.type === "user" && hasToolResult(message)) {
+  // tool_result and the following response waits for its own boundary.
+  if (
+    message.type === "user" &&
+    isTopLevel(message) &&
+    hasToolResult(message)
+  ) {
     return {
       state: {
         ...state,
@@ -176,11 +194,17 @@ export function observeSdkMessage(
     };
   }
 
-  // Assistant activity after a tool_result: the CLI removed the marked
+  // The next API response after a tool_result: the CLI removed the marked
   // demotable messages from its queue and delivered them as
-  // <system-reminder>s inside that tool result; they never run as turns.
-  // Each gets its own attachment entry, so each is its own dequeue.
-  if (message.type === "assistant" || message.type === "stream_event") {
+  // <system-reminder>s with the LAST tool result of the response that issued
+  // the calls; they never run as turns. Each gets its own attachment entry
+  // (filed before the next response's first entry), so each is its own
+  // dequeue. Later blocks of the same response (same `message.id`) are not
+  // a boundary: their tool results are still to come.
+  if (message.type === "assistant" && isTopLevel(message)) {
+    if (message.message.id === state.currentApiMessageId) {
+      return { state, events: [] };
+    }
     const steered = state.queued.filter(
       (entry) => isDemotable(entry.message) && entry.toolResultSeen,
     );
@@ -188,6 +212,7 @@ export function observeSdkMessage(
       state: {
         ...state,
         queued: state.queued.filter((entry) => !steered.includes(entry)),
+        currentApiMessageId: message.message.id,
       },
       events: steered.map((entry) => dequeued("steer", [entry.uuid])),
     };

@@ -12,9 +12,15 @@ import { clauctlConfigDir } from "./keybindings.ts";
 
 export interface ClauctlSettings {
   tuiMode: TuiMode;
+  /** Draw a rule between the transcript's resolved and pending parts (a
+   *  debugging aid for the merge; see transcript.ts). */
+  showResolvedBoundary: boolean;
 }
 
-const DEFAULT_SETTINGS: ClauctlSettings = { tuiMode: "fullscreen" };
+const DEFAULT_SETTINGS: ClauctlSettings = {
+  tuiMode: "fullscreen",
+  showResolvedBoundary: false,
+};
 
 const TUI_MODES: readonly TuiMode[] = ["regular", "fullscreen"];
 
@@ -70,6 +76,15 @@ export function readSettings(path: string): {
         warnings.push(
           `"tuiMode": expected ${TUI_MODES.map((mode) => `"${mode}"`).join(" or ")} ` +
             `(got ${JSON.stringify(value)}; using "${DEFAULT_SETTINGS.tuiMode}")`,
+        );
+      }
+    } else if (key === "showResolvedBoundary") {
+      if (typeof value === "boolean") {
+        settings.showResolvedBoundary = value;
+      } else {
+        warnings.push(
+          `"showResolvedBoundary": expected a boolean (got ${JSON.stringify(value)}; ` +
+            `using ${DEFAULT_SETTINGS.showResolvedBoundary})`,
         );
       }
     } else {

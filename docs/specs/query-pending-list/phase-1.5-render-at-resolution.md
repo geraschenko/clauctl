@@ -336,7 +336,10 @@ sections are affected) and the WORK LOG before the next step begins.
   so it could be replaced by a scan of that part. Whether phase 3's
   attachment lookup by `source_uuid` needs a _resolved_ item depends on
   whether the CLI writes the attachment before or after the stream
-  echoes the source — derisk there.
+  echoes the source — derisk there. Resolved the other way in phase 5: a
+  command-output entry attaches to its command by `parentUuid`, and that
+  command may have resolved long before, so the map stays and covers both
+  parts.
 - Post-implementation review findings (2026-09-20), decided in round
   4ca5e0f:
   - A relinking boundary resolving after its `contextChanged`: the daemon

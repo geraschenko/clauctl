@@ -25,18 +25,38 @@ function userMessage(overrides: Partial<SDKUserMessage> = {}): SDKUserMessage {
   };
 }
 
-// The model only inspects `type` (and content blocks for user messages).
-const assistant = { type: "assistant" } as unknown as SDKMessage;
-const streamEvent = { type: "stream_event" } as unknown as SDKMessage;
-const result = { type: "result" } as unknown as SDKMessage;
-const toolResult = {
-  type: "user",
-  message: {
-    role: "user",
-    content: [{ type: "tool_result", tool_use_id: "t1", content: "ok" }],
-  },
+// The model only inspects `type`, `parent_tool_use_id`, an assistant frame's
+// `message.id` and a user message's content blocks. Fixtures are top level
+// unless built with `parentToolUseId`.
+function assistantFrame(
+  apiMessageId: string,
+  parentToolUseId: string | null = null,
+): SDKMessage {
+  return {
+    type: "assistant",
+    message: { id: apiMessageId },
+    parent_tool_use_id: parentToolUseId,
+  } as unknown as SDKMessage;
+}
+// Every response of a test gets its own id unless the test is about blocks
+// sharing one.
+const assistant = assistantFrame("msg_a");
+const streamEvent = {
+  type: "stream_event",
   parent_tool_use_id: null,
 } as unknown as SDKMessage;
+const result = { type: "result" } as unknown as SDKMessage;
+function toolResultMessage(parentToolUseId: string | null = null): SDKMessage {
+  return {
+    type: "user",
+    message: {
+      role: "user",
+      content: [{ type: "tool_result", tool_use_id: "t1", content: "ok" }],
+    },
+    parent_tool_use_id: parentToolUseId,
+  } as unknown as SDKMessage;
+}
+const toolResult = toolResultMessage();
 
 interface Scenario {
   state: QueueModelState;
@@ -155,16 +175,49 @@ test("group demotion: marked demotables steer at assistant activity, one event e
   assert.deepEqual(scenario.state.queued, []);
 });
 
-test("stream_event counts as assistant activity for the steer boundary", () => {
-  let scenario = accept(start(), userMessage(), false);
-  scenario = observe(scenario, toolResult);
+test("later blocks of one response do not steer; the next response's first frame does", () => {
+  let scenario = observe(start(), assistantFrame("msg_1"));
+  scenario = accept(scenario, userMessage(), false);
+  scenario = observe(scenario, assistantFrame("msg_1")); // second tool_use block
+  scenario = observe(scenario, toolResult); // first of two results
+  scenario = observe(scenario, assistantFrame("msg_1")); // third block, filed interleaved
   scenario = observe(scenario, streamEvent);
+  assert.deepEqual(dequeues(scenario), []);
+  scenario = observe(scenario, toolResult);
+  scenario = observe(scenario, assistantFrame("msg_2"));
   assert.deepEqual(dequeues(scenario), [
     { kind: "userMessageDequeued", delivery: "steer", uuids: [uuidN(1)] },
   ]);
 });
 
-test("straggler: accepted between tool_result and assistant waits its own boundary", () => {
+test("subagent frames neither mark nor steer", () => {
+  let scenario = accept(start(), userMessage(), false);
+  scenario = observe(scenario, toolResultMessage("toolu_task"));
+  scenario = observe(scenario, assistantFrame("msg_sub", "toolu_task"));
+  assert.deepEqual(dequeues(scenario), []);
+  scenario = observe(scenario, assistant);
+  assert.deepEqual(dequeues(scenario), []);
+  scenario = observe(scenario, toolResult); // the Task's own result
+  scenario = observe(scenario, assistantFrame("msg_next"));
+  assert.deepEqual(dequeues(scenario), [
+    { kind: "userMessageDequeued", delivery: "steer", uuids: [uuidN(1)] },
+  ]);
+});
+
+test("a synthetic assistant (e.g. after /compact) is a response boundary", () => {
+  let scenario = observe(start(), assistantFrame("msg_1"));
+  scenario = accept(scenario, userMessage(), false);
+  scenario = observe(scenario, toolResult);
+  scenario = observe(
+    scenario,
+    assistantFrame("019a7d0e-3c2b-7f6a-9d4e-2b1c0a9f8e7d"),
+  );
+  assert.deepEqual(dequeues(scenario), [
+    { kind: "userMessageDequeued", delivery: "steer", uuids: [uuidN(1)] },
+  ]);
+});
+
+test("straggler: accepted between tool_result and the next response waits its own boundary", () => {
   let scenario = accept(start(), userMessage(), false); // uuid 1
   scenario = observe(scenario, toolResult);
   scenario = accept(scenario, userMessage(), false); // uuid 2, the straggler
@@ -172,9 +225,9 @@ test("straggler: accepted between tool_result and assistant waits its own bounda
   assert.deepEqual(dequeues(scenario), [
     { kind: "userMessageDequeued", delivery: "steer", uuids: [uuidN(1)] },
   ]);
-  // The straggler steers at the NEXT tool_result + assistant handoff.
+  // The straggler steers at the NEXT tool_result + response handoff.
   scenario = observe(scenario, toolResult);
-  scenario = observe(scenario, assistant);
+  scenario = observe(scenario, assistantFrame("msg_b"));
   assert.deepEqual(dequeues(scenario).at(-1), {
     kind: "userMessageDequeued",
     delivery: "steer",

@@ -10,6 +10,7 @@
 
 import type { UUID } from "node:crypto";
 import {
+  anomalyReport,
   classOf,
   joinedPrompt,
   type AgentState,
@@ -161,9 +162,7 @@ function eventBodyChunks(
     case "sessionAppended":
       return [annotation(`appended: ${event.message.uuid ?? "?"}`)];
     case "trackerAnomaly":
-      return [
-        annotation(`anomaly ${event.anomaly.kind}: ${event.anomaly.detail}`),
-      ];
+      return [annotation(anomalyReport(event.anomaly, event.bundlePath))];
     case "sdkMessage": {
       const chunk = formatSdkMessage(event.message, formatState, options);
       return chunk === undefined || chunk === "" ? [] : [chunk];

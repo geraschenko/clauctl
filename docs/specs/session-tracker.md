@@ -241,11 +241,15 @@ and **reports** — the fold sets `AgentState.anomaly` on the state it
 produces (one per event at most — when several conditions fire in one
 fold they form one anomaly, kind by precedence `merge-error` >
 `classification` > `head-mismatch`, `detail` naming all; the next
-fold clears it, so the field means "this event was anomalous"), the
-daemon logs it at error and writes a diagnostic bundle, and the TUI
-latches the last one it saw into a banner
-("Observed unexpected behavior: <detail>. Please send
-<daemon dir>/anomaly-*.json to geraschenko@gmail.com"). Anomalies are
+fold clears it, so the field means "this event was anomalous"; the
+`trackerAnomaly` fold itself never sets it), and the daemon's hub writes
+a diagnostic bundle, logs it at error and emits a `trackerAnomaly` event
+naming the bundle — right after the anomalous event for a fold-detected
+anomaly, as the tracker's own event for the rest. Clients react to that
+event alone (the TUI banners it: "tracker anomaly <detail> — this
+shouldn't happen; details in <bundle path>; contact Anton
+(geraschenko@gmail.com) to help fix it"); their own fold's
+`AgentState.anomaly` goes unread. Anomalies are
 the falsifiers of the order assumption and the classification table;
 a report's fixture goes into tests/sdk/stream-classification.test.ts
 and the table.
@@ -283,8 +287,10 @@ part with `next = fileSessionId`, then loops as usual.
 The diagnostic bundle (`<daemon dir>/anomaly-<timestamp>.json`): the
 anomaly, the merge state before the failing call, the last
 `ANOMALY_CONTEXT_EVENTS` (50) events of both streams as `{kind, type, subtype,
-uuid, session_id}` (no payloads), `claudeCodeVersion`, and the tracked
-and query session ids. It is what a reproduction needs: the trail
+uuid, session_id, apiMessageId, parentUuid}` (no payloads; stream events
+and subagent traffic are left out — they carry no node the merge relates
+to anything and would only push the useful context out),
+`claudeCodeVersion`, and the tracked and query session ids. It is what a reproduction needs: the trail
 replays through the fold; the session files themselves are named by
 their ids.
 
@@ -622,11 +628,11 @@ export type AgentEvent =
   // The daemon appended these uuid-bearing entries to the query file
   // (set-context); emitted before the drain that delivers them.
   | { kind: "sessionAppended"; uuids: readonly UUID[] }
-  // A daemon-detected anomaly (follower failure, malformed line,
-  // classification at the dedup site, awaiting-anchor); the fold sets
-  // `anomaly`. Fold-detected ones (merge errors, head-mismatch) need
-  // no event: every fold computes them.
-  | { kind: "trackerAnomaly"; anomaly: TrackerAnomaly }
+  // An anomaly the daemon detected — by its fold (merge errors,
+  // head-mismatch: reported right after the event whose fold raised it)
+  // or by its tracker (follower failure, malformed line, classification
+  // at the dedup site, awaiting-anchor) — with the bundle it wrote.
+  | { kind: "trackerAnomaly"; stream: MergeStream; anomaly: TrackerAnomaly; bundlePath: string }
   | { kind: "userMessageQueued"; id: number; message: SDKUserMessage } // unchanged
   | { kind: "userMessageDequeued"; delivery: MessageDelivery; ids: number[] }
   | { kind: "compactSent"; message: SDKUserMessage }
@@ -779,7 +785,8 @@ true}`; then `fileSessionId = sessionId`. A new file's `SessionState`
   and none have been routed to it; when absent (the seed file at
   startup, before any query message) a fresh one is created.
 - `scanComplete`: `sessions[fileSessionId].scanExcluded = false`.
-- `trackerAnomaly`: set `anomaly`.
+- `trackerAnomaly`: observation only; `anomaly` stays clear (the report
+  of an anomaly is not itself one).
 - `contextChanged`: nothing (the boundary's `sessionEntry` already
   folded the leaf; the event exists for consumers).
 
@@ -1168,7 +1175,8 @@ export const ANOMALY_CONTEXT_EVENTS = 50;
 export class AnomalyRecorder {
   constructor(daemonDir: string);
   /** Ring of the last ANOMALY_CONTEXT_EVENTS events as
-   *  `{kind, type, subtype, uuid, session_id}` (no payloads). Called on
+   *  `{kind, type, subtype, uuid, session_id, apiMessageId, parentUuid}`
+   *  (no payloads; stream events and subagent traffic skipped). Called on
    *  every fold. */
   record(event: AgentEvent): void;
   /** Writes `<daemonDir>/anomaly-<timestamp>.json` (merge model,

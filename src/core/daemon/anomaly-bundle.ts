@@ -6,7 +6,11 @@
 
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
-import type { AgentState, TrackerAnomaly } from "../agent-state/agent-state.ts";
+import {
+  type AgentState,
+  isSubagentTraffic,
+  type TrackerAnomaly,
+} from "../agent-state/agent-state.ts";
 import type { AgentEvent } from "../protocol.ts";
 
 /** Events of both streams kept as context for a bundle. */
@@ -18,6 +22,20 @@ interface EventSummary {
   subtype?: string;
   uuid?: string;
   session_id?: string;
+  /** Assistant frames and entries: the API `message.id` (a response's
+   *  blocks share it). */
+  apiMessageId?: string;
+  /** Entries: the file's parent link. */
+  parentUuid?: string;
+}
+
+/** Stream events and subagent traffic carry no node the merge relates to
+ *  anything; they would only push the useful context out of the ring. */
+function isContext(event: AgentEvent): boolean {
+  return (
+    event.kind !== "sdkMessage" ||
+    (event.message.type !== "stream_event" && !isSubagentTraffic(event.message))
+  );
 }
 
 function summarize(event: AgentEvent): EventSummary {
@@ -28,6 +46,7 @@ function summarize(event: AgentEvent): EventSummary {
         subtype?: string;
         uuid?: string;
         session_id?: string;
+        message?: { id?: string };
       };
       return {
         kind: event.kind,
@@ -35,6 +54,7 @@ function summarize(event: AgentEvent): EventSummary {
         subtype: message.subtype,
         uuid: message.uuid,
         session_id: message.session_id,
+        apiMessageId: message.message?.id,
       };
     }
     case "sessionEntry":
@@ -44,6 +64,8 @@ function summarize(event: AgentEvent): EventSummary {
         subtype: event.entry.subtype,
         uuid: event.entry.uuid,
         session_id: event.entry.sessionId as string | undefined,
+        apiMessageId: (event.entry.message as { id?: string } | undefined)?.id,
+        parentUuid: event.entry.parentUuid ?? undefined,
       };
     default:
       return { kind: event.kind };
@@ -58,9 +80,10 @@ export class AnomalyRecorder {
     this.daemonDir = daemonDir;
   }
 
-  /** Ring of the last ANOMALY_CONTEXT_EVENTS events (no payloads). Called on
-   *  every fold. */
+  /** Ring of the last ANOMALY_CONTEXT_EVENTS context events (no payloads;
+   *  `isContext`). Called on every fold. */
   record(event: AgentEvent): void {
+    if (!isContext(event)) return;
     this.recent.push(summarize(event));
     if (this.recent.length > ANOMALY_CONTEXT_EVENTS) {
       this.recent.shift();
@@ -68,12 +91,13 @@ export class AnomalyRecorder {
   }
 
   /** Writes `<daemonDir>/anomaly-<timestamp>.json`: the anomaly, the merge
-   *  state before the failing fold (`before.sessions`), the ring, the CLI
-   *  version and the tracked/query session ids; returns the path. */
+   *  the failing fold started from (`foldInput.sessions`), the ring, and
+   *  the CLI version and tracked/query session ids of `current`; returns
+   *  the path. */
   write(
     anomaly: TrackerAnomaly,
-    before: AgentState,
-    after: AgentState,
+    foldInput: AgentState,
+    current: AgentState,
   ): string {
     const path = join(
       this.daemonDir,
@@ -84,10 +108,10 @@ export class AnomalyRecorder {
       JSON.stringify(
         {
           anomaly,
-          claudeCodeVersion: after.claudeCodeVersion,
-          fileSessionId: after.fileSessionId,
-          querySessionId: after.querySessionId,
-          sessionsBefore: before.sessions,
+          claudeCodeVersion: current.claudeCodeVersion,
+          fileSessionId: current.fileSessionId,
+          querySessionId: current.querySessionId,
+          sessionsBefore: foldInput.sessions,
           recentEvents: this.recent,
         },
         null,

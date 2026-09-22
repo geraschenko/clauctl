@@ -97,7 +97,13 @@ const trackerAnomaly = (
   n: number,
   stream: "query" | "session",
   anomaly: AgentState["anomaly"] & object,
-): AgentEvent => ({ kind: "trackerAnomaly", uuid: uuidN(n), stream, anomaly });
+): AgentEvent => ({
+  kind: "trackerAnomaly",
+  uuid: uuidN(n),
+  stream,
+  anomaly,
+  bundlePath: "/daemon/anomaly-t.json",
+});
 
 function userMessage(overrides: Partial<SDKUserMessage> = {}): SDKUserMessage {
   return {
@@ -1063,29 +1069,29 @@ test("resolved accumulates every resolution of one step, in resolution order", (
   );
 });
 
-test("trackerAnomaly sets the anomaly for one fold and observes its node on its stream", () => {
+test("trackerAnomaly is the daemon's report, not an anomaly of this fold: it only observes its node on its stream", () => {
   const anomaly = { kind: "malformed-line", detail: "bytes 10-20" } as const;
-  const foldedAnomaly = {
-    kind: "malformed-line",
-    detail: "malformed-line: bytes 10-20",
-  };
   const state = run([
     ...withQuerySession,
     assistantQuery(2),
     trackerAnomaly(8, "query", anomaly),
   ]);
-  assert.deepEqual(state.anomaly, foldedAnomaly);
+  assert.equal(state.anomaly, undefined);
   assert.deepEqual(pending(fileA(state).merge, "query"), [uuidN(2), uuidN(8)]);
   const onSession = nextAgentState(
     state,
     trackerAnomaly(9, "session", anomaly),
   );
-  assert.deepEqual(onSession.anomaly, foldedAnomaly);
+  assert.equal(onSession.anomaly, undefined);
   assert.deepEqual(resolvedIds(onSession), [uuidN(9)]);
-  assert.equal(
-    nextAgentState(onSession, sdkMessage("result")).anomaly,
-    undefined,
+});
+
+test("trackerAnomaly on a stream with no session sets no anomaly: the hub must not report its own report", () => {
+  const state = nextAgentState(
+    initialAgentState(),
+    trackerAnomaly(8, "query", { kind: "malformed-line", detail: "bytes 1-2" }),
   );
+  assert.equal(state.anomaly, undefined);
 });
 
 test("sessionAppended ids are query action items resolved by their entries", () => {
@@ -1203,11 +1209,7 @@ test("every event kind is observed under eventUuid on eventStream in every obser
   for (const [kind, event] of Object.entries(fixtures)) {
     assert.equal(event.kind, kind);
     const state = nextAgentState(baseState, event);
-    assert.equal(
-      state.anomaly?.kind,
-      kind === "trackerAnomaly" ? "malformed-line" : undefined,
-      `${kind}: ${state.anomaly?.detail}`,
-    );
+    assert.equal(state.anomaly, undefined, `${kind}: ${state.anomaly?.detail}`);
     const sessionIds = observedSessions(baseState, event);
     assert.notEqual(sessionIds.length, 0, kind);
     for (const sessionId of sessionIds) {

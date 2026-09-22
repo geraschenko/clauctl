@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { randomUUID, type UUID } from "node:crypto";
 import { readdirSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { basename } from "node:path";
 import { after, test, type TestContext } from "node:test";
 import type {
   SDKMessage,
@@ -36,7 +36,10 @@ function userMessage(overrides: Partial<SDKUserMessage> = {}): SDKUserMessage {
   };
 }
 
-/** A query message on SESSION. */
+let apiResponseCount = 0;
+
+/** A query message on SESSION; each assistant frame is a top-level
+ *  response of its own (its own `message.id`). */
 function sdkMessage(
   type: "assistant" | "result",
   fields: Record<string, unknown> = {},
@@ -44,9 +47,14 @@ function sdkMessage(
   return {
     type,
     session_id: SESSION,
-    // The state fold reads message.usage off every assistant message.
+    // The state fold reads message.usage off every assistant message; the
+    // queue model reads message.id and parent_tool_use_id.
     ...(type === "assistant" && {
-      message: { usage: { input_tokens: 5, output_tokens: 7 } },
+      message: {
+        id: `msg_${++apiResponseCount}`,
+        usage: { input_tokens: 5, output_tokens: 7 },
+      },
+      parent_tool_use_id: null,
     }),
     ...fields,
   } as unknown as SDKMessage;
@@ -300,36 +308,38 @@ test("dedup: a session-only uuid on the query stream is a classification anomaly
   const lines: AgentEvent[] = [];
   events.subscribe((event) => lines.push(event));
   events.observeSdkMessage(userMessage({ uuid: prompt, session_id: SESSION }));
-  assert.deepEqual(
-    lines.map((event) => event.kind),
-    ["trackerAnomaly"],
-  );
-  assert.equal(events.agentState.anomaly?.kind, "classification");
-  assert.match(events.agentState.anomaly!.detail, new RegExp(prompt));
+  const report = reportedAnomaly(lines);
+  assert.equal(report.anomaly.kind, "classification");
+  assert.match(report.anomaly.detail, /^classification: /);
+  assert.match(report.anomaly.detail, new RegExp(prompt));
+  // The report is not an anomaly of the hub's own fold.
+  assert.equal(events.agentState.anomaly, undefined);
   assert.equal(logged.length, 1);
   assert.match(logged[0]!, /^error: tracker anomaly classification: /);
   const bundles = readdirSync(bundleDir).filter((name) =>
     name.startsWith("anomaly-"),
   );
-  assert.equal(bundles.length, 1);
-  const bundle = JSON.parse(
-    readFileSync(join(bundleDir, bundles[0]!), "utf8"),
-  ) as { anomaly: { kind: string }; recentEvents: { kind: string }[] };
+  assert.deepEqual(bundles, [basename(report.bundlePath)]);
+  const bundle = JSON.parse(readFileSync(report.bundlePath, "utf8")) as {
+    anomaly: { kind: string };
+    recentEvents: { kind: string }[];
+  };
   assert.equal(bundle.anomaly.kind, "classification");
   assert.deepEqual(
     bundle.recentEvents.map((event) => event.kind),
-    [
-      "querySessionChanged",
-      "sessionFileChanged",
-      "sessionEntry",
-      "trackerAnomaly",
-    ],
+    ["querySessionChanged", "sessionFileChanged", "sessionEntry"],
   );
-  // The next fold clears the flag.
-  events.emit({ kind: "interruptSent" });
-  assert.equal(events.agentState.anomaly, undefined);
   await events.whenSettled();
 });
+
+/** The one `trackerAnomaly` among `lines`. */
+function reportedAnomaly(
+  lines: readonly AgentEvent[],
+): Extract<AgentEvent, { kind: "trackerAnomaly" }> {
+  const reports = lines.filter((event) => event.kind === "trackerAnomaly");
+  assert.equal(reports.length, 1, lines.map((event) => event.kind).join(","));
+  return reports[0]!;
+}
 
 // Criterion 11: the anomaly is reported and the tracker settles afterwards.
 test("merge-error: a query duplicate the dedup cannot see is reported; the log's entry still settles the tracker", async (t) => {
@@ -341,15 +351,32 @@ test("merge-error: a query duplicate the dedup cannot see is reported; the log's
     parent_tool_use_id: null,
   });
   events.observeSdkMessage(message);
+  const lines: AgentEvent[] = [];
+  events.subscribe((event) => lines.push(event));
+  const before = events.agentState;
   // Not in the index yet (the log lags), so the dedup site lets it through
   // and the merge rejects the repeat.
   events.observeSdkMessage(message);
-  assert.equal(events.agentState.anomaly?.kind, "merge-error");
-  assert.match(events.agentState.anomaly!.detail, new RegExp(reply));
+  // The fold-detected anomaly is reported as the event after its cause,
+  // naming a bundle written from the state the failing fold started from.
+  assert.deepEqual(
+    lines.map((event) => event.kind),
+    ["sdkMessage", "trackerAnomaly"],
+  );
+  const report = reportedAnomaly(lines);
+  assert.equal(report.anomaly.kind, "merge-error");
+  assert.match(report.anomaly.detail, new RegExp(reply));
+  const bundle = JSON.parse(readFileSync(report.bundlePath, "utf8")) as {
+    sessionsBefore: unknown;
+  };
+  assert.deepEqual(
+    bundle.sessionsBefore,
+    JSON.parse(JSON.stringify(before.sessions)),
+  );
+  assert.equal(events.agentState.anomaly, undefined);
   assert.equal(logged.length, 1);
   assert.equal(settled(events.agentState), false);
   logEntry(assistantEntry(reply, null));
-  assert.equal(events.agentState.anomaly, undefined);
   await events.whenSettled();
 });
 
@@ -367,9 +394,12 @@ test("head-mismatch: an id the log skipped is reported when a later one resolves
     );
   }
   assert.equal(settled(events.agentState), false);
+  const lines: AgentEvent[] = [];
+  events.subscribe((event) => lines.push(event));
   logEntry(assistantEntry(reply, null));
-  assert.equal(events.agentState.anomaly?.kind, "head-mismatch");
-  assert.match(events.agentState.anomaly!.detail, new RegExp(skipped));
+  const report = reportedAnomaly(lines);
+  assert.equal(report.anomaly.kind, "head-mismatch");
+  assert.match(report.anomaly.detail, new RegExp(skipped));
   assert.equal(logged.length, 1);
   await events.whenSettled();
 });

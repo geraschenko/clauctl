@@ -143,7 +143,11 @@ becomes the file's user entry; a steer surfaces only as the attachment).
 
 When several prompts wait in the CLI's queue, the file records them by
 placement: a prompt absorbed into a running turn (a "steer") is always its
-own `queued_command` attachment; an append (`shouldQuery: false`) is
+own `queued_command` attachment, filed after the **last** `tool_result` of
+the API response that issued the calls (the CLI delivers the steer with
+that result) and before the next response's first assistant entry — a
+response with parallel tool calls absorbs the steer only once all of its
+results are in; an append (`shouldQuery: false`) is
 always its own `user` entry; and within a same-priority bucket, a maximal
 run of consecutive querying prompts becomes **one** `\n`-joined `user`
 entry whose uuid is the run's **last** member (the other members' uuids

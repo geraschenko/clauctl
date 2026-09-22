@@ -139,34 +139,51 @@ See also [`claude-agent-sdk.md`](claude-agent-sdk.md).
 
 ## The event stream
 
+The daemon watches one `claude` process through two ordered sequences:
+the `SDKMessage`s the `Query` yields and the entries appended to the
+session file. Each is internally ordered; between them there is only the
+order the shared uuids establish ([`stream-merging.md`](stream-merging.md)).
+Every `AgentEvent` is a node of exactly one of the two **merge streams**,
+`query` or `session`, and the stream names **what the event's position is
+synchronized with, not where the event came from**: a `query` node's place
+is fixed relative to the SDK message sequence, a `session` node's relative
+to the file's append order. A dequeue echo is daemon-made, but it is a
+`query` node because it sits at a definite point among the SDK frames; a
+`scanComplete` is daemon-made and a `session` node because its meaning is
+"the follower has delivered everything before this". (The names mislead —
+`session` collides with the conversation, `query` reads as an origin;
+[`thoughts/stream-naming.md`](thoughts/stream-naming.md) is the planned
+rename to `sdk`/`file`.)
+
 `AgentEvent` has three kinds of member.
 
-**`sdkMessage`**: the **query stream**: every `SDKMessage` the `Query`
-yields, forwarded verbatim, with one exception: when the query stream repeats
-a uuid, only the first copy is forwarded.
+**`sdkMessage`** (`query`): every `SDKMessage` the `Query` yields,
+forwarded verbatim, with one exception: when the SDK repeats a uuid, only
+the first copy is forwarded.
 
-**`sessionEntry`**: the **file stream**: one event per canonical[^dups]
-entry of the tracked session file, in file order, as soon as the daemon reads
-the line. Every entry includes the daemon's class decision (`expectsSdkMessage`:
-whether the query stream also carries it) so no subscriber re-classifies. Each
+**`sessionEntry`** (`session`): one event per canonical[^dups] entry of
+the tracked session file, in file order, as soon as the daemon reads the
+line. Every entry includes the daemon's class decision (`expectsSdkMessage`:
+whether the SDK also carries it) so no subscriber re-classifies. Each
 event also carries daemon-computed facts a client would otherwise need a tree
 for: the context leaf after this entry, the last assistant's usage/model, and
 the boundaries still waiting for an anchor.
 
-**Daemon bookkeeping**: everything else, each covering a gap in the SDK:
+**Daemon bookkeeping**: everything else, each covering a gap in the SDK.
+Each is on the stream whose order it is part of:
 
-| event                                      | the gap it closes                                                                                                                                                                                                               |
-| ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `userMessageQueued`, `userMessageDequeued` | the query stream never echoes a prompt and the CLI's queue is invisible live; the daemon models the queue and announces acceptance and consumption. [`user-message-tracking.md`](user-message-tracking.md) is the full account. |
-| `compactSent`, `interruptSent`             | `/compact` and `interrupt` are requests the daemon makes; the stream shows their effects, not the requests.                                                                                                                     |
-| `controlApplied`                           | a passthrough mutation succeeded; observers learn the new model/mode/settings without polling.                                                                                                                                  |
-| `contextChanged`                           | a compact boundary completed (native or `set-context`) and the context leaf moved; the SDK has no set-context and no event for either.                                                                                          |
-| `querySessionChanged`                      | the query stream is on a new session id — the daemon's chosen id at start (`Options.sessionId` or `resume`), then each id a query message names first; announced before anything is observed on it.                             |
-| `sessionFileChanged`                       | `/clear`/`/new` start a new session id in the same process; the file follower moved to the new file and every client resets its per-file model. With a `uuid`: a same-file rescan after a follower failure.                     |
-| `scanComplete`                             | the file follower has delivered every line the file held when opened; what follows is live.                                                                                                                                     |
-| `sessionAppended`                          | the daemon appended this entry itself (`set-context`): its query-stream `SDKMessage` form, one event per entry in file order, emitted before the file stream delivers the entries so the fold can expect them.                  |
-| `trackerAnomaly`                           | the daemon observed something its model of the CLI says cannot happen; the fold sets `AgentState.anomaly` (see stream merging).                                                                                                 |
-| `shutdown`                                 | a deliberate stop, so a lost connection without it means a crash.                                                                                                                                                               |
+| event                                      | stream         | the gap it closes                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| ------------------------------------------ | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `userMessageQueued`, `userMessageDequeued` | `query`        | the SDK never echoes a prompt and the CLI's queue is invisible live; the daemon models the queue and announces acceptance and consumption. Acceptance is ordered against the frames the daemon has seen; a dequeue is placed where the CLI consumed the prompt — a steer before its trigger frame, a turn after its `result` — and the prompt's uuid then stays pending on `query` until its entry lands in the file. [`user-message-tracking.md`](user-message-tracking.md) is the full account. |
+| `compactSent`, `interruptSent`             | `query`        | `/compact` and `interrupt` are requests the daemon makes of the `Query`; the SDK shows their effects, not the requests, and the effects follow the request in the SDK sequence.                                                                                                                                                                                                                                                                                                                   |
+| `controlApplied`                           | `query`        | a passthrough `Query` mutation succeeded; observers learn the new model/mode/settings without polling, and the frames after it reflect the new setting.                                                                                                                                                                                                                                                                                                                                           |
+| `querySessionChanged`                      | `query`        | the SDK is on a new session id — the daemon's chosen id at start (`Options.sessionId` or `resume`), then each id a frame names first; announced before anything is observed on it.                                                                                                                                                                                                                                                                                                                |
+| `sessionAppended`                          | `query`        | the daemon appended this entry itself (`set-context`, which shuts the `Query` down, appends, and restarts it — so the entry has a definite place in the SDK sequence): its `SDKMessage` form, one event per entry in file order, emitted before the file follower delivers the entries so the fold can expect them.                                                                                                                                                                               |
+| `shutdown`                                 | `query`        | a deliberate stop, so a lost connection without it means a crash; it ends the SDK sequence of every live session.                                                                                                                                                                                                                                                                                                                                                                                 |
+| `contextChanged`                           | `session`      | a compact boundary completed (native or `set-context`) and the context leaf moved; the SDK has no set-context and no event for either. It follows the entry that completed the boundary.                                                                                                                                                                                                                                                                                                          |
+| `sessionFileChanged`                       | `session`      | `/clear`/`/new` start a new session id in the same process; the file follower moved to the new file and every client resets its per-file model. With a `uuid`: a same-file rescan after a follower failure. Its place is between the last entry of the old file and the first of the new.                                                                                                                                                                                                         |
+| `scanComplete`                             | `session`      | the file follower has delivered every line the file held when opened; what follows is live.                                                                                                                                                                                                                                                                                                                                                                                                       |
+| `trackerAnomaly`                           | `event.stream` | the daemon observed something its model of the CLI says cannot happen — detected by its fold (reported right after the event whose fold raised it) or by its tracker — and wrote the diagnostic bundle at `bundlePath`; clients show it (see stream merging). It is a node of the stream whose observation was anomalous.                                                                                                                                                                         |
 
 Every event is a node of the stream merge (`eventUuid` in
 [`protocol.ts`](../src/core/protocol.ts) names it): a payload's own uuid
@@ -174,17 +191,17 @@ where it has one, a dequeue's run key, a session start's session id,
 else a uuid the daemon stamps on the event (`uuid`, beside an unmodified
 payload for `sdkMessage`/`sessionEntry`). A `queued_command` attachment
 entry is two nodes (`eventNodes`): its own and the steered prompt's
-`source_uuid`. Every event is a node of exactly one stream
-(`eventStream`); a stamped event is excluded from the other, so it
-resolves right behind its stream predecessors — a client acts on a
-`contextChanged` when the merge resolves it, after the entry it followed.
-`shutdown` is a stamped `query` node of every live session: it resolves
-behind each query tail and leaves the file's pending ids alone. The fold
-observes every event through one function, `observeEvent`
+`source_uuid`. A stamped event is excluded from the other stream (nothing
+there will ever name it), so it resolves right behind its stream
+predecessors — a client acts on a `contextChanged` when the merge resolves
+it, after the entry it followed. `shutdown` is a stamped `query` node of
+every live session: it resolves behind each SDK tail and leaves the file's
+pending ids alone. The fold observes every event through one function,
+`observeEvent`
 ([`agent-state/observe-event/`](../src/core/agent-state/observe-event/index.ts)),
-which reads stream, nodes and class from `protocol.ts` and the exclusion
-from the classification table — so what the protocol says about an
-event's place in the merge is what the fold does.
+which reads stream (`eventStream`), nodes and class from `protocol.ts` and
+the exclusion from the classification table — so what the protocol says
+about an event's place in the merge is what the fold does.
 
 ## `AgentState`
 

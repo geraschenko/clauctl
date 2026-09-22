@@ -12,26 +12,43 @@ function tempSettingsPath(): string {
   );
 }
 
-test("read: missing file is the fullscreen default with no warnings", () => {
+const DEFAULTS = { tuiMode: "fullscreen", showResolvedBoundary: false };
+
+test("read: missing file is the defaults with no warnings", () => {
   const read = readSettings(tempSettingsPath());
-  assert.deepEqual(read, {
-    settings: { tuiMode: "fullscreen" },
-    warnings: [],
-  });
+  assert.deepEqual(read, { settings: DEFAULTS, warnings: [] });
 });
 
 test("read: explicit regular mode", () => {
   const path = tempSettingsPath();
   writeFileSync(path, JSON.stringify({ tuiMode: "regular" }));
   const read = readSettings(path);
-  assert.deepEqual(read, { settings: { tuiMode: "regular" }, warnings: [] });
+  assert.deepEqual(read, {
+    settings: { ...DEFAULTS, tuiMode: "regular" },
+    warnings: [],
+  });
 });
 
 test("read: explicit fullscreen mode", () => {
   const path = tempSettingsPath();
   writeFileSync(path, JSON.stringify({ tuiMode: "fullscreen" }));
   const read = readSettings(path);
-  assert.deepEqual(read, { settings: { tuiMode: "fullscreen" }, warnings: [] });
+  assert.deepEqual(read, { settings: DEFAULTS, warnings: [] });
+});
+
+test("read: showResolvedBoundary takes a boolean; anything else warns and keeps the default", () => {
+  const path = tempSettingsPath();
+  writeFileSync(path, JSON.stringify({ showResolvedBoundary: true }));
+  assert.deepEqual(readSettings(path), {
+    settings: { ...DEFAULTS, showResolvedBoundary: true },
+    warnings: [],
+  });
+  writeFileSync(path, JSON.stringify({ showResolvedBoundary: "yes" }));
+  const read = readSettings(path);
+  assert.equal(read.settings.showResolvedBoundary, false);
+  assert.equal(read.warnings.length, 1);
+  assert.match(read.warnings[0]!, /"showResolvedBoundary"/);
+  assert.match(read.warnings[0]!, /"yes"/);
 });
 
 test("read: parse failure warns and falls back to defaults", () => {

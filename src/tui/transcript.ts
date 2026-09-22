@@ -74,6 +74,7 @@ import {
   type SessionEntry,
 } from "../core/session/file.ts";
 import { AssistantMessageComponent } from "./components/assistant-message.ts";
+import { PendingBoundaryComponent } from "./components/pending-boundary.ts";
 import { ToolExecutionComponent } from "./components/tool-execution.ts";
 import {
   isOutputView,
@@ -196,10 +197,10 @@ export class TranscriptRenderer {
    *  command-output attachment. A prompt's entry keys the run's last
    *  member; a steer's attachment keys its `source_uuid`. */
   private readonly renderedUuids = new Set<UUID>();
-  /** Replacement lookup for `replaceItem`.
-   *  TODO: a lookup is always of a pending item now (an open stream stays
-   *  pending; file comment), so a scan of the pending part may make this
-   *  map (which grows for the conversation's lifetime) unnecessary. */
+  /** Replacement lookup for `replaceItem` and the parent lookup of a
+   *  command-output entry (`parentUserTurnItem`), whose command may have
+   *  resolved long before — hence a map over both parts, kept for the
+   *  conversation's lifetime. */
   private readonly itemsByUuid = new Map<UUID, AssistantItem | UserTurnItem>();
   /** For headerArg path abbreviation (per-tool views). */
   private cwd: string | undefined;
@@ -213,8 +214,15 @@ export class TranscriptRenderer {
   /** Previous top-level entry's timestamp (thinking-duration rule). */
   private lastEntryAtMs: number | undefined;
 
-  constructor(container: Container) {
+  /** Drawn between the two parts on every rebuild when the
+   *  `showResolvedBoundary` setting asks for it. */
+  private readonly pendingBoundary: PendingBoundaryComponent | undefined;
+
+  constructor(container: Container, showResolvedBoundary = false) {
     this.container = container;
+    this.pendingBoundary = showResolvedBoundary
+      ? new PendingBoundaryComponent()
+      : undefined;
   }
 
   /**
@@ -376,7 +384,12 @@ export class TranscriptRenderer {
             // declares without the field.
             const views = userTurnViews(message);
             if (views.length > 0 && this.firstRender(message.uuid)) {
-              this.addUserTurn(views, message.uuid, part);
+              this.addUserTurn(
+                views,
+                message.uuid,
+                part,
+                this.lastUserTurnItem(),
+              );
             }
           }
         }
@@ -412,6 +425,7 @@ export class TranscriptRenderer {
               [{ kind: "commandOutput", text: message.content }],
               message.uuid,
               part,
+              this.lastUserTurnItem(),
             );
           }
         } else if (message.subtype === "compact_boundary") {
@@ -492,24 +506,21 @@ export class TranscriptRenderer {
   }
 
   /** One user-turn item for `views` under `uuid`. Views that are all
-   *  output (a command's stdout arrives as its own message) attach to the
-   *  immediately preceding user turn when it has a command to hold them,
-   *  else render as a standalone output turn. */
+   *  output (a command's stdout arrives as its own message) attach to
+   *  `outputTarget` when it has a command to hold them, else render as a
+   *  standalone output turn. */
   private addUserTurn(
     views: readonly UserTurnView[],
     uuid: UUID | undefined,
     part: TranscriptItem[],
+    outputTarget: UserTurnItem | undefined,
   ): void {
     if (views.every(isOutputView)) {
       const texts = views.map(outputText).filter((text) => text !== undefined);
       if (texts.length === 0) {
         return;
       }
-      const last = this.pendingItems.at(-1) ?? this.resolvedItems.at(-1);
-      if (
-        last?.kind === "userTurn" &&
-        last.component.attachOutput(texts.join("\n"))
-      ) {
+      if (outputTarget?.component.attachOutput(texts.join("\n")) === true) {
         this.rebuild();
         return;
       }
@@ -520,6 +531,23 @@ export class TranscriptRenderer {
     if (uuid !== undefined) {
       this.itemsByUuid.set(uuid, item);
     }
+  }
+
+  /** The output target of a query-side output frame, which carries no
+   *  parent: the last item overall, when it is a user turn. */
+  private lastUserTurnItem(): UserTurnItem | undefined {
+    const last = this.pendingItems.at(-1) ?? this.resolvedItems.at(-1);
+    return last?.kind === "userTurn" ? last : undefined;
+  }
+
+  /** The output target of an entry: the user turn its `parentUuid` names
+   *  (the command it answers), wherever that item now is. */
+  private parentUserTurnItem(entry: SessionEntry): UserTurnItem | undefined {
+    const parent =
+      entry.parentUuid === undefined || entry.parentUuid === null
+        ? undefined
+        : this.itemsByUuid.get(entry.parentUuid);
+    return parent?.kind === "userTurn" ? parent : undefined;
   }
 
   /** The summary's user message carries its text as a plain string. */
@@ -582,7 +610,7 @@ export class TranscriptRenderer {
     const key = queuedCommandSourceUuid(entry) ?? entry.uuid;
     const views = entryUserViews(entry, message);
     if (views.length > 0 && this.firstRender(key)) {
-      this.addUserTurn(views, key, part);
+      this.addUserTurn(views, key, part, this.parentUserTurnItem(entry));
     }
     if (message !== undefined) {
       this.stampEntry(message);
@@ -875,7 +903,9 @@ export class TranscriptRenderer {
   }
 
   /** Rebuild the container's children from the item list, folding runs of
-   *  foldable items into single lines while both toggles are collapsed. */
+   *  foldable items into single lines while both toggles are collapsed.
+   *  The pending boundary ends a run: it is drawn even with nothing
+   *  pending ("all resolved" is itself information). */
   private rebuild(): void {
     this.container.clear();
     const folding = !this.toolsExpanded && !this.showThinking;
@@ -889,7 +919,7 @@ export class TranscriptRenderer {
         run = [];
       }
     };
-    for (const part of [this.resolvedItems, this.pendingItems]) {
+    const addPart = (part: TranscriptItem[]): void => {
       for (const item of part) {
         if (folding && isFoldable(item)) {
           run.push(item);
@@ -901,8 +931,13 @@ export class TranscriptRenderer {
         }
         this.container.addChild(item.component);
       }
+      flush();
+    };
+    addPart(this.resolvedItems);
+    if (this.pendingBoundary !== undefined) {
+      this.container.addChild(this.pendingBoundary);
     }
-    flush();
+    addPart(this.pendingItems);
   }
 
   /** The collapsed-thinking one-liner an individually-rendered (unfolded)

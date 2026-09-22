@@ -48,7 +48,7 @@ import { observeEvent } from "./observe-event/index.ts";
 import { withObservedPermissionMode } from "./observed-permission-mode.ts";
 import { withPendingLeaf } from "./query-message.ts";
 import type { SessionState } from "./session-state.ts";
-import { type TrackerAnomaly, withAnomalies } from "./tracker-anomaly.ts";
+import type { TrackerAnomaly } from "./tracker-anomaly.ts";
 import { withQuerySessionAnnounced } from "./with-query-session-announced.ts";
 import { withQueueDrained } from "./with-queue-drained.ts";
 import { withQueuedMessage } from "./with-queued-message.ts";
@@ -59,6 +59,7 @@ export {
   classOf,
   excludedFromQuery,
   excludedFromSession,
+  isSubagentTraffic,
 } from "./classification.ts";
 export { observedSessions } from "./observe-event/index.ts";
 export {
@@ -79,7 +80,11 @@ export {
 } from "./session-state.ts";
 export { joinedPrompt } from "./joined-prompt.ts";
 export { toNonNullableUsage } from "./to-non-nullable-usage.ts";
-export type { TrackerAnomaly } from "./tracker-anomaly.ts";
+export {
+  anomalyReport,
+  labeledAnomaly,
+  type TrackerAnomaly,
+} from "./tracker-anomaly.ts";
 
 export type AgentActivity = "idle" | "pending" | "working" | "compacting";
 
@@ -202,8 +207,15 @@ function foldEvent(state: AgentState, event: AgentEvent): AgentState {
       return observeEvent(withTrackedFile(state, event), event);
     case "scanComplete":
       return observeEvent(withScanEnded(state), event);
-    case "trackerAnomaly":
-      return withAnomalies(observeEvent(state, event), [event.anomaly]);
+    // The daemon's report of an anomaly already detected (by a fold or the
+    // tracker): `anomaly` stays clear even when the report's own node
+    // cannot be merged (its stream has no session yet), so the field means
+    // "this fold detected one" and the hub reports each anomaly exactly
+    // once instead of reporting its own report.
+    case "trackerAnomaly": {
+      const { anomaly: _anomaly, ...observed } = observeEvent(state, event);
+      return observed;
+    }
     // The tip it announces is already folded from the sessionEntry that
     // completed the boundary (SessionState.treeLeaf).
     case "contextChanged":

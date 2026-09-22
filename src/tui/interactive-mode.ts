@@ -33,7 +33,11 @@ import type {
   PermissionMode,
   SDKControlInitializeResponse,
 } from "@anthropic-ai/claude-agent-sdk";
-import { isIdle, type AgentState } from "../core/agent-state/agent-state.ts";
+import {
+  anomalyReport,
+  isIdle,
+  type AgentState,
+} from "../core/agent-state/agent-state.ts";
 import { randomUUID, type UUID } from "node:crypto";
 import { readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -170,6 +174,7 @@ export async function runInteractive(
     client,
     seed,
     startupWarnings,
+    settingsRead.settings.showResolvedBoundary,
   );
   // Events arriving while the UI is built wait in the queue; the pump starts
   // only once there is something to hand them to. Racing it propagates a
@@ -361,6 +366,7 @@ class InteractiveMode {
   /** ctrl+o / ctrl+t toggles, reapplied to recreated renderers. */
   private toolsExpanded = false;
   private showThinking = false;
+  private readonly showResolvedBoundary: boolean;
 
   /**
    * Live events held back until history replay finishes (undefined
@@ -394,11 +400,13 @@ class InteractiveMode {
     client: ProtocolClient,
     seedState: AgentState,
     startupWarnings: string[],
+    showResolvedBoundary: boolean,
   ) {
     this.ui = ui;
     this.client = client;
     this.agentState = seedState;
     this.keybindings = getKeybindings();
+    this.showResolvedBoundary = showResolvedBoundary;
     this.transcript = this.freshTranscript();
     this.sessionModels = new SessionModels(
       (message) => this.addBanner(message),
@@ -540,7 +548,10 @@ class InteractiveMode {
    *  product (Agent SDK branding guidelines: our own branding, not Claude
    *  Code's). */
   private freshTranscript(): TranscriptRenderer {
-    const transcript = new TranscriptRenderer(this.chatContainer);
+    const transcript = new TranscriptRenderer(
+      this.chatContainer,
+      this.showResolvedBoundary,
+    );
     transcript.setCwd(this.agentState.cwd);
     transcript.setToolsExpanded(this.toolsExpanded);
     transcript.setCompactSummaryExpanded(this.toolsExpanded);
@@ -637,11 +648,11 @@ class InteractiveMode {
     } else if (event.kind === "scanComplete") {
       this.scanning = false;
     }
-    // `anomaly` names the event just folded (agent-state.ts), so reading it
-    // per event shows each anomaly once, whichever event's fold raised it.
-    // `detail` already carries each accumulated anomaly's kind.
-    if (state.anomaly !== undefined) {
-      this.addBanner(`tracker anomaly ${state.anomaly.detail}`, "warning");
+    // The daemon reports every anomaly it detects, its own fold's included,
+    // so `state.anomaly` (the TUI's fold detecting the same thing) is not
+    // read: the report names the bundle.
+    if (event.kind === "trackerAnomaly") {
+      this.addBanner(anomalyReport(event.anomaly, event.bundlePath), "warning");
     }
     if (event.kind === "userMessageQueued") {
       this.pendingMessages.add(

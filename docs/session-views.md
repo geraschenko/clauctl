@@ -62,7 +62,12 @@ Two holders run the same builders with different retention:
   are required to build view 3), fed by the socket: the `get-entries`
   snapshot after subscribing, then every live `sessionEntry`. It holds
   every entry so `/tree` and transcript rebuilds read local state and never
-  refetch.
+  refetch. Entries enter the builders when the stream merge _resolves_
+  them, not when they arrive: the trees are a function of the resolved
+  prefix, and the transcript renders that prefix followed by whatever the
+  SDK has shown but the file has not yet caught up to — the query-side
+  pending list ([`stream-merging.md`](stream-merging.md)). The
+  `showResolvedBoundary` setting draws the seam.
 
 Both restart the trees on `sessionFileChanged` and rebuild them from the
 new file's scan (the TUI keeps the entries: first-wins per uuid, the scan
