@@ -669,11 +669,49 @@ test("SessionModels: each steer is recorded under its uuid and retired by its at
     initResolvedA,
     queuedResolvedA(1),
     queuedResolvedA(2),
-    [SESSION_A, uuidN(5)],
     [SESSION_A, uuidN(1)],
+    [SESSION_A, uuidN(5)],
   ]);
   assert.deepEqual(h.entryPresentAtResolve, [
     false,
+    false,
+    false,
+    false,
+    false,
+    true,
+    true,
+  ]);
+});
+
+test("SessionModels: a steer's attachment ahead of its dequeue stays out of the trees, unreported, until the dequeue resolves both nodes", () => {
+  const h = new Harness();
+  h.sessionModels.applySnapshot([], 0, h.state);
+  h.feed(
+    fileChanged(SESSION_A),
+    scanComplete,
+    init,
+    queued(1, "one"),
+    steerEntryEvent(5, 1),
+  );
+  const sessionModel = h.sessionModels.get(SESSION_A)!;
+  assert.deepEqual(h.byUuidKeys(SESSION_A), [uuidN(5)]);
+  assert.equal(sessionModel.leaf, null);
+  assert.deepEqual(h.resolved, [
+    ...fileOpenedA,
+    initResolvedA,
+    queuedResolvedA(1),
+  ]);
+  h.feed(dequeued("steer", [1]));
+  assert.deepEqual(sessionModel.leaf, { uuid: uuidN(5) });
+  assert.deepEqual(h.pendingKeys(SESSION_A), []);
+  assert.deepEqual(h.resolved, [
+    ...fileOpenedA,
+    initResolvedA,
+    queuedResolvedA(1),
+    [SESSION_A, uuidN(1)],
+    [SESSION_A, uuidN(5)],
+  ]);
+  assert.deepEqual(h.entryPresentAtResolve, [
     false,
     false,
     false,

@@ -175,7 +175,7 @@ Three principles make the rule cheap to keep:
   the ids resolved by every `observeOn` call of the fold step that
   produced this state, in resolution order (`nextAgentState` clears it
   before folding, as it clears `anomaly`; each `observeOn` appends —
-  a multi-steer dequeue, an attachment's uuid + `source_uuid`,
+  a multi-steer dequeue, an attachment's `source_uuid` + own uuid,
   `sessionAppended`, a rescan and a reset's observe + exclude all make
   several calls in one step). After folding each event the TUI reads
   `sessions[id].resolved` for every session: each resolved id leaves
@@ -318,8 +318,9 @@ Three principles make the rule cheap to keep:
   already knows.
 - Steers: observe every dequeued prompt on `query` under its stamped uuid;
   in `foldSessionEntry`, a `queued_command` attachment carrying
-  `source_uuid` additionally observes `source_uuid` on `session` (the
-  attachment's own uuid stays a session-only observation). Both arrival
+  `source_uuid` first observes `source_uuid` on `session`, then its own
+  uuid (a session-only observation, resolved only behind the
+  `source_uuid` node — never before the steer's dequeue). Both arrival
   orders happen — the dequeue is emitted at the first assistant activity
   after the tool result, and the tail may read the attachment line before
   or after that frame — so `excludeOther` is decided from state the fold
@@ -912,7 +913,11 @@ Phase 3 (identity):
   rebuild while the frame is pending shows nothing for it (as live).
 - A steer is a pending item from its dequeue until its attachment entry
   resolves it (`source_uuid`), or — entry-first — never pending: the
-  attachment renders on arrival and the later dequeue renders nothing.
+  attachment's own node is observed behind `source_uuid` on `session`
+  (`eventNodes`), so it resolves only with the dequeue, whose step renders
+  the attachment (the dequeue's own rendering is the retired prompt,
+  nothing). The steer therefore leaves the pending area and enters the
+  transcript in one step, live and on a rebuild alike.
 - A slash-command prompt renders from the query message (`/context`)
   until its id resolves, then from the entry with the CLI's
   `<command-name>` rewrite — the same provisional-then-final sequence a

@@ -688,17 +688,22 @@ test("each steer dequeue observes its uuid without predicting a leaf; each attac
   assert.equal(file.pendingLeaf, null);
   const one = nextAgentState(steered, steerEntry(5, 1));
   assert.deepEqual(pending(fileA(one).merge, "query"), [uuidN(2)]);
-  assert.deepEqual(resolvedIds(one), [uuidN(5), uuidN(1)]);
+  assert.deepEqual(resolvedIds(one), [uuidN(1), uuidN(5)]);
   const both = nextAgentState(one, steerEntry(6, 2));
   assert.deepEqual(fileA(both).merge.nodes, {});
   assert.equal(both.anomaly, undefined);
 });
 
-test("an attachment ahead of its steer dequeue pends its source on session; the dequeue resolves it", () => {
+test("an attachment ahead of its steer dequeue pends its source on session and its own uuid behind it; the dequeue resolves both", () => {
   const ahead = run([...withQuerySession, queued(1), steerEntry(5, 1)]);
-  assert.deepEqual(pending(fileA(ahead).merge, "session"), [uuidN(1)]);
+  assert.deepEqual(pending(fileA(ahead).merge, "session"), [
+    uuidN(1),
+    uuidN(5),
+  ]);
+  assert.deepEqual(resolvedIds(ahead), []);
   const caughtUp = nextAgentState(ahead, dequeued("steer", [1]));
   assert.deepEqual(fileA(caughtUp).merge.nodes, {});
+  assert.deepEqual(resolvedIds(caughtUp), [uuidN(1), uuidN(5)]);
   assert.equal(caughtUp.anomaly, undefined);
 });
 

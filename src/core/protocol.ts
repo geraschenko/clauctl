@@ -166,11 +166,13 @@ export type Unstamped<E> = E extends { uuid: UUID }
   ? Omit<E, "uuid" | "bundlePath">
   : E;
 
-/** The event's merge nodes: its identity first — the payload's uuid when
- *  it carries one (an SDK message's, an entry's, a dequeue's run key, a
- *  session start's session id), else the stamped `uuid`. A
- *  `queued_command` attachment entry also observes the steered prompt's
- *  `source_uuid` (the dequeue's `query` node it meets). */
+/** The event's merge nodes in stream order, its identity last — the
+ *  payload's uuid when it carries one (an SDK message's, an entry's, a
+ *  dequeue's run key, a session start's session id), else the stamped
+ *  `uuid`. A `queued_command` attachment entry first observes the steered
+ *  prompt's `source_uuid` (the dequeue's `query` node it meets), so the
+ *  attachment's own node, a `session`-only one, resolves only behind the
+ *  steer it records: never before its dequeue. */
 export function eventNodes(event: AgentEvent): readonly [UUID, ...UUID[]] {
   switch (event.kind) {
     case "userMessageDequeued":
@@ -181,7 +183,7 @@ export function eventNodes(event: AgentEvent): readonly [UUID, ...UUID[]] {
       const sourceUuid = queuedCommandSourceUuid(event.entry);
       return sourceUuid === undefined
         ? [event.entry.uuid ?? event.uuid!]
-        : [event.entry.uuid!, sourceUuid];
+        : [sourceUuid, event.entry.uuid!];
     }
     case "sessionAppended":
       return [event.message.uuid as UUID];
@@ -201,9 +203,9 @@ export function eventNodes(event: AgentEvent): readonly [UUID, ...UUID[]] {
   }
 }
 
-/** The event's identity: `eventNodes(event)[0]`. */
+/** The event's identity: the last of `eventNodes(event)`. */
 export function eventUuid(event: AgentEvent): UUID {
-  return eventNodes(event)[0];
+  return eventNodes(event).at(-1)!;
 }
 
 /** For anomaly details: `classOf` of the SDK message or entry the event

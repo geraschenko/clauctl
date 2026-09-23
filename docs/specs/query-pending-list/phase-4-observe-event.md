@@ -53,10 +53,11 @@ function does all of that, and the helpers cannot bypass it.
 ## Examples
 
 - `sessionEntry` whose entry is a `queued_command` attachment with
-  `source_uuid = S`: `eventNodes` = `[entry.uuid, S]`; both observed on
-  `session` of `fileSessionId`. `entry.uuid` is excluded from `query`
-  (an `attachment` entry is `excludedFromQuery`, so the tracker publishes
-  `expectsSdkMessage: false`); `S` excluded from `query` iff no queued
+  `source_uuid = S`: `eventNodes` = `[S, entry.uuid]`; both observed on
+  `session` of `fileSessionId`, in that order. `entry.uuid` is excluded
+  from `query` (an `attachment` entry is `excludedFromQuery`, so the
+  tracker publishes `expectsSdkMessage: false`) but resolves only behind
+  `S`, its `session` predecessor; `S` excluded from `query` iff no queued
   message still awaits its dequeue under `S` (first observation only).
 - `sdkMessage` whose `message.session_id ≠ querySessionId`: anomaly
   `merge-error: assistant <uuid> on query: session <id> not announced`;
@@ -77,12 +78,12 @@ function does all of that, and the helpers cannot bypass it.
 ```ts
 export function eventStream(event: AgentEvent): MergeStream; // unchanged
 
-/** The event's merge nodes: `eventUuid` first; a `queued_command`
- *  attachment entry also observes the steered prompt's `source_uuid`
- *  (the dequeue's `query` node it meets). */
+/** The event's merge nodes in stream order, `eventUuid` last; a
+ *  `queued_command` attachment entry first observes the steered prompt's
+ *  `source_uuid` (the dequeue's `query` node it meets). */
 export function eventNodes(event: AgentEvent): readonly [UUID, ...UUID[]];
 
-/** The event's identity: `eventNodes(event)[0]`. */
+/** The event's identity: the last of `eventNodes(event)`. */
 export function eventUuid(event: AgentEvent): UUID;
 
 /** For anomaly details: `classOf` of the SDK message or entry the event

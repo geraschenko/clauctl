@@ -4,6 +4,7 @@ import {
   eventClass,
   eventNodes,
   eventStream,
+  eventUuid,
 } from "../../protocol.ts";
 import type { AgentState } from "../agent-state.ts";
 import { excludedFromOther } from "../classification.ts";
@@ -61,7 +62,7 @@ export function observeEvent(state: AgentState, event: AgentEvent): AgentState {
     withAnomalies(state, [
       {
         kind: "merge-error",
-        detail: `${className} ${nodes[0]} on ${stream}: ${detail}`,
+        detail: `${className} ${eventUuid(event)} on ${stream}: ${detail}`,
       },
     ]);
   if (
@@ -80,7 +81,7 @@ export function observeEvent(state: AgentState, event: AgentEvent): AgentState {
     if (session === undefined) {
       anomalies.push({
         kind: "merge-error",
-        detail: `${className} ${nodes[0]} on ${stream}: session ${sessionId} has no state`,
+        detail: `${className} ${eventUuid(event)} on ${stream}: session ${sessionId} has no state`,
       });
       continue;
     }

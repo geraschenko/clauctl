@@ -190,8 +190,10 @@ Every event is a node of the stream merge (`eventUuid` in
 where it has one, a dequeue's run key, a session start's session id,
 else a uuid the daemon stamps on the event (`uuid`, beside an unmodified
 payload for `sdkMessage`/`sessionEntry`). A `queued_command` attachment
-entry is two nodes (`eventNodes`): its own and the steered prompt's
-`source_uuid`. A stamped event is excluded from the other stream (nothing
+entry is two nodes (`eventNodes`): the steered prompt's `source_uuid`,
+then its own, which resolves only behind the steer — an attachment that
+lands before its dequeue waits for it, in the merge and so in every
+client's trees. A stamped event is excluded from the other stream (nothing
 there will ever name it), so it resolves right behind its stream
 predecessors — a client acts on a `contextChanged` when the merge resolves
 it, after the entry it followed. `shutdown` is a stamped `query` node of
