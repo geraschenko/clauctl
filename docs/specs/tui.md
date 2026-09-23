@@ -382,3 +382,16 @@ transcript and snapshot-seeded footer, and conversation continues.
   in tail.ts/inspect.ts/daemon.ts, and "reserved in v1" phrasing in
   options.ts; `_tui`'s route doc now describes the current role (internal
   sdk.sock client) instead of the future pty/tty.sock wrapping.
+- **Ports migrated 0.80.10 → 0.87.1** via `update-ports.sh`. `fs-watch`
+  unchanged; `footer-data-provider` exports `GitPaths`/`findGitPaths`;
+  `assistant-message` takes the shortened length-stop text and drops two
+  upstream additions, listed in its header: markdown transformers (pi's
+  extension hook) and `MouseRegion` click-to-toggle on thinking runs (needs
+  pi-tui ≥ 0.87; deferred to a general click-to-expand pass,
+  `docs/thoughts/click-to-expand.md`).
+- **pi-tui and pi-coding-agent 0.84.2 → 0.87.1** (pi monorepo packages
+  move in lockstep). pi-tui's 0.85.0 breaking change dropped the
+  `PI_HARDWARE_CURSOR`/`PI_CLEAR_ON_SHRINK` env defaults (both were false
+  for us); `createTui` passes the hardware-cursor flag explicitly.
+  Mouse reporting is enabled only by `TuiAltScreen`, so click handling
+  will be a fullscreen-only feature.

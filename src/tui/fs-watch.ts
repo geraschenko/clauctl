@@ -1,4 +1,4 @@
-// Ported from pi coding-agent src/utils/fs-watch.ts @ 0.80.10
+// Ported from pi coding-agent src/utils/fs-watch.ts @ 0.87.1
 //
 // Differences from the pi original, kept minimal for mirror-diffing
 // (see scripts/update-ports.sh for the update procedure): none.

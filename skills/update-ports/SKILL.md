@@ -13,6 +13,8 @@ disable-model-invocation: true
   upstream.
 - Ported files keep this repo's formatting; the script formats both upstream
   snapshots with our prettier before diffing so formatting noise cancels out.
+- The pi monorepo publishes several `@earendil-works/*` packages from one
+  version; `package.json` pins them exact and they move in lockstep.
 
 ## Procedure
 
@@ -33,3 +35,9 @@ disable-model-invocation: true
 5. Update the header's intentional-differences list if it changed, run
    treefmt and the presubmit, and note the migration in
    `docs/specs/tui.md`'s WORK LOG.
+6. If the ports now need a newer runtime (a pi-tui export that our pinned
+   version lacks), bump every `@earendil-works/*` dependency in
+   `package.json` to the new version together
+   (`npm install -E @earendil-works/pi-tui@<v> @earendil-works/pi-coding-agent@<v>`),
+   read the packages' CHANGELOG "Breaking Changes" between the two
+   versions, and confirm `npm ls @earendil-works/pi-tui` shows one version.

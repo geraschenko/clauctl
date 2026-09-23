@@ -1,4 +1,4 @@
-// Ported from pi coding-agent src/modes/interactive/components/assistant-message.ts @ 0.80.10
+// Ported from pi coding-agent src/modes/interactive/components/assistant-message.ts @ 0.87.1
 //
 // Differences from the pi original, kept minimal for mirror-diffing
 // (see scripts/update-ports.sh for the update procedure):
@@ -9,7 +9,11 @@
 // - claude-style layout (parity spec): text blocks carry a `●` gutter
 //   overlaid on their first line, markdown wraps with no right margin
 //   (withClaudeLayout, bottom of file), and outputPad defaults to 2 so
-//   continuation/thinking/error lines sit at claude's 2-space indent.
+//   continuation/thinking/error lines sit at claude's 2-space indent;
+// - no markdown transformers (pi's extension hook; we have no extensions)
+//   and hence no `isStreaming` argument to updateContent;
+// - no MouseRegion click-to-toggle on thinking runs (needs pi-tui ≥ 0.87;
+//   deferred to a general click-to-expand pass).
 
 import {
   type Component,
@@ -206,10 +210,7 @@ export class AssistantMessageComponent extends Container {
       this.contentContainer.addChild(new Spacer(1));
       this.contentContainer.addChild(
         new Text(
-          theme.fg(
-            "error",
-            "Error: Model stopped because it reached the maximum output token limit. The response may be incomplete.",
-          ),
+          theme.fg("error", "Response was truncated before completion."),
           this.outputPad,
           0,
         ),

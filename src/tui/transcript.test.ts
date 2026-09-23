@@ -996,7 +996,7 @@ test("resolve with the frame's entry updates its item in place without re-creati
     assistantEntry("a1", "msg_1", content, "max_tokens"),
   );
   assert.equal(container.children.length, childrenBefore);
-  assert.match(renderedText(container), /maximum output token limit/);
+  assert.match(renderedText(container), /truncated before completion/);
 });
 
 test("a user frame renders its prompt and resolves tool results; its entry renders nothing more", () => {
@@ -1131,7 +1131,7 @@ test("resolve: a frame's item moves into the resolved part and re-renders from i
   assert.equal(container.children.length, 2);
   assert.match(
     renderedText(container),
-    /reply A[\s\S]*maximum output token limit[\s\S]*reply B/,
+    /reply A[\s\S]*truncated before completion[\s\S]*reply B/,
   );
   // An entry without a frame lands at the end of the resolved part: after
   // a1, before the still-pending a2.
@@ -1231,7 +1231,7 @@ test("resolve: an open stream stays pending and stops the prefix move; a file-on
   assert.equal(container.children.length, 3);
   assert.match(
     renderedText(container),
-    /reply A[\s\S]*a steer[\s\S]*reply B[\s\S]*maximum output token limit/,
+    /reply A[\s\S]*a steer[\s\S]*reply B[\s\S]*truncated before completion/,
   );
 });
 

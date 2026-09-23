@@ -1,4 +1,4 @@
-// Ported from pi coding-agent src/core/footer-data-provider.ts @ 0.80.10
+// Ported from pi coding-agent src/core/footer-data-provider.ts @ 0.87.1
 //
 // Differences from the pi original, kept minimal for mirror-diffing
 // (see scripts/update-ports.sh for the update procedure):
@@ -29,7 +29,7 @@ import {
   watchWithErrorHandler,
 } from "./fs-watch.ts";
 
-type GitPaths = {
+export type GitPaths = {
   repoDir: string;
   commonGitDir: string;
   headPath: string;
@@ -39,7 +39,7 @@ type GitPaths = {
  * Find git metadata paths by walking up from cwd.
  * Handles both regular git repos (.git is a directory) and worktrees (.git is a file).
  */
-function findGitPaths(cwd: string): GitPaths | null {
+export function findGitPaths(cwd: string): GitPaths | null {
   let dir = cwd;
   while (true) {
     const gitPath = join(dir, ".git");
@@ -127,7 +127,7 @@ function shouldPollGitHead(repoDir: string): boolean {
 
 /**
  * Provides git branch and extension statuses - data not otherwise accessible to extensions.
- * Token stats, model info available via ctx.sessionManager and ctx.model.
+ * Context usage on ctx.getContextUsage(), token stats on ctx.sessionManager.getEntries(), model info on ctx.model.
  */
 export class FooterDataProvider {
   private cwd: string;

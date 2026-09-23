@@ -209,10 +209,12 @@ export async function runInteractive(
  * Renderer selection (the composition point for settings.tuiMode): regular
  * mode is pi-tui's main-buffer document renderer; fullscreen is the
  * alternate-screen viewport renderer, whose transcript search styling and
- * selection-copy mirror pi's createInteractiveTui. logDirectory is the agent
- * directory — pi-tui only writes there on a fatal render invariant
- * (pi-crash.log) or under PI_DEBUG_REDRAW=1, and the default (~/.pi/agent)
- * is not ours to write into.
+ * selection-copy mirror pi's createInteractiveTui. The hardware cursor stays
+ * hidden and clear-on-shrink off (pi-tui's defaults; pi exposes both as
+ * settings, we have no need yet). logDirectory is the agent directory —
+ * pi-tui only writes there on a fatal render invariant (pi-tui-crash.log)
+ * or under PI_TUI_DEBUG_REDRAW=1; without it crash dumps go to the OS temp
+ * directory.
  */
 function createTui(
   tuiMode: TuiMode,
@@ -222,7 +224,7 @@ function createTui(
   if (tuiMode === "fullscreen") {
     const styleSearchMatch = (text: string) =>
       theme.bg("searchMatchBg", theme.fg("searchMatchText", text));
-    return new TuiAltScreen(terminal, undefined, logDirectory, {
+    return new TuiAltScreen(terminal, false, logDirectory, {
       searchMatchStyle: (text) => theme.underline(styleSearchMatch(text)),
       searchCurrentMatchStyle: (text) =>
         theme.bold(theme.inverse(styleSearchMatch(text))),
@@ -236,7 +238,7 @@ function createTui(
       },
     });
   }
-  return new TuiMainScreen(terminal, undefined, logDirectory);
+  return new TuiMainScreen(terminal, false, logDirectory);
 }
 
 /** The components the TUI composes, in one place so both mount paths draw
