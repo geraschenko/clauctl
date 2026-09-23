@@ -13,6 +13,8 @@ import type { CommandContext } from "../core/generated/targets.ts";
 import { UsageError } from "../core/generated/util.ts";
 import { CanonicalEntryFilter } from "../core/session/entry-stream.ts";
 import { projectEntries } from "../core/session/messages.ts";
+// TDC: format also shouldn't depend on tui--I think we previously decided it should be the other way around when necessary. Make that an eslint rule too. Edit: actually, it looks like we previously allowed format to depend on tui, but that still feels backwards to me. The tui code has to do with interactivity with text, and format only has to do with text, so it seems like the dependency should be in the other direction. What do you think?
+import { trackToolNames } from "../tui/entry-views/entry-view.ts";
 import {
   DEFAULT_ENTRY_FORMAT_OPTIONS,
   formatEntryLine,
@@ -171,12 +173,16 @@ async function formatEntries(
     width: flags.width ?? DEFAULT_ENTRY_FORMAT_OPTIONS.width,
   };
   const filter = new CanonicalEntryFilter();
+  const toolNames = new Map<string, string>();
   for await (const entry of input.records) {
     const accepted = filter.accept(entry);
     if (accepted === undefined) {
       continue;
     }
-    this.process.stdout.write(`${formatEntryLine(accepted, options)}\n`);
+    this.process.stdout.write(
+      `${formatEntryLine(accepted, options, toolNames)}\n`,
+    );
+    trackToolNames(accepted, toolNames);
   }
 }
 

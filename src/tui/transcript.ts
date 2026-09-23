@@ -125,7 +125,7 @@ interface ToolItem extends ItemKey {
   kind: "tool";
   name: string;
   component: ToolExecutionComponent;
-  view: ToolView<unknown> | undefined;
+  view: ToolView<unknown>;
   result?: RenderToolResult;
 }
 
@@ -202,7 +202,7 @@ export class TranscriptRenderer {
    *  resolved long before — hence a map over both parts, kept for the
    *  conversation's lifetime. */
   private readonly itemsByUuid = new Map<UUID, AssistantItem | UserTurnItem>();
-  /** For headerArg path abbreviation (per-tool views). */
+  /** For header path abbreviation (per-tool views). */
   private cwd: string | undefined;
   private toolsExpanded = false;
   private compactSummaryExpanded = false;
@@ -749,7 +749,7 @@ export class TranscriptRenderer {
     this.rebuild();
   }
 
-  /** cwd for headerArg path abbreviation; InteractiveMode feeds it from
+  /** cwd for header path abbreviation; InteractiveMode feeds it from
    *  AgentState.cwd, appendEntry from entry.cwd. */
   setCwd(cwd: string | undefined): void {
     this.cwd = cwd;
@@ -1117,7 +1117,7 @@ function foldRunComponent(run: TranscriptItem[]): Component | undefined {
     // Foldable tools without a bespoke view (claude's fold phrasing for
     // them is unattested in the parity captures) get a generic clause.
     parts.push(
-      toolViewFor(name)?.foldLabel?.(count) ??
+      toolViewFor(name).foldLabel?.(count) ??
         `used ${name} ${count} time${count === 1 ? "" : "s"}`,
     );
   }

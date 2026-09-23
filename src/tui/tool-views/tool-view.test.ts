@@ -2,18 +2,23 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { homedir } from "node:os";
 import type { RenderToolResult } from "../render-types.ts";
+import { stripAnsi } from "../../format/generated/text.ts";
 import { wrapHeaderArg } from "../components/tool-execution.ts";
 import { abbreviatePath } from "./args.ts";
-import { toolViewFor } from "./tool-view.ts";
+import {
+  collapsedOutputSummary,
+  defaultToolView,
+  toolViewFor,
+} from "./tool-view.ts";
 
 // Tests exercise views through toolViewFor — the erased ToolView<unknown>
 // shape callers use — so fixture args need no generated-type ceremony.
-const agentView = toolViewFor("Agent")!;
-const bashView = toolViewFor("Bash")!;
-const editView = toolViewFor("Edit")!;
-const readView = toolViewFor("Read")!;
-const webSearchView = toolViewFor("WebSearch")!;
-const writeView = toolViewFor("Write")!;
+const agentView = toolViewFor("Agent");
+const bashView = toolViewFor("Bash");
+const editView = toolViewFor("Edit");
+const readView = toolViewFor("Read");
+const webSearchView = toolViewFor("WebSearch");
+const writeView = toolViewFor("Write");
 
 function result(
   toolUseResult: unknown,
@@ -21,12 +26,6 @@ function result(
   content = "",
 ): RenderToolResult {
   return { toolCallId: "t", content, isError, toolUseResult };
-}
-
-/** Summaries carry SGR bold around counts; strip escapes for assertions. */
-function plain(text: string | undefined): string | undefined {
-  // eslint-disable-next-line no-control-regex
-  return text?.replaceAll(/\u001b\[[0-9;]*m/g, "");
 }
 
 test("abbreviatePath: cwd-relative, ~-abbreviated, absolute", () => {
@@ -42,16 +41,32 @@ test("abbreviatePath: cwd-relative, ~-abbreviated, absolute", () => {
   assert.equal(abbreviatePath("./lines.txt", undefined), "lines.txt");
 });
 
-test("toolViewFor: known tools resolve, unknown/legacy tools do not", () => {
-  assert.ok(toolViewFor("Edit"));
-  assert.ok(toolViewFor("Agent"));
-  assert.equal(toolViewFor("Grep"), undefined);
-  assert.equal(toolViewFor("mcp__foo__bar"), undefined);
+test("toolViewFor: known tools resolve, unknown/legacy tools take the default", () => {
+  assert.notEqual(toolViewFor("Edit"), defaultToolView);
+  assert.notEqual(toolViewFor("Agent"), defaultToolView);
+  assert.equal(toolViewFor("Grep"), defaultToolView);
+  assert.equal(toolViewFor("mcp__foo__bar"), defaultToolView);
+  assert.equal(toolViewFor("toString"), defaultToolView);
+});
+
+test("collapsedOutputSummary: one source line shown, more counted", () => {
+  assert.equal(collapsedOutputSummary(""), "");
+  assert.equal(collapsedOutputSummary("only line"), "only line");
+  assert.equal(collapsedOutputSummary("a\nb"), "2 lines (ctrl+o to expand)");
+  assert.equal(
+    defaultToolView.resultSummary(
+      {},
+      result(undefined, false, " x\n"),
+      undefined,
+    ),
+    "x",
+  );
+  assert.deepEqual(defaultToolView.header({}, undefined), {});
 });
 
 test("editView summary: singular/plural, zero parts omitted", () => {
   const summary = (lines: string[]): string | undefined =>
-    plain(
+    stripAnsi(
       editView.resultSummary(
         {},
         result({ structuredPatch: [{ oldStart: 1, newStart: 1, lines }] }),
@@ -61,12 +76,16 @@ test("editView summary: singular/plural, zero parts omitted", () => {
   assert.equal(summary(["+a"]), "Added 1 line");
   assert.equal(summary(["+a", "+b", "-c"]), "Added 2 lines, removed 1 line");
   assert.equal(summary(["-a"]), "Removed 1 line");
-  assert.equal(summary([" context only"]), undefined);
+  assert.equal(summary([" context only"]), "");
   // Unexpected shapes fall back to the generic summary, not a crash.
-  assert.equal(editView.resultSummary({}, result(null), undefined), undefined);
+  assert.equal(editView.resultSummary({}, result(null), undefined), "");
   assert.equal(
-    editView.resultSummary({}, result({ structuredPatch: "nope" }), undefined),
-    undefined,
+    editView.resultSummary(
+      {},
+      result({ structuredPatch: "nope" }, false, "raw"),
+      undefined,
+    ),
+    "raw",
   );
 });
 
@@ -95,7 +114,7 @@ test("editView resultBody: claude layout with file-anchored numbers", () => {
     result({ structuredPatch: [divHunk] }),
   );
   assert.equal(
-    plain(body),
+    stripAnsi(body!),
     [
       " 12",
       " 13  def div(a, b):",
@@ -125,7 +144,7 @@ test("editView resultBody: - runs group before + runs, old/new numbering", () =>
     }),
   );
   assert.equal(
-    plain(body),
+    stripAnsi(body!),
     [" 1  ctx", " 2 -old a", " 3 -old b", " 2 +new a", " 3 +new b"].join("\n"),
   );
 });
@@ -153,7 +172,7 @@ test("editView resultBody: hunks separated by ..., width from widest number", ()
     }),
   );
   assert.equal(
-    plain(body),
+    stripAnsi(body!),
     ["   8 -x", "   8 +y", "...", " 120  z"].join("\n"),
   );
 });
@@ -182,7 +201,7 @@ test("editView resultBody: no diff on error, malformed, or change-free patch", (
 
 test("readView: Read N lines from structured numLines; fold labels", () => {
   assert.equal(
-    plain(
+    stripAnsi(
       readView.resultSummary(
         {},
         result({ type: "text", file: { numLines: 42 } }),
@@ -192,7 +211,7 @@ test("readView: Read N lines from structured numLines; fold labels", () => {
     "Read 42 lines",
   );
   assert.equal(
-    plain(
+    stripAnsi(
       readView.resultSummary(
         {},
         result({ type: "text", file: { numLines: 1 } }),
@@ -201,9 +220,9 @@ test("readView: Read N lines from structured numLines; fold labels", () => {
     ),
     "Read 1 line",
   );
-  assert.equal(readView.resultSummary({}, result({}), undefined), undefined);
-  assert.equal(plain(readView.foldLabel?.(2)), "read 2 files");
-  assert.equal(plain(readView.foldLabel?.(1)), "read 1 file");
+  assert.equal(readView.resultSummary({}, result({}), undefined), "");
+  assert.equal(stripAnsi(readView.foldLabel!(2)), "read 2 files");
+  assert.equal(stripAnsi(readView.foldLabel!(1)), "read 1 file");
 });
 
 test("bashView: empty-output sentinel displays as (No output)", () => {
@@ -215,10 +234,10 @@ test("bashView: empty-output sentinel displays as (No output)", () => {
     ),
     "(No output)",
   );
-  // Real output and errors keep the generic first-lines summary.
+  // Real output and errors keep the generic collapse rule.
   assert.equal(
     bashView.resultSummary({}, result(undefined, false, "hello"), undefined),
-    undefined,
+    "hello",
   );
   assert.equal(
     bashView.resultSummary(
@@ -226,8 +245,39 @@ test("bashView: empty-output sentinel displays as (No output)", () => {
       result(undefined, true, "(Bash completed with no output)"),
       undefined,
     ),
-    undefined,
+    "(Bash completed with no output)",
   );
+});
+
+test("bashView header: description and command as separate parts", () => {
+  assert.deepEqual(
+    bashView.header(
+      { description: "List files", command: "ls -la" },
+      undefined,
+    ),
+    { description: "List files", arg: "ls -la" },
+  );
+  assert.deepEqual(bashView.header({ command: "ls" }, undefined), {
+    description: undefined,
+    arg: "ls",
+  });
+  assert.deepEqual(bashView.header("nope", undefined), {
+    description: undefined,
+    arg: undefined,
+  });
+});
+
+test("readView header: abbreviated path with the offset/limit range", () => {
+  const header = (args: unknown) => readView.header(args, "/repo").arg;
+  assert.equal(header({ file_path: "/repo/a.ts" }), "a.ts");
+  assert.equal(
+    header({ file_path: "/repo/a.ts", offset: 10, limit: 5 }),
+    "a.ts:10-14",
+  );
+  assert.equal(header({ file_path: "/repo/a.ts", offset: 10 }), "a.ts:10-");
+  assert.equal(header({ file_path: "/repo/a.ts", limit: 5 }), "a.ts:1-5");
+  assert.equal(header({ file_path: "/repo/a.ts", pages: "1-3" }), "a.ts");
+  assert.deepEqual(readView.header({}, "/repo"), {});
 });
 
 // Carved from the readonly-fold session (ae3aa47c…): the fruit.txt write,
@@ -240,7 +290,7 @@ const fruitWrite = {
 
 test("writeView: Wrote N lines summary with cwd-relative path", () => {
   assert.equal(
-    plain(
+    stripAnsi(
       writeView.resultSummary(
         {},
         result(fruitWrite),
@@ -250,7 +300,7 @@ test("writeView: Wrote N lines summary with cwd-relative path", () => {
     "Wrote 2 lines to ../../../../fruit.txt",
   );
   assert.equal(
-    plain(
+    stripAnsi(
       writeView.resultSummary(
         {},
         result({ ...fruitWrite, content: "carrot" }),
@@ -261,7 +311,7 @@ test("writeView: Wrote N lines summary with cwd-relative path", () => {
   );
   // Trailing newline adds no line; relative filePath stays as recorded.
   assert.equal(
-    plain(
+    stripAnsi(
       writeView.resultSummary(
         {},
         result({
@@ -275,7 +325,7 @@ test("writeView: Wrote N lines summary with cwd-relative path", () => {
     "Wrote 2 lines to fruit.txt",
   );
   assert.equal(
-    plain(
+    stripAnsi(
       writeView.resultSummary(
         {},
         result({ ...fruitWrite, filePath: "./fruit.txt" }),
@@ -294,24 +344,26 @@ test("writeView: Wrote N lines summary with cwd-relative path", () => {
 
 test("writeView resultBody: line-numbered content preview", () => {
   assert.equal(
-    plain(writeView.resultBody?.({}, result(fruitWrite))),
+    stripAnsi(writeView.resultBody!({}, result(fruitWrite))!),
     [" 1 apple", " 2 banana"].join("\n"),
   );
   // Truncation past 10 lines, pinned by write-preview.claude.txt (40 lines
   // → 10 shown + marker; number field sized by the full count).
   const long = { ...fruitWrite, content: Array(40).fill("x").join("\n") };
-  const longBody = plain(writeView.resultBody?.({}, result(long)))?.split("\n");
-  assert.equal(longBody?.length, 11);
-  assert.equal(longBody?.[0], "  1 x");
-  assert.equal(longBody?.[9], " 10 x");
-  assert.equal(longBody?.at(-1), "… +30 lines (ctrl+o to expand)");
+  const longBody = stripAnsi(writeView.resultBody!({}, result(long))!).split(
+    "\n",
+  );
+  assert.equal(longBody.length, 11);
+  assert.equal(longBody[0], "  1 x");
+  assert.equal(longBody[9], " 10 x");
+  assert.equal(longBody.at(-1), "… +30 lines (ctrl+o to expand)");
   assert.equal(writeView.resultBody?.({}, result(undefined)), undefined);
   assert.equal(writeView.resultBody?.({}, result(fruitWrite, true)), undefined);
 });
 
 test("webSearchView: quoted query header, Did N searches summary, no fold", () => {
   assert.equal(
-    webSearchView.headerArg({ query: "latest node" }, undefined),
+    webSearchView.header({ query: "latest node" }, undefined).arg,
     '"latest node"',
   );
   assert.equal(
@@ -335,10 +387,7 @@ test("webSearchView: quoted query header, Did N searches summary, no fold", () =
     ),
     "Did 2 searches in 10s",
   );
-  assert.equal(
-    webSearchView.resultSummary({}, result({}), undefined),
-    undefined,
-  );
+  assert.equal(webSearchView.resultSummary({}, result({}), undefined), "");
   assert.equal(webSearchView.foldLabel, undefined);
 });
 
@@ -364,9 +413,9 @@ test("agentView: Done line from structured totals", () => {
     ),
     "Done (1 tool use · 16.8k tokens · 1m 30s)",
   );
-  assert.equal(agentView.resultSummary({}, result({}), undefined), undefined);
+  assert.equal(agentView.resultSummary({}, result({}), undefined), "");
   assert.equal(
-    agentView.headerArg({ description: "Count files" }, undefined),
+    agentView.header({ description: "Count files" }, undefined).arg,
     "Count files",
   );
 });

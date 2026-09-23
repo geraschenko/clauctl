@@ -24,6 +24,7 @@ import {
 } from "../core/tree/display-tree.ts";
 import type { OnInvalid } from "../core/tree/loader.ts";
 import { pathToLeaf, type TreeNodeRef } from "../core/tree/nodes.ts";
+import { trackToolNames } from "./entry-views/entry-view.ts";
 
 interface RollingTrees {
   full: SessionTreeBuilder;
@@ -49,6 +50,9 @@ export class SessionModel {
    *  immutable per uuid, so a same-file rescan (or `/fork`'s re-persisted
    *  entries) rebuilds only the trees over this map. */
   readonly byUuid = new Map<UUID, SessionEntry>();
+  /** tool_use id → tool name over every entry held, so a tool_result can
+   *  name its tool. */
+  readonly toolNames = new Map<string, string>();
   /** The pending list in stream order: ids the merge has not resolved,
    *  with the query message a rebuild replays through `append` exactly
    *  as it rendered live. An undefined message is a node with no frame
@@ -92,6 +96,7 @@ export class SessionModel {
     }
     if (!this.byUuid.has(entry.uuid)) {
       this.byUuid.set(entry.uuid, entry);
+      trackToolNames(entry, this.toolNames);
     }
     const sourceUuid = queuedCommandSourceUuid(entry);
     if (sourceUuid !== undefined && !this.attachmentBySource.has(sourceUuid)) {

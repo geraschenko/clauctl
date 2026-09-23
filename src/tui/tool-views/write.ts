@@ -36,9 +36,9 @@ function writtenFile(
 const PREVIEW_LINES = 10;
 
 export const writeView: ToolView<WriteInput> = {
-  headerArg(args, cwd) {
+  header(args, cwd) {
     const path = stringArg(args, "file_path");
-    return path === undefined ? undefined : abbreviatePath(path, cwd);
+    return path === undefined ? {} : { arg: abbreviatePath(path, cwd) };
   },
   headerLink(args) {
     return stringArg(args, "file_path");

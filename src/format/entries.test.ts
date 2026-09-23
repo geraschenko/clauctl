@@ -4,6 +4,7 @@ import { CanonicalEntryFilter } from "../core/session/entry-stream.ts";
 import type { SessionEntry } from "../core/session/file.ts";
 import { formatEntryLine, type EntryFormatOptions } from "./entries.ts";
 import { decodeFormatInput, type FormatInput } from "./input.ts";
+import { trackToolNames } from "../tui/entry-views/entry-view.ts";
 
 const OPTIONS: EntryFormatOptions = {
   timestamps: false,
@@ -18,22 +19,32 @@ const UUID_DISPLAY = "7f3f2c9e";
 function line(
   entry: Record<string, unknown>,
   options: Partial<EntryFormatOptions> = {},
+  toolNames: ReadonlyMap<string, string> = new Map(),
 ): string {
-  return formatEntryLine(entry as SessionEntry, { ...OPTIONS, ...options });
+  return formatEntryLine(
+    entry as SessionEntry,
+    { ...OPTIONS, ...options },
+    toolNames,
+  );
 }
 
-test("uuid column shows the uuid, type is padded, summary follows", () => {
+/** `body` padded so `size` ends at the OPTIONS width. */
+function withSize(body: string, size: string, width = OPTIONS.width): string {
+  return `${body.padEnd(width - size.length - 1)} ${size}`;
+}
+
+test("uuid column shows the uuid, type is padded, summary and size follow", () => {
   assert.equal(
     line({
       uuid: UUID,
       type: "user",
       message: { role: "user", content: "Fix the torn-tail bug" },
     }),
-    `${UUID_DISPLAY} user       Fix the torn-tail bug`,
+    withSize(`${UUID_DISPLAY} user       Fix the torn-tail bug`, "21"),
   );
 });
 
-test("uuid-less entries blank-pad the uuid column", () => {
+test("uuid-less entries blank-pad the uuid column; a 0 size shows no column", () => {
   const rendered = line({
     type: "queue-operation",
     operation: "enqueue",
@@ -45,7 +56,7 @@ test("uuid-less entries blank-pad the uuid column", () => {
   );
 });
 
-test("assistant content renders markers and text", () => {
+test("assistant content renders thinking, tool calls and text", () => {
   assert.equal(
     line({
       uuid: UUID,
@@ -59,51 +70,85 @@ test("assistant content renders markers and text", () => {
         ],
       },
     }),
-    `${UUID_DISPLAY} assistant  [thinking] [tool:Read] reading the parser`,
+    withSize(
+      `${UUID_DISPLAY} assistant  [thinking] ... [Read] reading the parser`,
+      "21",
+    ),
   );
+});
+
+test("tool results name their tool once trackToolNames saw the call", () => {
+  const call = {
+    uuid: UUID,
+    type: "assistant",
+    message: {
+      role: "assistant",
+      content: [{ type: "tool_use", id: "t1", name: "Read", input: {} }],
+    },
+  } as SessionEntry;
+  const resultEntry = {
+    uuid: UUID,
+    type: "user",
+    message: {
+      role: "user",
+      content: [{ type: "tool_result", tool_use_id: "t1", content: "ok!" }],
+    },
+  };
+  const toolNames = new Map<string, string>();
+  assert.match(line(resultEntry, {}, toolNames), / user {7}tool: ok +3$/u);
+  trackToolNames(call, toolNames);
+  assert.match(line(resultEntry, {}, toolNames), / user {7}Read: ok +3$/u);
 });
 
 test("bookkeeping types get concise summaries", () => {
   assert.match(
     line({ uuid: UUID, type: "system", subtype: "compact_boundary" }),
-    / system {5}compact_boundary$/u,
+    / system {5}\[compaction\] *$/u,
+  );
+  assert.match(
+    line({ uuid: UUID, type: "system", subtype: "local_command" }),
+    / system {5}system: local_command *$/u,
   );
   assert.match(
     line({ type: "permission-mode", permissionMode: "plan" }),
-    / permission-mode plan$/u,
+    / permission-mode plan *$/u,
   );
-  assert.match(line({ type: "mode", mode: "normal" }), / mode {7}normal$/u);
-  assert.match(line({ type: "ai-title", aiTitle: "Testing" }), / Testing$/u);
+  assert.match(line({ type: "mode", mode: "normal" }), / mode {7}normal *$/u);
+  assert.match(line({ type: "ai-title", aiTitle: "Testing" }), / Testing *$/u);
   assert.match(
     line({ type: "custom-title", customTitle: "My run" }),
-    / My run$/u,
+    / My run *$/u,
   );
-  assert.match(line({ type: "last-prompt", lastPrompt: "What?" }), / What\?$/u);
+  assert.match(
+    line({ type: "last-prompt", lastPrompt: "What?" }),
+    / What\? *$/u,
+  );
   assert.match(
     line({ type: "queue-operation", operation: "dequeue" }),
-    / queue-operation dequeue$/u,
+    / queue-operation dequeue *$/u,
   );
   assert.match(
     line({ type: "attachment", attachment: { type: "deferred_tools_delta" } }),
-    / attachment deferred_tools_delta$/u,
+    / attachment deferred_tools_delta: \+0 -0 *$/u,
   );
   assert.match(
     line({
       type: "file-history-snapshot",
       snapshot: { trackedFileBackups: { "a.ts": {}, "b.ts": {} } },
     }),
-    / 2 tracked file backups$/u,
+    / 2 tracked file backups *$/u,
   );
   assert.match(
     line({ type: "file-history-delta", trackingPath: "src/a.ts" }),
-    / src\/a\.ts$/u,
+    / src\/a\.ts *$/u,
   );
 });
 
-test("unknown types degrade to a generic summary rather than disappearing", () => {
-  const rendered = line({ type: "brand-new-type", detail: 7 });
-  assert.match(rendered, /brand-new-type/u);
-  assert.match(rendered, /"detail":7/u);
+test("unknown types render as their type rather than disappearing", () => {
+  assert.match(
+    line({ type: "brand-new-type", detail: 7 }),
+    / brand-new-type brand-new-type *$/u,
+  );
 });
 
 test("summaries are one-lined and truncated to the width budget", () => {
@@ -116,7 +161,17 @@ test("summaries are one-lined and truncated to the width budget", () => {
     { width: 80 },
   );
   assert.equal(rendered.length, 80);
-  assert.match(rendered, /multi line x+…$/u);
+  assert.match(rendered, /multi line x+… +211$/u);
+});
+
+test("the size column is aligned by code points", () => {
+  const rendered = line({
+    uuid: UUID,
+    type: "user",
+    message: { role: "user", content: "😀 hi" },
+  });
+  assert.equal([...rendered].length, OPTIONS.width);
+  assert.match(rendered, /😀 hi +5$/u);
 });
 
 test("--timestamps prefixes the entry timestamp", () => {
@@ -131,7 +186,7 @@ test("--timestamps prefixes the entry timestamp", () => {
   );
   assert.equal(
     rendered,
-    `2026-07-29T00:00:00.000Z ${UUID_DISPLAY} user       hi`,
+    withSize(`2026-07-29T00:00:00.000Z ${UUID_DISPLAY} user       hi`, "2"),
   );
 });
 
@@ -149,11 +204,13 @@ async function formatEntriesInput(input: FormatInput): Promise<string> {
     return "";
   }
   const filter = new CanonicalEntryFilter();
+  const toolNames = new Map<string, string>();
   let output = "";
   for await (const entry of input.records) {
     const accepted = filter.accept(entry);
     if (accepted !== undefined) {
-      output += `${formatEntryLine(accepted, OPTIONS)}\n`;
+      output += `${formatEntryLine(accepted, OPTIONS, toolNames)}\n`;
+      trackToolNames(accepted, toolNames);
     }
   }
   return output;

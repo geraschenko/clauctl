@@ -29,12 +29,8 @@ import {
 } from "../../core/tree/nodes.ts";
 import { dagLineText, type DagLine } from "../../format/dag-lines.ts";
 import { extractTextContent } from "../../format/generated/text.ts";
-import {
-  collectToolNames,
-  isHumanPrompt,
-  passesFilter,
-  treeLines,
-} from "../../format/tree.ts";
+import { passesFilter, treeLines } from "../../format/tree.ts";
+import { isHumanPrompt } from "../entry-views/entry-view.ts";
 import { theme } from "../theme.ts";
 
 const MAX_VISIBLE_LINES = 15;
@@ -145,11 +141,77 @@ function isPrintable(data: string): boolean {
   );
 }
 
+/** The conversation-filtered tree as `format tree` renders it (uuids
+ *  omitted), at the width last asked for: row summaries are width-bounded,
+ *  so the lines are recomputed when the width changes and reused while it
+ *  holds. */
+class TreeLines {
+  private readonly parentMap: ParentMap;
+  private readonly byUuid: ReadonlyMap<UUID, SessionEntry>;
+  private readonly currentLeafId: TreeNodeStr | null;
+  private readonly toolNames: ReadonlyMap<string, string>;
+  private lines: readonly DagLine[] = [];
+  private width: number | undefined;
+
+  constructor(
+    parentMap: ParentMap,
+    byUuid: ReadonlyMap<UUID, SessionEntry>,
+    currentLeafId: TreeNodeStr | null,
+    toolNames: ReadonlyMap<string, string>,
+  ) {
+    this.parentMap = parentMap;
+    this.byUuid = byUuid;
+    this.currentLeafId = currentLeafId;
+    this.toolNames = toolNames;
+  }
+
+  at(width: number): readonly DagLine[] {
+    if (this.width !== width) {
+      this.width = width;
+      this.lines = treeLines(
+        this.parentMap,
+        this.byUuid,
+        this.currentLeafId,
+        (id, entry) =>
+          passesFilter(entry, id === this.currentLeafId, "conversation"),
+        this.toolNames,
+        true,
+        width,
+      );
+    }
+    return this.lines;
+  }
+}
+
+/** The lines a search shows: all of `lines` when `searchQuery` is blank,
+ *  else the row lines whose label contains every whitespace-separated token
+ *  of it (case-insensitive) — a flat list, connector lines dropped. The
+ *  current-leaf exemption is part of the tree filter only: a search that
+ *  doesn't match the leaf hides it (pi parity). */
+function filterLines(
+  lines: readonly DagLine[],
+  searchQuery: string,
+): readonly DagLine[] {
+  const tokens = searchQuery
+    .toLowerCase()
+    .split(/\s+/)
+    .filter((token) => token !== "");
+  if (tokens.length === 0) {
+    return lines;
+  }
+  return lines.filter((line) => {
+    if (line.rowId === undefined) {
+      return false;
+    }
+    const label = line.label.toLowerCase();
+    return tokens.every((token) => label.includes(token));
+  });
+}
+
 export class TreeSelectorComponent extends Container implements Focusable {
   focused = false;
 
-  /** The whole conversation-filtered tree, rendered once. */
-  private readonly treeLines: readonly DagLine[];
+  private readonly treeLines: TreeLines;
   /** Display-tree parent relation (layout ids), for
    *  nearest-visible-ancestor selection recovery when search hides the
    *  selected row. */
@@ -158,9 +220,12 @@ export class TreeSelectorComponent extends Container implements Focusable {
   private readonly onCancel: () => void;
 
   private searchQuery = "";
-  /** What is shown: treeLines, or the search matches (row lines only,
-   *  drawn without connectors). */
+  /** What is shown: the tree, or its search matches (filterLines). */
   private lines: readonly DagLine[] = [];
+  /** The inputs `lines` derives from: the shown lines are re-derived when
+   *  the width-rendered tree or the query changes, never on navigation. */
+  private shownInputs:
+    { tree: readonly DagLine[]; searchQuery: string } | undefined;
   /** Index into `lines`; always a line with a rowId when any exists. */
   private selectedLine = 0;
   private lastSelectedId: TreeNodeStr | null;
@@ -170,30 +235,27 @@ export class TreeSelectorComponent extends Container implements Focusable {
     leaf: TreeNodeRef | null,
     displayTree: DisplayTree,
     byUuid: ReadonlyMap<UUID, SessionEntry>,
+    toolNames: ReadonlyMap<string, string>,
     onSelect: (pick: TreeNodeRef) => void,
     onCancel: () => void,
   ) {
     super();
-    const parentMap = displayTree.parentMap;
     // A hidden leaf occurrence's row is its nearest visible row (a rootless
     // hidden chain → no active chain, matching filtered-leaf behavior).
     const leafNode =
       leaf === null ? undefined : displayTree.nearestVisibleNode(leaf);
     const currentLeafId =
       leafNode === undefined ? null : formatTreeNodeRef(leafNode);
-    this.treeLines = treeLines(
-      parentMap,
+    this.parentMap = displayTree.parentMap;
+    this.treeLines = new TreeLines(
+      displayTree.parentMap,
       byUuid,
       currentLeafId,
-      (id, entry) => passesFilter(entry, id === currentLeafId, "conversation"),
-      collectToolNames([...byUuid.values()]),
-      true,
+      toolNames,
     );
     this.onSelect = onSelect;
     this.onCancel = onCancel;
-    this.parentMap = parentMap;
     this.lastSelectedId = currentLeafId;
-    this.applyFilter();
   }
 
   /** Persistent warning line for contextChanged-while-open. */
@@ -201,31 +263,14 @@ export class TreeSelectorComponent extends Container implements Focusable {
     this.warning = text;
   }
 
-  /**
-   * Recompute the shown lines: the rendered tree when the query is empty,
-   * else the row lines whose label contains every search token. The
-   * current-leaf exemption is part of the filter only — a search that
-   * doesn't match the leaf hides it (pi parity).
-   */
-  private applyFilter(): void {
+  /** Show `lines`, keeping the selection on the same row where it is still
+   *  shown (else its nearest shown ancestor, else the nearest row). */
+  private showLines(lines: readonly DagLine[]): void {
     const selected = this.lines[this.selectedLine];
     if (selected?.rowId !== undefined) {
       this.lastSelectedId = selected.rowId;
     }
-    const tokens = this.searchQuery
-      .toLowerCase()
-      .split(/\s+/)
-      .filter((token) => token !== "");
-    this.lines =
-      tokens.length === 0
-        ? this.treeLines
-        : this.treeLines.filter((line) => {
-            if (line.rowId === undefined) {
-              return false;
-            }
-            const label = line.label.toLowerCase();
-            return tokens.every((token) => label.includes(token));
-          });
+    this.lines = lines;
     this.selectedLine =
       this.lastSelectedId === null
         ? this.nearestSelectableLine(0, 1)
@@ -285,6 +330,14 @@ export class TreeSelectorComponent extends Container implements Focusable {
   }
 
   override render(width: number): string[] {
+    const tree = this.treeLines.at(width);
+    if (
+      this.shownInputs?.tree !== tree ||
+      this.shownInputs.searchQuery !== this.searchQuery
+    ) {
+      this.shownInputs = { tree, searchQuery: this.searchQuery };
+      this.showLines(filterLines(tree, this.searchQuery));
+    }
     const lines: string[] = [];
     const keybindings = getKeybindings();
     const confirmKey = keybindings.getKeys("tui.select.confirm")[0] ?? "enter";
@@ -349,18 +402,13 @@ export class TreeSelectorComponent extends Container implements Focusable {
     } else if (keybindings.matches(data, "tui.select.cancel")) {
       if (this.searchQuery !== "") {
         this.searchQuery = "";
-        this.applyFilter();
       } else {
         this.onCancel();
       }
     } else if (matchesKey(data, "backspace")) {
-      if (this.searchQuery !== "") {
-        this.searchQuery = this.searchQuery.slice(0, -1);
-        this.applyFilter();
-      }
+      this.searchQuery = this.searchQuery.slice(0, -1);
     } else if (isPrintable(data)) {
       this.searchQuery += data;
-      this.applyFilter();
     }
   }
 }

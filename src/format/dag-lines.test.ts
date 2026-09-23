@@ -1,14 +1,16 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { dagLineText, renderDagLines, type DagRow } from "./dag-lines.ts";
+import { formatSize } from "./generated/text.ts";
 
 function row(
   id: string,
   parentId: string | null,
   glyph = "●",
   label = id,
+  size: number | undefined = undefined,
 ): DagRow {
-  return { id, parentId, glyph, label };
+  return { id, parentId, glyph, label, size };
 }
 
 function texts(rows: readonly DagRow[], leaf: string | null) {
@@ -36,6 +38,7 @@ test("active chain stays in column 0 across a fork; connector lines are filler",
     glyph: "●",
     suffix: "  ",
     label: "2",
+    size: undefined,
   });
 });
 
@@ -72,6 +75,44 @@ test("dagLineText truncates to width and trims trailing whitespace", () => {
   const [line] = renderDagLines([row("1", null, "●", "a long label")], null);
   assert.equal(dagLineText(line!, 8), "●  a lo…");
   assert.equal(dagLineText({ ...line!, label: "" }, 80), "●");
+});
+
+test("formatSize: plain under 1k, one decimal under 10k, whole k above", () => {
+  assert.equal(formatSize(0), "0");
+  assert.equal(formatSize(348), "348");
+  assert.equal(formatSize(1_234), "1.2k");
+  assert.equal(formatSize(9_876), "9.9k");
+  assert.equal(formatSize(12_400), "12k");
+});
+
+test("dagLineText right-aligns the size at width; filler lines and 0 sizes show none", () => {
+  const lines = renderDagLines(
+    [
+      row("1", null, "●", "one", 348),
+      row("2", "1", "●", "two", 1_234),
+      row("3", "1", "●", "three", 0),
+    ],
+    "3",
+  );
+  assert.deepEqual(
+    lines.map((line) => dagLineText(line, 20)),
+    ["●    one         348", "├─╮", "│ ●  two        1.2k", "●  three"],
+  );
+  // The label truncates before the size does; width below the size column
+  // keeps the size alone, still right-aligned, without its separator.
+  const [long] = renderDagLines([row("1", null, "●", "a long label", 5)], null);
+  assert.equal(dagLineText(long!, 10), "●  a lo… 5");
+  assert.equal(dagLineText(long!, 2), " 5");
+  assert.equal(dagLineText(long!, 1), "5");
+  const [big] = renderDagLines([row("1", null, "●", "label", 348)], null);
+  assert.equal(dagLineText(big!, 4), " 348");
+});
+
+test("dagLineText pads by code points, so astral characters keep the size aligned", () => {
+  const [line] = renderDagLines([row("1", null, "●", "😀 label", 7)], null);
+  const rendered = dagLineText(line!, 14);
+  assert.equal(rendered, "●  😀 label   7");
+  assert.equal([...rendered].length, 14);
 });
 
 test("a row preceding its parent is rejected", () => {

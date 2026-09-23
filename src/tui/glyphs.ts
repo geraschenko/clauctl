@@ -13,8 +13,11 @@ export const ASSISTANT_GLYPH = "●";
 /** A tool call "plays" the command. */
 export const TOOL_CALL_GLYPH = "▸";
 export const TOOL_RESULT_GLYPH = "⤷";
+/** A tool_result-only user entry with any `is_error` block. */
+export const TOOL_RESULT_ERROR_GLYPH = "✗";
 
 /** Tree-only. */
+export const ATTACHMENT_GLYPH = "⎘";
 export const COMPACT_BOUNDARY_GLYPH = "═";
 export const COMPACT_SUMMARY_GLYPH = "□";
 /** A user entry that is not a human prompt: isMeta expansions, command

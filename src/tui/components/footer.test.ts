@@ -8,6 +8,7 @@ import {
   initialAgentState,
   type AgentState,
 } from "../../core/agent-state/agent-state.ts";
+import { stripAnsi } from "../../format/generated/text.ts";
 import { FooterComponent, formatTokens } from "./footer.ts";
 
 const provider: ReadonlyFooterDataProvider = {
@@ -16,11 +17,6 @@ const provider: ReadonlyFooterDataProvider = {
   getAvailableProviderCount: () => 0,
   onBranchChange: () => () => {},
 };
-
-function plain(line: string): string {
-  // eslint-disable-next-line no-control-regex
-  return line.replaceAll(/\u001b\[[0-9;]*m/g, "");
-}
 
 function footerLines(state: AgentState, width = 80): string[] {
   const footer = new FooterComponent(provider);
@@ -50,7 +46,7 @@ test("cwd line: ~-abbreviated cwd with the provider's branch", () => {
     ...initialAgentState(),
     cwd: `${process.env.HOME}/repo`,
   });
-  assert.equal(plain(lines[0]!), "~/repo (main)");
+  assert.equal(stripAnsi(lines[0]!), "~/repo (main)");
 });
 
 test("status line: colored mode left, context • model • effort right-aligned", () => {
@@ -63,7 +59,7 @@ test("status line: colored mode left, context • model • effort right-aligned
     }),
     80,
   )[1]!;
-  const text = plain(line);
+  const text = stripAnsi(line);
   assert.equal(text.length, 80);
   assert.ok(text.startsWith("⏸ manual"));
   // 86k of the 200k window is 43%.
@@ -84,7 +80,7 @@ test("per-mode indicators use claude's glyphs and colors with our labels", () =>
 
 test("unresolved segments: usage/effort omitted, unset mode/model called out", () => {
   const line = footerLines(initialAgentState())[1]!;
-  const text = plain(line);
+  const text = stripAnsi(line);
   assert.ok(text.startsWith("? unset mode"));
   assert.ok(line.includes("[38;5;220m? unset mode"));
   assert.ok(text.endsWith("  unset model"));
@@ -92,7 +88,7 @@ test("unresolved segments: usage/effort omitted, unset mode/model called out", (
 });
 
 test("1M-suffixed models use the 1M context window", () => {
-  const text = plain(
+  const text = stripAnsi(
     footerLines(
       withUsage({ ...initialAgentState(), model: "claude-sonnet-5[1m]" }),
     )[1]!,
@@ -103,7 +99,7 @@ test("1M-suffixed models use the 1M context window", () => {
 test("no provider: cwd line renders without a branch", () => {
   const footer = new FooterComponent(undefined);
   footer.setState({ ...initialAgentState(), cwd: "/srv/work" });
-  assert.equal(plain(footer.render(80)[0]!), "/srv/work");
+  assert.equal(stripAnsi(footer.render(80)[0]!), "/srv/work");
 });
 
 test("formatTokens compacts counts like pi", () => {

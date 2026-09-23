@@ -11,13 +11,19 @@ import {
   pipeline,
   type PrefixLine,
 } from "@geraschenko/renderdag";
-import { truncateText } from "./generated/text.ts";
+import {
+  formatSize,
+  padEndCodePoints,
+  truncateText,
+} from "./generated/text.ts";
 
 export interface DagRow {
   readonly id: string;
   readonly parentId: string | null;
   readonly glyph: string;
   readonly label: string;
+  /** Right-aligned char count (formatSize); undefined or 0 shows none. */
+  readonly size: number | undefined;
 }
 
 /** One output line. `rowId` is set on the line carrying a row's glyph and
@@ -35,6 +41,8 @@ export interface DagLine {
   readonly suffix: string;
   /** "" on filler lines. */
   readonly label: string;
+  /** undefined on filler lines. */
+  readonly size: number | undefined;
 }
 
 /** A column holder that is never fed as a node, so renderdag keeps its
@@ -42,7 +50,14 @@ export interface DagLine {
 const RESERVED_COLUMN_ID = "\0reserved";
 
 function fillerLine(prefix: string): DagLine {
-  return { rowId: undefined, prefix, glyph: "", suffix: "", label: "" };
+  return {
+    rowId: undefined,
+    prefix,
+    glyph: "",
+    suffix: "",
+    label: "",
+    size: undefined,
+  };
 }
 
 function prefixLineText(line: PrefixLine, glyph: string): string {
@@ -63,6 +78,7 @@ function rowLine(line: PrefixLine, row: DagRow): DagLine {
     glyph: row.glyph,
     suffix: `${textOf(line.parts.slice(glyphIndex + 1))} `,
     label: row.label,
+    size: row.size,
   };
 }
 
@@ -173,10 +189,20 @@ export function renderDagLines(
 }
 
 /** prefix + glyph + suffix + label truncated to `width` (truncateText),
- *  trailing whitespace trimmed. */
+ *  trailing whitespace trimmed; with a non-zero size, the text is truncated
+ *  to `width - sizeText.length - 1` and the size right-aligned at `width`
+ *  (the size survives any width: once no text column remains it stands
+ *  alone). A 0 size shows nothing. */
 export function dagLineText(line: DagLine, width: number): string {
-  return truncateText(
-    `${line.prefix}${line.glyph}${line.suffix}${line.label}`,
-    width,
-  ).trimEnd();
+  const text = `${line.prefix}${line.glyph}${line.suffix}${line.label}`;
+  if (line.size === undefined || line.size === 0) {
+    return truncateText(text, width).trimEnd();
+  }
+  const sizeText = formatSize(line.size);
+  const textWidth = width - sizeText.length - 1;
+  if (textWidth <= 0) {
+    return sizeText.padStart(width);
+  }
+  const label = truncateText(text, textWidth).trimEnd();
+  return `${padEndCodePoints(label, textWidth)} ${sizeText}`;
 }

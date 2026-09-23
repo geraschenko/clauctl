@@ -1,12 +1,15 @@
-// claude's Bash rendering: the command as the header arg (the component
-// wraps it to at most two lines); results use the generic
-// first-3-visual-lines summary, except that the CLI's empty-output
-// sentinel displays as "(No output)" (claude 2.1.250, tools capture). Not
-// in READ_ONLY_TOOLS, so Bash never folds — claude folds read-only-looking
-// commands, we deliberately don't (spec-approved divergence).
+// Bash rendering: the model's `description` as the header, the command
+// beneath it (a decided divergence from claude, which shows the raw
+// command wrapped to two lines — docs/specs/tui-rendering-parity.md);
+// results use the generic collapse rule, except that the CLI's
+// empty-output sentinel displays as "(No output)" (claude 2.1.250, tools
+// capture). Not in READ_ONLY_TOOLS, so Bash never folds — claude folds
+// read-only-looking commands, we deliberately don't (spec-approved
+// divergence).
 
 import type { BashInput } from "./generated.ts";
 import { stringArg } from "./args.ts";
+import { defaultToolView } from "./default-tool-view.ts";
 import type { ToolView } from "./tool-view.ts";
 
 /** The exact text the CLI's Bash tool stores as the tool_result of a
@@ -14,14 +17,17 @@ import type { ToolView } from "./tool-view.ts";
 const EMPTY_OUTPUT_SENTINEL = "(Bash completed with no output)";
 
 export const bashView: ToolView<BashInput> = {
-  headerArg(args, _cwd) {
-    return stringArg(args, "command");
+  header(args, _cwd) {
+    return {
+      description: stringArg(args, "description"),
+      arg: stringArg(args, "command"),
+    };
   },
-  resultSummary(_args, result) {
+  resultSummary(args, result, cwd) {
     if (!result.isError && result.content.trim() === EMPTY_OUTPUT_SENTINEL) {
       return "(No output)";
     }
-    return undefined;
+    return defaultToolView.resultSummary(args, result, cwd);
   },
   foldLabel(count) {
     return `ran ${count} command${count === 1 ? "" : "s"}`;

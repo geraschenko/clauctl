@@ -8,6 +8,7 @@ import type { FileEditOutput } from "@anthropic-ai/claude-agent-sdk/sdk-tools.js
 import { claudeStyle } from "../claude-style.ts";
 import type { EditInput } from "./generated.ts";
 import { abbreviatePath, stringArg } from "./args.ts";
+import { defaultToolView } from "./default-tool-view.ts";
 import type { ToolView } from "./tool-view.ts";
 
 interface PatchHunk {
@@ -128,24 +129,21 @@ function countClause(verb: string, count: number): string {
 
 export const editView: ToolView<EditInput> = {
   displayName: "Update",
-  headerArg(args, cwd) {
+  header(args, cwd) {
     const path = stringArg(args, "file_path");
-    return path === undefined ? undefined : abbreviatePath(path, cwd);
+    return path === undefined ? {} : { arg: abbreviatePath(path, cwd) };
   },
   headerLink(args) {
     return stringArg(args, "file_path");
   },
-  resultSummary(_args, result) {
-    if (result.isError) {
-      return undefined;
-    }
-    const hunks = structuredPatchHunks(result.toolUseResult);
-    if (hunks === undefined) {
-      return undefined;
-    }
-    const counts = structuredPatchCounts(hunks);
-    if (counts.added === 0 && counts.removed === 0) {
-      return undefined;
+  resultSummary(args, result, cwd) {
+    const hunks = result.isError
+      ? undefined
+      : structuredPatchHunks(result.toolUseResult);
+    const counts =
+      hunks === undefined ? undefined : structuredPatchCounts(hunks);
+    if (counts === undefined || (counts.added === 0 && counts.removed === 0)) {
+      return defaultToolView.resultSummary(args, result, cwd);
     }
     const parts: string[] = [];
     if (counts.added > 0) {

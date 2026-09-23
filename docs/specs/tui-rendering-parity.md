@@ -1118,3 +1118,18 @@ unchanged. Same colors, same column widths, so every capture line
 containing a tool header or result prefix now differs in that one glyph;
 the captures under `scripts/tui-parity/out/` stay claude's output. Spec:
 `docs/specs/tree-presentation.md`, "TUI glyph unification".
+
+## 2026-09-23 — decided divergences: collapse rule, Bash header, Read range
+
+Spec: `docs/specs/entry-views.md`. Three transcript changes that the
+captures under `scripts/tui-parity/out/` do not reflect:
+
+- Collapsed tool result: one source line is shown verbatim; two or more
+  render as `N lines (ctrl+o to expand)` with `N` counting source lines
+  (claude counts rendered lines for some tools and shows a first-line
+  preview for others). Errors collapse the same way under `✗`.
+- Bash header with a `description`: `▸ Bash(description)` followed by the
+  command on its own line at the continuation indent, truncated to the
+  width (claude shows only the command).
+- Read header carries the `offset`/`limit` range as a suffix
+  (`src/a.ts:10-30`); claude shows the bare path.

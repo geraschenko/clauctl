@@ -5,9 +5,9 @@ import { buildTree } from "../core/tree/build-tree.ts";
 import { toContextTree } from "../core/tree/context-tree.ts";
 import { entriesByUuid, type SessionEntry } from "../core/session/file.ts";
 import type { SnapshotDocument } from "./input.ts";
+import { isHumanPrompt } from "../tui/entry-views/entry-view.ts";
 import {
   formatSnapshotDocument,
-  isHumanPrompt,
   treeLines,
   type TreeFormatOptions,
 } from "./tree.ts";
@@ -63,14 +63,30 @@ function assistantEntry(
   };
 }
 
-function render(
+function renderWithSizes(
   input: SnapshotDocument,
   options: Partial<TreeFormatOptions> = {},
 ): string {
   return formatSnapshotDocument(input, {
     filter: options.filter ?? "conversation",
-    width: options.width ?? 120,
+    width: options.width ?? 100,
   });
+}
+
+/** formatSnapshotDocument output minus the right-aligned size column, so
+ *  the geometry and label tests read as rows; the column itself is pinned
+ *  by the "size column" test. */
+function render(
+  input: SnapshotDocument,
+  options: Partial<TreeFormatOptions> = {},
+): string {
+  return (
+    renderWithSizes(input, options)
+      .split("\n")
+      // TDC: wtf? The fact that we're writing something like this, even in a test, suggests that something about the design is bad.
+      .map((line) => line.replace(/ {2,}\d+(\.\d)?k?$/u, ""))
+      .join("\n")
+  );
 }
 
 // --- ordering, geometry ----------------------------------------------------------
@@ -456,7 +472,7 @@ test("a tool-only assistant that is the current leaf stays visible", () => {
     assert.equal(
       render(input, { filter }),
       "❯  00000001 Run a tool\n" +
-        "▸    00000002 [tool: Bash]\n" +
+        "▸    00000002 [Bash]\n" +
         "├─╮\n" +
         "│ │\n" +
         "~ │\n" +
@@ -496,9 +512,20 @@ test("all shows every node, with the tool call and result glyphs", () => {
   assert.equal(
     render(toolSession(), { filter: "all" }),
     "❯  00000001 Run a tool\n" +
-      "▸  00000002 [tool: Bash]\n" +
+      "▸  00000002 [Bash]\n" +
       "⤷  00000003 Bash: ok\n" +
       "●  00000004 Done\n" +
+      `[cursor: ${uuid(4)}]\n`,
+  );
+});
+
+test("size column: char counts right-aligned at the width on every row", () => {
+  assert.equal(
+    renderWithSizes(toolSession(), { filter: "all", width: 40 }),
+    "❯  00000001 Run a tool                10\n" +
+      "▸  00000002 [Bash]\n" +
+      "⤷  00000003 Bash: ok                   2\n" +
+      "●  00000004 Done                       4\n" +
       `[cursor: ${uuid(4)}]\n`,
   );
 });
@@ -682,7 +709,63 @@ test("summary: user text, compact summary, tool results", () => {
     },
   });
   assert.equal(summaryOf(result(false)), "⤷  tool: ok");
-  assert.equal(summaryOf(result(true)), "⤷  tool: error");
+  assert.equal(summaryOf(result(true)), "✗  tool: error");
+});
+
+test("summary: attachments carry their type and the attachment view's text", () => {
+  const attachment = (payload: Record<string, unknown>): SessionEntry => ({
+    type: "attachment",
+    attachment: payload,
+  });
+  assert.equal(
+    summaryOf(
+      attachment({
+        type: "total_tokens_reminder",
+        text: "<total_tokens>14973970 tokens left</total_tokens>",
+      }),
+    ),
+    "⎘  total_tokens_reminder: 14973970 tokens left",
+  );
+  assert.equal(
+    summaryOf(attachment({ type: "file", displayPath: "src/a.ts" })),
+    "⎘  file: src/a.ts",
+  );
+  assert.equal(
+    summaryOf(attachment({ type: "brand_new", detail: 7 })),
+    '⎘  brand_new: {"type":"brand_new","detail":7}',
+  );
+  assert.equal(
+    summaryOf(attachment({ type: "date_change" })),
+    "⎘  date_change",
+  );
+});
+
+test("summary: tool calls carry the tool header", () => {
+  const call = (name: string, input: unknown): SessionEntry => ({
+    type: "assistant",
+    cwd: "/repo",
+    message: {
+      role: "assistant",
+      content: [{ type: "tool_use", id: "t1", name, input }],
+      stop_reason: "tool_use",
+    },
+  });
+  assert.equal(
+    summaryOf(call("Bash", { description: "List files", command: "ls\n-la" })),
+    "▸  [Bash: List files — ls -la]",
+  );
+  assert.equal(summaryOf(call("Bash", { command: "ls" })), "▸  [Bash: ls]");
+  assert.equal(
+    summaryOf(
+      call("Read", { file_path: "/repo/src/a.ts", offset: 3, limit: 2 }),
+    ),
+    "▸  [Read: src/a.ts:3-4]",
+  );
+  assert.equal(
+    summaryOf(call("WebSearch", { query: "q" })),
+    '▸  [Web Search: "q"]',
+  );
+  assert.equal(summaryOf(call("Grep", "not a record")), "▸  [Grep]");
 });
 
 test("summary: assistant parts, abnormal stop_reason, no content", () => {
@@ -699,7 +782,7 @@ test("summary: assistant parts, abnormal stop_reason, no content", () => {
         stop_reason: "tool_use",
       },
     }),
-    "▸  [thinking] [tool: Read] Looking.",
+    "▸  [thinking] hmm [Read] Looking.",
   );
   assert.equal(
     summaryOf({
@@ -730,7 +813,7 @@ test("summary: boundary token count and generic types", () => {
     summaryOf({ type: "system", subtype: "compact_boundary" }),
     "═  [compaction]",
   );
-  assert.equal(summaryOf({ type: "attachment" }), "·  attachment");
+  assert.equal(summaryOf({ type: "attachment" }), "⎘  attachment");
   assert.equal(
     summaryOf({ type: "system", subtype: "informational" }),
     "·  system: informational",
@@ -739,13 +822,13 @@ test("summary: boundary token count and generic types", () => {
 
 // --- width, edge cases ------------------------------------------------------------
 
-test("width truncates the whole rendered line", () => {
+test("width truncates the label ahead of the size column", () => {
   const input: SnapshotDocument = {
     entries: [userEntry(uuid(1), "a question that runs well past the width")],
     leaf: { uuid: uuid(1) },
   };
-  const output = render(input, { width: 24 });
-  assert.equal(output.split("\n")[0], "❯  00000001 a question …");
+  const output = renderWithSizes(input, { width: 24 });
+  assert.equal(output.split("\n")[0], "❯  00000001 a questi… 40");
   assert.ok(
     output
       .trimEnd()
@@ -808,7 +891,7 @@ test("a steered prompt's queued_command attachment is a ❯ row with the prompt 
     assert.ok(rows.includes("❯  00000003 also say QUEUED"), filter);
     assert.ok(!rows.some((row) => row.includes("00000004")), filter);
   }
-  assert.ok(render(input, { filter: "all" }).includes("·  00000004"));
+  assert.ok(render(input, { filter: "all" }).includes("⎘  00000004"));
 });
 
 // --- treeLines (the /tree rendering) ----------------------------------------------
@@ -832,7 +915,7 @@ test("treeLines omitUuid drops the uuid column and the ~ marker", () => {
   const fullTree = buildTree(entries, () => {});
   const toolNames = new Map<string, string>();
   const labels = (omitUuid: boolean): string[] =>
-    treeLines(fullTree, byUuid, null, () => true, toolNames, omitUuid)
+    treeLines(fullTree, byUuid, null, () => true, toolNames, omitUuid, 100)
       .filter((line) => line.rowId !== undefined)
       .map((line) => `${line.glyph} ${line.label}`);
   assert.deepEqual(labels(false), [
@@ -862,6 +945,7 @@ test("treeLines rejects a row preceding its parent", () => {
         () => true,
         new Map(),
         false,
+        100,
       ),
     /precedes its parent/,
   );

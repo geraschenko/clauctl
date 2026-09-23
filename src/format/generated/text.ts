@@ -22,6 +22,49 @@ export function oneLine(text: string): string {
     .trim();
 }
 
+/**
+ * oneLine's incremental form: collapses whitespace runs to one space while
+ * walking `text`, stopping once `maxChars + 1` characters are emitted (so a
+ * following truncateText still sees "too long" and appends `…`). Leading
+ * whitespace is dropped, and so is a trailing run when the input is
+ * exhausted; but a space that is the `maxChars + 1`th character is kept —
+ * it is the overflow sentinel truncateText needs. Whitespace runs are
+ * walked in full, so the cost is O(maxChars + whitespace walked before the
+ * stop) — text length only matters through its whitespace.
+ */
+export function oneLinePrefix(text: string, maxChars: number): string {
+  let out = "";
+  let emitted = 0;
+  let pendingSpace = false;
+  for (const char of text) {
+    if (/\s/u.test(char)) {
+      pendingSpace = emitted > 0;
+      continue;
+    }
+    if (pendingSpace) {
+      out += " ";
+      emitted += 1;
+      pendingSpace = false;
+      if (emitted > maxChars) {
+        break;
+      }
+    }
+    out += char;
+    emitted += 1;
+    if (emitted > maxChars) {
+      break;
+    }
+  }
+  return out;
+}
+
+/** `text` without its SGR escape sequences (colors, bold, …): the
+ *  characters that occupy terminal columns. */
+export function stripAnsi(text: string): string {
+  // eslint-disable-next-line no-control-regex
+  return text.replaceAll(/\u001b\[[0-9;]*m/g, "");
+}
+
 export function truncateText(text: string, maxChars: number): string {
   if (maxChars <= 0) {
     return "";
@@ -31,6 +74,24 @@ export function truncateText(text: string, maxChars: number): string {
     return text;
   }
   return `${chars.slice(0, maxChars - 1).join("")}…`;
+}
+
+/** `String.padEnd` counting code points, the unit truncateText counts, so
+ *  an astral character does not shift a column aligned after the text. */
+export function padEndCodePoints(text: string, width: number): string {
+  return text + " ".repeat(Math.max(0, width - [...text].length));
+}
+
+/** `348` / `1.2k` / `12k` — approximate char counts, so `< 10k` gets one
+ *  decimal and larger counts none. */
+export function formatSize(chars: number): string {
+  if (chars < 1_000) {
+    return String(chars);
+  }
+  if (chars < 10_000) {
+    return `${(chars / 1_000).toFixed(1)}k`;
+  }
+  return `${Math.round(chars / 1_000)}k`;
 }
 
 export function countLines(text: string): number {

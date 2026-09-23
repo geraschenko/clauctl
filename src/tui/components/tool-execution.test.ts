@@ -5,6 +5,7 @@ import {
   resetCapabilitiesCache,
   setCapabilities,
 } from "@earendil-works/pi-tui";
+import { stripAnsi } from "../../format/generated/text.ts";
 import { ToolExecutionComponent } from "./tool-execution.ts";
 
 function withHyperlinks<T>(hyperlinks: boolean, body: () => T): T {
@@ -21,6 +22,82 @@ function headerLine(component: ToolExecutionComponent, width: number): string {
   // render() emits a leading blank line before the header.
   return lines[1]!;
 }
+
+/** Rendered lines after the leading blank line, ANSI-stripped. */
+function plainLines(
+  component: ToolExecutionComponent,
+  width: number,
+): string[] {
+  return component
+    .render(width)
+    .slice(1)
+    .map((line) => stripAnsi(line).trimEnd());
+}
+
+test("Bash header: description on the header line, command beneath it", () => {
+  const component = new ToolExecutionComponent(
+    "Bash",
+    { description: "List files", command: "ls\n-la /tmp" },
+    undefined,
+  );
+  assert.deepEqual(plainLines(component, 80), [
+    "▸ Bash(List files)",
+    "      ls -la /tmp",
+  ]);
+  // The command line truncates to the width rather than wrapping.
+  assert.deepEqual(plainLines(component, 12), [
+    "▸ Bash(List",
+    "      files)",
+    "      ls -l…",
+  ]);
+});
+
+test("Bash header without a description is the command, wrapped as before", () => {
+  const component = new ToolExecutionComponent(
+    "Bash",
+    { command: "ls -la" },
+    undefined,
+  );
+  assert.deepEqual(plainLines(component, 80), ["▸ Bash(ls -la)"]);
+  assert.deepEqual(
+    plainLines(new ToolExecutionComponent("Bash", "nope", undefined), 80),
+    ["▸ Bash"],
+  );
+});
+
+test("collapsed result: one source line shown, more counted, errors with ✗", () => {
+  const component = new ToolExecutionComponent("Grep", {}, undefined);
+  component.updateResult({
+    toolCallId: "t",
+    content: "src/a.ts\n",
+    isError: false,
+    toolUseResult: undefined,
+  });
+  assert.deepEqual(plainLines(component, 80), ["▸ Grep", "  ⤷  src/a.ts"]);
+  component.updateResult({
+    toolCallId: "t",
+    content: "a\nb\nc",
+    isError: false,
+    toolUseResult: undefined,
+  });
+  assert.deepEqual(plainLines(component, 80), [
+    "▸ Grep",
+    "  ⤷  3 lines (ctrl+o to expand)",
+  ]);
+  component.updateResult({
+    toolCallId: "t",
+    content: "grep: src: No such file",
+    isError: true,
+    toolUseResult: undefined,
+  });
+  assert.deepEqual(plainLines(component, 80), [
+    "▸ Grep",
+    "  ✗  grep: src: No such file",
+  ]);
+  // Expanded: the args JSON and the full result under ⤷ regardless.
+  component.setExpanded(true);
+  assert.equal(plainLines(component, 80)[1], "  ⤷  {}");
+});
 
 test("header path is an OSC 8 file link when hyperlinks are supported", () => {
   const component = new ToolExecutionComponent(

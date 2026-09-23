@@ -6,6 +6,7 @@
 import type { AgentOutput } from "@anthropic-ai/claude-agent-sdk/sdk-tools.js";
 import type { AgentInput } from "./generated.ts";
 import { stringArg } from "./args.ts";
+import { defaultToolView } from "./default-tool-view.ts";
 import type { ToolView } from "./tool-view.ts";
 
 interface AgentTotals {
@@ -56,16 +57,16 @@ function formatDuration(durationMs: number): string {
 }
 
 export const agentView: ToolView<AgentInput> = {
-  headerArg(args, _cwd) {
-    return stringArg(args, "description");
+  header(args, _cwd) {
+    const description = stringArg(args, "description");
+    return description === undefined ? {} : { arg: description };
   },
-  resultSummary(_args, result) {
-    if (result.isError) {
-      return undefined;
-    }
-    const totals = agentTotals(result.toolUseResult);
+  resultSummary(args, result, cwd) {
+    const totals = result.isError
+      ? undefined
+      : agentTotals(result.toolUseResult);
     if (totals === undefined) {
-      return undefined;
+      return defaultToolView.resultSummary(args, result, cwd);
     }
     return (
       `Done (${totals.toolUses} tool use${totals.toolUses === 1 ? "" : "s"}` +

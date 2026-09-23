@@ -15,6 +15,8 @@ import {
   DEFAULT_MESSAGE_FORMAT_OPTIONS,
   MessageFormatter,
 } from "../format/messages.ts";
+// TDC: This is bad. Core code shouldn't depend on tui code. Let's make that an eslint rule. If core code needs to do this, put the utility in core and have tui import it.
+import { trackToolNames } from "../tui/entry-views/entry-view.ts";
 import type { CommandContext } from "./generated/targets.ts";
 import type { SessionEntry } from "./session/file.ts";
 import { MessageProjector } from "./session/messages.ts";
@@ -35,13 +37,18 @@ export function entrySink(
     }
   };
   if (type === "entries") {
+    const toolNames = new Map<string, string>();
     return {
-      push: (entry) =>
+      push: (entry) => {
+        if (json) {
+          write(`${JSON.stringify(entry)}\n`);
+          return;
+        }
         write(
-          json
-            ? `${JSON.stringify(entry)}\n`
-            : `${formatEntryLine(entry, DEFAULT_ENTRY_FORMAT_OPTIONS)}\n`,
-        ),
+          `${formatEntryLine(entry, DEFAULT_ENTRY_FORMAT_OPTIONS, toolNames)}\n`,
+        );
+        trackToolNames(entry, toolNames);
+      },
       end: () => {},
     };
   }

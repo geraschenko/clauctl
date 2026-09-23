@@ -1122,6 +1122,7 @@ class InteractiveMode {
       fileSessionModel.leaf,
       fileSessionModel.displayTree,
       fileSessionModel.byUuid,
+      fileSessionModel.toolNames,
       (pick) => this.confirmTreePick(fileSessionModel, pick),
       () => this.closeTreeSelector(),
     );

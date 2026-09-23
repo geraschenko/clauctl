@@ -2,15 +2,16 @@
 //
 //   ❯ /login                       (or `❯ ! cmd` for bash passthrough)
 //     ⤷  Login successful          captured output, collapsed like a tool
-//        … +N lines (ctrl+o to expand)
+//                                  (one line, or "N lines (ctrl+o to expand)")
 //
 // The command line reuses the user prompt's ❯ band; the output block reuses
 // the tool components' ⤷ formatting and the same ctrl+o expansion. A
 // standalone output (no preceding command in the transcript) renders as a
 // bare ⤷ block.
 
+import { collapsedOutputSummary } from "../tool-views/tool-view.ts";
 import { CachedLinesComponent } from "./cached-lines.ts";
-import { collapsedOutputLines, resultBlockLines } from "./tool-execution.ts";
+import { RESULT_BLOCK_STYLE, resultBlockLines } from "./tool-execution.ts";
 import { userPromptLines } from "./user-message.ts";
 
 export class UserCommandComponent extends CachedLinesComponent {
@@ -45,9 +46,11 @@ export class UserCommandComponent extends CachedLinesComponent {
     if (this.output !== undefined) {
       const content = this.output.trim();
       lines.push(
-        ...(this.expanded
-          ? resultBlockLines(content, width)
-          : collapsedOutputLines(content, width)),
+        ...resultBlockLines(
+          this.expanded ? content : collapsedOutputSummary(content),
+          width,
+          RESULT_BLOCK_STYLE,
+        ),
       );
     }
     return lines;

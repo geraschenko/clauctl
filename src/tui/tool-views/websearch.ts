@@ -8,24 +8,23 @@
 import type { WebSearchOutput } from "@anthropic-ai/claude-agent-sdk/sdk-tools.js";
 import type { WebSearchInput } from "./generated.ts";
 import { stringArg } from "./args.ts";
+import { defaultToolView } from "./default-tool-view.ts";
 import type { ToolView } from "./tool-view.ts";
 
 export const webSearchView: ToolView<WebSearchInput> = {
   displayName: "Web Search",
-  headerArg(args) {
+  header(args) {
     const query = stringArg(args, "query");
-    return query === undefined ? undefined : `"${query}"`;
+    return query === undefined ? {} : { arg: `"${query}"` };
   },
-  resultSummary(_args, result) {
-    if (result.isError) {
-      return undefined;
-    }
-    const structured = result.toolUseResult as
-      Partial<WebSearchOutput> | null | undefined;
+  resultSummary(args, result, cwd) {
+    const structured = result.isError
+      ? undefined
+      : (result.toolUseResult as Partial<WebSearchOutput> | null | undefined);
     const duration = structured?.durationSeconds;
     const count = structured?.searchCount;
     if (typeof duration !== "number" || typeof count !== "number") {
-      return undefined;
+      return defaultToolView.resultSummary(args, result, cwd);
     }
     return `Did ${count} search${count === 1 ? "" : "es"} in ${Math.round(duration)}s`;
   },
