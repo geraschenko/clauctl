@@ -74,6 +74,45 @@ test("excludedFromQuery: a session entry is excluded iff the query stream never 
   }
 });
 
+// The recorded pair predates both `<synthetic>` assistant classes, so their
+// rows are pinned on hand-built entries; tests/sdk/synthetic-assistant.test.ts
+// checks the same verdicts against a live CLI.
+test("excludedFromQuery: <synthetic> assistant entries split on isApiErrorMessage", () => {
+  const synthetic = (text: string, isApiErrorMessage: boolean) => ({
+    type: "assistant",
+    uuid: randomUUID(),
+    isApiErrorMessage,
+    message: {
+      role: "assistant",
+      model: "<synthetic>",
+      content: [{ type: "text", text }],
+    },
+  });
+  assert.equal(
+    excludedFromQuery(synthetic("No response requested.", false)),
+    true,
+    "the resume turn closer is session-only",
+  );
+  assert.equal(
+    excludedFromQuery(synthetic("API Error: 529 Overloaded", true)),
+    false,
+    "an API-error synthetic is shared",
+  );
+  assert.equal(
+    excludedFromQuery({
+      type: "assistant",
+      uuid: randomUUID(),
+      message: {
+        role: "assistant",
+        model: "claude-haiku-4-5-20251001",
+        content: [],
+      },
+    }),
+    false,
+    "a real assistant message is shared",
+  );
+});
+
 // --- merge equivalence -------------------------------------------------------
 
 const sessionId = "42a85bcd-fc5b-46ee-ba69-39fa6be66287" as UUID;

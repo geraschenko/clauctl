@@ -1278,9 +1278,12 @@ class InteractiveMode {
       });
   }
 
-  /** Release the footer's git watchers; the TUI is done rendering. */
+  /** Release everything that would keep the process alive after the TUI
+   *  stops: the footer's git watchers and the activity spinner's interval
+   *  (running whenever the agent is not idle at detach time). */
   dispose(): void {
     this.footerData?.dispose();
+    this.loader.stop();
   }
 
   private syncActivity(): void {

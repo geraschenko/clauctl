@@ -34,7 +34,7 @@ export function excludedFromSession(message: SDKMessage): boolean {
 export function excludedFromQuery(entry: SessionEntry): boolean {
   switch (entry.type) {
     case "assistant":
-      return false;
+      return isResumeTurnCloser(entry);
     case "user":
       return !(
         isToolResultEntry(entry) ||
@@ -108,6 +108,17 @@ export function excludedFromOther(
       );
     }
   }
+}
+
+/** The `assistant` entry a resumed CLI writes to close a turn the
+ *  transcript left open (an interrupt): model `<synthetic>`, text "No
+ *  response requested.", persisted with the next prompt and never emitted
+ *  to the SDK consumer. The other `<synthetic>` assistant class — API
+ *  errors, flagged `isApiErrorMessage` — does travel the query stream, so
+ *  the flag is what separates them (classification table). */
+function isResumeTurnCloser(entry: SessionEntry): boolean {
+  const model = (entry.message as { model?: unknown } | undefined)?.model;
+  return model === "<synthetic>" && entry.isApiErrorMessage !== true;
 }
 
 /** A slash command's output logged as a `user` entry, which the query
