@@ -4,7 +4,7 @@
  * docs/specs/tree-presentation.md). The graph geometry is dag-lines.ts
  * (generic); this file owns the clauctl-specific parts: filters and the
  * visible relation; row glyphs, labels and sizes come from the entry views
- * (src/tui/entry-views/entry-view.ts). Lenient like `format messages` —
+ * (src/format/entry-view/entry-view.ts). Lenient like `format messages` —
  * verbatim entries drift with Anthropic CLI versions, so unrecognized
  * shapes render generically rather than rejecting.
  */
@@ -14,6 +14,7 @@ import { buildTree } from "../core/tree/build-tree.ts";
 import { toContextTree } from "../core/tree/context-tree.ts";
 import { toDisplayTree } from "../core/tree/display-tree.ts";
 import { entriesByUuid, type SessionEntry } from "../core/session/file.ts";
+import { trackToolNames } from "../core/session/track-tool-names.ts";
 import {
   formatTreeNodeRef,
   parseTreeNodeRef,
@@ -23,20 +24,19 @@ import {
 import { displayUuid } from "../core/uuid.ts";
 import {
   abnormalStopReason,
-  collectToolNames,
-  entryViewFor,
   hasText,
   isPromptEntry,
-  messageContent,
   toolResultOnly,
-} from "../tui/entry-views/entry-view.ts";
+} from "../core/session/entry-predicates.ts";
+import { messageContent } from "../core/session/file.ts";
+import { entryViewFor } from "./entry-view/index.ts";
 import {
   dagLineText,
   renderDagLines,
   type DagLine,
   type DagRow,
 } from "./dag-lines.ts";
-import { hasContentBlock } from "./generated/text.ts";
+import { hasContentBlock } from "../core/generated/text.ts";
 import type { SnapshotDocument } from "./input.ts";
 
 export const FILTER_MODES = [
@@ -48,9 +48,22 @@ export const FILTER_MODES = [
 ] as const;
 export type FilterMode = (typeof FILTER_MODES)[number];
 
+/** `format tree` / CLI options: the filter is one of the named modes. */
 export interface TreeFormatOptions {
   filter: FilterMode;
   width: number;
+  omitUuids: boolean;
+  sizes: boolean;
+}
+
+/** `treeLines` options: the filter is an arbitrary row predicate (a
+ *  FilterMode via `passesFilter`, or anything else — e.g. a search that
+ *  keeps the tree structure). */
+export interface TreeLineOptions {
+  filter: (id: TreeNodeStr, entry: SessionEntry) => boolean;
+  width: number;
+  omitUuids: boolean;
+  sizes: boolean;
 }
 
 /** "conversation" is also the /tree selector's filter: every row it keeps
@@ -100,13 +113,14 @@ export function passesFilter(
 }
 
 /** The one rendering shared by `format tree` and `/tree`: the rows of
- *  `parentMap` passing `passes`, in parentMap order, hidden rows' children
+ *  `parentMap` passing `filter`, in parentMap order, hidden rows' children
  *  re-attached to their nearest visible ancestor; the active chain = the
  *  leaf's row → root over that visible relation, where the leaf's row is
  *  currentLeafId itself when it passes, else its nearest visible ancestor
  *  (null → no chain; also for a currentLeafId unknown to the tree).
  *  Labels: the 8-char uuid prefix (`~`-prefixed on relinked ids) unless
- *  omitUuid, then the entry view's summary (`width` bounds it) and size.
+ *  `omitUuids`, then the entry view's summary (`width` bounds it) and, with
+ *  `sizes`, its size.
  *  Because a row always follows its parent (throws otherwise — a
  *  buildTree/toDisplayTree invariant), one forward pass resolves every
  *  row's nearest visible ancestor. */
@@ -114,10 +128,8 @@ export function treeLines(
   parentMap: ParentMap,
   byUuid: ReadonlyMap<UUID, SessionEntry>,
   currentLeafId: TreeNodeStr | null,
-  passes: (id: TreeNodeStr, entry: SessionEntry) => boolean,
   toolNames: ReadonlyMap<string, string>,
-  omitUuid: boolean,
-  width: number,
+  options: TreeLineOptions,
 ): DagLine[] {
   /** Every id → its nearest visible strict ancestor (null = none). */
   const visibleAncestorOf = new Map<TreeNodeStr, TreeNodeStr | null>();
@@ -136,13 +148,13 @@ export function treeLines(
     visibleAncestorOf.set(id, visibleAncestor);
     const ref = parseTreeNodeRef(id);
     const entry = byUuid.get(ref.uuid)!;
-    if (!passes(id, entry)) {
+    if (!options.filter(id, entry)) {
       continue;
     }
     visible.add(id);
     const view = entryViewFor(entry);
-    const summary = view.summary(entry, toolNames, width);
-    const label = omitUuid
+    const summary = view.summary(entry, toolNames, options.width);
+    const label = options.omitUuids
       ? summary
       : `${ref.viaBoundary === undefined ? "" : "~"}${displayUuid(ref.uuid)} ${summary}`;
     rows.push({
@@ -150,7 +162,7 @@ export function treeLines(
       parentId: visibleAncestor,
       glyph: view.glyph,
       label,
-      size: view.size(entry),
+      size: options.sizes ? view.size(entry) : undefined,
     });
   }
   let leafRow: TreeNodeStr | null = null;
@@ -195,16 +207,15 @@ export function formatSnapshotDocument(
         : displayTree.nearestVisibleNode(snapshot.leaf);
     currentLeafId = leafNode === undefined ? null : formatTreeNodeRef(leafNode);
   }
-  const toolNames = collectToolNames(snapshot.entries);
-  const lines = treeLines(
-    parentMap,
-    byUuid,
-    currentLeafId,
-    (id, entry) => passesFilter(entry, id === currentLeafId, options.filter),
-    toolNames,
-    false,
-    options.width,
-  ).map((line) => dagLineText(line, options.width));
+  const toolNames = new Map<string, string>();
+  for (const entry of snapshot.entries) {
+    trackToolNames(entry, toolNames);
+  }
+  const lines = treeLines(parentMap, byUuid, currentLeafId, toolNames, {
+    ...options,
+    filter: (id, entry) =>
+      passesFilter(entry, id === currentLeafId, options.filter),
+  }).map((line) => dagLineText(line, options.width));
   lines.push(`[cursor: ${snapshot.leaf?.uuid ?? "null"}]`);
   return `${lines.join("\n")}\n`;
 }

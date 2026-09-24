@@ -1,10 +1,13 @@
 import type { UUID } from "node:crypto";
 import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
-import type { AgentEvent } from "../protocol.ts";
+import type {
+  AgentEvent,
+  MergeStream,
+  AgentState,
+  SessionState,
+} from "../protocol/index.ts";
 import { queuedCommandSourceUuid, type SessionEntry } from "../session/file.ts";
 import { isToolResultEntry } from "../tree/loader.ts";
-import type { AgentState } from "./agent-state.ts";
-import type { SessionState } from "./session-state.ts";
 
 /** `type/subtype` of a query message or log entry, for anomaly details
  *  and event annotations. */
@@ -55,7 +58,7 @@ export function excludedFromQuery(entry: SessionEntry): boolean {
  *  describes the subagent's own context, not this agent's, and its
  *  transcript lives in the subagent's own file, so none of its ids can
  *  meet an entry here — a subagent's merge is a separate session model
- *  over that file (docs/thoughts/subagent-activity.md). */
+ *  over that file (docs/follow-ups/subagent-activity.md). */
 export function isSubagentTraffic(message: SDKMessage): boolean {
   return (
     "parent_tool_use_id" in message &&
@@ -129,4 +132,56 @@ function isLocalCommandStdout(entry: SessionEntry): boolean {
   return (
     typeof content === "string" && content.startsWith("<local-command-stdout>")
   );
+}
+
+/** For anomaly details: `classOf` of the SDK message or entry the event
+ *  carries, `"prompt"` for a dequeue, the kind otherwise. */
+export function eventClass(event: AgentEvent): string {
+  switch (event.kind) {
+    case "userMessageDequeued":
+      return "prompt";
+    case "sdkMessage":
+    case "sessionAppended":
+      return classOf(event.message);
+    case "sessionEntry":
+      return classOf(event.entry);
+    case "userMessageQueued":
+    case "compactSent":
+    case "interruptSent":
+    case "controlApplied":
+    case "contextChanged":
+    case "querySessionChanged":
+    case "sessionFileChanged":
+    case "scanComplete":
+    case "trackerAnomaly":
+    case "shutdown":
+      return event.kind;
+  }
+}
+
+/** The one stream the event is a node of — what its position is
+ *  synchronized with, not where it originated: `session` when the
+ *  event's place is fixed relative to the file's append order, `query`
+ *  when it is fixed relative to the SDK message sequence
+ *  (docs/protocol.md, "The event stream"). */
+export function eventStream(event: AgentEvent): MergeStream {
+  switch (event.kind) {
+    case "sessionEntry":
+    case "sessionFileChanged":
+    case "scanComplete":
+    case "contextChanged":
+      return "session";
+    case "trackerAnomaly":
+      return event.stream;
+    case "userMessageQueued":
+    case "userMessageDequeued":
+    case "compactSent":
+    case "interruptSent":
+    case "controlApplied":
+    case "sdkMessage":
+    case "querySessionChanged":
+    case "sessionAppended":
+    case "shutdown":
+      return "query";
+  }
 }

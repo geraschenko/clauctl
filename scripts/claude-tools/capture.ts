@@ -17,7 +17,7 @@
  * (checked in): the built-in tools only — account-level `mcp__*` tools are
  * filtered out so the file is a function of the claude version, not of the
  * capturing account — stamped with the claude/SDK versions for
- * `generate.ts --check` — then regenerates src/tui/tool-views/generated.ts,
+ * `generate.ts --check` — then regenerates src/format/entry-view/tool-view/generated.ts,
  * so a single run leaves both files consistent.
  *
  * The built-in roster is NOT a pure function of the binary version: tools

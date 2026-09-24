@@ -7,7 +7,7 @@
 > LOG "Redesign" and docs/specs/session-tracker/redesign-2026-09-12.md).
 > Follow-up to
 > docs/specs/get-context.md (its Cost section anticipated this) and
-> docs/thoughts/old/get-entries-caching.md. Derisk rounds and the rewrite's
+> docs/follow-ups/old/get-entries-caching.md. Derisk rounds and the rewrite's
 > decision record are in the WORK LOG.
 
 # SPEC
@@ -755,7 +755,7 @@ true`) and sets
   today. Subagent messages (`parent_tool_use_id` set) reach sinks but
   fold nothing: their entries live in the `subagents/` files, never in
   this one, so an observation would pend forever (subagent state
-  tracking: docs/thoughts/subagent-activity.md).
+  tracking: docs/follow-ups/subagent-activity.md).
 - `sessionEntry`: routed to `fileSessionId`. Uuid-bearing entries:
   `observe("session", uuid)`; on a first observation,
   `excludeFrom(["query"])` when `event.expectsSdkMessage` is false or

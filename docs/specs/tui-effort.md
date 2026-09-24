@@ -184,7 +184,7 @@ one); `handleGlobalKey`'s `selectorOpen` gains `effortSelector`;
 - No display of the _actual_ (post-resolution) effort level; the footer
   keeps showing the last valid requested level. Cascade fallbacks and
   silent model downgrades stay invisible — deferred to
-  `docs/thoughts/actual-effort-display.md` (needs daemon hook
+  `docs/follow-ups/actual-effort-display.md` (needs daemon hook
   registration and a new event kind; the fold-only approach turned out
   not to exist, since no SDK stream message carries effort).
 - No display changes: the footer already renders `effortLevel`.
@@ -235,7 +235,7 @@ encountered.
   validation added (criterion 3) after the superduper experiment showed
   the whole chain accepts garbage silently. Actual-effort display was
   considered for this spec but deferred to
-  `docs/thoughts/actual-effort-display.md` once investigation showed no
+  `docs/follow-ups/actual-effort-display.md` once investigation showed no
   SDK stream message carries effort — the hook-callback machinery it
   needs (daemon hook registration, new effortResolved event, mid-turn
   clobber corner) outweighs a fold tweak.

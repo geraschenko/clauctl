@@ -1,6 +1,6 @@
 import { pending } from "../../stream-merge.ts";
-import { freshSessionState, type SessionState } from "../session-state.ts";
-import type { TrackerAnomaly } from "../tracker-anomaly.ts";
+import { freshSessionState } from "../session-state.ts";
+import type { SessionState, TrackerAnomaly } from "../../protocol/index.ts";
 import { type Observation, observeOn } from "./observe-on.ts";
 
 /** The tracked file's session rebuilt for a same-file rescan: fresh

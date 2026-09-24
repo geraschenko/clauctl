@@ -11,11 +11,11 @@ import type { UUID } from "node:crypto";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
-import { initialAgentState } from "../../src/core/agent-state/agent-state.ts";
-import { AnomalyRecorder } from "../../src/core/daemon/anomaly-bundle.ts";
-import { EventHub } from "../../src/core/daemon/event-hub.ts";
-import { RwGate } from "../../src/core/daemon/rw-gate.ts";
-import { TrackedSessionLog } from "../../src/core/daemon/tracked-session-log.ts";
+import { initialAgentState } from "../../src/core/agent-state/index.ts";
+import { AnomalyRecorder } from "../../src/core/protocol-server/anomaly-bundle.ts";
+import { EventHub } from "../../src/core/protocol-server/event-hub.ts";
+import { RwGate } from "../../src/core/protocol-server/rw-gate.ts";
+import { TrackedSessionLog } from "../../src/core/protocol-server/tracked-session-log.ts";
 
 const mb = (bytes: number): string => `${(bytes / 1e6).toFixed(1)} MB`;
 

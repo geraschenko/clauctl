@@ -6,9 +6,9 @@ import type { UUID } from "node:crypto";
 import {
   freshSessionState,
   initialAgentState,
-  type AgentState,
-} from "../../core/agent-state/agent-state.ts";
-import { stripAnsi } from "../../format/generated/text.ts";
+} from "../../core/agent-state/index.ts";
+import type { AgentState } from "../../core/protocol/index.ts";
+import { stripAnsi } from "../../core/generated/text.ts";
 import { FooterComponent, formatTokens } from "./footer.ts";
 
 const provider: ReadonlyFooterDataProvider = {

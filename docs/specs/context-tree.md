@@ -518,7 +518,7 @@ tree --filter raw` still shows the boundary and its block.
 - `get-messages --at <ref>` (historical assistant context via
   `contextAt`) — later.
 - Daemon-side incremental full/context/display trees
-  (docs/thoughts/old/get-entries-caching.md (implemented by docs/specs/session-tracker.md)) — later.
+  (docs/follow-ups/old/get-entries-caching.md (implemented by docs/specs/session-tracker.md)) — later.
 - Folding the `loadedContext` body onto `contextAt` — separate later
   commit, after the property test has pinned equivalence.
 - Accommodating legacy filtered playlists or the per-prefix dead-call
@@ -736,7 +736,7 @@ phase-B report and paste the "Rewind summary" below in its place.
   session file and place each row once on arrival; group linearization
   and boundary relinking retroactively touch a bounded recent past.
   Restructure phase B code toward that model (design notes in
-  docs/thoughts/old/get-entries-caching.md (implemented by docs/specs/session-tracker.md)); `fullTree`/`ContextTree`
+  docs/follow-ups/old/get-entries-caching.md (implemented by docs/specs/session-tracker.md)); `fullTree`/`ContextTree`
   separation stays for now.
   - `toContextTree(fullTree, byUuid)`: one pass over `fullTree`; group
     bookkeeping inline (parent = group tail _so far_; outside child of a
@@ -778,7 +778,7 @@ phase-B report and paste the "Rewind summary" below in its place.
 ### Tasks
 
 - [x] AGENTS.md + ~/.claude/CLAUDE.md rules (comments, passes)
-- [x] docs/thoughts/old/get-entries-caching.md (implemented by docs/specs/session-tracker.md) rolling-builder notes
+- [x] docs/follow-ups/old/get-entries-caching.md (implemented by docs/specs/session-tracker.md) rolling-builder notes
 - [x] loader.ts: `compactBoundaryOf`, `invalidRelinkReason` preceding-only;
       loadedContext first-index; tests + session-tree.md Edge cases
 - [x] build-tree.ts in-loop check (`place`); tests

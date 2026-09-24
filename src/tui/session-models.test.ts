@@ -11,12 +11,11 @@ import type {
   SDKMessage,
   SDKUserMessage,
 } from "@anthropic-ai/claude-agent-sdk";
+import type { AgentState, AgentEvent } from "../core/protocol/index.ts";
 import {
-  type AgentState,
   initialAgentState,
   nextAgentState,
-} from "../core/agent-state/agent-state.ts";
-import type { AgentEvent } from "../core/protocol.ts";
+} from "../core/agent-state/index.ts";
 import type { SessionEntry } from "../core/session/file.ts";
 import { SessionModels } from "./session-models.ts";
 

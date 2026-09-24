@@ -6,7 +6,7 @@
 // child while it holds none, else renders as a standalone ⤷ block).
 
 import { Container } from "@earendil-works/pi-tui";
-import type { UserTurnView } from "../sdk-render.ts";
+import type { UserTurnView } from "../../format/sdk-render.ts";
 import { UserCommandComponent } from "./user-command.ts";
 import { UserMessageComponent } from "./user-message.ts";
 

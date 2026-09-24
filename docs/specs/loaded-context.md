@@ -50,7 +50,7 @@ of the CLI's five-stage load pipeline (relink + cut + walk):
   drop confuses users.
 - The TUI display tree linearizes parallel-call groups onto the spine
   in **strict chronological (file) order** (see
-  docs/thoughts/tree-presentation.md), so `pathToLeaf` (name kept)
+  docs/follow-ups/tree-presentation.md), so `pathToLeaf` (name kept)
   shows both calls and both results. Display order and loader
   presentation share the group-collection code but deliberately
   differ in ordering: the display shows write-time truth; the loader
@@ -333,7 +333,7 @@ not serialize).
 - Stage 5 wire normalization (user-merge, regrouping, thinking strip)
   in loadedContext.
 - Rendering set-context uuids-mode boundaries specially in the display
-  tree (docs/thoughts/set-context-boundary-display.md, separate work).
+  tree (docs/follow-ups/set-context-boundary-display.md, separate work).
 - The deferred backlog carried below (TUI live context-changed marker,
   probes-as-regression-suite, blog corrections).
 - Renaming pathToLeaf (considered, rejected — display-tree expansion
@@ -393,15 +393,15 @@ encountered.
 - [x] Review round (2026-09-01, 00fb295): "heal" → "normalize";
       expansion refs-based; calls-then-results ordering rejected for
       strict chronological display order (5-Bash session 75e1,
-      docs/thoughts/tree-presentation.md); spine/side classification
+      docs/follow-ups/tree-presentation.md); spine/side classification
       dropped for the simple linearize-and-reparent rule; duplicate check
       in ONE place (normalizePlaylist delegates to invalidRelinkReason);
       PathNode dissolution folded in; display-tree TDC moved to
-      docs/thoughts/set-context-boundary-display.md.
+      docs/follow-ups/set-context-boundary-display.md.
 - [x] Review round (2026-09-01, 5f66ea5): three-views distinction
       documented in docs/session-views.md (+ src/core/tree/AGENTS.md
       pointer, overview.md doc map); rewind-and-append expansion recorded
-      in docs/thoughts/set-context-boundary-display.md; ToolGroupMaps
+      in docs/follow-ups/set-context-boundary-display.md; ToolGroupMaps
       values → uuids; standardized on `byUuid` maps over `entryOf`
       functions; tree-presentation non-implementation noted inline.
 - [x] Stubs: toolGroupMaps, expandParallelToolGroups,

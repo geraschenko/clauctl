@@ -28,9 +28,10 @@ import {
   type TreeNodeStr,
 } from "../../core/tree/nodes.ts";
 import { dagLineText, type DagLine } from "../../format/dag-lines.ts";
-import { extractTextContent } from "../../format/generated/text.ts";
+import { extractTextContent } from "../../core/generated/text.ts";
 import { passesFilter, treeLines } from "../../format/tree.ts";
-import { isHumanPrompt } from "../entry-views/entry-view.ts";
+import { isHumanPrompt } from "../../core/session/entry-predicates.ts";
+import type { TreeSettings } from "../../core/settings.ts";
 import { theme } from "../theme.ts";
 
 const MAX_VISIBLE_LINES = 15;
@@ -150,6 +151,7 @@ class TreeLines {
   private readonly byUuid: ReadonlyMap<UUID, SessionEntry>;
   private readonly currentLeafId: TreeNodeStr | null;
   private readonly toolNames: ReadonlyMap<string, string>;
+  private readonly treeSettings: TreeSettings;
   private lines: readonly DagLine[] = [];
   private width: number | undefined;
 
@@ -158,11 +160,13 @@ class TreeLines {
     byUuid: ReadonlyMap<UUID, SessionEntry>,
     currentLeafId: TreeNodeStr | null,
     toolNames: ReadonlyMap<string, string>,
+    treeSettings: TreeSettings,
   ) {
     this.parentMap = parentMap;
     this.byUuid = byUuid;
     this.currentLeafId = currentLeafId;
     this.toolNames = toolNames;
+    this.treeSettings = treeSettings;
   }
 
   at(width: number): readonly DagLine[] {
@@ -172,11 +176,14 @@ class TreeLines {
         this.parentMap,
         this.byUuid,
         this.currentLeafId,
-        (id, entry) =>
-          passesFilter(entry, id === this.currentLeafId, "conversation"),
         this.toolNames,
-        true,
-        width,
+        {
+          filter: (id, entry) =>
+            passesFilter(entry, id === this.currentLeafId, "conversation"),
+          width,
+          omitUuids: true,
+          sizes: this.treeSettings.showSizes,
+        },
       );
     }
     return this.lines;
@@ -236,6 +243,7 @@ export class TreeSelectorComponent extends Container implements Focusable {
     displayTree: DisplayTree,
     byUuid: ReadonlyMap<UUID, SessionEntry>,
     toolNames: ReadonlyMap<string, string>,
+    treeSettings: TreeSettings,
     onSelect: (pick: TreeNodeRef) => void,
     onCancel: () => void,
   ) {
@@ -252,6 +260,7 @@ export class TreeSelectorComponent extends Container implements Focusable {
       byUuid,
       currentLeafId,
       toolNames,
+      treeSettings,
     );
     this.onSelect = onSelect;
     this.onCancel = onCancel;

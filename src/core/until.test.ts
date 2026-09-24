@@ -5,11 +5,8 @@ import type {
   SDKMessage,
   SDKUserMessage,
 } from "@anthropic-ai/claude-agent-sdk";
-import {
-  initialAgentState,
-  type AgentState,
-} from "./agent-state/agent-state.ts";
-import type { AgentEvent } from "./protocol.ts";
+import { initialAgentState } from "./agent-state/index.ts";
+import type { AgentState, AgentEvent } from "./protocol/index.ts";
 import { untilMetAtSeed, untilMetByEvent } from "./until.ts";
 
 const idleState = initialAgentState();

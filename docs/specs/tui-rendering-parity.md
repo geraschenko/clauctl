@@ -985,7 +985,7 @@ headerLink + phase 6 changes. Outcomes:
   expanded; `TranscriptRenderer.setCompactSummaryExpanded` added and
   ctrl+o sets it together with toolsExpanded (compact-boundary catalog
   entry flipped from decided-differ to match).
-- Parity capture harness reworked per TDC: `captureClaude` /
+- Parity capture harness reworked per TDC. `captureClaude` /
   `captureClauctl` split; the clauctl side renders direct by default
   (`--clauctl-in-tmux` for the full end-to-end path, replacing
   `--direct`); the claude side is cached in out/ keyed by a

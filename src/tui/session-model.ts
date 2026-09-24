@@ -24,7 +24,7 @@ import {
 } from "../core/tree/display-tree.ts";
 import type { OnInvalid } from "../core/tree/loader.ts";
 import { pathToLeaf, type TreeNodeRef } from "../core/tree/nodes.ts";
-import { trackToolNames } from "./entry-views/entry-view.ts";
+import { trackToolNames } from "../core/session/track-tool-names.ts";
 
 interface RollingTrees {
   full: SessionTreeBuilder;

@@ -2,7 +2,7 @@
 
 > Status: **all three phases landed and verified.** Three phases (registry;
 > then ctrl+g external editor; then ctrl+c clear-input) growing out of
-> `docs/thoughts/open-editor.md`. Phasing is for review scoping only —
+> `docs/follow-ups/open-editor.md`. Phasing is for review scoping only —
 > the user manages all git operations; implementing agents must not
 > commit, stage, or otherwise mutate git state.
 
@@ -532,8 +532,8 @@ encountered.
 - **Startup warnings banner after `reloadHistory()`'s synchronous prefix**:
   that prefix recreates the transcript renderer, so banners added earlier
   in the constructor would be wiped.
-- [x] (phase 2, when ctrl+g lands) move `docs/thoughts/open-editor.md` to
-      `docs/thoughts/old/`
+- [x] (phase 2, when ctrl+g lands) move `docs/follow-ups/open-editor.md` to
+      `docs/follow-ups/old/`
 - 2026-07-21: phase 2 implemented per the approved type design:
   `openExternalPromptEditor()` (temp file in tmpdir, write inside the
   try so the finally's unlink covers all failure paths — matching pi's

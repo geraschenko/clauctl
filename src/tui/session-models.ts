@@ -16,16 +16,16 @@ import type {
 } from "@anthropic-ai/claude-agent-sdk";
 import {
   type AgentState,
-  joinedPrompt,
   type MergeStream,
-  observedSessions,
-} from "../core/agent-state/agent-state.ts";
-import {
   type AgentEvent,
   eventNodes,
-  eventStream,
   sdkMessageOf,
-} from "../core/protocol.ts";
+} from "../core/protocol/index.ts";
+import {
+  joinedPrompt,
+  observedSessions,
+  eventStream,
+} from "../core/agent-state/index.ts";
 import type { SessionEntry } from "../core/session/file.ts";
 import { pending } from "../core/stream-merge.ts";
 import type { OnInvalid } from "../core/tree/loader.ts";

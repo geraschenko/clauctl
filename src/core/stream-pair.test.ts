@@ -11,15 +11,14 @@ import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
+import type { AgentState, AgentEvent } from "./protocol/index.ts";
 import {
-  type AgentState,
   excludedFromQuery,
   excludedFromSession,
   initialAgentState,
   nextAgentState,
   settled,
-} from "./agent-state/agent-state.ts";
-import type { AgentEvent } from "./protocol.ts";
+} from "./agent-state/index.ts";
 import { hasUuid, readSessionEntries } from "./session/file.ts";
 
 const CAPTURES = new URL(

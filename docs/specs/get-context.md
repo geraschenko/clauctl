@@ -44,7 +44,7 @@ Wanted:
   wire normalization, unmodeled and the subject of the planned
   ground-truth check; a filter here would be a guess (the old
   `getSessionMessages`-mirroring projection silently dropped isMeta
-  entries the assistant sees — see docs/thoughts/subagent-activity.md).
+  entries the assistant sees — see docs/follow-ups/subagent-activity.md).
   Consumers project: `format messages` already accepts entries input.
   isMeta rows get their own glyph in the tree.
 
@@ -173,7 +173,7 @@ export interface SetContextShared {
 // contextRefs = tree.contextAt(tree.leaf) (empty when leaf is null);
 // lastAssistantMessage and leaf derive from it as today, under the
 // stream fold's eligibility filter (the seed bridges the file into
-// stream-shaped state; docs/thoughts/old/get-entries-caching.md (implemented by docs/specs/session-tracker.md)).
+// stream-shaped state; docs/follow-ups/old/get-entries-caching.md (implemented by docs/specs/session-tracker.md)).
 
 // src/tui/components/tree-selector.ts (amended in review; see WORK LOG)
 /** A pick is always a rewind; null = the empty context. */
@@ -243,7 +243,7 @@ over the whole file (two O(n) passes, two maps), the same price the TUI
 pays client-side per `get-entries`. Concentrated in the daemon on chatty
 pollers. The boundary pick builds a second context tree over a prefix — a
 user action, negligible. The rolling-daemon follow-up
-(docs/thoughts/old/get-entries-caching.md (implemented by docs/specs/session-tracker.md)) caches exactly `entries`, `byUuid`,
+(docs/follow-ups/old/get-entries-caching.md (implemented by docs/specs/session-tracker.md)) caches exactly `entries`, `byUuid`,
 and the context tree; `leaf` as a per-row assignment is what that cache
 maintains incrementally.
 
@@ -282,12 +282,12 @@ maintains incrementally.
 - Changing `entryToSessionMessage` (its isMeta/isSidechain filter is a
   presentation choice for stream-shaped consumers, revisited separately).
 - Relaxing `agentState.leaf`'s stream-derived eligibility
-  (docs/thoughts/old/get-entries-caching.md (implemented by docs/specs/session-tracker.md), "Two streams, one leaf").
+  (docs/follow-ups/old/get-entries-caching.md (implemented by docs/specs/session-tracker.md), "Two streams, one leaf").
 - Retiring `loadedContext` altogether — after the ground-truth check
   replaces it as oracle.
-- Daemon-side cached trees (docs/thoughts/old/get-entries-caching.md (implemented by docs/specs/session-tracker.md)) — next.
+- Daemon-side cached trees (docs/follow-ups/old/get-entries-caching.md (implemented by docs/specs/session-tracker.md)) — next.
 - `/btw` side questions and subagent activity views
-  (docs/thoughts/subagent-activity.md).
+  (docs/follow-ups/subagent-activity.md).
 - A `get-messages` alias.
 
 # IMPLEMENTATION IDEAS
@@ -330,7 +330,7 @@ maintains incrementally.
   tool-result order deviation, remove every product `loadedContext` use.
 - Round 2: leaf definition; Anton: leaf = last uuid-bearing row of any
   kind (contextAt owns exclusion), boundary rows reset it. isMeta/
-  isSidechain/btw surveyed (docs/thoughts/subagent-activity.md): isMeta is
+  isSidechain/btw surveyed (docs/follow-ups/subagent-activity.md): isMeta is
   context (include, flag, own glyph), isSidechain legacy (keep filtering).
   Non-user/assistant entries stay filtered in the message mapping (stage-5
   unmodeled; SDK shape cannot represent them). Approved.
@@ -339,7 +339,7 @@ maintains incrementally.
 
 1. Seed leaf keeps the stream fold's eligibility filter (the seed bridges
    file → stream-shaped state); relaxing it is deferred to the two-streams
-   discussion in docs/thoughts/old/get-entries-caching.md (implemented by docs/specs/session-tracker.md).
+   discussion in docs/follow-ups/old/get-entries-caching.md (implemented by docs/specs/session-tracker.md).
 2. get-context returns verbatim `SessionEntry[]`, no projection: which
    system/attachment/isMeta entries reach the API is empirical (stage 5);
    `entryToSessionMessage` (TUI replay, MessageProjector, format input

@@ -23,7 +23,7 @@ daemon's echoes of what it sends the `Query` (dequeues, `compactSent`,
 `sessionAppended`, …) are `query` nodes; file entries and the follower's
 own marks (`scanComplete`, `sessionFileChanged`, `contextChanged`) are
 `session` nodes. The names are slated for a rename to `sdk`/`file`
-([`thoughts/stream-naming.md`](thoughts/stream-naming.md)).
+([`follow-ups/stream-naming.md`](follow-ups/stream-naming.md)).
 
 Neither sequence suffices alone. The SDK never echoes a prompt, never
 shows a steered prompt or an attachment, and cannot be replayed after the
@@ -177,7 +177,7 @@ report's fixture goes into `tests/sdk/stream-classification.test.ts`.
 
 ## The daemon's resident view: `SessionTracker`
 
-`src/core/daemon/session-tracker.ts` is the daemon's view of one session
+`src/core/protocol-server/session-tracker.ts` is the daemon's view of one session
 file. It keeps an index (uuid → byte range and class), the rolling full
 tree and context tree (`src/core/tree/`), and nothing else. Entry
 payloads are never retained — `get-entries {payload: "full"}` re-reads
@@ -192,7 +192,7 @@ function of the entry stream with the opposite retention policy: it keeps
 every entry and adds the display tree. Both
 compute the same structure from the same stream, which is what makes a
 live tree equal the tree a restart recomputes from the file. When
-[`thoughts/fold-resolved-events.md`](thoughts/fold-resolved-events.md)
+[`follow-ups/fold-resolved-events.md`](follow-ups/fold-resolved-events.md)
 lands, the merge-and-`byUuid` half of `SessionModel` is the
 clauctl-specific piece that joins the library described here.
 

@@ -1,5 +1,5 @@
 /**
- * Generates src/tui/tool-views/generated.ts from the captured
+ * Generates src/format/entry-view/tool-view/generated.ts from the captured
  * tool-schemas.json (see capture.ts): one input interface per tool via
  * json-schema-to-typescript, the ToolName union, TOOL_NAMES, and
  * ToolInputMap. Output is formatted with the repo's prettier so treefmt is a
@@ -27,8 +27,9 @@ const toolSchemasPath = join(scriptDir, "tool-schemas.json");
 const generatedPath = join(
   repoRoot,
   "src",
-  "tui",
-  "tool-views",
+  "format",
+  "entry-view",
+  "tool-view",
   "generated.ts",
 );
 

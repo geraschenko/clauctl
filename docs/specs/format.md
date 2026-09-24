@@ -360,7 +360,7 @@ mark completed ones with [x], document decisions and problems encountered.
   `snapshotRecord`, comments). Terminology questions resolved below. The
   streaming requirement (format must consume/emit a stream once tail/query
   default to formatted output) is captured in
-  docs/thoughts/formatted-tail-and-query.md alongside the `[cursor: uuid]` /
+  docs/follow-ups/formatted-tail-and-query.md alongside the `[cursor: uuid]` /
   `tail --since` follow-ups.
 - 2026-07-16: Merged main (get-entries/get-tree/set-context). Resolutions:
   `get-entries` prints JSONL like `get-messages` (both via a new

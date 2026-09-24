@@ -1,5 +1,4 @@
-import type { AgentState } from "../core/agent-state/agent-state.ts";
-import type { AgentEvent } from "../core/protocol.ts";
+import type { AgentState, AgentEvent } from "../core/protocol/index.ts";
 
 export interface MessageFormatOptions {
   toolResults: "summary" | "none" | "full";

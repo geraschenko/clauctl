@@ -28,17 +28,17 @@ hits.
 
 ### Living docs (read as current)
 
-| File                                 | Stale                                                                                                                                                                                           | Action                                                                          |
-| ------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
-| docs/claude-agent-sdk.md             | L90–116: `AgentObserver` and `src/core/agent-observer.ts`; the socket event list omits the file leg (`sessionEntry`, `sessionFileChanged`, `scanComplete`, `sessionAppended`, `trackerAnomaly`) | Keep the CLI/process facts; move L90–116 out (structure below)                  |
-| docs/architecture.md                 | L88–94 same event list; L193–198 "tail, the TUI's history replay, and get-entries all consume the session file" (TUI never reads files; daemon serves from the resident tracker)                | Fix both passages; attach section mentions `SessionModel`; point at protocol.md |
-| docs/overview.md                     | L204–207 calls daemon-architecture.md "the current state-tracking architecture … tty service"; document map lacks session-tracker, stream-merge, session-views, socket-interface                | Update the document map                                                         |
-| docs/session-views.md                | Accurate; silent on how each view is kept (rolling builders, daemon vs TUI ownership)                                                                                                           | "Owned by" lines gain pointers into protocol.md                                 |
-| docs/user-message-tracking.md        | Accurate                                                                                                                                                                                        | Cross-link only                                                                 |
-| docs/thoughts/get-entries-caching.md | Fully implemented, reads as a proposal; cited as "next" from get-context.md ×5, context-tree.md ×3                                                                                              | Move to docs/thoughts/old/; retarget the citations at session-tracker.md        |
-| docs/thoughts/transcript-order.md    | Current                                                                                                                                                                                         | Cross-link from protocol.md                                                     |
-| AGENTS.md L21 (one-pass bullet)      | Introduced against agents re-reading the whole file per function; the rolling builders make that shape unnatural now                                                                            | Remove (Anton, 2026-09-13)                                                      |
-| README.md                            | Accurate                                                                                                                                                                                        | none                                                                            |
+| File                                   | Stale                                                                                                                                                                                           | Action                                                                          |
+| -------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
+| docs/claude-agent-sdk.md               | L90–116: `AgentObserver` and `src/core/agent-observer.ts`; the socket event list omits the file leg (`sessionEntry`, `sessionFileChanged`, `scanComplete`, `sessionAppended`, `trackerAnomaly`) | Keep the CLI/process facts; move L90–116 out (structure below)                  |
+| docs/architecture.md                   | L88–94 same event list; L193–198 "tail, the TUI's history replay, and get-entries all consume the session file" (TUI never reads files; daemon serves from the resident tracker)                | Fix both passages; attach section mentions `SessionModel`; point at protocol.md |
+| docs/overview.md                       | L204–207 calls daemon-architecture.md "the current state-tracking architecture … tty service"; document map lacks session-tracker, stream-merge, session-views, socket-interface                | Update the document map                                                         |
+| docs/session-views.md                  | Accurate; silent on how each view is kept (rolling builders, daemon vs TUI ownership)                                                                                                           | "Owned by" lines gain pointers into protocol.md                                 |
+| docs/user-message-tracking.md          | Accurate                                                                                                                                                                                        | Cross-link only                                                                 |
+| docs/follow-ups/get-entries-caching.md | Fully implemented, reads as a proposal; cited as "next" from get-context.md ×5, context-tree.md ×3                                                                                              | Move to docs/follow-ups/old/; retarget the citations at session-tracker.md      |
+| docs/follow-ups/transcript-order.md    | Current                                                                                                                                                                                         | Cross-link from protocol.md                                                     |
+| AGENTS.md L21 (one-pass bullet)        | Introduced against agents re-reading the whole file per function; the rolling builders make that shape unnatural now                                                                            | Remove (Anton, 2026-09-13)                                                      |
+| README.md                              | Accurate                                                                                                                                                                                        | none                                                                            |
 
 ### Specs
 
@@ -80,7 +80,7 @@ status line names session-tracker.md as the successor.
 stream-merge.md (its Problem section is the cleanest statement of "one
 process, several ordered lossy views"), user-message-tracking.md,
 session-views.md, context-tree.md body, tree-presentation.md,
-thoughts/transcript-order.md.
+follow-ups/transcript-order.md.
 
 ## Doc structure (agreed 2026-09-14, review round 5ee9844)
 
@@ -137,7 +137,7 @@ pending/resolved/settled; anomalies as data; leaf is file-side; startup
 scan vs live, the seed, `scanComplete`; the switch on rollover; the
 daemon's `SessionTracker` (structural residency, byte-range index) vs
 the TUI's full entries. To be updated when
-docs/thoughts/fold-resolved-events.md lands: the clauctl-specific part
+docs/follow-ups/fold-resolved-events.md lands: the clauctl-specific part
 extracted from `SessionModel` joins this doc beside the library.
 
 ### Existing docs
@@ -204,7 +204,7 @@ where one exists.
   `docs/agent-events.md` name is dropped for `docs/protocol.md`
   (it is not an SDK).
 - 2026-09-13 (Anton): remove the AGENTS.md one-pass bullet.
-- 2026-09-13 (Anton): get-entries-caching.md moves to docs/thoughts/old/.
+- 2026-09-13 (Anton): get-entries-caching.md moves to docs/follow-ups/old/.
 - 2026-09-13 (Anton): stale historical specs get headers only.
 - 2026-09-15 (Anton, 95069a7): protocol terminology is **request channel**
   (request–reply, responses private to the requester) and **event
@@ -243,20 +243,20 @@ where one exists.
 
 Explaining the interface showed a leak: `MergeState` cannot fully hide
 the unsynchronized streams from a client. Sketch in
-docs/thoughts/fold-resolved-events.md (deferred; a separate spec).
+docs/follow-ups/fold-resolved-events.md (deferred; a separate spec).
 
 From review round 95069a7:
 
-- `clauctl` `/fork` command (none exists in programmatic mode). See docs/thoughts/fork.md
+- `clauctl` `/fork` command (none exists in programmatic mode). See docs/follow-ups/fork.md
 - Confirming a delivered prompt by identity (stamping
-  `SDKUserMessage.uuid`): docs/thoughts/delivered-prompt-identity.md.
+  `SDKUserMessage.uuid`): docs/follow-ups/delivered-prompt-identity.md.
 
 ## WORK LOG
 
 - 2026-09-13: sweep done (table above); first outline agreed.
 - 2026-09-14: review round bf7eb2e; the facts/mechanisms split replaced
   by protocol.md + deep dives (structure above); fold follow-up
-  recorded in docs/thoughts/fold-resolved-events.md.
+  recorded in docs/follow-ups/fold-resolved-events.md.
 - 2026-09-14: review round 5ee9844: doc renamed protocol.md;
   trees and `getSessionMessages` move to session-views.md; queue events
   link user-message-tracking.md; tests/sdk/ compared with
@@ -277,7 +277,7 @@ From review round 95069a7:
   limitation narrowed to the context view), Status headers on all 27
   completed specs (existing superseded/lineage blockquotes left as they
   were), AGENTS.md one-pass bullet removed, get-entries-caching.md moved to
-  docs/thoughts/old/ with its 9 citations retargeted.
+  docs/follow-ups/old/ with its 9 citations retargeted.
 - 2026-09-15: review round 95069a7: protocol.md (channels, the
   philosophy rewritten around late subscribers/durability/multiple
   clients, Anton's "exists because the SDK lacks" list polished with the
@@ -312,6 +312,6 @@ From review round 95069a7:
   no-protocol path).
 - 2026-09-15: docs/audit.md written (from the code and pictl's
   auditing-and-attach-tracking spec; linked from architecture.md);
-  docs/thoughts/delivered-prompt-identity.md sketches the identity-based
+  docs/follow-ups/delivered-prompt-identity.md sketches the identity-based
   confirmation follow-up. `src/core/generated/audit.ts` cites
   `docs/specs/auditing-and-attach-tracking.md`, which exists only in pictl.

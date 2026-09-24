@@ -5,8 +5,7 @@ import type {
 } from "@anthropic-ai/claude-agent-sdk";
 import { pending } from "../stream-merge.ts";
 import type { TreeNodeRef } from "../tree/nodes.ts";
-import type { AgentState } from "./agent-state.ts";
-import type { SessionState } from "./session-state.ts";
+import type { AgentState, SessionState } from "../protocol/index.ts";
 
 export const querySession = (state: AgentState): SessionState | undefined =>
   state.querySessionId === undefined
@@ -73,7 +72,7 @@ export function queryingCount(state: AgentState): number {
 }
 
 /**
- * The activity invariant (agent-state.ts header) makes the second clause
+ * The activity invariant (next-agent-state.ts header) makes the second clause
  * redundant; the defensive two-clause definition is kept in case the fold's
  * beliefs and the stream ever disagree.
  */

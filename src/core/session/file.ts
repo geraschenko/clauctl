@@ -7,7 +7,7 @@
  * avoids the alpha dependency, and the path is needed for appending anyway.
  */
 
-import { randomUUID, type UUID } from "node:crypto";
+import type { UUID } from "node:crypto";
 import {
   appendFileSync,
   closeSync,
@@ -23,7 +23,6 @@ import type {
 import { err, ok, type Result } from "neverthrow";
 import { LineReader } from "../generated/line-reader.ts";
 import { isRecord } from "../generated/util.ts";
-import type { SetContextResponse } from "../protocol.ts";
 
 /** One parsed jsonl line, verbatim. Known fields typed, everything else kept. */
 export interface SessionEntry {
@@ -87,7 +86,7 @@ export function entryToSessionMessage(
 }
 
 /** The query-stream echo of an entry the daemon wrote itself
- *  (`buildBoundaryEntries`): the boundary as the CLI's compact_boundary
+ *  (protocol-server/set-context.ts `buildBoundaryEntries`): the boundary as the CLI's compact_boundary
  *  message, the summary as the user message native compaction emits
  *  (docs/derisk/stream-classification/captures/events.jsonl:150). A
  *  transcript recognizes the summary frame as the boundary's anchor, not
@@ -140,6 +139,11 @@ function queuedCommandAttachment(
   return typeof prompt === "string" || Array.isArray(prompt)
     ? { prompt, source_uuid: entry.attachment.source_uuid }
     : undefined;
+}
+
+/** The `content` of the entry's message: a string or content blocks. */
+export function messageContent(entry: SessionEntry): unknown {
+  return isRecord(entry.message) ? entry.message.content : undefined;
 }
 
 /** The prompt text of a steered message: its string content, or its text
@@ -340,90 +344,6 @@ export function entriesByUuid(
     }
   }
   return byUuid;
-}
-
-/**
- * Builds boundary (+ summary) entries per the known-working recipe
- * (FINDINGS.md "The known-working recipe"). Pure construction split from the
- * write so tests can inspect entries without a filesystem.
- *
- * The stamp boilerplate (userType, entrypoint, gitBranch, …) carries
- * plausible placeholder values copied from the proven recipe, not live
- * metadata: ablation showed only compactMetadata and a valid uuids list
- * matter to the loader, and none of these fields were individually ablated,
- * so we keep writing what was tested. Of the recipe's compactMetadata token
- * counts only the required `preTokens` is written, from real usage —
- * `durationMs`/`postTokens` are optional and would be made up, and someone
- * might plausibly trust them.
- */
-export function buildBoundaryEntries(params: {
-  sessionId: UUID;
-  cwd: string;
-  uuids: UUID[];
-  /** Written as the up_to summary: the boundary's anchor, so the context
-   *  reads summary first, then uuids. */
-  summaryText?: string;
-  /** Recorded as the boundary's logicalParentUuid (tree anchoring). */
-  logicalParentUuid: UUID | null;
-  /** The version stamp; when the daemon has not observed the CLI's version,
-   *  falls back to the recipe's proven constant. */
-  version: string | undefined;
-  /** compactMetadata.preTokens: the context size this boundary supersedes;
-   *  0 when unknown. */
-  preTokens: number;
-}): { entries: SessionEntry[]; response: SetContextResponse } {
-  const boundaryUuid = randomUUID();
-  const summaryUuid =
-    params.summaryText !== undefined ? randomUUID() : undefined;
-  const stamp = {
-    isSidechain: false,
-    timestamp: new Date().toISOString(),
-    userType: "external",
-    entrypoint: "sdk-cli",
-    cwd: params.cwd,
-    sessionId: params.sessionId,
-    version: params.version ?? "2.1.211",
-    gitBranch: "HEAD",
-  };
-  const boundary: SessionEntry = {
-    ...stamp,
-    parentUuid: null,
-    logicalParentUuid: params.logicalParentUuid,
-    type: "system",
-    subtype: "compact_boundary",
-    content: "Conversation compacted",
-    isMeta: false,
-    uuid: boundaryUuid,
-    level: "info",
-    compactMetadata: {
-      trigger: "manual",
-      preTokens: params.preTokens,
-      preservedMessages: {
-        anchorUuid: summaryUuid ?? boundaryUuid,
-        uuids: params.uuids,
-        allUuids: params.uuids,
-      },
-    },
-  };
-  const entries: SessionEntry[] = [boundary];
-  if (summaryUuid !== undefined) {
-    entries.push({
-      ...stamp,
-      parentUuid: boundaryUuid,
-      type: "user",
-      message: { role: "user", content: params.summaryText },
-      isVisibleInTranscriptOnly: true,
-      isCompactSummary: true,
-      uuid: summaryUuid,
-    });
-  }
-  return {
-    entries,
-    response: {
-      boundaryUuid,
-      ...(summaryUuid !== undefined && { summaryUuid }),
-    },
-  };
 }
 
 /** All entries in ONE write() call, boundary line first (native file order,

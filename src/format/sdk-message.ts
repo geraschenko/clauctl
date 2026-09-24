@@ -3,7 +3,7 @@
  * (tool-call lines, result summaries, arg formatting) shared by the messages
  * path (messages.ts) and the events path, plus `formatSdkMessage`, the
  * whole-message assembly `format events` uses. Conversions from SDK shapes
- * reuse src/tui/sdk-render.ts (single source of truth with the TUI); this
+ * reuse src/format/sdk-render.ts (single source of truth with the TUI); this
  * file only decides what the text looks like. No ANSI/color ever — the
  * output is consumed by LLMs.
  */
@@ -15,14 +15,14 @@ import type {
   SDKUserMessage,
 } from "@anthropic-ai/claude-agent-sdk";
 import type { CompactionMetadata } from "../core/session/file.ts";
-import type { RenderAssistant, RenderToolResult } from "../tui/render-types.ts";
-import { renderAssistant, toolResultsOf, userText } from "../tui/sdk-render.ts";
+import type { RenderAssistant, RenderToolResult } from "./render-types.ts";
+import { renderAssistant, toolResultsOf, userText } from "./sdk-render.ts";
 import {
   countLines,
   oneLine,
   summarizeUnknown,
   truncateText,
-} from "./generated/text.ts";
+} from "../core/generated/text.ts";
 import type { MessageFormatOptions } from "./types.ts";
 
 /**

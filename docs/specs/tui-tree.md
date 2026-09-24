@@ -5,7 +5,7 @@
 > Follow-up to `docs/specs/session-tree-and-set-context.md`
 > (set-context + get-tree), `docs/specs/boundary-substructure.md` (viaBoundary
 > occurrences), and `docs/specs/format-tree.md` (tree rendering, which
-> anticipated this spec). Background: `docs/thoughts/rewind-and-tree.md`.
+> anticipated this spec). Background: `docs/follow-ups/rewind-and-tree.md`.
 
 ## SPEC (stable requirements)
 

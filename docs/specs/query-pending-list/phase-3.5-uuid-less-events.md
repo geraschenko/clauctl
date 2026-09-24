@@ -3,7 +3,7 @@
 > Work log for the deferrals of phase 3
 > (docs/specs/query-pending-list/phase-3-identity.md, Deferred). Status:
 > **implemented and committed** (review round 83641a3 addressed; WORK
-> LOG). Side findings: docs/thoughts/session-tracker-follow-ups.md.
+> LOG). Side findings: docs/follow-ups/session-tracker-follow-ups.md.
 
 ## Scope
 
@@ -318,7 +318,7 @@ private readonly pendingEvents = new Map<UUID, AgentEvent>(); // stamped events 
 2. Item 2 with its unit tests.
 3. Item 3 (after Derisk 1 is answered): protocol → hub → fold → TUI →
    docs (protocol.md event table, user-message-tracking.md, delete the
-   `contextChangedAfter` mention in docs/thoughts/old/fold-resolved-events.md).
+   `contextChangedAfter` mention in docs/follow-ups/old/fold-resolved-events.md).
 4. Presubmit; LIVE reruns; TUI smoke (compaction → rebuild once).
 
 # WORK LOG

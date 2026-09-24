@@ -6,7 +6,7 @@
 <uuids…>`) are specced in `docs/specs/context-tree.md` (written; its
 > review proceeds in parallel). Supersedes the layout half of `docs/specs/format-tree.md`
 > and `docs/specs/flat-tree-sync-handoff.md`. Sources:
-> `docs/thoughts/tree-presentation.md`, `docs/session-views.md`,
+> `docs/follow-ups/tree-presentation.md`, `docs/session-views.md`,
 > `docs/specs/session-tree.md` (display rules 1–4, since replaced by the
 > context tree — `docs/specs/context-tree.md`).
 
@@ -19,7 +19,7 @@ with the pictl-derived indented layout (`src/format/generated/tree-layout.ts`):
 depth-first, active branch first, one extra indent level per fork. Forks
 push rows to the right, sibling branches are separated by whole subtrees
 rather than interleaved in time, and the parallel-tool-call shapes that
-motivated the complaint (`docs/thoughts/tree-presentation.md`) are already
+motivated the complaint (`docs/follow-ups/tree-presentation.md`) are already
 linearized by display rule 4 — what remains wrong is fork presentation.
 
 Replace the layout with a git-log-style DAG rendering

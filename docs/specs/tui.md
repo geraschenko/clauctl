@@ -388,7 +388,7 @@ transcript and snapshot-seeded footer, and conversation continues.
   upstream additions, listed in its header: markdown transformers (pi's
   extension hook) and `MouseRegion` click-to-toggle on thinking runs (needs
   pi-tui ≥ 0.87; deferred to a general click-to-expand pass,
-  `docs/thoughts/click-to-expand.md`).
+  `docs/follow-ups/click-to-expand.md`).
 - **pi-tui and pi-coding-agent 0.84.2 → 0.87.1** (pi monorepo packages
   move in lockstep). pi-tui's 0.85.0 breaking change dropped the
   `PI_HARDWARE_CURSOR`/`PI_CLEAR_ON_SHRINK` env defaults (both were false

@@ -1,6 +1,5 @@
-import type { AgentEvent } from "../protocol.ts";
-import type { AgentState } from "./agent-state.ts";
-import { withSession } from "./session-state.ts";
+import type { AgentEvent, AgentState } from "../protocol/index.ts";
+import { withSession } from "./with-session.ts";
 
 /** The dequeued messages leave the queue; a turn's run key — the last
  *  uuid, under which claude files a merged run's entry (a steer's key is

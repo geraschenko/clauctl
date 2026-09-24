@@ -7,17 +7,14 @@ import type {
 } from "@anthropic-ai/claude-agent-sdk";
 import {
   type AgentState,
-  excludedFromQuery,
-  freshSessionState,
-  initialAgentState,
-  isIdle,
-  leaf,
-  nextAgentState,
-  observedSessions,
-  querySession,
-  settled,
-} from "./agent-state.ts";
-import { type AgentEvent, eventStream, eventUuid } from "../protocol.ts";
+  type AgentEvent,
+  eventUuid,
+} from "../protocol/index.ts";
+import { excludedFromQuery, eventStream } from "./classification.ts";
+import { initialAgentState, nextAgentState } from "./next-agent-state.ts";
+import { observedSessions } from "./observe-event/index.ts";
+import { isIdle, leaf, querySession, settled } from "./selectors.ts";
+import { freshSessionState } from "./session-state.ts";
 import type { SessionEntry } from "../session/file.ts";
 import { hasPending, pending } from "../stream-merge.ts";
 

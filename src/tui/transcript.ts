@@ -81,7 +81,7 @@ import {
   outputText,
   UserTurnComponent,
 } from "./components/user-turn.ts";
-import { claudeStyle } from "./claude-style.ts";
+import { ANSI_STYLE } from "../format/style.ts";
 import {
   beginMessage,
   foldStreamEvent,
@@ -92,15 +92,18 @@ import {
   withoutBlock,
   type StreamingMessage,
   type UserTurnView,
-} from "./sdk-render.ts";
+} from "../format/sdk-render.ts";
 import { formatTokens } from "./components/footer.ts";
 import {
   READ_ONLY_TOOLS,
   toolViewFor,
   type ToolView,
-} from "./tool-views/tool-view.ts";
+} from "../format/entry-view/index.ts";
 import { getMarkdownTheme, theme, type ThemeColor } from "./theme.ts";
-import type { RenderAssistant, RenderToolResult } from "./render-types.ts";
+import type {
+  RenderAssistant,
+  RenderToolResult,
+} from "../format/render-types.ts";
 
 interface ItemKey {
   /** The uuid the item rendered under (`renderedUuids`' key); undefined
@@ -1109,7 +1112,7 @@ function foldRunComponent(run: TranscriptItem[]): Component | undefined {
   if (sawThinking) {
     parts.push(
       sawDuration
-        ? `Thought for ${claudeStyle.bold(`${displayThinkingSeconds(thinkingSeconds)}s`)}`
+        ? `Thought for ${ANSI_STYLE.bold(`${displayThinkingSeconds(thinkingSeconds)}s`)}`
         : "Thought",
     );
   }
@@ -1117,7 +1120,7 @@ function foldRunComponent(run: TranscriptItem[]): Component | undefined {
     // Foldable tools without a bespoke view (claude's fold phrasing for
     // them is unattested in the parity captures) get a generic clause.
     parts.push(
-      toolViewFor(name).foldLabel?.(count) ??
+      toolViewFor(name).foldLabel?.(count, ANSI_STYLE) ??
         `used ${name} ${count} time${count === 1 ? "" : "s"}`,
     );
   }
@@ -1131,7 +1134,7 @@ function foldRunComponent(run: TranscriptItem[]): Component | undefined {
   const container = new Container();
   container.addChild(new Spacer(1));
   container.addChild(
-    new Text(` ${claudeStyle.grey(`${line} (ctrl+o to expand)`)}`, 1, 0),
+    new Text(` ${ANSI_STYLE.grey(`${line} (ctrl+o to expand)`)}`, 1, 0),
   );
   return container;
 }

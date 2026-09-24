@@ -1,6 +1,6 @@
 import type { UUID } from "node:crypto";
 import type { SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
-import type { AgentState } from "./agent-state.ts";
+import type { AgentState } from "../protocol/index.ts";
 import { isQuerying } from "./selectors.ts";
 
 export function withQueuedMessage(

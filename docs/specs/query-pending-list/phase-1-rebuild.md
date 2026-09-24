@@ -180,7 +180,7 @@ Each step ends with `npm run check` and the affected tests green.
   `parent_tool_use_id` (`stream_event`s included; it was user/assistant
   only): none of their ids can meet an entry in this file
   (fold-sdk-message.ts comment; direction in
-  docs/thoughts/subagent-activity.md).
+  docs/follow-ups/subagent-activity.md).
 - Thinking-duration baseline (`lastEntryAtMs`) is monotonic (review,
   2026-09-19): a message's second arrival — its entry after its frame or
   the reverse — re-stamps, and must not move the baseline behind a later
@@ -229,7 +229,7 @@ Each step ends with `npm run check` and the affected tests green.
 - [x] Step 6 docs + presubmit (2026-09-18) — `architecture.md`,
       `session-views.md`, `protocol.md` (resolved ids are no longer a
       planned follow-up), `tui-rendering-parity.md`; the
-      `thoughts/fold-resolved-events.md` move to `old/` is phase 3's
+      `follow-ups/fold-resolved-events.md` move to `old/` is phase 3's
 - [x] Anton commits phase 1 (ae65bfe) + review comments (e93b5ae)
 - [x] Review round (2026-09-19): banners in `resetTranscript`,
       `sessionAppended` messages + protocol v2, `PendingMessage` gone /
@@ -245,4 +245,4 @@ Each step ends with `npm run check` and the affected tests green.
 - [x] Anton commits the review rounds
 - [x] Phase 1.5 spec: trees fed at resolution, two-part transcript —
       `query-pending-list/phase-1.5-render-at-resolution.md`
-- Deferred (`InteractiveMode` harness): docs/thoughts/interactive-mode-test-harness.md
+- Deferred (`InteractiveMode` harness): docs/follow-ups/interactive-mode-test-harness.md

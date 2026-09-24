@@ -334,7 +334,7 @@ updates this doc and the WORK LOG.
    `docs/protocol.md` where they describe numeric ids or
    `deliveredMessages`; `format/events.ts` header; presubmit; main spec
    WORK LOG; file list to Anton (`git mv
-docs/thoughts/fold-resolved-events.md docs/thoughts/old/` is Anton's).
+docs/follow-ups/fold-resolved-events.md docs/follow-ups/old/` is Anton's).
 
 ## Implementation-Time Decisions
 

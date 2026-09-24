@@ -21,10 +21,10 @@ import type {
 } from "../core/session/messages.ts";
 import { DEFAULT_FORMAT_WIDTH } from "../core/generated/constants.ts";
 import { isRecord } from "../core/generated/util.ts";
-import type { RenderAssistant } from "../tui/render-types.ts";
-import { renderAssistant, toolResultsOf, userText } from "../tui/sdk-render.ts";
-import { READ_ONLY_TOOLS } from "../tui/tool-views/tool-view.ts";
-import { countLines, oneLine, truncateText } from "./generated/text.ts";
+import type { RenderAssistant } from "./render-types.ts";
+import { renderAssistant, toolResultsOf, userText } from "./sdk-render.ts";
+import { READ_ONLY_TOOLS } from "./entry-view/index.ts";
+import { countLines, oneLine, truncateText } from "../core/generated/text.ts";
 import {
   annotation,
   assistantBody,

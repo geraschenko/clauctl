@@ -368,7 +368,7 @@ say the word QUEUED.` Presubmit green. Step 4's banner lands in
   historical text for the phase-5 status notes). Rewinding to a
   steered row without editorText confirmed correct. Live session-only
   render order: question answered in chat, follow-up spec proposed
-  (docs/thoughts/transcript-order.md).
+  (docs/follow-ups/transcript-order.md).
 - 2026-09-13: step 5 done. Sweep: `tree/nodes.ts` treeNodeRefsEqual
   comment named the deleted seeding path (fixed); the entry-stream.ts
   AgentObserver mention was already gone. Criteria 4–7/11 re-read

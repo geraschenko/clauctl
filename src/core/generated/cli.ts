@@ -137,6 +137,7 @@ export type RequiredFlagKeys<TFlags extends Record<string, unknown>> = Exclude<
 
 // Derive the implementation-facing flags object from a flag-spec object:
 // - booleanFlag(...) becomes `name: boolean`
+// - optionalBooleanFlag(...) becomes `name?: boolean`
 // - variadicStringFlag(...) becomes `name: readonly string[]`
 // - stringFlag(...) becomes `name?: string`
 // The runtime flag specs remain ordinary Stricli parameters; the phantom type
@@ -162,6 +163,24 @@ export function booleanFlag(
     brief,
     default: false,
   } as unknown as CliFlag<boolean, TypedFlagParameter<boolean, CommandContext>>;
+}
+
+/** A boolean flag that is `undefined` when not given, so the caller can
+ *  fall back elsewhere; Stricli accepts `--no-<name>` for `false`. */
+export function optionalBooleanFlag(
+  brief: string,
+): CliFlag<
+  boolean | undefined,
+  TypedFlagParameter<boolean | undefined, CommandContext>
+> {
+  return {
+    kind: "boolean",
+    brief,
+    optional: true,
+  } as unknown as CliFlag<
+    boolean | undefined,
+    TypedFlagParameter<boolean | undefined, CommandContext>
+  >;
 }
 
 export function stringFlag(

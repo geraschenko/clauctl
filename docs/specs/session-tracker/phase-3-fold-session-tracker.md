@@ -226,7 +226,7 @@ session file holds an `isSidechain: true` entry and 203
 `session` forever, so the fold keeps today's early return before any
 merge call; the messages still reach sinks. Anton (2026-09-12): agreed;
 spec sentence added under "Fold rules", subagent state tracking noted
-in docs/thoughts/subagent-activity.md as a per-subagent-file merge.
+in docs/follow-ups/subagent-activity.md as a per-subagent-file merge.
 
 ### Fold mechanics not spelled out by the spec (step 2)
 

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { dagLineText, renderDagLines, type DagRow } from "./dag-lines.ts";
-import { formatSize } from "./generated/text.ts";
+import { formatSize } from "../core/generated/text.ts";
 
 function row(
   id: string,

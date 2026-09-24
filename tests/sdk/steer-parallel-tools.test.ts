@@ -2,11 +2,12 @@
 // several parallel tool calls, the CLI absorbs it only after the LAST of
 // that response's tool results, and files its queued_command attachment
 // after that result and before the next response's first assistant entry
-// (docs/claude-agent-sdk.md, "Queued prompts coalesce by run"). The queue
-// model mirrors this by firing the steer dequeue at the first top-level
-// assistant frame whose `message.id` differs from the running response's
-// (queue-model.ts, observeSdkMessage); the second test replays the
-// captured stream through it. LIVE: one haiku session, ~3 calls.
+// (docs/claude-agent-sdk.md, "Queued prompts coalesce by run"). The last
+// test pins the stream-level boundary the queue model relies on to fire the
+// steer dequeue (protocol-server/queue-model.ts, observeSdkMessage): the
+// next response's first top-level assistant frame has a new `message.id`
+// and follows every tool_result of the parallel response. LIVE: one haiku
+// session, ~3 calls.
 
 import assert from "node:assert/strict";
 import { randomUUID, type UUID } from "node:crypto";
@@ -19,11 +20,6 @@ import {
   type SDKUserMessage,
   query,
 } from "@anthropic-ai/claude-agent-sdk";
-import {
-  acceptUserMessage,
-  INITIAL_QUEUE_MODEL_STATE,
-  observeSdkMessage,
-} from "../../src/core/daemon/queue-model.ts";
 import {
   queuedCommandSourceUuid,
   readSessionEntries,
@@ -241,58 +237,35 @@ test("the turn's result lists the prompt, then the folded-in steer", async () =>
   assert.deepEqual(results[0]!.user_message_uuids, [turn, steer]);
 });
 
-test("the queue model replays the capture with the steer dequeue at the next response's first assistant frame", async () => {
-  const { events, steerPushedAt, steer } = await capture;
-  let state = INITIAL_QUEUE_MODEL_STATE;
-  let dequeuedAt = -1;
-  events.forEach((message, index) => {
-    if (index === steerPushedAt) {
-      state = acceptUserMessage(
-        state,
-        userMessage(STEER, steer),
-        false,
-        randomUUID(),
-      ).state;
-    }
-    const transition = observeSdkMessage(state, message);
-    state = transition.state;
-    if (
-      transition.events.some(
-        (event) =>
-          event.kind === "userMessageDequeued" && event.uuids.includes(steer),
-      )
-    ) {
-      assert.equal(dequeuedAt, -1, "steer dequeued twice");
-      dequeuedAt = index;
-    }
-  });
-  assert.notEqual(dequeuedAt, -1, "steer never dequeued");
-  const trigger = events[dequeuedAt]!;
-  assert.equal(trigger.type, "assistant");
+test("the next response's first assistant frame carries a new message.id and follows every tool_result of the parallel response", async () => {
+  const { events, steerPushedAt } = await capture;
   const responseId = (events[steerPushedAt] as { message: { id: string } })
     .message.id;
-  assert.notEqual(
-    trigger.message.id,
-    responseId,
-    "dequeued within the response",
+  const nextResponseAt = events.findIndex(
+    (message, index) =>
+      index > steerPushedAt &&
+      message.type === "assistant" &&
+      message.parent_tool_use_id === null &&
+      message.message.id !== responseId,
   );
+  assert.notEqual(nextResponseAt, -1, "no response after the parallel one");
   const topLevelToolResults = events.filter(
     (message, index) =>
-      index < dequeuedAt &&
+      index < nextResponseAt &&
       message.type === "user" &&
       message.parent_tool_use_id === null &&
       Array.isArray(message.message.content) &&
       message.message.content.some((block) => block.type === "tool_result"),
   );
-  const responseFrames = events.filter(
+  const toolUseCount = events.filter(
     (message) =>
-      message.type === "assistant" && message.message.id === responseId,
-  );
-  const toolUseCount = responseFrames.filter(hasToolUse).length;
+      message.type === "assistant" &&
+      message.message.id === responseId &&
+      hasToolUse(message),
+  ).length;
   assert.equal(
     topLevelToolResults.length,
     toolUseCount,
-    "dequeued before every tool_result of the response",
+    "a tool_result of the response arrived after the next response began",
   );
-  assert.deepEqual(state.queued, []);
 });

@@ -49,7 +49,7 @@ Nothing is ever rebuilt per request.
 
 Two holders run the same builders with different retention:
 
-- **The daemon** (`SessionTracker`, src/core/daemon/session-tracker.ts)
+- **The daemon** (`SessionTracker`, src/core/protocol-server/session-tracker.ts)
   keeps view 2 (and 1, but only because it's require to build 2) for the tracked
   file — an index of byte ranges plus the
   full and context trees — and no entry payloads; it serves `get-entries`

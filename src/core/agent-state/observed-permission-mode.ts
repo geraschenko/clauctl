@@ -1,5 +1,5 @@
 import type { PermissionMode } from "@anthropic-ai/claude-agent-sdk";
-import type { AgentState } from "./agent-state.ts";
+import type { AgentState } from "../protocol/index.ts";
 
 export function withObservedPermissionMode(
   state: AgentState,

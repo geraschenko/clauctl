@@ -6,7 +6,7 @@ import { toContextTree } from "../../core/tree/context-tree.ts";
 import { toDisplayTree } from "../../core/tree/display-tree.ts";
 import { entriesByUuid, type SessionEntry } from "../../core/session/file.ts";
 import type { TreeNodeRef } from "../../core/tree/nodes.ts";
-import { stripAnsi } from "../../format/generated/text.ts";
+import { stripAnsi } from "../../core/generated/text.ts";
 import { resolveTreePick, TreeSelectorComponent } from "./tree-selector.ts";
 
 function uuid(n: number): UUID {
@@ -259,12 +259,6 @@ const ENTER = "\r";
 const ESCAPE = "\x1b";
 const BACKSPACE = "\x7f";
 
-/** A row line minus its right-aligned size column. */
-// TDC: awful. Not only is the existence of this function awful, but it's _duplicated_. WTF?
-function withoutSize(line: string): string {
-  return line.replace(/ {2,}\d+(\.\d)?k?$/u, "");
-}
-
 function isInverse(line: string): boolean {
   return line.includes("\x1b[7m");
 }
@@ -276,7 +270,7 @@ function renderedRows(selector: TreeSelectorComponent): string[] {
   return selector
     .render(100)
     .slice(1)
-    .map((line) => withoutSize(stripAnsi(line)))
+    .map((line) => stripAnsi(line))
     .filter(
       (line) =>
         !/^(search: |context changed)/.test(line) && /[a-z[]/.test(line),
@@ -290,10 +284,10 @@ function labelOf(row: string): string {
 
 function selectedRow(selector: TreeSelectorComponent): string | undefined {
   const line = selector.render(100).find(isInverse);
-  return line === undefined ? undefined : withoutSize(stripAnsi(line));
+  return line === undefined ? undefined : stripAnsi(line);
 }
 
-function makeSelector(): {
+function makeSelector(sizes = false): {
   selector: TreeSelectorComponent;
   picks: unknown[];
   cancels: number[];
@@ -305,6 +299,7 @@ function makeSelector(): {
     DISPLAY_TREE,
     ENTRY_OF,
     new Map<string, string>(),
+    { showSizes: sizes },
     (pick) => picks.push(pick),
     () => cancels.push(1),
   );
@@ -319,7 +314,7 @@ test("selector shows the display rows with the leaf's visible row pre-selected",
   // (the last preserved uuid's row), forking there with 4; rows are in
   // file order with the active chain in column 0.
   const rows = selector.render(100).slice(1).map(stripAnsi);
-  assert.deepEqual(rows.map(withoutSize), [
+  assert.deepEqual(rows, [
     "❯  hello world",
     "●  hi there",
     "❯    second question",
@@ -328,9 +323,10 @@ test("selector shows the display rows with the leaf's visible row pre-selected",
     "═  [compaction: 1k tokens]",
     "□  summary text",
   ]);
-  // Sizes right-aligned at the render width; connector lines carry none.
-  assert.equal(rows[0], `${"❯  hello world".padEnd(97)} 11`);
-  assert.equal(rows[3], "├─╮");
+  // With sizes: right-aligned at the render width; connector lines carry none.
+  const sized = makeSelector(true).selector.render(100).slice(1).map(stripAnsi);
+  assert.equal(sized[0], `${"❯  hello world".padEnd(97)} 11`);
+  assert.equal(sized[3], "├─╮");
   // Initial selection: the hidden relinked leaf's nearest visible row, the
   // summary row.
   assert.equal(selectedRow(selector), "□  summary text");

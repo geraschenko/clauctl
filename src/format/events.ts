@@ -13,11 +13,14 @@ import {
   anomalyReport,
   classOf,
   joinedPrompt,
+} from "../core/agent-state/index.ts";
+import {
   type AgentState,
-} from "../core/agent-state/agent-state.ts";
-import { type AgentEvent, eventUuid } from "../core/protocol.ts";
+  type AgentEvent,
+  eventUuid,
+} from "../core/protocol/index.ts";
 import { compactionMetadata } from "../core/session/file.ts";
-import { userText } from "../tui/sdk-render.ts";
+import { userText } from "./sdk-render.ts";
 import {
   annotation,
   formatSdkMessage,

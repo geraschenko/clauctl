@@ -109,7 +109,7 @@ export const OPTION_BUCKETS = {
   supportedDialogKinds: "invariant",
   // Client-capability declaration: declaring it makes interrupts spare
   // running background tasks, which is only safe once the TUI can see and
-  // stop them individually (docs/thoughts/subagent-activity.md). Stays unset
+  // stop them individually (docs/follow-ups/subagent-activity.md). Stays unset
   // (fail-closed: interrupt kills all background tasks) until then.
   perTaskStopAffordance: "invariant",
   // Stays unset: it validates resumeSessionAt truncations, which clauctl

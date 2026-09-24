@@ -11,11 +11,10 @@ import {
   formatSize,
   padEndCodePoints,
   truncateText,
-} from "./generated/text.ts";
+} from "../core/generated/text.ts";
 import { displayUuid } from "../core/uuid.ts";
 import { DEFAULT_FORMAT_WIDTH } from "../core/generated/constants.ts";
-// TDC: where do entry views and tool views belong? If they're entirely about text manipulation, maybe they belong in format rather than tui?
-import { entryViewFor } from "../tui/entry-views/entry-view.ts";
+import { entryViewFor } from "./entry-view/index.ts";
 
 export type EntryFormatOptions = Readonly<{
   /** Prefix each line with the entry timestamp. */

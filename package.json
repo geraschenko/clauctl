@@ -24,7 +24,7 @@
     "access": "public"
   },
   "bin": {
-    "clauctl": "dist/core/main.js"
+    "clauctl": "dist/main.js"
   },
   "files": [
     "dist",
@@ -35,16 +35,17 @@
   },
   "scripts": {
     "clean": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\"",
-    "build": "npm run clean && tsc -p tsconfig.build.json && node -e \"require('node:fs').chmodSync('dist/core/main.js', 0o755)\"",
+    "build": "npm run clean && tsc -p tsconfig.build.json && node -e \"require('node:fs').chmodSync('dist/main.js', 0o755)\"",
     "prepare": "npm run build",
     "check": "tsc --noEmit",
     "lint": "eslint src tests",
+    "depcruise": "dependency-cruise src --include-only \"^src\"",
     "test": "node --test \"src/**/*.test.ts\"",
     "test:api": "node --test \"src/**/*.apitest.ts\"",
     "test:sdk": "node --test \"tests/sdk/**/*.test.ts\"",
     "fmt": "treefmt",
     "sync": "node scripts/sync-from-pictl.mjs",
-    "presubmit": "npm run check && npm run lint && node scripts/sync-from-pictl.mjs --check && node scripts/claude-tools/generate.ts --check && treefmt --fail-on-change && npm test",
+    "presubmit": "npm run check && npm run lint && npm run depcruise && node scripts/sync-from-pictl.mjs --check && node scripts/claude-tools/generate.ts --check && treefmt --fail-on-change && npm test",
     "release": "scripts/release.sh"
   },
   "dependencies": {
@@ -60,6 +61,7 @@
   "devDependencies": {
     "@eslint/js": "^9.39.4",
     "@types/node": "^22.0.0",
+    "dependency-cruiser": "^16.10.4",
     "eslint": "^9.39.4",
     "fast-check": "^4.9.0",
     "json-schema-to-typescript": "^15.0.4",

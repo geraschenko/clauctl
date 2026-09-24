@@ -4,7 +4,7 @@ import { CanonicalEntryFilter } from "../core/session/entry-stream.ts";
 import type { SessionEntry } from "../core/session/file.ts";
 import { formatEntryLine, type EntryFormatOptions } from "./entries.ts";
 import { decodeFormatInput, type FormatInput } from "./input.ts";
-import { trackToolNames } from "../tui/entry-views/entry-view.ts";
+import { trackToolNames } from "../core/session/track-tool-names.ts";
 
 const OPTIONS: EntryFormatOptions = {
   timestamps: false,

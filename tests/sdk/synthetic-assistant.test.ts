@@ -18,7 +18,7 @@ import {
   type SDKUserMessage,
   query,
 } from "@anthropic-ai/claude-agent-sdk";
-import { excludedFromQuery } from "../../src/core/agent-state/agent-state.ts";
+import { excludedFromQuery } from "../../src/core/agent-state/index.ts";
 import {
   readSessionEntries,
   type SessionEntry,

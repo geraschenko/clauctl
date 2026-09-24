@@ -9,7 +9,7 @@
 // standalone output (no preceding command in the transcript) renders as a
 // bare ⤷ block.
 
-import { collapsedOutputSummary } from "../tool-views/tool-view.ts";
+import { collapsedOutputSummary } from "../../format/entry-view/index.ts";
 import { CachedLinesComponent } from "./cached-lines.ts";
 import { RESULT_BLOCK_STYLE, resultBlockLines } from "./tool-execution.ts";
 import { userPromptLines } from "./user-message.ts";

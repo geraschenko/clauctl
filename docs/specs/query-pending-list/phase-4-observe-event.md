@@ -5,7 +5,7 @@
 > agent-state.ts `foldEvent`, observe-on.ts `observeOn`, protocol.ts
 > `eventUuid`). Status: **implemented and committed 2026-09-22** (reviews
 > a7a11df0 and 16099e0 addressed; the `expectsSdkMessage` rename is in
-> docs/thoughts/session-tracker-follow-ups.md).
+> docs/follow-ups/session-tracker-follow-ups.md).
 
 ## Problem
 
@@ -29,7 +29,7 @@ function does all of that, and the helpers cannot bypass it.
    and the two non-event observations as named operations,
    `rescanSession` and `excludeResetPrompt`. The primitives
    `observeOn`/`excludeOn` are barrel-private; eslint enforces the
-   boundary (docs/thoughts/barrel-boundary-eslint-generator-spec.md
+   boundary (docs/follow-ups/barrel-boundary-eslint-generator-spec.md
    semantics, written by hand until the generator exists).
 2. Stream, nodes and class of an observation come from protocol.ts
    (`eventStream`, `eventNodes`, `eventClass`); the session from

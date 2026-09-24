@@ -5,7 +5,7 @@
 > model that decompiling the CLI's actual relink logic invalidated
 > (`S@B` occurrences, `isCompactSummary` special-casing, occurrence
 > composition across boundaries). Kept for the record. Originally: From
-> `docs/thoughts/boundary-messages.md`. Follow-up to
+> `docs/follow-ups/boundary-messages.md`. Follow-up to
 > `docs/specs/boundary-substructure.md` (which made `buildTree` emit relinked
 > occurrences) and `docs/specs/format-tree.md`. Display-layer only:
 > `buildTree`, `effectiveTreeNodeChain`, `set-context` semantics, the wire

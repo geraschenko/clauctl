@@ -1,6 +1,6 @@
-import type { AgentEvent } from "../protocol.ts";
-import type { AgentState } from "./agent-state.ts";
-import { freshSessionState, withSession } from "./session-state.ts";
+import type { AgentEvent, AgentState } from "../protocol/index.ts";
+import { freshSessionState } from "./session-state.ts";
+import { withSession } from "./with-session.ts";
 
 /** The query moved to `event.sessionId`: its SessionState exists from
  *  here on. `foldEvent` then observes the session-start node on `query`,

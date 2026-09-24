@@ -1,5 +1,5 @@
 import { pending } from "../../stream-merge.ts";
-import type { SessionState } from "../session-state.ts";
+import type { SessionState } from "../../protocol/index.ts";
 import { excludeOn, type Observation } from "./observe-on.ts";
 
 /** `conversation_reset`: the last pending query observation not already

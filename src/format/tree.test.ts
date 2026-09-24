@@ -5,7 +5,6 @@ import { buildTree } from "../core/tree/build-tree.ts";
 import { toContextTree } from "../core/tree/context-tree.ts";
 import { entriesByUuid, type SessionEntry } from "../core/session/file.ts";
 import type { SnapshotDocument } from "./input.ts";
-import { isHumanPrompt } from "../tui/entry-views/entry-view.ts";
 import {
   formatSnapshotDocument,
   treeLines,
@@ -63,30 +62,18 @@ function assistantEntry(
   };
 }
 
-function renderWithSizes(
+/** formatSnapshotDocument with defaults; sizes off unless asked, so the
+ *  geometry and label tests read as rows. */
+function render(
   input: SnapshotDocument,
   options: Partial<TreeFormatOptions> = {},
 ): string {
   return formatSnapshotDocument(input, {
     filter: options.filter ?? "conversation",
     width: options.width ?? 100,
+    omitUuids: false,
+    sizes: options.sizes ?? false,
   });
-}
-
-/** formatSnapshotDocument output minus the right-aligned size column, so
- *  the geometry and label tests read as rows; the column itself is pinned
- *  by the "size column" test. */
-function render(
-  input: SnapshotDocument,
-  options: Partial<TreeFormatOptions> = {},
-): string {
-  return (
-    renderWithSizes(input, options)
-      .split("\n")
-      // TDC: wtf? The fact that we're writing something like this, even in a test, suggests that something about the design is bad.
-      .map((line) => line.replace(/ {2,}\d+(\.\d)?k?$/u, ""))
-      .join("\n")
-  );
 }
 
 // --- ordering, geometry ----------------------------------------------------------
@@ -521,7 +508,7 @@ test("all shows every node, with the tool call and result glyphs", () => {
 
 test("size column: char counts right-aligned at the width on every row", () => {
   assert.equal(
-    renderWithSizes(toolSession(), { filter: "all", width: 40 }),
+    render(toolSession(), { filter: "all", width: 40, sizes: true }),
     "❯  00000001 Run a tool                10\n" +
       "▸  00000002 [Bash]\n" +
       "⤷  00000003 Bash: ok                   2\n" +
@@ -601,71 +588,6 @@ test("command echoes draw ◌ under all and vanish under conversation and user-o
       "❯  00000006 Continue\n" +
       `[cursor: ${uuid(7)}]\n`,
   );
-});
-
-// --- isHumanPrompt ----------------------------------------------------------------
-
-test("isHumanPrompt on origin-era entries is the CLI's origin verdict", () => {
-  assert.ok(isHumanPrompt(userEntry(uuid(1), "typed")));
-  assert.ok(
-    isHumanPrompt(
-      userEntry(
-        uuid(1),
-        "<command-message>spec</command-message><command-args>x</command-args>",
-      ),
-    ),
-  );
-  for (const entry of [
-    nonHumanUserEntry(uuid(1), "<command-name>/compact</command-name>"),
-    nonHumanUserEntry(
-      uuid(1),
-      "<local-command-stdout>Compacted</local-command-stdout>",
-    ),
-    nonHumanUserEntry(uuid(1), "[Request interrupted by user]"),
-    nonHumanUserEntry(uuid(1), "plain text without origin"),
-    { ...nonHumanUserEntry(uuid(1), "meta text"), isMeta: true },
-    { ...nonHumanUserEntry(uuid(1), "recap"), isCompactSummary: true },
-    {
-      ...nonHumanUserEntry(uuid(1), "done"),
-      origin: { kind: "task-notification" },
-    },
-    { ...nonHumanUserEntry(uuid(1), "done"), origin: { kind: "robot" } },
-    { ...nonHumanUserEntry(uuid(1), "done"), origin: "human" },
-    { ...assistantEntry(uuid(1), "reply"), origin: { kind: "human" } },
-    {
-      ...nonHumanUserEntry(uuid(1), ""),
-      message: {
-        role: "user",
-        content: [{ type: "tool_result", tool_use_id: "t1", content: "ok" }],
-      },
-    },
-  ]) {
-    assert.ok(!isHumanPrompt(entry), JSON.stringify(entry));
-  }
-});
-
-// TEMPORARY with the fallback (tree.ts PRE_ORIGIN_NON_HUMAN_PREFIXES).
-test("isHumanPrompt before 2.1.190 falls back to isMeta and the echo prefixes", () => {
-  const old = (text: string, version?: string): SessionEntry => ({
-    ...nonHumanUserEntry(uuid(1), text),
-    ...(version === undefined ? { version: undefined } : { version }),
-  });
-  assert.ok(isHumanPrompt(old("typed", "2.1.126")));
-  assert.ok(isHumanPrompt(old("typed")));
-  assert.ok(isHumanPrompt(old("typed", "unversioned")));
-  // Numeric, element-wise comparison: 2.1.9 precedes 2.1.190.
-  assert.ok(isHumanPrompt(old("typed", "2.1.9")));
-  assert.ok(!isHumanPrompt(old("typed", "2.1.190")));
-  for (const text of [
-    "<command-name>/compact</command-name>",
-    "<local-command-stdout>Compacted</local-command-stdout>",
-    "<bash-input>ls</bash-input>",
-    "<bash-stdout>a b</bash-stdout>",
-    "[Request interrupted by user]",
-  ]) {
-    assert.ok(!isHumanPrompt(old(text, "2.1.126")), text);
-  }
-  assert.ok(!isHumanPrompt({ ...old("meta", "2.1.126"), isMeta: true }));
 });
 
 // --- glyphs and summaries ----------------------------------------------------------
@@ -827,7 +749,7 @@ test("width truncates the label ahead of the size column", () => {
     entries: [userEntry(uuid(1), "a question that runs well past the width")],
     leaf: { uuid: uuid(1) },
   };
-  const output = renderWithSizes(input, { width: 24 });
+  const output = render(input, { width: 24, sizes: true });
   assert.equal(output.split("\n")[0], "❯  00000001 a questi… 40");
   assert.ok(
     output
@@ -914,8 +836,13 @@ test("treeLines omitUuid drops the uuid column and the ~ marker", () => {
   const byUuid = entriesByUuid(entries);
   const fullTree = buildTree(entries, () => {});
   const toolNames = new Map<string, string>();
-  const labels = (omitUuid: boolean): string[] =>
-    treeLines(fullTree, byUuid, null, () => true, toolNames, omitUuid, 100)
+  const labels = (omitUuids: boolean): string[] =>
+    treeLines(fullTree, byUuid, null, toolNames, {
+      filter: () => true,
+      width: 100,
+      omitUuids,
+      sizes: false,
+    })
       .filter((line) => line.rowId !== undefined)
       .map((line) => `${line.glyph} ${line.label}`);
   assert.deepEqual(labels(false), [
@@ -938,15 +865,12 @@ test("treeLines rejects a row preceding its parent", () => {
   ]);
   assert.throws(
     () =>
-      treeLines(
-        outOfOrder,
-        entriesByUuid(entries),
-        null,
-        () => true,
-        new Map(),
-        false,
-        100,
-      ),
+      treeLines(outOfOrder, entriesByUuid(entries), null, new Map(), {
+        filter: () => true,
+        width: 100,
+        omitUuids: false,
+        sizes: false,
+      }),
     /precedes its parent/,
   );
 });

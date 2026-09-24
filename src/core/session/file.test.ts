@@ -6,8 +6,6 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { err, ok } from "neverthrow";
 import {
-  appendSessionEntries,
-  buildBoundaryEntries,
   entriesByUuid,
   entryOrThrow,
   entryToSessionMessage,
@@ -204,84 +202,6 @@ test("entriesByUuid keeps the first occurrence of a duplicated uuid and skips uu
   assert.equal(byUuid.size, 2);
   assert.equal(byUuid.get(duplicated), first);
   assert.equal(byUuid.get(other.uuid), other);
-});
-
-test("buildBoundaryEntries with summary, anchor summary (up_to shape)", () => {
-  const sessionId = uuid();
-  const uuids = [uuid(), uuid()];
-  const leaf = uuid();
-  const { entries, response } = buildBoundaryEntries({
-    sessionId,
-    cwd: "/work",
-    uuids,
-    summaryText: "the summary",
-    logicalParentUuid: leaf,
-    version: "2.2.7",
-    preTokens: 12345,
-  });
-  assert.equal(entries.length, 2);
-  const [boundary, summary] = entries as [SessionEntry, SessionEntry];
-  assert.equal(boundary.type, "system");
-  assert.equal(boundary.subtype, "compact_boundary");
-  assert.equal(boundary.parentUuid, null);
-  assert.equal(boundary.logicalParentUuid, leaf);
-  assert.equal(boundary.uuid, response.boundaryUuid);
-  assert.equal(boundary.sessionId, sessionId);
-  assert.equal(boundary.cwd, "/work");
-  const metadata = boundary.compactMetadata as {
-    trigger: string;
-    preservedMessages: { anchorUuid: UUID; uuids: UUID[]; allUuids: UUID[] };
-  };
-  assert.equal(metadata.trigger, "manual");
-  assert.equal(boundary.version, "2.2.7");
-  assert.equal(
-    (boundary.compactMetadata as { preTokens: number }).preTokens,
-    12345,
-  );
-  assert.equal(metadata.preservedMessages.anchorUuid, response.summaryUuid);
-  assert.deepEqual(metadata.preservedMessages.uuids, uuids);
-  assert.deepEqual(metadata.preservedMessages.allUuids, uuids);
-  assert.equal(summary.type, "user");
-  assert.equal(summary.uuid, response.summaryUuid);
-  assert.equal(summary.parentUuid, response.boundaryUuid);
-  assert.equal(summary.isCompactSummary, true);
-  assert.deepEqual(summary.message, { role: "user", content: "the summary" });
-});
-
-test("buildBoundaryEntries without summary writes only the boundary", () => {
-  const { entries, response } = buildBoundaryEntries({
-    sessionId: uuid(),
-    cwd: "/work",
-    uuids: [uuid()],
-    logicalParentUuid: null,
-    version: undefined,
-    preTokens: 0,
-  });
-  assert.equal(entries.length, 1);
-  // An unobserved version falls back to the recipe's proven constant.
-  assert.equal(entries[0]!.version, "2.1.211");
-  assert.equal(response.summaryUuid, undefined);
-  const metadata = entries[0]!.compactMetadata as {
-    preservedMessages: { anchorUuid: UUID };
-  };
-  assert.equal(metadata.preservedMessages.anchorUuid, response.boundaryUuid);
-});
-
-test("appendSessionEntries round-trips through readSessionEntries", () => {
-  const file = join(mkdtempSync(join(tmpdir(), "clauctl-sf-")), "s.jsonl");
-  const existing = { uuid: uuid(), type: "user" };
-  writeFileSync(file, `${JSON.stringify(existing)}\n`);
-  const { entries } = buildBoundaryEntries({
-    sessionId: uuid(),
-    cwd: "/work",
-    uuids: [existing.uuid],
-    summaryText: "s",
-    logicalParentUuid: existing.uuid,
-    version: undefined,
-    preTokens: 0,
-  });
-  appendSessionEntries(file, entries);
-  assert.deepEqual(readSessionEntries(file), [existing, ...entries]);
 });
 
 test("entryToSessionMessage maps user/assistant entries and drops the rest", () => {

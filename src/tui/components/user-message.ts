@@ -16,8 +16,8 @@
 
 import { wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import { CachedLinesComponent } from "./cached-lines.ts";
-import { claudeStyle } from "../claude-style.ts";
-import { USER_GLYPH } from "../glyphs.ts";
+import { ANSI_STYLE } from "../../format/style.ts";
+import { USER_GLYPH } from "../../format/glyphs.ts";
 import { wrapHeaderArg } from "./tool-execution.ts";
 
 const OSC133_ZONE_START = "\x1b]133;A\x07";
@@ -39,8 +39,17 @@ export function userPromptLines(text: string, width: number): string[] {
     capacity,
     Number.MAX_SAFE_INTEGER,
   );
-  return bandLines(lines.map((line) => claudeStyle.white(line)));
+  return bandLines(lines.map((line) => ANSI_STYLE.white(line)));
 }
+
+/** The prompt band's `❯ ` gutter. */
+const userGutter = (text: string): string => `\x1b[38;5;239m${text}\x1b[39m`;
+/** Background band behind user-prompt content cells. */
+const userBg = (text: string): string => `\x1b[48;5;237m${text}\x1b[49m`;
+/** Inline `` `code` `` spans in the user-prompt echo; restores the prompt's
+ *  white rather than the default foreground. */
+const promptCode = (text: string): string =>
+  `\x1b[38;5;153m${text}\x1b[38;5;231m`;
 
 /** Puts already-styled content lines on the prompt band: `❯ ` gutter on the
  *  first line, 2-space indent on continuations, background across the
@@ -48,10 +57,8 @@ export function userPromptLines(text: string, width: number): string[] {
 function bandLines(lines: string[]): string[] {
   return lines.map((line, index) => {
     const gutter =
-      index === 0
-        ? claudeStyle.userGutter(`${USER_GLYPH} `)
-        : " ".repeat(GUTTER_WIDTH);
-    return claudeStyle.userBg(gutter + line);
+      index === 0 ? userGutter(`${USER_GLYPH} `) : " ".repeat(GUTTER_WIDTH);
+    return userBg(gutter + line);
   });
 }
 
@@ -64,13 +71,13 @@ function styleInlineMarkdown(text: string): string {
     .split(/(`[^`\n]+`)/)
     .map((segment, index) =>
       index % 2 === 1
-        ? claudeStyle.promptCode(segment.slice(1, -1))
+        ? promptCode(segment.slice(1, -1))
         : segment
             .replace(/\*\*([^*\n]+)\*\*/g, (_, inner: string) =>
-              claudeStyle.bold(inner),
+              ANSI_STYLE.bold(inner),
             )
             .replace(/\*([^*\n]+)\*/g, (_, inner: string) =>
-              claudeStyle.italic(inner),
+              ANSI_STYLE.italic(inner),
             ),
     )
     .join("");
@@ -83,7 +90,7 @@ function styleInlineMarkdown(text: string): string {
  *  of the terminal width), so the wrap capacity reserves it too. */
 function promptEchoLines(text: string, width: number): string[] {
   const capacity = Math.max(1, width - GUTTER_WIDTH - 1);
-  const styled = claudeStyle.white(styleInlineMarkdown(text));
+  const styled = ANSI_STYLE.white(styleInlineMarkdown(text));
   return bandLines(wrapTextWithAnsi(styled, capacity));
 }
 

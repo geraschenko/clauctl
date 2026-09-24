@@ -3,11 +3,15 @@ import type {
   NonNullableUsage,
   SDKMessage,
 } from "@anthropic-ai/claude-agent-sdk";
-import { type AgentEvent, eventUuid } from "../protocol.ts";
-import type { AgentState } from "./agent-state.ts";
+import {
+  type AgentEvent,
+  eventUuid,
+  type AgentState,
+  type SessionState,
+} from "../protocol/index.ts";
 import { isSubagentTraffic } from "./classification.ts";
-import { type SessionState, withSession } from "./session-state.ts";
-import { toNonNullableUsage } from "./to-non-nullable-usage.ts";
+import { withSession } from "./with-session.ts";
+import { toNonNullableUsage } from "../to-non-nullable-usage.ts";
 
 /** A leaf-eligible query message: the file entry it becomes is a tree
  *  row (user/assistant with a uuid). */

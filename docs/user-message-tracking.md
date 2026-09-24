@@ -17,7 +17,7 @@ The Agent SDK gives a live observer no direct view of user prompts:
   `enqueue`/`dequeue`/`remove` log exists only in the session JSONL as
   sidecar entries; a live SDK observer sees nothing when a prompt is accepted,
   reordered, demoted, or consumed. So clauctl's daemon models the queue instead
-  (daemon/queue-model.ts) and synthesizes
+  (protocol-server/queue-model.ts) and synthesizes
   `userMessageQueued`/`userMessageDequeued`.
 - **User prompts are never emitted on the SDK stream at all.** The stream's
   only `user` messages are tool_results (verified across the

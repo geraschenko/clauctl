@@ -15,7 +15,7 @@
 
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import envPaths from "env-paths";
+import { clauctlConfigDir } from "../core/config-dir.ts";
 import {
   TUI_KEYBINDINGS,
   type KeybindingDefinitions,
@@ -81,13 +81,6 @@ export const CLAUCTL_KEYBINDINGS = {
     description: "Edit the prompt in an external editor",
   },
 } satisfies KeybindingDefinitions;
-
-/** $CLAUCTL_CONFIG_DIR ?? envPaths("clauctl", { suffix: "" }).config */
-export function clauctlConfigDir(): string {
-  return (
-    process.env.CLAUCTL_CONFIG_DIR ?? envPaths("clauctl", { suffix: "" }).config
-  );
-}
 
 /** <clauctlConfigDir()>/keybindings.json */
 export function keybindingsPath(): string {

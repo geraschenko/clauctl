@@ -3,7 +3,7 @@
 Purpose: how clauctl records who mutates an agent and who is attached to
 it, and what the records are good for. Code: `src/core/generated/audit.ts`
 (caller-source resolution, log writes), `src/core/generated/cli.ts`
-(`recordCommandAudit`, the CLI choke point), `src/core/daemon/daemon.ts`
+(`recordCommandAudit`, the CLI choke point), `src/core/protocol-server/daemon.ts`
 (attach/detach hooks). The design was ported from pictl's
 `docs/specs/auditing-and-attach-tracking.md`.
 

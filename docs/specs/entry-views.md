@@ -511,11 +511,11 @@ consumer) → `{glyph, summary(entry, toolNames), size(entry)}`.
   width-rendered tree (by reference) or the query changes; tool names come from
   `SessionModel.toolNames` (tracked at ingestion). `deferred_tools_delta`
   summary uses an ASCII `-` (Anton's edit; test and table aligned).
-  Deferred, per Anton, to docs/thoughts/format-tui-layering.md (format/
+  Deferred, per Anton, to docs/follow-ups/format-tui-layering.md (format/
   core depending on tui: entries.ts, command.ts, entry-sink.ts, the
   entry-views barrel/directory naming, `messageContent`/`recordBlocks`
   placement, the tree.test/tree-selector.test size-stripping helpers) and
-  docs/thoughts/api-context-view.md (file.ts summary basis).
+  docs/follow-ups/api-context-view.md (file.ts summary basis).
 
 ## Implementation-Time Decisions
 

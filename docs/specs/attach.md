@@ -295,7 +295,7 @@ status.
   docs/thoughts/tty-sock-library.md, together with factoring the protocol
   into its own repo.
 - pictl-side support for `clauctl:<id>` caller sources (and vice versa).
-- Fixing the `_tui` crash in docs/thoughts/tui-crash.md — a separate bug.
+- Fixing the `_tui` crash in docs/follow-ups/tui-crash.md — a separate bug.
 - Removing standalone `clauctl _tui` — it stays, for debugging, like
   `_daemon`.
 - Auditing the `attach` command through the `audited: true` marker.

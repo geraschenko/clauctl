@@ -23,10 +23,10 @@ import {
   Spacer,
   Text,
 } from "@earendil-works/pi-tui";
-import { claudeStyle } from "../claude-style.ts";
-import { ASSISTANT_GLYPH } from "../glyphs.ts";
+import { ANSI_STYLE } from "../../format/style.ts";
+import { ASSISTANT_GLYPH } from "../../format/glyphs.ts";
 import { getMarkdownTheme, theme } from "../theme.ts";
-import type { RenderAssistant } from "../render-types.ts";
+import type { RenderAssistant } from "../../format/render-types.ts";
 
 const OSC133_ZONE_START = "\x1b]133;A\x07";
 const OSC133_ZONE_END = "\x1b]133;B\x07";
@@ -251,7 +251,7 @@ function withClaudeLayout(markdown: Markdown, gutter: boolean): Component {
         .render(width + 2)
         .map((line) => line.replace(/ +$/u, ""));
       if (gutter && lines.length > 0) {
-        lines[0] = `${claudeStyle.white(ASSISTANT_GLYPH)} ${lines[0]!.slice(2)}`;
+        lines[0] = `${ANSI_STYLE.white(ASSISTANT_GLYPH)} ${lines[0]!.slice(2)}`;
       }
       return lines;
     },

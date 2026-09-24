@@ -10,8 +10,8 @@ import {
   MERGE_STREAMS,
   type MergeStream,
   type SessionState,
-} from "../session-state.ts";
-import type { TrackerAnomaly } from "../tracker-anomaly.ts";
+  type TrackerAnomaly,
+} from "../../protocol/index.ts";
 
 const otherStream = (stream: MergeStream): MergeStream =>
   stream === "query" ? "session" : "query";

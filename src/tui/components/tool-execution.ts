@@ -33,20 +33,20 @@ import {
   hyperlink,
 } from "@earendil-works/pi-tui";
 import { truncateToVisualLines } from "@earendil-works/pi-coding-agent";
-import {
-  oneLinePrefix,
-  stripAnsi,
-  truncateText,
-} from "../../format/generated/text.ts";
-import { claudeStyle } from "../claude-style.ts";
-import type { RenderToolResult } from "../render-types.ts";
+import { oneLinePrefix, truncateText } from "../../core/generated/text.ts";
+import { ANSI_STYLE, PLAIN_STYLE, type Style } from "../../format/style.ts";
+import type { RenderToolResult } from "../../format/render-types.ts";
 import {
   TOOL_CALL_GLYPH,
   TOOL_RESULT_ERROR_GLYPH,
   TOOL_RESULT_GLYPH,
-} from "../glyphs.ts";
+} from "../../format/glyphs.ts";
 import { CachedLinesComponent } from "./cached-lines.ts";
-import { toolViewFor, type ToolView } from "../tool-views/tool-view.ts";
+import {
+  toolViewFor,
+  type ToolView,
+  type ToolViewContext,
+} from "../../format/entry-view/index.ts";
 
 const HEADER_MAX_LINES = 2;
 /** Continuation indent of a wrapped header ("▸ Bash(…" second line) and
@@ -116,7 +116,7 @@ export class ToolExecutionComponent extends CachedLinesComponent {
   private readonly subagentContainer = new Container();
   private readonly toolName: string;
   private readonly args: unknown;
-  private readonly cwd: string | undefined;
+  private readonly context: ToolViewContext;
   private readonly view: ToolView<unknown>;
   private expanded = false;
   private result?: RenderToolResult;
@@ -125,7 +125,7 @@ export class ToolExecutionComponent extends CachedLinesComponent {
     super();
     this.toolName = toolName;
     this.args = args;
-    this.cwd = cwd;
+    this.context = { cwd, style: ANSI_STYLE };
     this.view = toolViewFor(toolName);
   }
 
@@ -176,7 +176,7 @@ export class ToolExecutionComponent extends CachedLinesComponent {
       return ownLines;
     }
     if (!this.expanded) {
-      return [...ownLines, claudeStyle.grey(`  ${EXPAND_HINT}`)];
+      return [...ownLines, ANSI_STYLE.grey(`  ${EXPAND_HINT}`)];
     }
     return [
       ...ownLines,
@@ -187,7 +187,7 @@ export class ToolExecutionComponent extends CachedLinesComponent {
   }
 
   private headerLines(width: number): string[] {
-    const header = this.view.header(this.args, this.cwd);
+    const header = this.view.header(this.args, this.context);
     if (header.description !== undefined) {
       const lines = this.wrappedHeaderLines(header.description, width).lines;
       if (header.arg !== undefined) {
@@ -201,7 +201,7 @@ export class ToolExecutionComponent extends CachedLinesComponent {
     }
     const arg = header.arg;
     if (arg === undefined) {
-      return [this.styledHeaderPrefix()];
+      return [this.headerPrefix(ANSI_STYLE)];
     }
     const wrapped = this.wrappedHeaderLines(arg, width);
     // OSC 8 file link around the arg, like claude — only when the arg fits
@@ -221,23 +221,22 @@ export class ToolExecutionComponent extends CachedLinesComponent {
       !argHasControlChars
     ) {
       return [
-        `${this.styledHeaderPrefix()}(${hyperlink(arg, pathToFileURL(linkPath).href)})`,
+        `${this.headerPrefix(ANSI_STYLE)}(${hyperlink(arg, pathToFileURL(linkPath).href)})`,
       ];
     }
     return wrapped.lines;
   }
 
   /** `▸ Name`: the glyph in the result state's color (pending grey), the
-   *  name bold. */
-  private styledHeaderPrefix(): string {
+   *  name bold; `PLAIN_STYLE` gives the width the styled prefix occupies. */
+  private headerPrefix(style: Style): string {
     const glyphColor =
       this.result === undefined
-        ? claudeStyle.grey
+        ? style.grey
         : this.result.isError
-          ? claudeStyle.error
-          : claudeStyle.success;
-    const name = this.view.displayName ?? this.toolName;
-    return `${glyphColor(TOOL_CALL_GLYPH)} ${claudeStyle.bold(name)}`;
+          ? style.error
+          : style.success;
+    return `${glyphColor(TOOL_CALL_GLYPH)} ${style.bold(this.view.displayName ?? this.toolName)}`;
   }
 
   /** `▸ Name(text)` wrapped to HEADER_MAX_LINES, "…)"-truncated past
@@ -246,7 +245,7 @@ export class ToolExecutionComponent extends CachedLinesComponent {
     text: string,
     width: number,
   ): { lines: string[]; fitsOnOneLine: boolean } {
-    const prefixWidth = stripAnsi(this.styledHeaderPrefix()).length;
+    const prefixWidth = this.headerPrefix(PLAIN_STYLE).length;
     const wrapped = wrapHeaderArg(
       `(${text})`,
       width - prefixWidth,
@@ -259,7 +258,7 @@ export class ToolExecutionComponent extends CachedLinesComponent {
     const fitsOnOneLine = !wrapped.truncated && wrapped.lines.length === 1;
     const lines = wrapped.lines.map((line, index) =>
       index === 0
-        ? `${this.styledHeaderPrefix()}${line}`
+        ? `${this.headerPrefix(ANSI_STYLE)}${line}`
         : `${" ".repeat(HEADER_CONTINUATION_INDENT)}${line}`,
     );
     if (wrapped.truncated) {
@@ -277,7 +276,11 @@ export class ToolExecutionComponent extends CachedLinesComponent {
         ? resultBlockLines(this.argsJson(), width, RESULT_BLOCK_STYLE)
         : [];
     }
-    const resultBody = this.view.resultBody?.(this.args, this.result);
+    const resultBody = this.view.resultBody?.(
+      this.args,
+      this.result,
+      this.context,
+    );
     const bodyLines =
       resultBody === undefined
         ? []
@@ -292,7 +295,11 @@ export class ToolExecutionComponent extends CachedLinesComponent {
         ...bodyLines,
       ];
     }
-    const summary = this.view.resultSummary(this.args, this.result, this.cwd);
+    const summary = this.view.resultSummary(
+      this.args,
+      this.result,
+      this.context,
+    );
     const style = this.result.isError
       ? ERROR_RESULT_BLOCK_STYLE
       : RESULT_BLOCK_STYLE;
@@ -316,15 +323,15 @@ export interface ResultBlockStyle {
 /** Claude's result block: grey `⤷`, the text in the terminal's default. */
 export const RESULT_BLOCK_STYLE: ResultBlockStyle = {
   glyph: TOOL_RESULT_GLYPH,
-  glyphColor: claudeStyle.grey,
+  glyphColor: ANSI_STYLE.grey,
   textColor: (text) => text,
 };
 
 /** Claude's failed-result block: `✗` and the summary both in error red. */
 export const ERROR_RESULT_BLOCK_STYLE: ResultBlockStyle = {
   glyph: TOOL_RESULT_ERROR_GLYPH,
-  glyphColor: claudeStyle.error,
-  textColor: claudeStyle.error,
+  glyphColor: ANSI_STYLE.error,
+  textColor: ANSI_STYLE.error,
 };
 
 /** A ⤷-block: `text` wrapped to the result capacity, the first line after

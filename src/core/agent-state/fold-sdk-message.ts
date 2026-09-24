@@ -1,12 +1,11 @@
 import type { UUID } from "node:crypto";
-import type { AgentEvent } from "../protocol.ts";
-import type { AgentState } from "./agent-state.ts";
+import type { AgentEvent, AgentState } from "../protocol/index.ts";
 import { isSubagentTraffic } from "./classification.ts";
 import { excludeResetPrompt } from "./observe-event/index.ts";
 import { withObservedPermissionMode } from "./observed-permission-mode.ts";
 import { withQueryEvidence } from "./query-message.ts";
 import { queryingCount } from "./selectors.ts";
-import { withSession } from "./session-state.ts";
+import { withSession } from "./with-session.ts";
 import { withAnomalies } from "./tracker-anomaly.ts";
 
 /** After the observation: the message's evidence, then what it says

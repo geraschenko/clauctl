@@ -55,7 +55,7 @@ The agent's `socket` speaks a clauctl-defined protocol (`clauctl-protocol`, vers
 newline-delimited JSON in both directions, opened by a `hello` record with
 protocol/version information. Client requests carry an `id`; server lines with
 an `id` are responses, and lines with an `event` are pushed events. The
-working definition is [`src/core/protocol.ts`](../src/core/protocol.ts).
+working definition is [`src/core/protocol/`](../src/core/protocol/).
 
 What the protocol offers — the request surface (subscribe, SDK passthrough,
 conversation operations), the event stream, `AgentState`, and the philosophy
@@ -71,7 +71,7 @@ messages, model/permission/tool state, and usage.
 
 It is maintained by a single pure fold function, `nextAgentState(state, event)`,
 exported from the same module that defines the wire types
-([`src/core/agent-state/agent-state.ts`](../src/core/agent-state/agent-state.ts)). The daemon folds
+([`src/core/agent-state/next-agent-state.ts`](../src/core/agent-state/next-agent-state.ts)). The daemon folds
 every event before broadcasting it; every subscriber folds the identical
 function over the events it receives. There is no separate client-side state
 model to drift out of sync.
@@ -209,9 +209,9 @@ attachable.
 
 ## Reference material
 
-- exact protocol definition: [`src/core/protocol.ts`](../src/core/protocol.ts);
+- exact protocol definition: [`src/core/protocol/`](../src/core/protocol/);
 - exact `agent.json` schema: [`src/core/registry.ts`](../src/core/registry.ts);
-- the state fold: [`src/core/agent-state/agent-state.ts`](../src/core/agent-state/agent-state.ts);
+- the state fold: [`src/core/agent-state/next-agent-state.ts`](../src/core/agent-state/next-agent-state.ts);
 - the protocol and its philosophy: [`protocol.md`](protocol.md);
 - merging the SDK stream with the session file: [`stream-merging.md`](stream-merging.md);
 - the three views of a session: [`session-views.md`](session-views.md);

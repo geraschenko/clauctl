@@ -5,8 +5,8 @@ import {
   resetCapabilitiesCache,
   setCapabilities,
 } from "@earendil-works/pi-tui";
-import { stripAnsi } from "../../format/generated/text.ts";
-import { ToolExecutionComponent } from "./tool-execution.ts";
+import { stripAnsi } from "../../core/generated/text.ts";
+import { ToolExecutionComponent, wrapHeaderArg } from "./tool-execution.ts";
 
 function withHyperlinks<T>(hyperlinks: boolean, body: () => T): T {
   setCapabilities({ images: null, trueColor: false, hyperlinks });
@@ -159,4 +159,26 @@ test("header path stays plain for control-byte or relative paths", () => {
   );
   const relLines = withHyperlinks(true, () => relComponent.render(80));
   assert.ok(!relLines.join("\n").includes("\u001b]8;"));
+});
+
+test("wrapHeaderArg: word wrap, embedded newlines, truncation flag", () => {
+  assert.deepEqual(wrapHeaderArg("ls -la)", 80, 74, 2), {
+    lines: ["ls -la)"],
+    truncated: false,
+  });
+  // Wraps at whitespace onto the continuation capacity.
+  assert.deepEqual(wrapHeaderArg("echo one two)", 8, 74, 2), {
+    lines: ["echo one", "two)"],
+    truncated: false,
+  });
+  // Embedded newlines break lines; content beyond maxLines reports truncated.
+  assert.deepEqual(wrapHeaderArg("a\nb\nc)", 80, 74, 2), {
+    lines: ["a", "b"],
+    truncated: true,
+  });
+  // A word longer than the line hard-breaks.
+  assert.deepEqual(wrapHeaderArg("abcdefgh)", 4, 4, 3), {
+    lines: ["abcd", "efgh", ")"],
+    truncated: false,
+  });
 });

@@ -2,9 +2,8 @@ import assert from "node:assert/strict";
 import type { UUID } from "node:crypto";
 import { test } from "node:test";
 import type { SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
-import type { AgentState } from "../core/agent-state/agent-state.ts";
-import { initialAgentState } from "../core/agent-state/agent-state.ts";
-import type { AgentEvent } from "../core/protocol.ts";
+import type { AgentState, AgentEvent } from "../core/protocol/index.ts";
+import { initialAgentState } from "../core/agent-state/index.ts";
 import { EventFormatter } from "./events.ts";
 import type { MessageFormatOptions, TailRecord } from "./types.ts";
 

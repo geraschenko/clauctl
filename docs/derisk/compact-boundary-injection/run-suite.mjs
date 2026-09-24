@@ -1,5 +1,5 @@
 // SDK-upgrade regression suite for the loader model in FINDINGS.md — the
-// behaviors src/core/tree/loader.ts and src/core/daemon/set-context.ts are
+// behaviors src/core/tree/loader.ts and src/core/protocol-server/set-context.ts are
 // built on. Runs every probe in dependency order (p0a validates the capture
 // path; p8 reads p2's and p7's scratch dirs), then check-reports.mjs, which
 // hard-asserts over the regenerated reports. Exit status is nonzero if any

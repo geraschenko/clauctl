@@ -22,12 +22,9 @@ import {
 } from "@earendil-works/pi-tui";
 import type { ReadonlyFooterDataProvider } from "@earendil-works/pi-coding-agent";
 import type { PermissionMode } from "@anthropic-ai/claude-agent-sdk";
-import {
-  initialAgentState,
-  lastUsage,
-  type AgentState,
-} from "../../core/agent-state/agent-state.ts";
-import { claudeStyle } from "../claude-style.ts";
+import { initialAgentState, lastUsage } from "../../core/agent-state/index.ts";
+import type { AgentState } from "../../core/protocol/index.ts";
+import { ANSI_STYLE } from "../../format/style.ts";
 
 /** Copied from pi's footer.ts (exported there but not through the package
  *  entrypoint): compact token counts, e.g. 1234 → "1.2k". */
@@ -66,16 +63,19 @@ const MODE_INDICATORS: Record<
   PermissionMode,
   { label: string; color: (text: string) => string }
 > = {
-  default: { label: "⏸ manual", color: claudeStyle.manualMode },
-  acceptEdits: { label: "⏵⏵ accept edits", color: claudeStyle.acceptEdits },
-  plan: { label: "⏸ plan", color: claudeStyle.planMode },
-  auto: { label: "⏵⏵ auto", color: claudeStyle.autoMode },
-  dontAsk: { label: "⏵⏵ don't ask", color: claudeStyle.dontAsk },
-  bypassPermissions: {
-    label: "⏵⏵ bypass permissions",
-    color: claudeStyle.bypassPermissions,
-  },
+  default: { label: "⏸ manual", color: sgr256(246) },
+  acceptEdits: { label: "⏵⏵ accept edits", color: sgr256(147) },
+  plan: { label: "⏸ plan", color: sgr256(73) },
+  auto: { label: "⏵⏵ auto", color: sgr256(220) },
+  dontAsk: { label: "⏵⏵ don't ask", color: sgr256(211) },
+  bypassPermissions: { label: "⏵⏵ bypass permissions", color: sgr256(211) },
 };
+
+/** Claude's footer palette for the permission-mode indicators (256-color
+ *  foreground). */
+function sgr256(color: number): (text: string) => string {
+  return (text) => `\x1b[38;5;${color}m${text}\x1b[39m`;
+}
 
 /** The CLI's 1M-context beta models carry a "[1m]" model-id suffix; every
  *  other (or unknown) model assumes the standard 200k window, so a
@@ -111,13 +111,13 @@ export class FooterComponent implements Component {
     if (branch !== undefined && branch !== null) {
       pwd = `${pwd} (${branch})`;
     }
-    return truncateToWidth(claudeStyle.grey(pwd), width, claudeStyle.grey("…"));
+    return truncateToWidth(ANSI_STYLE.grey(pwd), width, ANSI_STYLE.grey("…"));
   }
 
   private statusLine(width: number): string {
     const mode =
       this.state.permissionMode === undefined
-        ? { label: "? unset mode", color: claudeStyle.warning }
+        ? { label: "? unset mode", color: ANSI_STYLE.warning }
         : MODE_INDICATORS[this.state.permissionMode];
     let left = mode.color(mode.label);
     let leftWidth = visibleWidth(left);
@@ -142,7 +142,7 @@ export class FooterComponent implements Component {
     if (this.state.effortLevel !== undefined) {
       rightParts.push(this.state.effortLevel);
     }
-    const right = claudeStyle.grey(rightParts.join(" • "));
+    const right = ANSI_STYLE.grey(rightParts.join(" • "));
     const rightWidth = visibleWidth(right);
 
     const minPadding = 2;

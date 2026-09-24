@@ -15,7 +15,7 @@ import {
   formatSize,
   padEndCodePoints,
   truncateText,
-} from "./generated/text.ts";
+} from "../core/generated/text.ts";
 
 export interface DagRow {
   readonly id: string;

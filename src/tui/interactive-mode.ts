@@ -33,22 +33,19 @@ import type {
   PermissionMode,
   SDKControlInitializeResponse,
 } from "@anthropic-ai/claude-agent-sdk";
-import {
-  anomalyReport,
-  isIdle,
-  type AgentState,
-} from "../core/agent-state/agent-state.ts";
+import { anomalyReport, isIdle } from "../core/agent-state/index.ts";
+import type {
+  AgentState,
+  AgentEvent,
+  GetEntriesResponse,
+} from "../core/protocol/index.ts";
 import { randomUUID, type UUID } from "node:crypto";
 import { readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { SessionEntry } from "../core/session/file.ts";
 import type { TreeNodeRef } from "../core/tree/nodes.ts";
-import type {
-  AgentEvent,
-  ProtocolClient,
-  GetEntriesResponse,
-} from "../core/protocol.ts";
+import type { ProtocolClient } from "../core/protocol-client/index.ts";
 import { findFd, TuiAutocompleteProvider } from "./autocomplete.ts";
 import { EffortSelectorComponent } from "./components/effort-selector.ts";
 import { FooterComponent } from "./components/footer.ts";
@@ -72,10 +69,14 @@ import {
   externalEditorCommand,
 } from "./external-editor.ts";
 import { VERSION } from "../core/generated/version.ts";
-import { userText } from "./sdk-render.ts";
+import { userText } from "../format/sdk-render.ts";
 import type { SessionModel } from "./session-model.ts";
 import { SessionModels } from "./session-models.ts";
-import { readSettings, settingsPath } from "./settings.ts";
+import {
+  readSettings,
+  settingsPath,
+  type ClauctlSettings,
+} from "../core/settings.ts";
 import { TranscriptRenderer } from "./transcript.ts";
 import { getEditorTheme, theme, type ThemeColor } from "./theme.ts";
 
@@ -174,7 +175,7 @@ export async function runInteractive(
     client,
     seed,
     startupWarnings,
-    settingsRead.settings.showResolvedBoundary,
+    settingsRead.settings,
   );
   // Events arriving while the UI is built wait in the queue; the pump starts
   // only once there is something to hand them to. Racing it propagates a
@@ -368,7 +369,7 @@ class InteractiveMode {
   /** ctrl+o / ctrl+t toggles, reapplied to recreated renderers. */
   private toolsExpanded = false;
   private showThinking = false;
-  private readonly showResolvedBoundary: boolean;
+  private readonly settings: ClauctlSettings;
 
   /**
    * Live events held back until history replay finishes (undefined
@@ -402,13 +403,13 @@ class InteractiveMode {
     client: ProtocolClient,
     seedState: AgentState,
     startupWarnings: string[],
-    showResolvedBoundary: boolean,
+    settings: ClauctlSettings,
   ) {
     this.ui = ui;
     this.client = client;
     this.agentState = seedState;
     this.keybindings = getKeybindings();
-    this.showResolvedBoundary = showResolvedBoundary;
+    this.settings = settings;
     this.transcript = this.freshTranscript();
     this.sessionModels = new SessionModels(
       (message) => this.addBanner(message),
@@ -552,7 +553,7 @@ class InteractiveMode {
   private freshTranscript(): TranscriptRenderer {
     const transcript = new TranscriptRenderer(
       this.chatContainer,
-      this.showResolvedBoundary,
+      this.settings.showResolvedBoundary,
     );
     transcript.setCwd(this.agentState.cwd);
     transcript.setToolsExpanded(this.toolsExpanded);
@@ -1123,6 +1124,7 @@ class InteractiveMode {
       fileSessionModel.displayTree,
       fileSessionModel.byUuid,
       fileSessionModel.toolNames,
+      this.settings.tree,
       (pick) => this.confirmTreePick(fileSessionModel, pick),
       () => this.closeTreeSelector(),
     );

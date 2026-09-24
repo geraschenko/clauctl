@@ -1,11 +1,7 @@
-import type { AgentEvent } from "../protocol.ts";
-import type { AgentState } from "./agent-state.ts";
+import type { AgentEvent, AgentState } from "../protocol/index.ts";
 import { rescanSession } from "./observe-event/index.ts";
-import {
-  freshSessionState,
-  withoutFile,
-  withSession,
-} from "./session-state.ts";
+import { freshSessionState } from "./session-state.ts";
+import { withoutFile, withSession } from "./with-session.ts";
 import { withAnomalies } from "./tracker-anomaly.ts";
 
 /** The follower moved: the old file's state is dropped and the new file's

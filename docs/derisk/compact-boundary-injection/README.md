@@ -3,7 +3,7 @@
 Goal: map the **spectrum of context-management options** available through the SDK if
 we're willing to inject a synthetic `compact_boundary` entry into the session jsonl
 and restart the `Query` object. Background:
-[`docs/thoughts/rewind-and-tree.md`](../../thoughts/rewind-and-tree.md) — a static
+[`docs/follow-ups/rewind-and-tree.md`](../../follow-ups/rewind-and-tree.md) — a static
 analysis of the format **inferred from the CLI 2.1.195 binary, not yet validated
 live**.
 

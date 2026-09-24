@@ -1,7 +1,6 @@
-import type { AgentEvent } from "../protocol.ts";
-import type { AgentState } from "./agent-state.ts";
+import type { AgentEvent, AgentState } from "../protocol/index.ts";
 import { sessionSettled } from "./selectors.ts";
-import { withSession } from "./session-state.ts";
+import { withSession } from "./with-session.ts";
 
 /** Before the observation: an entry whose uuid the query stream already
  *  reported ends the tracked file's scan exclusion (`excludedFromOther`

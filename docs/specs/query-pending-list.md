@@ -4,12 +4,12 @@
 > passed (Anton, 2026-09-22). Spec approved 2026-09-16 (type design + data
 > flow); design revised 2026-09-18 after reviewer pass 3 (full entries on
 > the wire, per-session models, resolution-driven retirement). Deferred
-> items: docs/thoughts/session-tracker-follow-ups.md,
-> docs/thoughts/interactive-mode-test-harness.md,
-> docs/thoughts/large-sessions.md.
+> items: docs/follow-ups/session-tracker-follow-ups.md,
+> docs/follow-ups/interactive-mode-test-harness.md,
+> docs/follow-ups/large-sessions.md.
 > Follow-up to docs/specs/session-tracker.md (phase 4 introduced the
 > rebuild on live `contextChanged`) and
-> docs/thoughts/delivered-prompt-identity.md. SDK ground truth this rests
+> docs/follow-ups/delivered-prompt-identity.md. SDK ground truth this rests
 > on: docs/claude-agent-sdk.md "Queued prompts coalesce by run", pinned by
 > `tests/sdk/queued-batches.test.ts`.
 
@@ -395,7 +395,7 @@ Three principles make the rule cheap to keep:
   rebuild — full entries, `SessionState.resolved`, per-session models,
   render-once (independent of stamping), (2) the queue model's per-run
   dequeue, (3) identity.
-- docs/thoughts/fold-resolved-events.md moves to docs/thoughts/old/ as
+- docs/follow-ups/fold-resolved-events.md moves to docs/follow-ups/old/ as
   part of this spec: `SessionState.resolved` is its idea, and the
   render-once guard is why the immediacy client needs nothing more.
 - Follow-up item (not this spec): audit the SDK for control requests that
@@ -1057,17 +1057,17 @@ Phase 3 (identity):
       in `query-pending-list/phase-2-per-run-dequeue.md`; committed
 - [x] Phase 3 identity — implemented 2026-09-20; log in
       `query-pending-list/phase-3-identity.md`; committed;
-      docs/thoughts/fold-resolved-events.md moved to docs/thoughts/old/
+      docs/follow-ups/fold-resolved-events.md moved to docs/follow-ups/old/
 - [x] Phase 3.5 uuid-less events, slash-command runs, interrupt probes —
       implemented 2026-09-21; log in
       `query-pending-list/phase-3.5-uuid-less-events.md`; committed
 - [x] Phase 4 `observeEvent` — implemented 2026-09-22; log in
       `query-pending-list/phase-4-observe-event.md`; committed
 - [x] TUI smoke (Anton, 2026-09-22): works; large sessions load slower
-      than before — docs/thoughts/large-sessions.md
+      than before — docs/follow-ups/large-sessions.md
 - [x] Follow-up (separate): SDK control-request flag audit
       (`cancel_queued` unreachable via `Query.interrupt()`) — recorded in
-      docs/thoughts/session-tracker-follow-ups.md
+      docs/follow-ups/session-tracker-follow-ups.md
 
 ## 2026-09-16 — diagnosis
 
@@ -1396,7 +1396,7 @@ Phase 3 (identity):
 - The fold skips every message with a string `parent_tool_use_id`
   (`stream_event`s included; the filter was user/assistant only):
   subagent traffic never meets an entry in this file. Per-subagent
-  session models are the direction (docs/thoughts/subagent-activity.md).
+  session models are the direction (docs/follow-ups/subagent-activity.md).
 - `lastEntryAtMs` stays monotonic; the `Date.now()` fallback for
   timestamp-less frames means a delta across a rebuild measures the
   replay (documented, untestable without clock injection). Anton

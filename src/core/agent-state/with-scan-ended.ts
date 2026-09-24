@@ -1,5 +1,5 @@
-import type { AgentState } from "./agent-state.ts";
-import { withSession } from "./session-state.ts";
+import type { AgentState } from "../protocol/index.ts";
+import { withSession } from "./with-session.ts";
 
 /** `scanComplete`: the tracked file's scan exclusion ends. */
 export function withScanEnded(state: AgentState): AgentState {

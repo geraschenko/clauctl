@@ -41,7 +41,7 @@ hypothesis): `docs/derisk/cli-history-repersistence/FINDINGS.md`.
 
 ## Agreed semantics
 
-TDC: I didn't agree to this. The agent that wrote this doc is a bullshitter. I think we should probably do first-wins or last-wins everywhere.
+Note: I didn't agree to this. The agent that wrote this doc is a bullshitter. I think we should probably do first-wins or last-wins everywhere.
 
 1. **First occurrence wins for tree placement.** A repeated raw uuid is
    skipped _entirely_ by tree construction — no new occurrence, no parent

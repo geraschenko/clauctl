@@ -3,7 +3,7 @@
 Purpose: what the protocol an agent speaks on its `socket` file offers a client
 and the philosophy behind it. The
 protocol's working definition is
-[`src/core/protocol.ts`](../src/core/protocol.ts); this page explains
+[`src/core/protocol/`](../src/core/protocol/); this page explains
 what the types mean and why the interface has the shape it has. Read
 [`architecture.md`](architecture.md) first for where the socket sits.
 
@@ -52,7 +52,7 @@ turn's `result`, the `stream_event`s), and we do not try.
 - **Snapshot, then fold.** `subscribe` answers with the daemon's
   `AgentState` and streams every later event. The client applies
   `nextAgentState(state, event)` — the fold exported by
-  [`src/core/agent-state/agent-state.ts`](../src/core/agent-state/agent-state.ts) — to each event.
+  [`src/core/agent-state/next-agent-state.ts`](../src/core/agent-state/next-agent-state.ts) — to each event.
   The daemon maintains its own state with the same function over the same
   stream, so a subscriber's state is the daemon's, not an approximation of
   it. There is no client-side state model to drift.
@@ -79,7 +79,7 @@ entirely because the Claude Agent SDK does not have these properties natively:
   client, because the client must model when a steering prompt (sent while
   the assistant is working) appears in the assistant's context.[^delivery]
   The daemon models this ([`user-message-tracking.md`](user-message-tracking.md),
-  [`queue-model.ts`](../src/core/daemon/queue-model.ts)), so clients get
+  [`queue-model.ts`](../src/core/protocol-server/queue-model.ts)), so clients get
   `userMessageQueued` when a prompt is accepted and `userMessageDequeued`
   when it enters the assistant's context.
 - **The SDK cannot reconstruct the assistant's context.** The natural
@@ -129,7 +129,7 @@ turn_duration, api_error, away_summary, informational, model_*_fallback}`,
   a claude session id. The daemon follows the
   switch and emits `sessionFileChanged`. (Subagents have their own session
   files as well; out of scope until
-  [`thoughts/subagent-activity.md`](thoughts/subagent-activity.md).)
+  [`follow-ups/subagent-activity.md`](follow-ups/subagent-activity.md).)
 - **The SDK cannot rewrite the assistant's context.** clauctl's `set-context`
   (and the TUI's `/tree`) shuts down the `Query`, appends a
   `compact_boundary` to the session file, and restarts the `Query` on it
@@ -152,7 +152,7 @@ to the file's append order. A dequeue echo is daemon-made, but it is a
 `scanComplete` is daemon-made and a `session` node because its meaning is
 "the follower has delivered everything before this". (The names mislead —
 `session` collides with the conversation, `query` reads as an origin;
-[`thoughts/stream-naming.md`](thoughts/stream-naming.md) is the planned
+[`follow-ups/stream-naming.md`](follow-ups/stream-naming.md) is the planned
 rename to `sdk`/`file`.)
 
 `AgentEvent` has three kinds of member.
@@ -186,7 +186,7 @@ Each is on the stream whose order it is part of:
 | `trackerAnomaly`                           | `event.stream` | the daemon observed something its model of the CLI says cannot happen — detected by its fold (reported right after the event whose fold raised it) or by its tracker — and wrote the diagnostic bundle at `bundlePath`; clients show it (see stream merging). It is a node of the stream whose observation was anomalous.                                                                                                                                                                         |
 
 Every event is a node of the stream merge (`eventUuid` in
-[`protocol.ts`](../src/core/protocol.ts) names it): a payload's own uuid
+[`protocol/agent-event.ts`](../src/core/protocol/agent-event.ts) names it): a payload's own uuid
 where it has one, a dequeue's run key, a session start's session id,
 else a uuid the daemon stamps on the event (`uuid`, beside an unmodified
 payload for `sdkMessage`/`sessionEntry`). A `queued_command` attachment
@@ -295,12 +295,12 @@ socket.
   daemon and the TUI keep them.
 - [`claude-agent-sdk.md`](claude-agent-sdk.md) — the empirical facts about
   the SDK and the CLI the above is built on.
-- Code: `src/core/protocol.ts` (protocol), `src/core/agent-state/agent-state.ts`
-  (fold), `src/core/daemon/event-hub.ts` (broadcast and settlement),
-  `src/core/daemon/session-tracker.ts` (the resident file view),
+- Code: `src/core/protocol/` (protocol), `src/core/agent-state/next-agent-state.ts`
+  (fold), `src/core/protocol-server/event-hub.ts` (broadcast and settlement),
+  `src/core/protocol-server/session-tracker.ts` (the resident file view),
   `src/core/session/entry-stream.ts` (the follower),
   `src/core/stream-merge.ts` (the merge library),
-  `src/core/daemon/queue-model.ts` (the prompt queue).
+  `src/core/protocol-server/queue-model.ts` (the prompt queue).
 
 ## Footnotes
 

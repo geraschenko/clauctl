@@ -20,7 +20,7 @@ typed carries `origin: {kind: "human"}` (skill invocations included);
 subagent-completion injections carry `origin: {kind:
 "task-notification"}`; command/shell echoes, interrupt markers and typed
 `/compact …` text carry no `origin`. Entries written before 2.1.190 never
-carry it. (Survey of 344 local files: docs/thoughts/subagent-activity.md,
+carry it. (Survey of 344 local files: docs/follow-ups/subagent-activity.md,
 `origin` bullet.)
 
 Wanted:
@@ -89,7 +89,7 @@ const ORIGIN_FIELD_SINCE = "2.1.190";
 
 /** A prompt the human typed. Entries whose writer (`entry.version`) knew
  *  the field carry the CLI's verdict in `origin`; older entries go through
- *  the pre-origin fallback (see docs/thoughts/subagent-activity.md). */
+ *  the pre-origin fallback (see docs/follow-ups/subagent-activity.md). */
 export function isHumanPrompt(entry: SessionEntry): boolean;
 // entry.type === "user" && (writtenBefore(entry, ORIGIN_FIELD_SINCE)
 //   ? preOriginHumanPrompt(entry)
@@ -209,7 +209,7 @@ extraction `hasText` already performs.
 ## 2026-09-07 — derisk (in conversation, get-context review round 3079b1e)
 
 - Survey of 344 files established the `origin` facts (recorded in
-  docs/thoughts/subagent-activity.md).
+  docs/follow-ups/subagent-activity.md).
 - Rejected: per-entry field-absence gating (an origin-era entry without
   `origin` would get a second opinion from the heuristic; the CLI's
   silence is the verdict); whole-file gating (file-level state threaded

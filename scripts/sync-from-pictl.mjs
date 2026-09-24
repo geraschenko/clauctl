@@ -55,6 +55,7 @@ const SYNC_SETS = [
       "read-input.ts",
       "targets.ts",
       "test-util.ts",
+      "text.ts",
       "until-engine.ts",
       "until-engine.test.ts",
       "util.ts",
@@ -72,12 +73,6 @@ const SYNC_SETS = [
       "driver.ts",
       "driver.test.ts",
     ],
-  },
-  {
-    sourceDir: join(pictlDir, "src", "format"),
-    outDir: join(repoRoot, "src", "format", "generated"),
-    outsidePrefix: "../",
-    files: ["text.ts"],
   },
 ];
 

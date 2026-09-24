@@ -1,15 +1,18 @@
 import type { UUID } from "node:crypto";
 import {
   type AgentEvent,
-  eventClass,
   eventNodes,
-  eventStream,
   eventUuid,
-} from "../../protocol.ts";
-import type { AgentState } from "../agent-state.ts";
-import { excludedFromOther } from "../classification.ts";
-import { withSession } from "../session-state.ts";
-import { type TrackerAnomaly, withAnomalies } from "../tracker-anomaly.ts";
+  type AgentState,
+  type TrackerAnomaly,
+} from "../../protocol/index.ts";
+import {
+  eventClass,
+  eventStream,
+  excludedFromOther,
+} from "../classification.ts";
+import { withSession } from "../with-session.ts";
+import { withAnomalies } from "../tracker-anomaly.ts";
 import { observeOn } from "./observe-on.ts";
 
 /** The sessions the event is observed on: both start events their own
