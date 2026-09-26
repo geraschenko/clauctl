@@ -29,6 +29,7 @@ import {
   USER_BUT_NON_HUMAN_GLYPH,
   USER_GLYPH,
 } from "../glyphs.ts";
+import { renderAttachmentEntry } from "../api-messages/render-attachment.ts";
 import { toolViewFor } from "./tool-view/index.ts";
 import { attachmentViewFor } from "./attachment-view/index.ts";
 import { oneLinePrefix } from "../../core/generated/text.ts";
@@ -111,6 +112,8 @@ function attachmentType(entry: SessionEntry): string {
     : "attachment";
 }
 
+/** Sized by what the attachment puts on the wire (docs/specs/api-messages.md
+ *  criterion 5): the sum of its rendered texts, 0 when it renders nothing. */
 export const attachmentEntryView: EntryView = {
   glyph: ATTACHMENT_GLYPH,
   summary(entry, _toolNames, maxChars) {
@@ -118,8 +121,21 @@ export const attachmentEntryView: EntryView = {
     const summary = attachmentViewFor(type).summary(entry.attachment, maxChars);
     return summary === "" ? type : `${type}: ${summary}`;
   },
-  size: (entry) =>
-    attachmentViewFor(attachmentType(entry)).size(entry.attachment),
+  size(entry) {
+    let size = 0;
+    for (const text of renderAttachmentEntry(entry)?.texts ?? []) {
+      size += text.length;
+    }
+    return size;
+  },
+};
+
+/** An attachment the CLI renders to nothing. Entry-local: a tail
+ *  `*_reminder_sent` record is re-sent on the next request
+ *  (docs/specs/api-messages.md edge cases) but still shows `·`. */
+export const attachmentSilentView: EntryView = {
+  ...attachmentEntryView,
+  glyph: OTHER_ENTRY_GLYPH,
 };
 
 export function toolResultBlocks(
@@ -255,6 +271,14 @@ export const assistantView: EntryView = {
   glyph: ASSISTANT_GLYPH,
   summary: assistantSummary,
   size: assistantSize,
+};
+
+/** An all-thinking assistant: the CLI drops it from the wire (unless a
+ *  same-`message.id` sibling carried content — not visible from one
+ *  entry; docs/specs/api-messages.md WORK LOG 2026-09-30). */
+export const assistantThinkingOnlyView: EntryView = {
+  ...assistantView,
+  glyph: OTHER_ENTRY_GLYPH,
 };
 
 function stringField(entry: SessionEntry, key: string): string {

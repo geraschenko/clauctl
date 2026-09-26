@@ -5,7 +5,7 @@
   "q7": {
     "probeUsage": {
       "input": 10,
-      "cacheCreate": 3075,
+      "cacheCreate": 3073,
       "cacheRead": 20819
     },
     "compactSubtype": "success",
@@ -18,28 +18,28 @@
     },
     "newBoundaryMetadata": {
       "trigger": "manual",
-      "preTokens": 23966,
-      "durationMs": 16565,
+      "preTokens": 23948,
+      "durationMs": 30146,
       "preservedSegment": {
-        "headUuid": "cdddbc6b-dafe-469a-8765-fa3adbeccea4",
-        "anchorUuid": "8b1adcca-e371-41a4-8695-f5457b686d6e",
-        "tailUuid": "c64926a6-8955-4f41-b427-eb88384b7911"
+        "headUuid": "4b4b2050-cd25-4e58-8c97-4fb4cba9a984",
+        "anchorUuid": "a108a2f0-f9fa-402d-8e24-cd3f367e4d73",
+        "tailUuid": "75ecaeae-e09e-4236-8348-8e971948d809"
       },
       "preservedMessages": {
-        "anchorUuid": "8b1adcca-e371-41a4-8695-f5457b686d6e",
+        "anchorUuid": "a108a2f0-f9fa-402d-8e24-cd3f367e4d73",
         "uuids": [
-          "cdddbc6b-dafe-469a-8765-fa3adbeccea4",
-          "d3d23a2c-6138-4db0-b874-cac1447c7be0",
-          "c64926a6-8955-4f41-b427-eb88384b7911"
+          "4b4b2050-cd25-4e58-8c97-4fb4cba9a984",
+          "98b7d44b-0d13-4731-bec3-d7836f067ed5",
+          "75ecaeae-e09e-4236-8348-8e971948d809"
         ],
         "allUuids": [
-          "cdddbc6b-dafe-469a-8765-fa3adbeccea4",
-          "d3d23a2c-6138-4db0-b874-cac1447c7be0",
-          "c64926a6-8955-4f41-b427-eb88384b7911"
+          "4b4b2050-cd25-4e58-8c97-4fb4cba9a984",
+          "98b7d44b-0d13-4731-bec3-d7836f067ed5",
+          "75ecaeae-e09e-4236-8348-8e971948d809"
         ]
       },
-      "postTokens": 1709,
-      "cumulativeDroppedTokens": 61257
+      "postTokens": 1853,
+      "cumulativeDroppedTokens": 61095
     },
     "postProbe": {
       "nMessages": 3,

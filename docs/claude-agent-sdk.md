@@ -127,6 +127,30 @@ synchronized — the file lags the stream by a flush — which is the problem
 stream carries which entry class lives there, pinned by
 `tests/sdk/stream-classification.test.ts`.
 
+## Reminder attachments are re-applied at request time
+
+`batching_reminder_sent` and `secondary_reminder_sent` attachments
+render to nothing as messages (their renderer is `() => []`, like
+`already_read_file`), yet their text does reach the assistant. On a
+request whose last real entry is a tool-result user message, the CLI
+computes the reminder text afresh (gated on request-time state, so not
+every such turn gets one), sends it as a transient attachment folded
+after that message — a bare line, no `<system-reminder>` tags — and
+persists a `*_reminder_sent` record with `clearAt: "next_user_message"`
+as the last attachment before the reply. A second path (`keptReminders`,
+behind a beta) re-applies persisted records: walking backwards over the
+attachments trailing the last non-attachment entry, the latest record
+per type contributes its `text`. Either way the record is cleared by any
+later non-attachment entry, so a captured request that starts with a
+new prompt never shows it. Survey of one long session (2026-09-30): 1005
+records over 1477 tool-result turns, text identical throughout.
+
+`format api-request` (`docs/specs/api-messages.md`) models the record
+rule: a `*_reminder_sent` in the context's trailing attachment run
+contributes its `text`; the same record with a later entry after it
+renders nothing. The entry views' `·` glyph is entry-local and shows
+for the record either way.
+
 ## The live stream omits user prompts
 
 The SDK's message stream does not echo the user messages you feed in, and

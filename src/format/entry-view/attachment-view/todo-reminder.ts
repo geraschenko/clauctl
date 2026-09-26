@@ -2,7 +2,7 @@
 
 import { isRecord } from "../../../core/generated/util.ts";
 import type { AttachmentView } from "./attachment-view.ts";
-import { jsonLength, numberField } from "../payload.ts";
+import { numberField } from "../payload.ts";
 
 interface TodoReminderPayload {
   content?: unknown;
@@ -16,10 +16,5 @@ export const todoReminderView: AttachmentView<TodoReminderPayload> = {
       numberField(payload, "itemCount") ??
       (Array.isArray(content) ? content.length : 0);
     return `${count} item${count === 1 ? "" : "s"}`;
-  },
-  size(payload) {
-    return isRecord(payload) && payload.content !== undefined
-      ? jsonLength(payload.content)
-      : 0;
   },
 };

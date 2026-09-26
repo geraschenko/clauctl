@@ -58,18 +58,30 @@ export function assertVersions(): { sdk: string } {
   return { sdk: installed };
 }
 
+/** How the scratch dir's credentials relate to the real ones: `"copy"`
+ *  keeps the real expiry (and refuses near expiry, see SECURITY);
+ *  `"never-expiring"` stamps `expiresAt` far ahead so the CLI never
+ *  attempts a refresh — for runs whose requests never reach the API. */
+export type CredentialSeed = "copy" | "never-expiring";
+
 // Fresh scratch CLAUDE_CONFIG_DIR seeded with auth. One per case. `settings`,
 // when given, becomes the scratch dir's settings.json (the user tier).
 export function makeConfigDir(
   caseName: string,
   settings?: Record<string, unknown>,
+  credentials: CredentialSeed = "copy",
 ): string {
   const dir = `${SCRATCH_ROOT}/${caseName}`;
   fs.rmSync(dir, { recursive: true, force: true });
   fs.mkdirSync(dir, { recursive: true });
   const creds = JSON.parse(fs.readFileSync(CRED_SOURCE, "utf8"));
   const expiresAt: number = creds.claudeAiOauth?.expiresAt ?? 0;
-  if (expiresAt - Date.now() < 15 * 60 * 1000) {
+  if (credentials === "never-expiring") {
+    creds.claudeAiOauth = {
+      ...creds.claudeAiOauth,
+      expiresAt: Date.now() + 365 * 24 * 60 * 60 * 1000,
+    };
+  } else if (expiresAt - Date.now() < 15 * 60 * 1000) {
     throw new Error(
       `~/.claude access token expires at ${new Date(expiresAt).toISOString()} — ` +
         `refusing to run (a scratch-CLI refresh could rotate the real session's tokens)`,

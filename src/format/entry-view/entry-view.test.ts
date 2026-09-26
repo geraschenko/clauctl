@@ -75,22 +75,29 @@ test("prompts: typed and steered", () => {
   );
 });
 
-test("attachments: type-prefixed view summary, sized by the view", () => {
+test("attachments: type-prefixed view summary, sized by the wire rendering", () => {
+  // A `rendered` snapshot is the size, wrapper included.
   assert.deepEqual(
     viewOf({
       type: "attachment",
-      attachment: {
-        type: "file",
-        displayPath: "a.ts",
-        content: { file: { content: "abc" } },
-      },
+      attachment: { type: "file", displayPath: "a.ts" },
+      rendered: [{ content: "<system-reminder>\nabc\n</system-reminder>" }],
     }),
-    ["⎘", "file: a.ts", 3],
+    ["⎘", "file: a.ts", 40],
   );
-  // An empty view summary leaves the bare type.
+  // Without a snapshot the renderer's fallback guess is the size; an
+  // empty view summary leaves the bare type.
   assert.deepEqual(
     viewOf({ type: "attachment", attachment: { type: "date_change" } }),
     ["⎘", "date_change", '{"type":"date_change"}'.length],
+  );
+  // The CLI renders nothing for this type: never reaches the assistant.
+  assert.deepEqual(
+    viewOf({
+      type: "attachment",
+      attachment: { type: "todo_reminder", content: [{ id: 1 }] },
+    }),
+    ["·", "todo_reminder: 1 item", 0],
   );
 });
 
@@ -152,9 +159,23 @@ test("assistant: thinking, tool headers, text, stop reason, sizes", () => {
       8 + (4 + 6 + 1) + 8,
     ],
   );
+  // All-thinking: the CLI drops the message from the wire.
   assert.deepEqual(
     viewOf(assistantEntry([{ type: "thinking", thinking: "" }])),
-    ["●", "[thinking]", 0],
+    ["·", "[thinking]", 0],
+  );
+  assert.deepEqual(
+    viewOf(assistantEntry([{ type: "redacted_thinking", data: "x" }])),
+    ["·", "(no content)", 0],
+  );
+  assert.deepEqual(
+    viewOf(
+      assistantEntry([
+        { type: "thinking", thinking: "hm" },
+        { type: "text", text: "" },
+      ]),
+    ),
+    ["●", "[thinking] hm", 2],
   );
   assert.deepEqual(viewOf(assistantEntry([], { stop_reason: "refusal" })), [
     "●",

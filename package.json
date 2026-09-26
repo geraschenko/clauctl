@@ -46,6 +46,7 @@
     "fmt": "treefmt",
     "sync": "node scripts/sync-from-pictl.mjs",
     "presubmit": "npm run check && npm run lint && npm run depcruise && node scripts/sync-from-pictl.mjs --check && node scripts/claude-tools/generate.ts --check && treefmt --fail-on-change && npm test",
+    "ready": "npm run fmt && npm run presubmit",
     "release": "scripts/release.sh"
   },
   "dependencies": {

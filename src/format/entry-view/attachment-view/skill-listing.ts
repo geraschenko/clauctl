@@ -2,10 +2,9 @@
 
 import { isRecord } from "../../../core/generated/util.ts";
 import type { AttachmentView } from "./attachment-view.ts";
-import { numberField, stringField } from "../payload.ts";
+import { numberField } from "../payload.ts";
 
 interface SkillListingPayload {
-  content?: string;
   skillCount?: number;
   names?: unknown;
 }
@@ -17,8 +16,5 @@ export const skillListingView: AttachmentView<SkillListingPayload> = {
       numberField(payload, "skillCount") ??
       (Array.isArray(names) ? names.length : 0);
     return `${count} skill${count === 1 ? "" : "s"}`;
-  },
-  size(payload) {
-    return stringField(payload, "content")?.length ?? 0;
   },
 };

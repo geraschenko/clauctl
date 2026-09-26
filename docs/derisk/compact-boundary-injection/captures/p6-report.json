@@ -7,7 +7,7 @@
     "name": "control",
     "error": null,
     "resultSubtype": "success",
-    "resultText": "The magic word was **XYLOPHONE-77431** and the primary color was **Red**.",
+    "resultText": "The magic word was **XYLOPHONE-77431** and the color you picked was **Red**.",
     "stderr": null,
     "apiStatuses": [
       200
@@ -27,7 +27,7 @@
     "name": "with-thinking",
     "error": null,
     "resultSubtype": "success",
-    "resultText": "I don't know the magic word from fact.txt — its contents were marked \"details omitted\" in my context — but the color you picked was **red**.",
+    "resultText": "I don't know the magic word — the contents of fact.txt were omitted from my context (I only know the file was read, not what it contained). The color you picked was **red**.",
     "stderr": null,
     "apiStatuses": [
       200
@@ -48,7 +48,7 @@
     "name": "no-thinking",
     "error": null,
     "resultSubtype": "success",
-    "resultText": "I don't know the magic word — the contents of fact.txt were omitted from my context (noted as \"details omitted\"). The color you picked was **Red**.",
+    "resultText": "I don't have the contents of fact.txt — the earlier read was summarized as \"(details omitted)\" in my context, so I can't retrieve the magic word. The color you picked (from this conversation) was **re",
     "stderr": null,
     "apiStatuses": [
       200

@@ -6,6 +6,7 @@ import {
   enumFlag,
   parsedFlag,
   stringArg,
+  stringFlag,
   type InferFlags,
 } from "../core/generated/cli.ts";
 import { DEFAULT_FORMAT_WIDTH } from "../core/generated/constants.ts";
@@ -13,9 +14,14 @@ import { readInputFile } from "../core/generated/read-input.ts";
 import type { CommandContext } from "../core/generated/targets.ts";
 import { UsageError } from "../core/generated/util.ts";
 import { CanonicalEntryFilter } from "../core/session/entry-stream.ts";
+import { entriesByUuid, type SessionEntry } from "../core/session/file.ts";
 import { projectEntries } from "../core/session/messages.ts";
 import { trackToolNames } from "../core/session/track-tool-names.ts";
 import { readSettings, settingsPath } from "../core/settings.ts";
+import { buildTree } from "../core/tree/build-tree.ts";
+import { toContextTree } from "../core/tree/context-tree.ts";
+import { toApiMessages } from "../format/api-messages/to-api-messages.ts";
+import { formatApiMessages } from "../format/api-messages/format-api-messages.ts";
 import {
   DEFAULT_ENTRY_FORMAT_OPTIONS,
   formatEntryLine,
@@ -220,6 +226,70 @@ async function formatTree(
   );
 }
 
+const apiRequestFlags = {
+  forceMidConversationSystem: booleanFlag(
+    "Render attachments as role:system messages, as the CLI does under CLAUDE_CODE_FORCE_MID_CONVERSATION_SYSTEM=1 and for some models (default: <system-reminder> text in user messages)",
+  ),
+  model: stringFlag(
+    "Model the request is for (default: the model of the context's last assistant message); thinking blocks of other models are dropped, as the CLI does",
+    "model",
+  ),
+  json: booleanFlag("Print the request body's messages as JSON"),
+};
+type ApiRequestFlags = InferFlags<typeof apiRequestFlags>;
+
+/** The entries of `contextAt(leaf)` over the tree of the canonical entries
+ *  among `entries`; a chain (as `get-context` prints) has itself as its
+ *  leaf context. */
+export function leafContext(entries: readonly SessionEntry[]): SessionEntry[] {
+  const filter = new CanonicalEntryFilter();
+  const canonical = entries.flatMap((entry) => {
+    const accepted = filter.accept(entry);
+    return accepted === undefined ? [] : [accepted];
+  });
+  const byUuid = entriesByUuid(canonical);
+  const contextTree = toContextTree(
+    buildTree(canonical, () => {}),
+    byUuid,
+  );
+  return contextTree.leaf === null
+    ? []
+    : contextTree.contextAt(contextTree.leaf).flatMap((ref) => {
+        const entry = byUuid.get(ref.uuid);
+        return entry === undefined ? [] : [entry];
+      });
+}
+
+async function formatApiRequest(
+  this: CommandContext,
+  flags: ApiRequestFlags,
+  file?: string,
+): Promise<void> {
+  const input = await decodeFormatInput(inputChunks(this, file));
+  if (input.kind === "empty") {
+    return;
+  }
+  if (input.kind === "events") {
+    rejectEvents();
+  }
+  if (input.kind === "messages") {
+    rejectMessages();
+  }
+  const entries: SessionEntry[] = [];
+  for await (const entry of input.records) {
+    entries.push(entry);
+  }
+  const { messages } = toApiMessages(leafContext(entries), {
+    forceMidConversationSystem: flags.forceMidConversationSystem,
+    model: flags.model,
+  });
+  this.process.stdout.write(
+    flags.json
+      ? `${JSON.stringify({ messages })}\n`
+      : formatApiMessages(messages),
+  );
+}
+
 export const formatRoute = {
   format: Object.assign(
     buildRouteMap({
@@ -256,6 +326,15 @@ export const formatRoute = {
           },
           parameters: { flags: treeFlags, positional: filePositional },
           func: formatTree,
+        }),
+        "api-request": commandNoTarget<ApiRequestFlags, [string | undefined]>({
+          common: true,
+          docs: {
+            brief:
+              "format get-context output or session-file JSONL as the API request messages the assistant receives",
+          },
+          parameters: { flags: apiRequestFlags, positional: filePositional },
+          func: formatApiRequest,
         }),
       },
       docs: { brief: "Format raw clauctl output as plain text" },

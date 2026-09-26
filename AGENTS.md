@@ -7,6 +7,10 @@
 - When the user asks a question, answer it first before making edits or running implementation commands.
 - When responding to user feedback or an analysis, explicitly say whether you agree or disagree before saying what you changed.
 
+## Verification
+
+- Before handing work over, run `npm run ready` (formats, then runs the presubmit assertions).
+
 ## Code Quality
 
 - Read files in full before wide-ranging changes, before editing files you have not fully inspected, and when asked to investigate or audit. Do not rely on search snippets for broad changes. Prefer your Read tool with offset and limit over `sed -n`.

@@ -129,7 +129,7 @@ test("bookkeeping types get concise summaries", () => {
   );
   assert.match(
     line({ type: "attachment", attachment: { type: "deferred_tools_delta" } }),
-    / attachment deferred_tools_delta: \+0 -0 *$/u,
+    / attachment deferred_tools_delta: \+0 -0 +31$/u,
   );
   assert.match(
     line({

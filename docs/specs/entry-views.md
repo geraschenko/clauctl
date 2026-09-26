@@ -208,15 +208,21 @@ export function attachmentViewFor(type: string): AttachmentView<unknown>;
 Specific views, one file each (`total-tokens-reminder.ts`, …), payload
 types hand-written, fields read defensively (wire is untrusted):
 
-| `attachment.type`                                                                                       | summary                                            | size                                                                  |
-| ------------------------------------------------------------------------------------------------------- | -------------------------------------------------- | --------------------------------------------------------------------- |
-| `total_tokens_reminder`                                                                                 | `text` with `<total_tokens>` tags stripped         | `text.length`                                                         |
-| `todo_reminder`, `task_reminder`                                                                        | `N items`                                          | JSON length of `content`                                              |
-| `file`, `edited_text_file`, `compact_file_reference`, `nested_memory`, `already_read_file`, `directory` | `displayPath` (fallback `filename`/`path`)         | content/snippet text length, 0 when absent (`compact_file_reference`) |
-| `hook_success`                                                                                          | `<hookEvent> exit <exitCode>: <first stdout line>` | `stdout.length + stderr.length`                                       |
-| `date_change`                                                                                           | `newDate`                                          | JSON length                                                           |
-| `deferred_tools_delta`                                                                                  | `+<addedNames.length> -<removedNames.length>`      | sum of `addedLines[i].length`                                         |
-| `skill_listing`                                                                                         | `N skills`                                         | `content.length`                                                      |
+| `attachment.type`                                                                                       | summary                                                                   |
+| ------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
+| `total_tokens_reminder`                                                                                 | `text` with `<total_tokens>` tags stripped                                |
+| `todo_reminder`, `task_reminder`                                                                        | `N items`                                                                 |
+| `file`, `edited_text_file`, `compact_file_reference`, `nested_memory`, `already_read_file`, `directory` | `displayPath` (fallback `filename`/`path`)                                |
+| `hook_success`                                                                                          | `<hookEvent> exit <exitCode>: <first stdout line>`                        |
+| `date_change`                                                                                           | `newDate`                                                                 |
+| `deferred_tools_delta`                                                                                  | `+<addedNames.length> -<removedNames.length>`                             |
+| `skill_listing`                                                                                         | `N skills`                                                                |
+| `token_usage`                                                                                           | `<used>/<total>; <remaining> remaining` (the wire text, wrapper stripped) |
+| `instructions`                                                                                          | each file's last two path segments, comma-joined (`memory/MEMORY.md`)     |
+
+Attachment views carry no size: the entry view sizes an attachment by
+the sum of its wire rendering's texts (`renderAttachmentEntry`, 0 when it
+renders nothing; docs/specs/api-messages.md criterion 5).
 
 ```ts
 // entry-view.ts
@@ -268,7 +274,7 @@ Summaries per view:
 | compact boundary | `═`       | `[compaction: Nk tokens]` / `[compaction]` (as today)                                                                                                                                                                                                                       | 0                                                |
 | compact summary  | `□`       | text (as today)                                                                                                                                                                                                                                                             | text length                                      |
 | prompt           | `❯`       | text / queued prompt (as today)                                                                                                                                                                                                                                             | text length                                      |
-| attachment       | `⎘`       | `<type>:` + `attachmentViewFor(type).summary(payload)`                                                                                                                                                                                                                      | the attachment view's size                       |
+| attachment       | `⎘`       | `<type>:` + `attachmentViewFor(type).summary(payload)`                                                                                                                                                                                                                      | sum of the wire rendering's texts                |
 | tool result      | `⤷` / `✗` | `<Name>: ok                                                                                                                                                                                                                                                                 | error`(as today;`tool` when unnamed)             |
 | user with text   | `◌`       | text (as today)                                                                                                                                                                                                                                                             | text length                                      |
 | assistant        | `▸` / `●` | parts joined by spaces: `[thinking] <thought>` per thinking block; `[<Name>: <description> — <arg>]` per tool_use (`toolViewFor(name).header(input, entry.cwd)`; omit absent parts and the `—`); text; `(stop_reason)` when abnormal and no text; `(no content)` when empty | thinking + text + tool-call `input` JSON lengths |

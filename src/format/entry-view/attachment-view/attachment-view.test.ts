@@ -10,10 +10,6 @@ function summaryOf(type: string, payload: unknown): string {
   return attachmentViewFor(type).summary(payload, WIDTH);
 }
 
-function sizeOf(type: string, payload: unknown): number {
-  return attachmentViewFor(type).size(payload);
-}
-
 test("oneLinePrefix: collapses whitespace and stops at maxChars + 1", () => {
   assert.equal(oneLinePrefix("  a \n\t b  ", 10), "a b");
   assert.equal(oneLinePrefix("abcdef", 3), "abcd");
@@ -34,7 +30,6 @@ test("total_tokens_reminder strips the tags", () => {
     summaryOf("total_tokens_reminder", payload),
     "14973970 tokens left",
   );
-  assert.equal(sizeOf("total_tokens_reminder", payload), payload.text.length);
   assert.equal(summaryOf("total_tokens_reminder", {}), "");
 });
 
@@ -44,24 +39,14 @@ test("todo/task reminders count items", () => {
     "0 items",
   );
   assert.equal(summaryOf("task_reminder", { content: [{ id: 1 }] }), "1 item");
-  assert.equal(sizeOf("todo_reminder", { content: [{ id: 1 }] }), 10);
-  assert.equal(sizeOf("todo_reminder", {}), 0);
 });
 
-test("file-like attachments show the display path and size the text", () => {
+test("file-like attachments show the display path", () => {
   assert.equal(
     summaryOf("file", { filename: "/x/a.ts", displayPath: "a.ts" }),
     "a.ts",
   );
   assert.equal(summaryOf("directory", { path: "/x" }), "/x");
-  assert.equal(
-    sizeOf("file", { content: { type: "text", file: { content: "abc" } } }),
-    3,
-  );
-  assert.equal(sizeOf("nested_memory", { content: { content: "abcd" } }), 4);
-  assert.equal(sizeOf("edited_text_file", { snippet: "ab" }), 2);
-  assert.equal(sizeOf("directory", { content: "a\nb" }), 3);
-  assert.equal(sizeOf("compact_file_reference", { filename: "/x" }), 0);
 });
 
 test("hook_success: event, exit code and first output line", () => {
@@ -98,17 +83,12 @@ test("hook_success: event, exit code and first output line", () => {
     ),
     "S exit 0: 😀😀😀",
   );
-  assert.equal(sizeOf("hook_success", { stdout: "ab", stderr: "c" }), 3);
 });
 
 test("date_change, deferred_tools_delta, skill_listing", () => {
   assert.equal(
     summaryOf("date_change", { newDate: "2026-09-23" }),
     "2026-09-23",
-  );
-  assert.equal(
-    sizeOf("date_change", { newDate: "2026-09-23" }),
-    '{"newDate":"2026-09-23"}'.length,
   );
   assert.equal(
     summaryOf("deferred_tools_delta", {
@@ -118,13 +98,11 @@ test("date_change, deferred_tools_delta, skill_listing", () => {
     }),
     "+2 -1",
   );
-  assert.equal(sizeOf("deferred_tools_delta", { addedLines: ["x", "yz"] }), 3);
   assert.equal(
     summaryOf("skill_listing", { skillCount: 4, content: "abc" }),
     "4 skills",
   );
   assert.equal(summaryOf("skill_listing", { names: ["a"] }), "1 skill");
-  assert.equal(sizeOf("skill_listing", { skillCount: 4, content: "abc" }), 3);
 });
 
 test("unknown types take the default view: text, content, else JSON", () => {
@@ -133,7 +111,27 @@ test("unknown types take the default view: text, content, else JSON", () => {
   assert.equal(summaryOf("brand_new", { text: "t\nx", content: "c" }), "t x");
   assert.equal(summaryOf("brand_new", { content: "c" }), "c");
   assert.equal(summaryOf("brand_new", { n: 1 }), '{"n":1}');
-  // Size: string fields by length, the rest by JSON length.
-  assert.equal(sizeOf("brand_new", { text: "abc", names: ["a"] }), 3 + 5);
-  assert.equal(sizeOf("brand_new", undefined), 0);
+});
+
+test("token_usage and instructions compress the wire text", () => {
+  assert.equal(
+    summaryOf("token_usage", { used: 42717, total: 180000, remaining: 137283 }),
+    "42717/180000; 137283 remaining",
+  );
+  assert.equal(summaryOf("token_usage", { used: 1 }), "");
+  assert.equal(
+    summaryOf("instructions", {
+      files: [
+        { path: "/home/a/.claude/CLAUDE.md", type: "User" },
+        { path: "/home/a/git/x/CLAUDE.md", type: "Project" },
+        {
+          path: "/home/a/.claude/projects/p/memory/MEMORY.md",
+          type: "AutoMem",
+        },
+        { type: "Broken" },
+      ],
+    }),
+    ".claude/CLAUDE.md, x/CLAUDE.md, memory/MEMORY.md",
+  );
+  assert.equal(summaryOf("instructions", {}), "");
 });

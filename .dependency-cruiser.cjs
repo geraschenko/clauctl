@@ -2,8 +2,9 @@
  * Dependency DAG (docs/specs/protocol-layering.md, format-tui-layering.md).
  * Keys are src/ directories or files; values are the keys each may import. A
  * key may not import another key without a direct edge; an edge to a key
- * grants its descendants, and a key may always import its ancestors' unlisted
- * contents. Paths that are not keys are unconstrained (the generated/
+ * grants that key and its descendants, nothing of its ancestors, and a key
+ * may always import its own ancestors' unlisted contents. Paths
+ * that are not keys are unconstrained (the generated/
  * directories, the loose core/*.ts, test-support). Tests obey the DAG like any
  * other module; integration tests live where their imports are allowed.
  */
@@ -13,6 +14,11 @@ const DEPENDENCY_DAG = {
   commands: ["tui", "format", "core"],
   tui: ["format", "core"],
   format: ["core"],
+  "format/api-messages": [
+    "core/session",
+    "core/uuid.ts",
+    "core/generated/util.ts",
+  ],
   core: [],
   "core/protocol": [
     "core/session",
@@ -65,12 +71,17 @@ const dependencyDagRules = Object.entries(DEPENDENCY_DAG).map(
         !isWithin(other, node) &&
         !edges.some((edge) => other === edge || isWithin(other, edge)),
     );
+    // An edge grants its target and the target's descendants only: an
+    // ancestor key of the target stays forbidden outside that subtree.
     return {
       name: `dag-${node.replace(/\//g, "-")}`,
       severity: "error",
       comment: `${node} may import only {${edges}} among the DAG nodes.`,
       from: { path: dagNodePath(node) },
-      to: { path: forbidden.map(dagNodePath).join("|") },
+      to: {
+        path: forbidden.map(dagNodePath).join("|"),
+        ...(edges.length > 0 && { pathNot: edges.map(dagNodePath).join("|") }),
+      },
     };
   },
 );

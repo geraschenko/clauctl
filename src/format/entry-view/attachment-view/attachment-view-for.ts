@@ -8,8 +8,10 @@ import { dateChangeView } from "./date-change.ts";
 import { deferredToolsDeltaView } from "./deferred-tools-delta.ts";
 import { fileView } from "./file.ts";
 import { hookSuccessView } from "./hook-success.ts";
+import { instructionsView } from "./instructions.ts";
 import { skillListingView } from "./skill-listing.ts";
 import { todoReminderView } from "./todo-reminder.ts";
+import { tokenUsageView } from "./token-usage.ts";
 import { totalTokensReminderView } from "./total-tokens-reminder.ts";
 
 export const attachmentViews: Readonly<
@@ -28,6 +30,8 @@ export const attachmentViews: Readonly<
   date_change: dateChangeView,
   deferred_tools_delta: deferredToolsDeltaView,
   skill_listing: skillListingView,
+  token_usage: tokenUsageView,
+  instructions: instructionsView,
 };
 
 /** Own-property lookup: a type named like an Object.prototype member

@@ -232,6 +232,22 @@ range.
      assertion. A p4 "fixture setup failed" message is the known model flake;
      rerun that probe alone, then check-reports.
 
+   - `tests/sdk/api-context.test.ts` (one haiku resume per fixture, no
+     request reaches the API): the wire normalization behind
+     `src/format/api-messages/` (docs/specs/api-messages.md) is transcribed
+     from the bundled binary and the fixtures observe only what they were
+     written for, so every bump does all four steps, passing tests
+     included: (1) run them — a failing fixture names the CLI behaviour
+     that changed; (2) for every literal in `src/format/api-messages/`
+     whose comment carries a binary anchor, grep the anchor in the new
+     binary
+     (`grep -boa ANCHOR node_modules/@anthropic-ai/claude-agent-sdk-linux-x64/claude`)
+     and re-read the surrounding slice; (3) run
+     `node scripts/capture-api-request.ts <session.jsonl> --check` on a
+     real session written by the new version and judge the
+     `/tmp/capture-api-request-<id>/` files; (4) record the run in this
+     update's spec (step 10). Never widen a tolerance to make a bump pass.
+
    Add only further cases for changed behavior that clauctl actually depends on:
    Query controls, queueing, tools/MCP, compaction, session rollover, resume,
    set-context, or TUI rendering. A declaration change alone does not require a
@@ -243,7 +259,8 @@ range.
    captures—never credentials, tokens, environment dumps, or private config—and
    remove successful temporary agent state.
 
-10. Finish with a migration report containing:
+10. Finish with the update's spec, `docs/specs/sdk-updates/sdk-<target>.md`
+    (`sdk-0.3.280.md` is the model), containing:
 
 - old and new exact versions;
 - notable declaration/runtime changes and their disposition;

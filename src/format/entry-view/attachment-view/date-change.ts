@@ -1,7 +1,7 @@
 // `date_change`: `{newDate}`.
 
 import type { AttachmentView } from "./attachment-view.ts";
-import { jsonLength, stringField } from "../payload.ts";
+import { stringField } from "../payload.ts";
 import { oneLinePrefix } from "../../../core/generated/text.ts";
 
 interface DateChangePayload {
@@ -12,5 +12,4 @@ export const dateChangeView: AttachmentView<DateChangePayload> = {
   summary(payload, maxChars) {
     return oneLinePrefix(stringField(payload, "newDate") ?? "", maxChars);
   },
-  size: jsonLength,
 };

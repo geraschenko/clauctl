@@ -21,7 +21,4 @@ export const totalTokensReminderView: AttachmentView<TotalTokensReminderPayload>
       );
       return oneLinePrefix(text.replace(/<\/?total_tokens>/gu, ""), maxChars);
     },
-    size(payload) {
-      return stringField(payload, "text")?.length ?? 0;
-    },
   };
