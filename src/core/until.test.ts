@@ -43,13 +43,16 @@ const assistantEvent: AgentEvent = {
 
 test("turn-end and idle are met at a fully idle seed", () => {
   assert.equal(untilMetAtSeed({ kind: "turn-end" }, idleState), true);
-  assert.equal(untilMetAtSeed({ kind: "idle" }, idleState), true);
+  assert.equal(
+    untilMetAtSeed({ kind: "state", name: "idle" }, idleState),
+    true,
+  );
 });
 
 test("turn-end and idle are not met at a busy or pending-queued seed", () => {
   for (const seed of [workingState, pendingState]) {
     assert.equal(untilMetAtSeed({ kind: "turn-end" }, seed), false);
-    assert.equal(untilMetAtSeed({ kind: "idle" }, seed), false);
+    assert.equal(untilMetAtSeed({ kind: "state", name: "idle" }, seed), false);
   }
 });
 
@@ -79,9 +82,12 @@ test("turn-end fires at any result, even with more turns queued", () => {
 });
 
 test("idle fires only when the post-fold state is fully idle", () => {
-  assert.equal(untilMetByEvent({ kind: "idle" }, resultEvent, idleState), true);
   assert.equal(
-    untilMetByEvent({ kind: "idle" }, resultEvent, pendingState),
+    untilMetByEvent({ kind: "state", name: "idle" }, resultEvent, idleState),
+    true,
+  );
+  assert.equal(
+    untilMetByEvent({ kind: "state", name: "idle" }, resultEvent, pendingState),
     false,
   );
 });

@@ -239,7 +239,7 @@ async function waitUntilIdle(
   client: ProtocolClient,
   timeoutMs: number | undefined,
 ): Promise<void> {
-  const idle: UntilCondition = { kind: "idle" };
+  const idle: UntilCondition = { kind: "state", name: "idle" };
   try {
     const { outcome } = await runStream(
       client,

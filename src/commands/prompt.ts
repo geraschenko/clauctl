@@ -43,10 +43,7 @@ import { SOCKET_CONNECT_DEADLINE_MS } from "../core/generated/constants.ts";
 import { runStream } from "../core/generated/streaming/driver.ts";
 import { oneTarget, type CommandContext } from "../core/generated/targets.ts";
 import {
-  parseUntilCondition,
   secondsToTimerMs,
-  UNTIL_COMPLETIONS,
-  UNTIL_USAGE,
   UntilTimeoutError,
   type UntilCondition,
 } from "../core/generated/until-engine.ts";
@@ -56,7 +53,13 @@ import { agentSocketPath, type AgentRecord } from "../core/registry.ts";
 import { connectWithRetry } from "../core/protocol-client/index.ts";
 import type { AgentEvent } from "../core/protocol/index.ts";
 import { UntilSettlement } from "./tail.ts";
-import { untilMetByEvent, untilQuietMs } from "../core/until.ts";
+import {
+  parseUntilCondition,
+  UNTIL_COMPLETIONS,
+  UNTIL_USAGE,
+  untilMetByEvent,
+  untilQuietMs,
+} from "../core/until.ts";
 import { UUID_PATTERN } from "../core/uuid.ts";
 
 const PROMPT_TYPES = ["messages", "entries", "events"] as const;

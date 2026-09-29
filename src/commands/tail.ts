@@ -47,12 +47,14 @@ import {
 import { runStream } from "../core/generated/streaming/driver.ts";
 import { oneTarget, type CommandContext } from "../core/generated/targets.ts";
 import {
-  parseUntilCondition,
   secondsToTimerMs,
-  UNTIL_COMPLETIONS,
-  UNTIL_USAGE,
   type UntilCondition,
 } from "../core/generated/until-engine.ts";
+import {
+  parseUntilCondition,
+  UNTIL_COMPLETIONS,
+  UNTIL_USAGE,
+} from "../core/until.ts";
 import { fileExists, UsageError } from "../core/generated/util.ts";
 import {
   archivedPath,

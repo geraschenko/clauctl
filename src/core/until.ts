@@ -22,9 +22,15 @@ import { isIdle } from "./agent-state/index.ts";
 import type { AgentState, AgentEvent } from "./protocol/index.ts";
 import { makeUntilCheckers } from "./generated/until-engine.ts";
 
-export const { untilMetAtSeed, untilMetByEvent, untilQuietMs } =
-  makeUntilCheckers<AgentEvent, AgentState>({
-    isIdle,
-    isTurnEnd: (event) =>
-      event.kind === "sdkMessage" && event.message.type === "result",
-  });
+export const {
+  usage: UNTIL_USAGE,
+  completions: UNTIL_COMPLETIONS,
+  parse: parseUntilCondition,
+  untilMetAtSeed,
+  untilMetByEvent,
+  untilQuietMs,
+} = makeUntilCheckers<AgentEvent, AgentState>({
+  stateConditions: { idle: isIdle },
+  isTurnEnd: (event) =>
+    event.kind === "sdkMessage" && event.message.type === "result",
+});

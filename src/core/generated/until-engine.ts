@@ -16,28 +16,8 @@ export class UntilTimeoutError extends Error {}
 
 export type UntilCondition =
   | { kind: "turn-end" }
-  | { kind: "idle" }
+  | { kind: "state"; name: string }
   | { kind: "no-activity"; idleMs: number };
-
-export const UNTIL_USAGE = "turn-end|idle|no-activity:<secs>";
-export const UNTIL_COMPLETIONS = ["turn-end", "idle", "no-activity:"] as const;
-
-export function parseUntilCondition(value: string): UntilCondition {
-  if (value === "turn-end") {
-    return { kind: "turn-end" };
-  }
-  if (value === "idle") {
-    return { kind: "idle" };
-  }
-  const noActivitySeconds = /^no-activity:(\d+(?:\.\d+)?)$/.exec(value)?.[1];
-  if (noActivitySeconds !== undefined) {
-    return {
-      kind: "no-activity",
-      idleMs: secondsToTimerMs(Number(noActivitySeconds)),
-    };
-  }
-  throw new UsageError(`--until must be ${UNTIL_USAGE} (got '${value}')`);
-}
 
 /** Node treats setTimeout delays above 2**31-1 ms as ~0, so an oversized
  *  duration would fire immediately instead of far in the future. */
@@ -56,13 +36,22 @@ export function secondsToTimerMs(seconds: number): number {
   return ms;
 }
 
-/** The two repo-specific judgments the checkers close over. */
+/** Repo-specific state conditions and turn-end judgment. */
 export interface UntilPredicates<TEvent, TState> {
-  isIdle(state: TState): boolean;
+  /** `idle` is required: turn-end is met at the seed only when idle. */
+  stateConditions: { idle(state: TState): boolean } & Record<
+    string,
+    (state: TState) => boolean
+  >;
   isTurnEnd(event: TEvent): boolean;
 }
 
 export interface UntilCheckers<TEvent, TState> {
+  /** Grammar and shell completions derived from the named state conditions. */
+  usage: string;
+  completions: readonly string[];
+  /** Rejects unknown names with a UsageError naming this instance's grammar. */
+  parse(value: string): UntilCondition;
   /** Whether the condition already holds at the subscribe seed. `turn-end`
    *  is met at the seed only when idle: a pending queued message counts
    *  as a turn that must end. */
@@ -81,12 +70,36 @@ export interface UntilCheckers<TEvent, TState> {
 export function makeUntilCheckers<TEvent, TState>(
   predicates: UntilPredicates<TEvent, TState>,
 ): UntilCheckers<TEvent, TState> {
+  const { stateConditions } = predicates;
+  const conditionNames = ["turn-end", ...Object.keys(stateConditions)];
+  const usage = [...conditionNames, "no-activity:<secs>"].join("|");
   return {
+    usage,
+    completions: [...conditionNames, "no-activity:"],
+    parse(value: string): UntilCondition {
+      if (value === "turn-end") {
+        return { kind: "turn-end" };
+      }
+      if (Object.hasOwn(stateConditions, value)) {
+        return { kind: "state", name: value };
+      }
+      const noActivitySeconds = /^no-activity:(\d+(?:\.\d+)?)$/.exec(
+        value,
+      )?.[1];
+      if (noActivitySeconds !== undefined) {
+        return {
+          kind: "no-activity",
+          idleMs: secondsToTimerMs(Number(noActivitySeconds)),
+        };
+      }
+      throw new UsageError(`--until must be ${usage} (got '${value}')`);
+    },
     untilMetAtSeed(condition: UntilCondition, seed: TState): boolean {
       switch (condition.kind) {
         case "turn-end":
-        case "idle":
-          return predicates.isIdle(seed);
+          return stateConditions.idle(seed);
+        case "state":
+          return stateConditions[condition.name]!(seed);
         case "no-activity":
           return false;
       }
@@ -99,8 +112,8 @@ export function makeUntilCheckers<TEvent, TState>(
       switch (condition.kind) {
         case "turn-end":
           return predicates.isTurnEnd(event);
-        case "idle":
-          return predicates.isIdle(state);
+        case "state":
+          return stateConditions[condition.name]!(state);
         case "no-activity":
           return false;
       }

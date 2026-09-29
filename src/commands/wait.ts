@@ -23,12 +23,14 @@ import { isPidAlive, agentSocketPath } from "../core/registry.ts";
 import { connectWithRetry } from "../core/protocol-client/index.ts";
 import { runStream } from "../core/generated/streaming/driver.ts";
 import {
-  parseUntilCondition,
   secondsToTimerMs,
-  UNTIL_COMPLETIONS,
-  UNTIL_USAGE,
   UntilTimeoutError,
 } from "../core/generated/until-engine.ts";
+import {
+  parseUntilCondition,
+  UNTIL_COMPLETIONS,
+  UNTIL_USAGE,
+} from "../core/until.ts";
 import {
   untilMetAtSeed,
   untilMetByEvent,
