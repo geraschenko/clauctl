@@ -551,9 +551,12 @@ shape (old summary through the probe turn kept). A second 2.1.258 run
 _within_ a version, so it is not a per-version rule either. Two shapes
 across four runs, no monotone trend: treat the native keep-reach as
 unstable writer behavior, not a rule the loader may depend on.
-`check-reports.mjs` pins 0.3.258 to the latest observation (tail-only)
-so further flips surface; once the flakiness is characterized enough the
-assertion should accept either known shape and reject only a third.
+Through the 2026-09-22 run `check-reports.mjs` pinned each version to its
+latest observation so further flips would surface. The 2026-09-30 run on
+2.1.280 produced the tail-only shape, so both shapes have now appeared
+within 2.1.258 and within 2.1.280 (six runs, two shapes, no trend); the
+flakiness is characterized, and `check-reports.mjs` now accepts either
+known shape and rejects only a third.
 
 One loader-side drift in 2.1.258, outside the fixture space clauctl writes:
 a `compact_boundary` entry with no `compactMetadata` now fails the resume

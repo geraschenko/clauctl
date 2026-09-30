@@ -607,3 +607,12 @@ from the source reading): one run, `tail-heal-only`; kill1 re-confirmed.
 the positional rule; check-reports gains the kill1-later row (75
 assertions). Two-pass >5 MiB reader now admits same-id siblings, progress
 rows and tails; still an untested consumer.
+
+## 2026-09-30 — 0.3.280 suite rerun: p4 q7 keep-reach accepts both shapes
+
+Suite rerun on SDK 0.3.280 (same pin): 24/24 probes ok, check-reports
+74/75 — p4 q7 produced the tail-only keep-reach shape where the 09-22 run
+had produced old-summary. Both shapes are now observed within 2.1.258 and
+within 2.1.280, so the per-version pin is retired: check-reports accepts
+either known shape and fails on a third (FINDINGS "Version drift"). No
+loader-side drift.

@@ -84,8 +84,12 @@ test("resume turn closer: session-only; API-error synthetic: shared", async () =
       prompt: first.input,
       options: { ...options, sessionId, includePartialMessages: true },
     });
+    // Interrupt once: a control request still pending when the CLI exits is
+    // rejected with the error described at the q3 loop below.
+    let interrupted = false;
     for await (const message of q1) {
-      if (message.type === "stream_event") {
+      if (message.type === "stream_event" && !interrupted) {
+        interrupted = true;
         await q1.interrupt();
         first.end();
       }
@@ -127,7 +131,17 @@ test("resume turn closer: session-only; API-error synthetic: shared", async () =
         sessionId: failedSessionId,
       },
     });
-    for await (const message of q3) failed.push(message);
+    // SDK quirk: an error result followed by a non-zero CLI exit makes the
+    // query iterator throw `errorClass: "error_result"` after it has
+    // delivered every message, so the messages are all in `failed`.
+    try {
+      for await (const message of q3) failed.push(message);
+    } catch (error) {
+      assert.equal(
+        (error as { errorClass?: string }).errorClass,
+        "error_result",
+      );
+    }
     q3.close();
     const failedEntries = readSessionEntries(
       sessionFilePath(configDir, cwd, failedSessionId),

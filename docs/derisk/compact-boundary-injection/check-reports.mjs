@@ -7,8 +7,8 @@
 // A clean exit means the pinned behaviors still hold on the current SDK/CLI —
 // this is the upgrade-regression gate the FINDINGS header calls for. Reports
 // carry the producing SDK version; assertions with known per-version drift
-// (p4.q7) fail on an UNKNOWN version so drift gets characterized and the
-// version table extended, never loosened.
+// (p1e, p20 kill1) fail on an UNKNOWN version so drift gets characterized
+// and the version table extended, never loosened.
 //
 // Only run-stable invariants are asserted: fixture uuids (stable across runs)
 // may be compared exactly; uuids minted during a run (leaf markers, the CLI's
@@ -148,24 +148,17 @@ const starts = (u, p) => typeof u === "string" && u.startsWith(p);
     r.q7.compactSubtype === "success" && r.q7.compactReqScope.nMessages === 3
     && r.q7.compactReqScope.hasSynthSummary && r.q7.compactReqScope.hasRed
     && !r.q7.compactReqScope.hasU1 && !r.q7.compactReqScope.hasU2);
-  // Compaction WRITER keep-reach drift on this fixture (loader behavior
-  // unchanged): 2.1.195 kept a segment from the old summary through the
-  // probe turn; 2.1.250 kept only the trailing assistant turn — old summary
-  // and first probe gone, post-compact context = [new summary, assistant
-  // turn, probe] (3 messages). 2.1.258 has produced BOTH shapes and 2.1.280
-  // the old-summary shape (see FINDINGS "Version drift"); each version is
-  // pinned to its latest observation so a flip is noticed rather than
-  // absorbed. Known versions only: an unknown SDK version FAILS here so
-  // drift gets characterized, not silently accepted.
+  // Compaction WRITER keep-reach on this fixture is unstable within a
+  // version (loader behavior unchanged; see FINDINGS "Version drift"): it
+  // keeps either a segment from the old summary through the probe turn, or
+  // only the trailing assistant turn — post-compact context = [new summary,
+  // assistant turn, probe] (3 messages). Either shape passes; a third shape
+  // FAILS here so drift gets characterized, not silently accepted.
   const keptOld = r.q7.postProbe.hasOldSynthSummary && r.q7.postProbe.hasFirstProbe;
   const keptTailOnly = !r.q7.postProbe.hasOldSynthSummary && !r.q7.postProbe.hasFirstProbe
     && r.q7.postProbe.nMessages === 3;
-  check("p4.q7 post-compact probe sees new compacted context (known writer keep-reach per version)",
-    r.versions.sdk === "0.3.195" ? keptOld
-    : r.versions.sdk === "0.3.250" ? keptTailOnly
-    : r.versions.sdk === "0.3.258" ? keptTailOnly
-    : r.versions.sdk === "0.3.280" ? keptOld
-    : false);
+  check("p4.q7 post-compact probe sees new compacted context (either known writer keep-reach shape)",
+    keptOld || keptTailOnly);
   check("p4.q8 live dry-run rewind works", r.q8.liveDryRun.canRewind === true);
   check("p4.q8 behind-boundary rewind refused", r.q8.behindBoundaryDryRun.canRewind === false
     && r.q8.behindBoundaryDryRun.error?.includes("No file checkpoint") && r.q8.contentAfterRewind === "V2");
