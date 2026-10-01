@@ -1,4 +1,4 @@
-// Ported from pi coding-agent src/core/footer-data-provider.ts @ 0.87.1
+// Ported from pi coding-agent src/core/footer-data-provider.ts @ 0.99.2
 //
 // Differences from the pi original, kept minimal for mirror-diffing
 // (see scripts/update-ports.sh for the update procedure):

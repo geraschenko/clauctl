@@ -395,3 +395,16 @@ transcript and snapshot-seeded footer, and conversation continues.
   for us); `createTui` passes the hardware-cursor flag explicitly.
   Mouse reporting is enabled only by `TuiAltScreen`, so click handling
   will be a fullscreen-only feature.
+- **pi-tui and pi-coding-agent 0.87.1 → 0.99.2** (pi skipped 0.88–0.98).
+  All three ports are byte-identical upstream; only their header pins
+  moved. pi-tui's breaking change replaced `queryTerminalColorScheme`/
+  `queryTerminalBackgroundColor` with `queryTerminalColors`; we call
+  neither. `initTheme()` now defaults to the new `system` theme, which
+  derives colors from the terminal palette; we pass `"dark"` explicitly so
+  nothing changed. Not adopted: pi's fallback tool renderer now prints
+  arguments as `key=value` (`formatToolCallWithArgs`); our
+  `tool-execution.ts` follows claude's layout, not pi's. pi-coding-agent
+  ships an `npm-shrinkwrap.json` that pins its subtree, so
+  `npm audit fix` cannot move its nested `brace-expansion@5.0.9`; root
+  `overrides` do not win over a shrinkwrap either. That advisory clears
+  only when pi regenerates its shrinkwrap.
