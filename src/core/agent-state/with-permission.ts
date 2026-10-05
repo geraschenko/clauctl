@@ -3,6 +3,7 @@ import type {
   PermissionRequest,
   TaskState,
 } from "../protocol/index.ts";
+import { liveTasks } from "./selectors.ts";
 import { withAnomalies } from "./tracker-anomaly.ts";
 
 /** The ask joins its task's list (`agentId` = the task's id) or the main
@@ -13,7 +14,7 @@ export function withPermissionRequested(
   state: AgentState,
   request: PermissionRequest,
 ): AgentState {
-  const task = state.tasks.find((task) => task.taskId === request.agentId);
+  const task = liveTasks(state).find((task) => task.taskId === request.agentId);
   if (task !== undefined) {
     return withTask(state, {
       ...task,
@@ -59,18 +60,12 @@ export function withPermissionResolved(
       });
 }
 
-/** `task` replaces the live task of its id, or joins the end. */
+/** `task` replaces the task of its id, or joins the end. */
 export function withTask(state: AgentState, task: TaskState): AgentState {
-  const index = state.tasks.findIndex((live) => live.taskId === task.taskId);
+  const index = state.tasks.findIndex((known) => known.taskId === task.taskId);
   return {
     ...state,
     tasks:
       index === -1 ? [...state.tasks, task] : state.tasks.with(index, task),
   };
-}
-
-export function withoutTask(state: AgentState, taskId: string): AgentState {
-  return state.tasks.some((task) => task.taskId === taskId)
-    ? { ...state, tasks: state.tasks.filter((task) => task.taskId !== taskId) }
-    : state;
 }

@@ -23,7 +23,7 @@ export interface DialogScenario {
   setup?(cwd: string): void;
   claudeArgs?: string[];
   /** Claude side only (no clauctl counterpart yet; see
-   *  docs/follow-ups/permission-cli.md for AskUserQuestion). */
+   *  docs/specs/permission-cli.md for AskUserQuestion). */
   claudeOnly?: boolean;
 }
 

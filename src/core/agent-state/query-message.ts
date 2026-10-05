@@ -60,7 +60,7 @@ export function withPendingLeaf(
 
 /** After the observation: per-session usage/model evidence from
  *  top-level messages. */
-export function withQueryEvidence(
+export function withModelAndUsage(
   state: AgentState,
   event: Extract<AgentEvent, { kind: "sdkMessage" }>,
 ): AgentState {

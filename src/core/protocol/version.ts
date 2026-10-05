@@ -1,2 +1,2 @@
 export const PROTOCOL_NAME = "clauctl-protocol";
-export const PROTOCOL_VERSION = 3;
+export const PROTOCOL_VERSION = 4;

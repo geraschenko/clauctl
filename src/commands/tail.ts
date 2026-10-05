@@ -15,8 +15,10 @@
  * and a socket close during a messages/entries follow are graceful — flush
  * and exit 0. A missing `--since` cursor, `--type events` on a dormant
  * agent, an events close with an unmet `--until`, and a settle-wait expiry
- * exit 1. tail never revives: watching an agent must not restart it, so it
- * checks the daemon pid itself instead of going through ensureAgentRunning.
+ * exit 1. An `--until` stopped on a permission ask flushes like a met
+ * one, then exits 4 (docs/specs/permission-cli.md). tail never revives:
+ * watching an agent must not restart it, so it checks the daemon pid itself
+ * instead of going through ensureAgentRunning.
  */
 
 import type { UUID } from "node:crypto";
@@ -73,6 +75,11 @@ import {
 } from "../core/until.ts";
 import { SOCKET_CONNECT_DEADLINE_MS } from "../core/generated/constants.ts";
 import {
+  StoppedOnAskError,
+  untilStopReason,
+  type UntilStopReason,
+} from "./stopped-on-ask.ts";
+import {
   parseUuidPrefixFlag,
   resolveUuidPrefix,
   UUID_PATTERN,
@@ -102,14 +109,16 @@ type TailFlags = InferFlags<typeof tailFlags>;
 
 /** `--until` settlement. A condition is met by one event (turn-end: the
  *  `result` message), and at that moment the log may still lack the entries
- *  the condition is about. So the condition latches, and the stream settles
- *  once the query file is settled — those entries have reached the log, and
- *  so the output. The wait is bounded by `settleTimeoutMs` (a constructor
+ *  the condition is about. So a stop (`untilStopReason`: an ask, else the
+ *  condition) latches, and the stream settles once the query file is
+ *  settled — those entries have reached the log, and so the output. The wait is bounded by `settleTimeoutMs` (a constructor
  *  parameter so tests can inject a short one). */
 export class UntilSettlement {
   private readonly condition: UntilCondition | undefined;
   private readonly settleTimeoutMs: number;
   private latched = false;
+  /** The state that stopped the wait on an ask, if one did. */
+  private askStopState: AgentState | undefined;
   private lastState: AgentState | undefined;
   private expiryTimer: NodeJS.Timeout | undefined;
   private rejectExpiry: ((error: Error) => void) | undefined;
@@ -133,8 +142,10 @@ export class UntilSettlement {
   metAtSeed(state: AgentState): boolean {
     return (
       this.condition !== undefined &&
-      untilMetAtSeed(this.condition, state) &&
-      this.latch(state)
+      this.latchOn(
+        untilStopReason(untilMetAtSeed(this.condition, state), state),
+        state,
+      )
     );
   }
 
@@ -145,8 +156,10 @@ export class UntilSettlement {
     }
     return (
       this.condition !== undefined &&
-      untilMetByEvent(this.condition, event, state) &&
-      this.latch(state)
+      this.latchOn(
+        untilStopReason(untilMetByEvent(this.condition, event, state), state),
+        state,
+      )
     );
   }
 
@@ -155,7 +168,13 @@ export class UntilSettlement {
     clearTimeout(this.expiryTimer);
   }
 
-  private latch(state: AgentState): boolean {
+  private latchOn(stop: UntilStopReason, state: AgentState): boolean {
+    if (stop === undefined) {
+      return false;
+    }
+    if (stop === "stoppedOnAsk") {
+      this.askStopState = state;
+    }
     this.latched = true;
     if (this.settledAt(state)) {
       return true;
@@ -168,12 +187,20 @@ export class UntilSettlement {
           : `query file ${last.querySessionId}: ${describeSession(querySession(last))}`;
       this.rejectExpiry?.(
         new Error(
-          `--until condition met, but the log did not settle within ` +
+          `${stop === "stoppedOnAsk" ? "stopped on an ask" : "--until condition met"}, but the log did not settle within ` +
             `${this.settleTimeoutMs}ms; ${file}`,
         ),
       );
     }, this.settleTimeoutMs);
     return false;
+  }
+
+  /** Throws `StoppedOnAskError` when the wait stopped on an ask; call after
+   *  the settled output is flushed. */
+  throwIfStoppedOnAsk(): void {
+    if (this.askStopState !== undefined) {
+      throw new StoppedOnAskError(this.askStopState);
+    }
   }
 
   private settledAt(state: AgentState): boolean {
@@ -301,6 +328,7 @@ async function tailLive(
       settlement.expiry,
     ]);
     sink.end();
+    settlement.throwIfStoppedOnAsk();
   } finally {
     settlement.dispose();
     client.close();
@@ -333,19 +361,29 @@ async function tailEvents(
       context.process.stdout.write(text);
     }
   };
+  let stopReason: UntilStopReason;
   try {
-    const { outcome } = await runStream(
+    const { outcome, state } = await runStream(
       client,
       {
         onSeed: (snapshot) => {
           write({ snapshot });
-          return condition !== undefined && untilMetAtSeed(condition, snapshot);
+          stopReason =
+            condition === undefined
+              ? undefined
+              : untilStopReason(untilMetAtSeed(condition, snapshot), snapshot);
+          return stopReason !== undefined;
         },
         onEvent: (event, state) => {
           write({ event });
-          return (
-            condition !== undefined && untilMetByEvent(condition, event, state)
-          );
+          stopReason =
+            condition === undefined
+              ? undefined
+              : untilStopReason(
+                  untilMetByEvent(condition, event, state),
+                  state,
+                );
+          return stopReason !== undefined;
         },
         quietMs: condition === undefined ? undefined : untilQuietMs(condition),
       },
@@ -359,6 +397,9 @@ async function tailEvents(
       if (text !== "") {
         context.process.stdout.write(text);
       }
+    }
+    if (stopReason === "stoppedOnAsk") {
+      throw new StoppedOnAskError(state);
     }
   } finally {
     client.close();

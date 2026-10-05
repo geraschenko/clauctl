@@ -72,7 +72,7 @@ function queuedEvent(n: number, text: string): AgentEvent {
   return {
     kind: "userMessageQueued",
     uuid: uuidN(n),
-    message: userMessage(text),
+    message: { ...userMessage(text), uuid: uuidN(n) },
   };
 }
 
@@ -455,6 +455,148 @@ test("a malformed receipt is an internal error", async () => {
       ]);
       assert.equal(result.proc.exitCode, 1);
       assert.match(result.stderr, /malformed prompt receipt/);
+    },
+  );
+});
+
+/** Working, with a main-agent ask pending on its only tool in flight. */
+const ASKING_STATE: AgentState = {
+  ...BUSY_STATE,
+  unresolvedToolUses: ["toolu_ask"],
+  pendingPermissions: [
+    {
+      toolUseId: "toolu_ask",
+      toolName: "Bash",
+      input: { command: "rm -rf /tmp/x" },
+      suggestions: [],
+    },
+  ],
+};
+
+test("stopped on an ask at the seed: the prompt is not submitted and exits 4 listing the ask", async () => {
+  let submitted = false;
+  await withPromptAgent(
+    {
+      seed: ASKING_STATE,
+      onPrompt: () => {
+        submitted = true;
+        return Promise.resolve({ id: uuidN(1) });
+      },
+    },
+    async (agentId) => {
+      for (const type of ["messages", "events"]) {
+        const result = await runCommand([
+          "prompt",
+          "-t",
+          agentId,
+          "--type",
+          type,
+          "hi",
+        ]);
+        assert.equal(result.proc.exitCode, 4, type);
+        assert.match(
+          result.stderr,
+          /stopped on a permission ask:\n\[pending permission toolu_ask: Bash/,
+        );
+      }
+      assert.equal(submitted, false);
+    },
+  );
+});
+
+test("an ask after the gate opens stops the events leg with exit 4", async () => {
+  await withPromptAgent(
+    {
+      seed: BUSY_STATE,
+      events: [
+        queuedEvent(1, "hi"),
+        dequeuedEvent([1]),
+        {
+          kind: "sdkMessage",
+          message: {
+            type: "assistant",
+            uuid: UUID_A,
+            session_id: "s1",
+            parent_tool_use_id: null,
+            message: {
+              role: "assistant",
+              content: [
+                { type: "tool_use", id: "toolu_ask", name: "Bash", input: {} },
+              ],
+              usage: {},
+            },
+          } as unknown as SDKMessage,
+        },
+        {
+          kind: "permissionRequested",
+          uuid: UUID_B,
+          request: ASKING_STATE.pendingPermissions[0]!,
+        },
+      ],
+      onPrompt: () => Promise.resolve({ id: uuidN(1) }),
+    },
+    async (agentId) => {
+      const result = await runCommand([
+        "prompt",
+        "-t",
+        agentId,
+        "--type",
+        "events",
+        "--json",
+        "hi",
+      ]);
+      assert.equal(result.proc.exitCode, 4);
+      assert.match(result.stderr, /pending permission toolu_ask/);
+    },
+  );
+});
+
+test("an ask before our prompt is dequeued exits 5: the prompt stays queued", async () => {
+  await withPromptAgent(
+    {
+      seed: BUSY_STATE,
+      events: [
+        queuedEvent(1, "hi"),
+        {
+          kind: "sdkMessage",
+          message: {
+            type: "assistant",
+            uuid: UUID_A,
+            session_id: "s1",
+            parent_tool_use_id: null,
+            message: {
+              role: "assistant",
+              content: [
+                { type: "tool_use", id: "toolu_ask", name: "Bash", input: {} },
+              ],
+              usage: {},
+            },
+          } as unknown as SDKMessage,
+        },
+        {
+          kind: "permissionRequested",
+          uuid: UUID_B,
+          request: ASKING_STATE.pendingPermissions[0]!,
+        },
+      ],
+      onPrompt: () => Promise.resolve({ id: uuidN(1) }),
+    },
+    async (agentId) => {
+      for (const type of ["messages", "events"]) {
+        const result = await runCommand([
+          "prompt",
+          "-t",
+          agentId,
+          "--type",
+          type,
+          "hi",
+        ]);
+        assert.equal(result.proc.exitCode, 5, type);
+        assert.match(
+          result.stderr,
+          /prompt queued; stopped on a permission ask:\n\[pending permission toolu_ask: Bash/,
+        );
+      }
     },
   );
 });

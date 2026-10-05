@@ -51,6 +51,7 @@ function sdkMessage(
     ...(type === "assistant" && {
       message: {
         id: `msg_${++apiResponseCount}`,
+        content: [],
         usage: { input_tokens: 5, output_tokens: 7 },
       },
       parent_tool_use_id: null,

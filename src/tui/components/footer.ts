@@ -22,7 +22,11 @@ import {
 } from "@earendil-works/pi-tui";
 import type { ReadonlyFooterDataProvider } from "@earendil-works/pi-coding-agent";
 import type { PermissionMode } from "@anthropic-ai/claude-agent-sdk";
-import { initialAgentState, lastUsage } from "../../core/agent-state/index.ts";
+import {
+  initialAgentState,
+  lastUsage,
+  liveTasks,
+} from "../../core/agent-state/index.ts";
 import type { AgentState } from "../../core/protocol/index.ts";
 import { ANSI_STYLE } from "../../format/style.ts";
 
@@ -138,9 +142,10 @@ export class FooterComponent implements Component {
       );
       rightParts.push(`${formatTokens(tokens)} (${percent}%)`);
     }
-    if (this.state.tasks.length > 0) {
+    const liveTaskCount = liveTasks(this.state).length;
+    if (liveTaskCount > 0) {
       rightParts.push(
-        `${this.state.tasks.length} subagent${this.state.tasks.length === 1 ? "" : "s"}`,
+        `${liveTaskCount} subagent${liveTaskCount === 1 ? "" : "s"}`,
       );
     }
     rightParts.push(this.state.model ?? "unset model");

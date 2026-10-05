@@ -38,7 +38,7 @@ function queryMessage(
     session_id: SESSION_A,
     ...(type === "assistant" && {
       parent_tool_use_id: null,
-      message: { usage: { input_tokens: 5, output_tokens: 7 } },
+      message: { content: [], usage: { input_tokens: 5, output_tokens: 7 } },
     }),
     ...fields,
   } as unknown as SDKMessage;

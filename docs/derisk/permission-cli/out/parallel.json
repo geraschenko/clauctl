@@ -1,0 +1,86 @@
+{
+  "scenario": "parallel",
+  "versions": {
+    "sdk": "0.3.280"
+  },
+  "cwd": "/tmp/clauctl-permcli-cwd-MWFQwp",
+  "timeline": [
+    {
+      "t": 156,
+      "what": "message",
+      "type": "system",
+      "subtype": "init"
+    },
+    {
+      "t": 1565,
+      "what": "message",
+      "type": "assistant",
+      "parent_tool_use_id": null,
+      "blocks": ["thinking"]
+    },
+    {
+      "t": 2045,
+      "what": "message",
+      "type": "assistant",
+      "parent_tool_use_id": null,
+      "blocks": ["tool_use:Bash:toolu_01QibyNzmoua13N99oKt6Kon"]
+    },
+    {
+      "t": 2052,
+      "what": "ask",
+      "toolName": "Bash",
+      "toolUseID": "toolu_01QibyNzmoua13N99oKt6Kon"
+    },
+    {
+      "t": 2433,
+      "what": "message",
+      "type": "assistant",
+      "parent_tool_use_id": null,
+      "blocks": ["tool_use:Read:toolu_01Xwk4WV3GxgD5PB5i2AtzkQ"]
+    },
+    {
+      "t": 2442,
+      "what": "message",
+      "type": "rate_limit_event"
+    },
+    {
+      "t": 5052,
+      "what": "deny",
+      "toolUseID": "toolu_01QibyNzmoua13N99oKt6Kon"
+    },
+    {
+      "t": 5061,
+      "what": "message",
+      "type": "user",
+      "parent_tool_use_id": null,
+      "blocks": ["tool_result:toolu_01QibyNzmoua13N99oKt6Kon"]
+    },
+    {
+      "t": 5065,
+      "what": "message",
+      "type": "user",
+      "parent_tool_use_id": null,
+      "blocks": ["tool_result:toolu_01Xwk4WV3GxgD5PB5i2AtzkQ"]
+    },
+    {
+      "t": 7238,
+      "what": "message",
+      "type": "assistant",
+      "parent_tool_use_id": null,
+      "blocks": ["thinking"]
+    },
+    {
+      "t": 7266,
+      "what": "message",
+      "type": "assistant",
+      "parent_tool_use_id": null,
+      "blocks": ["text"]
+    },
+    {
+      "t": 7270,
+      "what": "message",
+      "type": "result",
+      "subtype": "success"
+    }
+  ]
+}

@@ -1,8 +1,8 @@
 /*
  * `clauctl list | status` — read-only inspection of the registry. Neither
- * revives dormant agents: a dead daemon is not garbage. Everything shown is
- * registry-derived (running/dormant/archived/tombstoned/corrupt); no live
- * socket probing.
+ * revives dormant agents: a dead daemon is not garbage. `list` is
+ * registry-derived (running/dormant/archived/tombstoned/corrupt); `status`
+ * also reads a running agent's subscribe seed for whether it needs input.
  */
 
 import { resolve } from "node:path";
@@ -19,10 +19,19 @@ import {
 } from "../core/generated/targets.ts";
 import {
   type AgentRecord,
+  agentSocketPath,
   classifyAgentDir,
   isPidAlive,
   listAgentIds,
 } from "../core/registry.ts";
+import { allPendingAsks, isInputNeeded } from "../core/agent-state/index.ts";
+import type { PermissionRequest } from "../core/protocol/index.ts";
+import { SOCKET_CONNECT_DEADLINE_MS } from "../core/generated/constants.ts";
+import {
+  connectWithRetry,
+  type ProtocolClient,
+} from "../core/protocol-client/index.ts";
+import { pendingAskLine } from "../format/events.ts";
 
 type AgentStatus =
   "running" | "dormant" | "archived" | "tombstoned" | "corrupt";
@@ -32,6 +41,52 @@ interface AgentProbe {
   status: AgentStatus;
   record?: AgentRecord;
   error?: string;
+  /** `isInputNeeded` of a running agent's seed; absent when not probed. */
+  inputNeeded?: boolean;
+  /** `allPendingAsks` of the same seed; `taskId` absent for the main agent. */
+  pendingAsks?: { taskId?: string; request: PermissionRequest }[];
+}
+
+/** One subscribe seed from a running agent's daemon; an unreachable daemon
+ *  is a warning, and the probe stays registry-only. */
+async function withInputNeeded(probe: AgentProbe): Promise<AgentProbe> {
+  const record = probe.record;
+  if (probe.status !== "running" || record === undefined) {
+    return probe;
+  }
+  let client: ProtocolClient | undefined;
+  let replyTimer: NodeJS.Timeout | undefined;
+  // A wedged daemon may accept the connection but never answer.
+  const replyDeadline = new Promise<never>((_resolve, reject) => {
+    replyTimer = setTimeout(
+      () =>
+        reject(new Error(`no reply within ${SOCKET_CONNECT_DEADLINE_MS}ms`)),
+      SOCKET_CONNECT_DEADLINE_MS,
+    );
+  });
+  try {
+    client = await connectWithRetry(
+      agentSocketPath(record.agentDir),
+      SOCKET_CONNECT_DEADLINE_MS,
+    );
+    const { seed } = await Promise.race([client.subscribe(), replyDeadline]);
+    return {
+      ...probe,
+      inputNeeded: isInputNeeded(seed),
+      pendingAsks: allPendingAsks(seed).map(({ task, request }) => ({
+        taskId: task?.taskId,
+        request,
+      })),
+    };
+  } catch (error) {
+    process.stderr.write(
+      `clauctl: warning: cannot reach agent ${probe.agentId}'s daemon (${(error as Error).message})\n`,
+    );
+    return probe;
+  } finally {
+    clearTimeout(replyTimer);
+    client?.close();
+  }
 }
 
 async function probeAgent(agentId: string): Promise<AgentProbe> {
@@ -145,6 +200,14 @@ function formatProbe(probe: AgentProbe): string {
     }
     lines.push(`options:  ${JSON.stringify(record.persistedOptions)}`);
   }
+  if (probe.inputNeeded !== undefined) {
+    lines.push(`input-needed: ${probe.inputNeeded ? "yes" : "no"}`);
+    lines.push(
+      ...(probe.pendingAsks ?? []).map(
+        ({ taskId, request }) => `  ${pendingAskLine(request, taskId)}`,
+      ),
+    );
+  }
   return lines.join("\n");
 }
 
@@ -156,7 +219,9 @@ type StatusFlags = InferFlags<typeof statusFlags>;
 
 async function status(this: CommandContext, flags: StatusFlags): Promise<void> {
   const probes = await Promise.all(
-    multiTargets(this).map((target) => probeAgent(target.id)),
+    multiTargets(this).map(async (target) =>
+      withInputNeeded(await probeAgent(target.id)),
+    ),
   );
 
   if (flags.json) {

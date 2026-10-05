@@ -1,6 +1,7 @@
 Features I think clauctl needs before I publicize it:
 
-- permission prompts
+- permission prompts (done: docs/specs/permission-prompt.md); the
+  AskUserQuestion dialog is still to do
 - self-updater and release notes
 
 Features I'd like, but aren't strictly necessary:

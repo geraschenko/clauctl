@@ -62,7 +62,7 @@ claude and log in once).
 directory the agent should work in (or pass `--cwd PATH`):
 
 ```sh
-clauctl spawn -a -- --permission-mode auto
+clauctl spawn -a
 ```
 
 - Detach with `ctrl+]`. Detaching does not stop the agent; `clauctl attach`
@@ -72,10 +72,6 @@ clauctl spawn -a -- --permission-mode auto
   CLAUDE.md, MCP servers, …); claude-style flags after `--` override them,
   e.g. `clauctl spawn -- --model opus`. `clauctl resolve-settings` shows what
   a spawn would see.
-- Permission prompts are not yet implemented in clauctl's TUI — that's why
-  the example pins `--permission-mode auto` (a model classifier approves or
-  denies instead of prompting); `dontAsk` (deny whatever isn't pre-approved)
-  also works.
 - To "wrap" an existing claude session, run
   `clauctl spawn -- --resume <session-id>` (NOTE: the agent id is _different_
   from the session id — one agent can span many sessions, e.g. across
@@ -150,16 +146,30 @@ clauctl gc
 ## Getting fancy with `clauctl [prompt|tail|format]`
 
 `clauctl prompt` and `clauctl tail` both show a live agent's activity.
-`prompt` sends a message and streams until the end of the assistant turn.
+`prompt` sends a message and streams until the agent needs input again (a
+new prompt, or an answer to a permission ask).
 `tail` doesn't send anything; it prints the agent's current context and then
-keeps streaming new activity indefinitely. Use `tail --until turn-end` to
-return once the current turn (if any) finishes, or `tail --timeout 0` to
-print the current context and return immediately.
+keeps streaming new activity indefinitely. Use `tail --until input-needed` to
+return once the agent needs input again (like `prompt`), or `tail --timeout 0`
+to print the current context and return immediately.
 
 `clauctl wait --until <cond>` is the output-free version: it just blocks until
-the condition is met (conditions are `turn-end`, `idle`, or
-`no-activity:<secs>`). With `--timeout`, `wait` exits 3 if the condition
-wasn't met in time; `tail --timeout` simply ends the watch and exits 0.
+the condition is met (conditions are `turn-end`, `idle`, `quiescent`,
+`input-needed`, or `no-activity:<secs>`). With `--timeout`, `wait` exits 3 if
+the condition wasn't met in time; `tail --timeout` simply ends the watch and
+exits 0.
+
+Every `--until` wait (`wait`, `tail`, `prompt`) exits 4 when the agent is
+stopped on a permission ask, listing the pending asks on stderr; `prompt`
+then submits nothing if the ask was already pending. `prompt` exits 5 instead
+when its prompt was already queued: it runs once the ask is answered. Answer an
+ask with PermissionResult JSON, like this:
+
+```sh
+clauctl permission-response -t <agent> --tool-use-id <id> '{"behavior":"allow"}'
+```
+
+`clauctl status` lists the pending asks.
 
 ### Machine-readable output
 
@@ -170,13 +180,13 @@ formatting, use `--json` and pipe to `clauctl format`.
 ### Async prompting
 
 Send a prompt without waiting for the reply with `clauctl prompt --detach`.
-Then check back with `tail --until turn-end`, which returns once the current
-turn (if any) finishes. Formatted message output ends with a "cursor"
+Then check back with `tail --until input-needed`, which returns once the agent
+needs input again. Formatted message output ends with a "cursor"
 identifying the last entry shown, and `clauctl tail --since <uuid>` returns
 everything after it. For example:
 
 ```sh
-$ clauctl tail -t c8b --until turn-end
+$ clauctl tail -t c8b --until input-needed
 ...
 == assistant ==
 You are so smart.
@@ -195,7 +205,7 @@ when you're ready to check back in on this agent, you can see what's happened
 since you last looked with
 
 ```sh
-$ clauctl tail -t c8b --since <cursor-uuid> --until turn-end
+$ clauctl tail -t c8b --since <cursor-uuid> --until input-needed
 == user ==
 Stop being such a boot-licker and write a compiler. No mistakes.
 

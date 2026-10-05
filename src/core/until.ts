@@ -2,7 +2,7 @@
  * clauctl's instantiation of the shared `--until` checkers (the grammar and
  * generic engine live in generated/until-engine.ts), consumed through
  * runStream (generated/streaming/driver.ts) by `wait`, `tail --until`, and
- * archive's polite stop. Condition semantics here:
+ * `prompt`. Condition semantics here:
  *
  * - turn-end: the next `sdkMessage` event whose message is a `result` — a
  *   compaction's terminating result counts. Met at the seed only when fully
@@ -15,13 +15,19 @@
  *   permission ask does not affect it: the CLI would run a prompt.
  * - quiescent: `isQuiescent` — idle and no live task (subagent, background
  *   shell); what a Query restart requires.
+ * - input-needed: `isInputNeeded` — no message will be produced without a
+ *   prompt or an ask's answer; implied by quiescent.
  * - no-activity:<secs>: no AgentEvent of any kind for N seconds, regardless of
  *   activity state; catches turns stalled on human-facing UI, which `idle`
  *   never reports. N may be fractional (e.g. `no-activity:0.5`). Enforced by
  *   the stream driver's quiet timer, never by an event.
+ *
+ * Every `--until` wait also stops, ahead of its condition, when the agent
+ * is stopped on an ask (`isStoppedOnAsk`, exit 4). That check lives in the
+ * commands, not in the synced engine.
  */
 
-import { isIdle, isQuiescent } from "./agent-state/index.ts";
+import { isIdle, isInputNeeded, isQuiescent } from "./agent-state/index.ts";
 import type { AgentState, AgentEvent } from "./protocol/index.ts";
 import { makeUntilCheckers } from "./generated/until-engine.ts";
 
@@ -33,7 +39,11 @@ export const {
   untilMetByEvent,
   untilQuietMs,
 } = makeUntilCheckers<AgentEvent, AgentState>({
-  stateConditions: { idle: isIdle, quiescent: isQuiescent },
+  stateConditions: {
+    idle: isIdle,
+    quiescent: isQuiescent,
+    "input-needed": isInputNeeded,
+  },
   isTurnEnd: (event) =>
     event.kind === "sdkMessage" && event.message.type === "result",
 });

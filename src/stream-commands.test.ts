@@ -2,7 +2,8 @@
  * End-to-end settlement behavior of the protocol stream commands: what
  * `tail --type events --json` and `wait` print and exit with for each
  * runStream outcome. Driven through the real `app` so the exit-code mapping
- * (UntilTimeoutError → 3) is part of what is under test. The session-file
+ * (UntilTimeoutError → 3, StoppedOnAskError → 4) is part of what is under
+ * test; `permission-response` and `status` ride the same fake daemon. The session-file
  * tail paths (messages/entries) are covered in tail.test.ts.
  */
 
@@ -14,7 +15,11 @@ import { join } from "node:path";
 import { test } from "node:test";
 import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import { initialAgentState } from "./core/agent-state/index.ts";
-import type { AgentState, AgentEvent } from "./core/protocol/index.ts";
+import type {
+  AgentEvent,
+  ProtocolRequest,
+  AgentState,
+} from "./core/protocol/index.ts";
 import { app } from "./app.ts";
 import {
   RESPONSE_SENT,
@@ -47,14 +52,16 @@ async function runCommand(argv: string[]): Promise<CapturedProcess> {
  * Stand up a registry holding one live agent (this process is its "daemon")
  * plus a protocol server that answers subscribe with `seed`, then writes
  * `events` and optionally hangs up — the whole reply in a single chunk, so
- * the events are already queued when subscribe resolves.
+ * the events are already queued when subscribe resolves. `fn` also gets
+ * every non-subscribe request the daemon received.
  */
 async function withAgent<T>(
   seed: AgentState,
   events: AgentEvent[],
   hangUp: boolean,
-  fn: (agentId: string) => Promise<T>,
+  fn: (agentId: string, requests: readonly ProtocolRequest[]) => Promise<T>,
 ): Promise<T> {
+  const requests: ProtocolRequest[] = [];
   const previousDir = process.env.CLAUCTL_DIR;
   const dir = await mkdtemp(join(tmpdir(), "clauctl-stream-test-"));
   process.env.CLAUCTL_DIR = dir;
@@ -87,6 +94,7 @@ async function withAgent<T>(
         }
         return Promise.resolve(RESPONSE_SENT);
       }
+      requests.push(request);
       return Promise.resolve("ok");
     },
   );
@@ -94,7 +102,7 @@ async function withAgent<T>(
     daemonSocket = socket;
   });
   try {
-    return await fn("abcdef");
+    return await fn("abcdef", requests);
   } finally {
     server.close();
     daemonSocket?.destroy();
@@ -228,5 +236,103 @@ test("tail --timeout 0 is a snapshot-only watch, not an error", async () => {
     ]);
     assert.equal(result.proc.exitCode, 0);
     assert.equal(result.stdoutChunks.length, 1);
+  });
+});
+
+const ASK = {
+  toolUseId: "toolu_ask",
+  toolName: "Bash",
+  input: { command: "rm -rf /tmp/x" },
+  suggestions: [],
+};
+
+/** The main agent's own tool call waits on its ask. */
+const ASKING_STATE: AgentState = {
+  ...BUSY_STATE,
+  unresolvedToolUses: [ASK.toolUseId],
+  pendingPermissions: [ASK],
+};
+
+const ASK_LISTED =
+  /stopped on a permission ask:\n\[pending permission toolu_ask: Bash/;
+
+test("wait exits 4 listing the asks when stopped on an ask, input-needed included", async () => {
+  await withAgent(ASKING_STATE, [], false, async (agentId) => {
+    for (const condition of ["turn-end", "input-needed"]) {
+      const result = await runCommand([
+        "wait",
+        "-t",
+        agentId,
+        "--until",
+        condition,
+      ]);
+      assert.equal(result.proc.exitCode, 4, condition);
+      assert.match(result.stderr, ASK_LISTED);
+    }
+  });
+});
+
+test("tail --until prints the asking event, then exits 4", async () => {
+  const asked: AgentEvent = {
+    kind: "permissionRequested",
+    uuid: crypto.randomUUID(),
+    request: ASK,
+  };
+  const seed: AgentState = {
+    ...BUSY_STATE,
+    unresolvedToolUses: ASKING_STATE.unresolvedToolUses,
+  };
+  await withAgent(seed, [asked], false, async (agentId) => {
+    const result = await runCommand([
+      "tail",
+      "-t",
+      agentId,
+      "--type",
+      "events",
+      "--json",
+      "--until",
+      "turn-end",
+    ]);
+    assert.equal(result.proc.exitCode, 4);
+    assert.equal(result.stdoutChunks.length, 2);
+    assert.match(result.stderr, ASK_LISTED);
+  });
+});
+
+test("permission-response sends the raw decision for the named ask", async () => {
+  await withAgent(ASKING_STATE, [], false, async (agentId, requests) => {
+    const result = await runCommand([
+      "permission-response",
+      "-t",
+      agentId,
+      "--tool-use-id",
+      ASK.toolUseId,
+      '{"behavior":"deny","message":"no"}',
+    ]);
+    assert.equal(result.proc.exitCode, 0, result.stderr);
+    const sent = requests.filter(
+      (request) => request.type === "permission-response",
+    );
+    assert.equal(sent.length, 1);
+    assert.equal(sent[0]!.toolUseId, ASK.toolUseId);
+    assert.deepEqual(sent[0]!.decision, { behavior: "deny", message: "no" });
+  });
+});
+
+test("status shows input-needed and the pending asks of a live agent", async () => {
+  await withAgent(ASKING_STATE, [], false, async (agentId) => {
+    const text = await runCommand(["status", "-t", agentId]);
+    assert.equal(text.proc.exitCode, 0, text.stderr);
+    assert.match(
+      text.stdoutChunks.join(""),
+      /input-needed: yes\n {2}\[pending permission toolu_ask: Bash/,
+    );
+    const json = await runCommand(["status", "-t", agentId, "--json"]);
+    const [probe] = JSON.parse(json.stdoutChunks.join("")) as {
+      inputNeeded?: boolean;
+      pendingAsks?: unknown;
+    }[];
+    assert.equal(probe?.inputNeeded, true);
+    assert.deepEqual(probe?.pendingAsks, [{ request: ASK }]);
   });
 });

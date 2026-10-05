@@ -1,8 +1,9 @@
 /*
- * `clauctl wait --target <agent> --until turn-end|idle|no-activity:<secs>` —
- * block until the agent meets a condition. Exit codes: 0 condition met,
- * 1 runtime error (including socket closed while waiting), 2 usage error,
- * 3 `--timeout` expired.
+ * `clauctl wait --target <agent> --until <cond>` — block until the agent
+ * meets a condition. Exit codes: 0 condition met, 1 runtime error
+ * (including socket closed while waiting), 2 usage error, 3 `--timeout`
+ * expired, 4 stopped on a permission ask (listed on stderr; answer with
+ * `clauctl permission-response`).
  *
  * A dormant or archived agent is reported as having met any of these
  * conditions immediately — its process is doing nothing, which is conclusive
@@ -37,6 +38,11 @@ import {
   untilQuietMs,
 } from "../core/until.ts";
 import { SOCKET_CONNECT_DEADLINE_MS } from "../core/generated/constants.ts";
+import {
+  StoppedOnAskError,
+  untilStopReason,
+  type UntilStopReason,
+} from "./stopped-on-ask.ts";
 
 const waitFlags = {
   until: requiredParsedFlag(
@@ -67,16 +73,29 @@ export async function wait(
     agentSocketPath(agent.agentDir),
     SOCKET_CONNECT_DEADLINE_MS,
   );
+  let stopReason: UntilStopReason;
   try {
-    const { outcome } = await runStream(
+    const { outcome, state } = await runStream(
       client,
       {
-        onSeed: (seed) => untilMetAtSeed(condition, seed),
-        onEvent: (event, state) => untilMetByEvent(condition, event, state),
+        onSeed: (seed) => {
+          stopReason = untilStopReason(untilMetAtSeed(condition, seed), seed);
+          return stopReason !== undefined;
+        },
+        onEvent: (event, state) => {
+          stopReason = untilStopReason(
+            untilMetByEvent(condition, event, state),
+            state,
+          );
+          return stopReason !== undefined;
+        },
         quietMs: untilQuietMs(condition),
       },
       timeoutMs,
     );
+    if (stopReason === "stoppedOnAsk") {
+      throw new StoppedOnAskError(state);
+    }
     if (outcome === "closed") {
       throw new Error("agent socket closed before condition met");
     }

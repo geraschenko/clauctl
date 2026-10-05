@@ -9,10 +9,12 @@
  * instantiation and the concrete condition semantics.
  */
 
-import { UsageError } from "./util.ts";
+import { ExitCodeError, UsageError } from "./util.ts";
 
-/** The CLI entry maps this to exit code 3. */
-export class UntilTimeoutError extends Error {}
+/** The requested condition timed out: exit 3. */
+export class UntilTimeoutError extends ExitCodeError {
+  readonly exitCode = 3;
+}
 
 export type UntilCondition =
   | { kind: "turn-end" }

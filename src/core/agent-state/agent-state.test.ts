@@ -48,7 +48,7 @@ function queryMessage(
     session_id: SESSION_A,
     ...(type === "assistant" && {
       parent_tool_use_id: null,
-      message: { usage: { input_tokens: 5, output_tokens: 7 } },
+      message: { content: [], usage: { input_tokens: 5, output_tokens: 7 } },
     }),
     ...fields,
   } as unknown as SDKMessage;
@@ -362,7 +362,10 @@ test("subagent user/assistant messages are observed on query only, with no other
       sdkMessage("assistant", {
         parent_tool_use_id: "tool-1",
         uuid: uuidN(0xaa),
-        message: { usage: { input_tokens: 999, output_tokens: 999 } },
+        message: {
+          content: [],
+          usage: { input_tokens: 999, output_tokens: 999 },
+        },
       }),
       sdkMessage("stream_event", {
         parent_tool_use_id: "tool-1",
@@ -512,7 +515,7 @@ const taskUpdated = (
     uuid: undefined,
   });
 
-test("task lifecycle: started → live, paused/backgrounded merge, terminal status removes", () => {
+test("task lifecycle: started → live, paused/backgrounded merge, terminal status ends it in place", () => {
   const started = run([
     taskStarted("t1", { is_backgrounded: true, subagent_type: "Explore" }),
   ]);
@@ -524,6 +527,7 @@ test("task lifecycle: started → live, paused/backgrounded merge, terminal stat
       background: true,
       status: "running",
       pendingPermissions: [],
+      unresolvedToolUses: [],
     },
   ]);
   assert.equal(isIdle(started), true);
@@ -531,7 +535,10 @@ test("task lifecycle: started → live, paused/backgrounded merge, terminal stat
   const paused = run([taskUpdated("t1", { status: "paused" })], started);
   assert.equal(paused.tasks[0]!.status, "paused");
   const ended = run([taskUpdated("t1", { status: "completed" })], paused);
-  assert.deepEqual(ended.tasks, []);
+  assert.deepEqual(
+    ended.tasks.map((task) => [task.taskId, task.status]),
+    [["t1", "completed"]],
+  );
   assert.equal(isQuiescent(ended), true);
   // An ambient task (no tool use) and an update for an unknown task are noise.
   assert.deepEqual(run([taskStarted("amb", { ambient: true })]).tasks, []);
@@ -541,7 +548,7 @@ test("task lifecycle: started → live, paused/backgrounded merge, terminal stat
   );
 });
 
-test("task_notification ends a task and drops its asks", () => {
+test("task_notification ends a task in place and drops its asks", () => {
   const state = run([
     taskStarted("t1"),
     permissionRequested("toolu_1", "t1"),
@@ -552,7 +559,10 @@ test("task_notification ends a task and drops its asks", () => {
       uuid: undefined,
     }),
   ]);
-  assert.deepEqual(state.tasks, []);
+  assert.deepEqual(
+    state.tasks.map((task) => [task.status, task.pendingPermissions]),
+    [["completed", []]],
+  );
   assert.deepEqual(allPendingAsks(state), []);
 });
 
@@ -962,7 +972,11 @@ test("shutdown leaves a session-pending id alone: it resolves in its own step, t
 const assistantQuery = (n: number, usage = 5): AgentEvent =>
   sdkMessage("assistant", {
     uuid: uuidN(n),
-    message: { usage: { input_tokens: usage, output_tokens: 7 }, model: "q" },
+    message: {
+      content: [],
+      usage: { input_tokens: usage, output_tokens: 7 },
+      model: "q",
+    },
   });
 const assistantEntry = (
   n: number,

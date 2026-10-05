@@ -5,8 +5,16 @@
 
 import { access } from "node:fs/promises";
 
-/** Bad command-line arguments; main.ts exits 2 (shell usage-error convention). */
-export class UsageError extends Error {}
+/** An error that chooses the process exit code (app.ts determineExitCode);
+ *  any other error exits 1. */
+export abstract class ExitCodeError extends Error {
+  abstract readonly exitCode: number;
+}
+
+/** Bad command-line arguments: exit 2 (shell usage-error convention). */
+export class UsageError extends ExitCodeError {
+  readonly exitCode = 2;
+}
 
 export function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);

@@ -1,6 +1,6 @@
 # Spec: TUI permission prompt
 
-> Status: **complete 2026-09-30** — implemented, reviewed, live-smoked; the CLI surface for asks is docs/follow-ups/permission-cli.md (re-synced 2026-09-29 to the protocol/stream-merge refactor: `src/core/protocol/`, `protocol-server/`, stamped query-stream events). Derisk artifacts:
+> Status: **complete 2026-09-30** — implemented, reviewed, live-smoked; the CLI surface for asks is docs/specs/permission-cli.md (re-synced 2026-09-29 to the protocol/stream-merge refactor: `src/core/protocol/`, `protocol-server/`, stamped query-stream events). Derisk artifacts:
 > `docs/derisk/permission-prompt/` (FINDINGS.md, probe payloads under
 > `out/*.json`, native dialog captures under `out/*.claude.txt`). Verified
 > against SDK 0.3.258 / claude 2.1.258; implemented against SDK 0.3.280 /
@@ -657,7 +657,7 @@ TUI mounts the dialog from the snapshot with no replay.
 - [x] Group F, round 2 (2026-09-30): plan body rendered as markdown, never collapsed; ctrl+g edits `planFilePath` in `$EDITOR` and approval sends the edited plan as `updatedInput`; `shift+tab` feedback hint not replicated; row-wrap / mcp body / `(+N more)` confirmed
 - [x] `FitWidth` clamp around every regular-mode top-level component (+ `tree-selector.ts`'s three unwrapped lines truncated) — pi-tui's width crash cannot reach the screen
 - [x] Footer `N subagents` (was spec'd as `N tasks`)
-- [x] `archive` hangs on an agent blocked on an ask (polite stop waits for idle; a blocked agent never idles). Harness denies over the socket before archiving; the product change (archive/prompt/tail/wait on a blocked agent, a CLI responder, AskUserQuestion dialog) is `docs/follow-ups/permission-cli.md`
+- [x] `archive` hangs on an agent blocked on an ask (polite stop waits for idle; a blocked agent never idles). Harness denies over the socket before archiving; the product change (archive/prompt/tail/wait on a blocked agent, a CLI responder, AskUserQuestion dialog) is `docs/specs/permission-cli.md`
 - [x] Row-2 labels verified: `mcp` matches the table (`… for <toolName> in <cwd>`; claude shows `probe — Greet commands`, a display name not on the wire); `bash-plain` differs — claude 2.1.280 says `Yes, and don’t ask again for: curl *` from its own prefix heuristic while the suggestion's `ruleContent` is the full command (catalog `dialog-bash-plain`, decision open)
 - [x] Broker unit tests (`permission-broker.test.ts`): abort already signaled at entry; respond vs abort; cancelAll twice; duplicate id throws; `validatePermissionResult` accept/reject table; malformed decision rejected by the handler (in `request-handlers.test.ts`)
 - [x] TUI tests (`interactive-mode.permission.test.ts`, a scripted ProtocolClient + `TuiMainScreen` on a scripted `Terminal`: keys typed through `terminal.start`'s callback, assertions on `ui.render()` text — the first slice of docs/follow-ups/old/interactive-mode-test-harness.md): seed ask shows before replay and the editor takes input again after `permissionResolved`; an ask during replay shows when the replay ends; `/model` + Enter settling under the dialog opens no selector. `InteractiveMode` is exported for it.

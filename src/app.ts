@@ -15,8 +15,7 @@ import { promptRoute } from "./commands/prompt.ts";
 import { sdkRoutes } from "./commands/sdk-commands.ts";
 import { spawnRoute } from "./commands/spawn.ts";
 import { tailRoute } from "./commands/tail.ts";
-import { UntilTimeoutError } from "./core/generated/until-engine.ts";
-import { UsageError } from "./core/generated/util.ts";
+import { ExitCodeError, UsageError } from "./core/generated/util.ts";
 import { VERSION } from "./core/generated/version.ts";
 import { waitRoute } from "./commands/wait.ts";
 
@@ -94,9 +93,5 @@ export const app: Application<CommandContext> = buildApplication(root, {
     },
   },
   determineExitCode: (error) =>
-    error instanceof UsageError
-      ? 2
-      : error instanceof UntilTimeoutError
-        ? 3
-        : 1,
+    error instanceof ExitCodeError ? error.exitCode : 1,
 });

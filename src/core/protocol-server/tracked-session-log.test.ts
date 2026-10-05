@@ -34,7 +34,11 @@ function assistantMessage(uuid: UUID, sessionId: UUID): SDKMessage {
     uuid,
     session_id: sessionId,
     parent_tool_use_id: null,
-    message: { usage: { input_tokens: 1, output_tokens: 2 }, model: "m" },
+    message: {
+      content: [],
+      usage: { input_tokens: 1, output_tokens: 2 },
+      model: "m",
+    },
   } as unknown as SDKMessage;
 }
 

@@ -63,6 +63,7 @@ export function initialAgentState(): AgentState {
     sessions: {},
     tasks: [],
     pendingPermissions: [],
+    unresolvedToolUses: [],
   };
 }
 

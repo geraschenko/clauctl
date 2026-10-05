@@ -3,7 +3,8 @@
  * transparent-revival machinery (`ensureAgentRunning`) that the protocol
  * commands use to revive a dormant agent on demand.
  *
- * archive follows the polite path: wait until the assistant is Idle, SIGTERM
+ * archive follows the polite path: wait until no message will come without
+ * outside input (pending asks are interrupted), SIGTERM
  * the daemon (whose teardown closes the SDK connection cleanly), SIGKILL
  * escalation if it lingers, then mark the dir hidden from `list`. gc removes
  * the leftover dirs of failed spawns and interrupted removals.
@@ -41,9 +42,13 @@ import { runStream } from "../core/generated/streaming/driver.ts";
 import {
   secondsToTimerMs,
   UntilTimeoutError,
-  type UntilCondition,
 } from "../core/generated/until-engine.ts";
-import { untilMetAtSeed, untilMetByEvent } from "../core/until.ts";
+import {
+  allPendingAsks,
+  isStoppedOnAsk,
+  isInputNeeded,
+} from "../core/agent-state/index.ts";
+import type { AgentState } from "../core/protocol/index.ts";
 import { SOCKET_CONNECT_DEADLINE_MS } from "../core/generated/constants.ts";
 
 const SIGKILL_ESCALATION_MS = 5_000;
@@ -203,12 +208,13 @@ async function forEachAgent(
 }
 
 /**
- * The polite stop: wait until Idle over the agent socket, SIGTERM the daemon
+ * The polite stop: wait until stoppable over the agent socket
+ * (`interruptAsksUntilStoppable`), SIGTERM the daemon
  * (its teardown runs query.close(), which SIGTERMs claude with SIGKILL
  * escalation), then wait for the daemon pid to disappear, escalating ourselves
  * if needed. A daemon we cannot talk to (no socket, or one speaking another
  * protocol, e.g. a daemon started by an older clauctl) is stopped without the
- * idle wait so a version mismatch never blocks archiving.
+ * wait so a version mismatch never blocks archiving.
  */
 export async function stopRunningAgent(
   agent: AgentRecord,
@@ -222,11 +228,11 @@ export async function stopRunningAgent(
     );
   } catch (error) {
     process.stderr.write(
-      `clauctl: warning: cannot reach agent ${agent.id}'s daemon (${(error as Error).message}); stopping it without waiting for idle\n`,
+      `clauctl: warning: cannot reach agent ${agent.id}'s daemon (${(error as Error).message}); stopping it without waiting\n`,
     );
   }
   if (client !== undefined) {
-    await waitUntilIdle(client, timeoutMs);
+    await interruptAsksUntilStoppable(client, timeoutMs);
   }
   killSilently(agent.daemonPid, "SIGTERM");
   await waitPidGone(
@@ -235,25 +241,59 @@ export async function stopRunningAgent(
   );
 }
 
-async function waitUntilIdle(
+/** Until the agent can be stopped without cutting off work: input-needed
+ *  with no ask pending. Each new set of asks is interrupted (aborting every
+ *  ask, killing an asking task), so a queued prompt that asks again after
+ *  an interrupt is interrupted too. A failed interrupt stops waiting: the
+ *  daemon's teardown cancels the asks itself. */
+async function interruptAsksUntilStoppable(
   client: ProtocolClient,
   timeoutMs: number | undefined,
 ): Promise<void> {
-  const idle: UntilCondition = { kind: "state", name: "idle" };
+  const interruptedAsks = new Set<string>();
+  let interruptFailed = false;
+  const interruptNewAsks = async (state: AgentState): Promise<void> => {
+    if (!isStoppedOnAsk(state)) {
+      return;
+    }
+    const asks = allPendingAsks(state).map((ask) => ask.request.toolUseId);
+    if (asks.every((toolUseId) => interruptedAsks.has(toolUseId))) {
+      return;
+    }
+    for (const toolUseId of asks) {
+      interruptedAsks.add(toolUseId);
+    }
+    try {
+      await client.request({ type: "interrupt" });
+    } catch (error) {
+      process.stderr.write(
+        `clauctl: warning: interrupting pending asks failed (${(error as Error).message}); stopping without waiting\n`,
+      );
+      interruptFailed = true;
+    }
+  };
+  const isStoppable = (state: AgentState): boolean =>
+    interruptFailed || (isInputNeeded(state) && !isStoppedOnAsk(state));
   try {
     const { outcome } = await runStream(
       client,
       {
-        onSeed: (seed) => untilMetAtSeed(idle, seed),
-        onEvent: (event, state) => untilMetByEvent(idle, event, state),
+        onSeed: async (seed) => {
+          await interruptNewAsks(seed);
+          return isStoppable(seed);
+        },
+        onEvent: async (_event, state) => {
+          await interruptNewAsks(state);
+          return isStoppable(state);
+        },
       },
       timeoutMs,
     );
     if (outcome === "closed") {
-      throw new Error("agent socket closed while waiting for idle");
+      throw new Error("agent socket closed while waiting for input-needed");
     }
-    // Signalled as UntilTimeoutError so callers can distinguish "never went
-    // idle" from a transport failure and word their own message.
+    // Signalled as UntilTimeoutError so callers can distinguish "never
+    // became stoppable" from a transport failure and word their own message.
     if (outcome === "timeout") {
       throw new UntilTimeoutError(
         `agent still busy after ${timeoutMs! / 1000}s`,

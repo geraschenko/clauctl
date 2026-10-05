@@ -7,14 +7,18 @@
  * `userMessageDequeued` event carrying the acceptance receipt's queue id —
  * so a busy agent's unrelated activity is not mistaken for our turn.
  * `/compact` bypasses the queue model (the receipt is undefined), so its
- * stream runs ungated until the terminating result.
+ * stream runs ungated.
  *
  * Settlement: condition met → flush and exit 0; `--timeout` expiry →
  * UntilTimeoutError (exit 3, like wait — prompt has a condition it failed to
  * reach); stream close before the condition is met → exit 1 (the daemon
  * dying mid-prompt is not conclusive success, unlike tail's dormancy
- * reading). `-d`/`--detach` preserves fire-and-forget: submit, print nothing
- * (the receipt is internal), exit 0; `--no-query` implies it.
+ * reading); stopped on a permission ask → StoppedOnAskError (exit 4), or
+ * QueuedBehindAskError (exit 5) once our prompt is queued behind it, and
+ * when it already holds at subscription the prompt is not submitted
+ * (docs/specs/permission-cli.md). `-d`/`--detach` preserves
+ * fire-and-forget: submit, print nothing (the receipt is internal), exit 0;
+ * `--no-query` implies it.
  */
 
 import type { UUID } from "node:crypto";
@@ -61,6 +65,13 @@ import {
   untilQuietMs,
 } from "../core/until.ts";
 import { UUID_PATTERN } from "../core/uuid.ts";
+import { isStoppedOnAsk } from "../core/agent-state/index.ts";
+import {
+  QueuedBehindAskError,
+  StoppedOnAskError,
+  untilStopReason,
+  type UntilStopReason,
+} from "./stopped-on-ask.ts";
 
 const PROMPT_TYPES = ["messages", "entries", "events"] as const;
 
@@ -70,7 +81,7 @@ const promptFlags = {
   type: enumFlag("Stream type (default messages)", PROMPT_TYPES),
   json: booleanFlag("Emit canonical JSONL instead of formatted text"),
   until: parsedFlag(
-    `Stream until ${UNTIL_USAGE} (default turn-end)`,
+    `Stream until ${UNTIL_USAGE} (default input-needed)`,
     parseUntilCondition,
     "cond",
     completeChoices(UNTIL_COMPLETIONS),
@@ -183,25 +194,33 @@ async function promptLive(
   const settlement = new UntilSettlement(condition);
   let promptId: UUID | undefined;
   let gateOpen = false;
+  let stoppedBeforeGate = false;
   try {
-    const { outcome } = await Promise.race([
+    const { outcome, state } = await Promise.race([
       runStream(
         {
           subscribe: async () => {
             const subscription = await client.subscribe();
-            promptId = await submitPromptFn();
-            gateOpen = promptId === undefined;
+            if (!isStoppedOnAsk(subscription.seed)) {
+              promptId = await submitPromptFn();
+              gateOpen = promptId === undefined;
+            }
             return subscription;
           },
         },
         {
           // The seed predates our submission by construction: the turn we
-          // caused is ahead of it, so the condition is never met at the seed.
-          onSeed: () => false,
+          // caused is ahead of it, so the condition is never met at the
+          // seed. Stopped on an ask, nothing was submitted.
+          onSeed: (seed) => {
+            stoppedBeforeGate = isStoppedOnAsk(seed);
+            return stoppedBeforeGate;
+          },
           onEvent: (event, state) => {
             if (!gateOpen) {
               gateOpen = opensGate(event, promptId);
-              return false;
+              stoppedBeforeGate = !gateOpen && isStoppedOnAsk(state);
+              return stoppedBeforeGate;
             }
             if (event.kind === "sessionEntry") {
               sink.push(event.entry);
@@ -214,6 +233,11 @@ async function promptLive(
       ),
       settlement.expiry,
     ]);
+    if (stoppedBeforeGate) {
+      throw promptId === undefined
+        ? new StoppedOnAskError(state)
+        : new QueuedBehindAskError(state);
+    }
     if (outcome === "closed") {
       throw new Error("stream closed before condition met");
     }
@@ -223,6 +247,7 @@ async function promptLive(
       );
     }
     sink.end();
+    settlement.throwIfStoppedOnAsk();
   } finally {
     settlement.dispose();
     client.close();
@@ -258,27 +283,38 @@ async function promptEvents(
   };
   let promptId: UUID | undefined;
   let gateOpen = false;
+  let stopReason: UntilStopReason;
   try {
-    const { outcome } = await runStream(
+    const { outcome, state } = await runStream(
       {
         subscribe: async () => {
           const subscription = await client.subscribe();
-          promptId = await submitPromptFn();
-          gateOpen = promptId === undefined;
+          if (!isStoppedOnAsk(subscription.seed)) {
+            promptId = await submitPromptFn();
+            gateOpen = promptId === undefined;
+          }
           return subscription;
         },
       },
       {
-        onSeed: () => false,
+        onSeed: (seed) => {
+          stopReason = untilStopReason(false, seed);
+          return stopReason !== undefined;
+        },
         onEvent: (event, state) => {
           if (!gateOpen) {
             if (!opensGate(event, promptId)) {
-              return false;
+              stopReason = untilStopReason(false, state);
+              return stopReason !== undefined;
             }
             gateOpen = true;
           }
           write({ event });
-          return untilMetByEvent(condition, event, state);
+          stopReason = untilStopReason(
+            untilMetByEvent(condition, event, state),
+            state,
+          );
+          return stopReason !== undefined;
         },
         quietMs: untilQuietMs(condition),
       },
@@ -298,6 +334,11 @@ async function promptEvents(
         context.process.stdout.write(text);
       }
     }
+    if (stopReason === "stoppedOnAsk") {
+      throw !gateOpen && promptId !== undefined
+        ? new QueuedBehindAskError(state)
+        : new StoppedOnAskError(state);
+    }
   } finally {
     client.close();
   }
@@ -309,7 +350,10 @@ async function promptCommand(
   text: string,
 ): Promise<void> {
   const type = flags.type ?? "messages";
-  const condition: UntilCondition = flags.until ?? { kind: "turn-end" };
+  const condition: UntilCondition = flags.until ?? {
+    kind: "state",
+    name: "input-needed",
+  };
   const timeoutMs =
     flags.timeout === undefined ? undefined : secondsToTimerMs(flags.timeout);
   const detach = flags.detach || flags.noQuery;

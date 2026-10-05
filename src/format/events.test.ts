@@ -317,6 +317,7 @@ test("snapshot lists live tasks and pending asks, main before task, with the tas
           description: "explore repo",
           background: true,
           status: "running",
+          unresolvedToolUses: [],
           pendingPermissions: [
             {
               ...request,

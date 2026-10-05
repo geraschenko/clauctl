@@ -14,15 +14,17 @@ import {
   anomalyReport,
   classOf,
   joinedPrompt,
-  type PendingAsk,
+  liveTasks,
 } from "../core/agent-state/index.ts";
 import {
   type AgentState,
   type AgentEvent,
   eventUuid,
+  type PermissionRequest,
   type PermissionResolution,
 } from "../core/protocol/index.ts";
 import { compactionMetadata } from "../core/session/file.ts";
+import { DEFAULT_MESSAGE_FORMAT_OPTIONS } from "./messages.ts";
 import { userText } from "./sdk-render.ts";
 import {
   annotation,
@@ -35,12 +37,15 @@ import type { MessageFormatOptions, TailRecord } from "./types.ts";
 
 /** `<toolUseId>: <tool summary>` (+ ` (task <taskId>)` for a task's ask);
  *  the summary is the tail's own `[tool:…]` argument form. */
-function askDetail(ask: PendingAsk, options: MessageFormatOptions): string {
-  const { request, task } = ask;
+function askDetail(
+  request: PermissionRequest,
+  taskId: string | undefined,
+  options: MessageFormatOptions,
+): string {
   const args = formatToolArguments(request.input, options.maxToolArgChars);
   const summary =
     args === "" ? request.toolName : `${request.toolName} ${args}`;
-  const suffix = task === undefined ? "" : ` (task ${task.taskId})`;
+  const suffix = taskId === undefined ? "" : ` (task ${taskId})`;
   return `${request.toolUseId}: ${summary}${suffix}`;
 }
 
@@ -80,13 +85,31 @@ function agentStateChunk(
     formatState.queuedMessages.set(uuid, message);
     lines.push(annotation(`queued ${uuid}: ${userText(message)}`));
   }
-  for (const task of agentState.tasks) {
+  for (const task of liveTasks(agentState)) {
     lines.push(annotation(`task ${task.taskId}: ${task.description}`));
   }
-  for (const ask of allPendingAsks(agentState)) {
-    lines.push(`[pending permission ${askDetail(ask, options)}]`);
-  }
+  lines.push(...pendingAskLines(agentState, options));
   return lines.join("\n");
+}
+
+/** `[pending permission <toolUseId>: <tool summary>]`; `taskId` absent for
+ *  the main agent. */
+export function pendingAskLine(
+  request: PermissionRequest,
+  taskId: string | undefined,
+  options: MessageFormatOptions = DEFAULT_MESSAGE_FORMAT_OPTIONS,
+): string {
+  return `[pending permission ${askDetail(request, taskId, options)}]`;
+}
+
+/** One `pendingAskLine` per pending ask, in `allPendingAsks` order. */
+export function pendingAskLines(
+  agentState: AgentState,
+  options: MessageFormatOptions = DEFAULT_MESSAGE_FORMAT_OPTIONS,
+): string[] {
+  return allPendingAsks(agentState).map(({ request, task }) =>
+    pendingAskLine(request, task?.taskId, options),
+  );
 }
 
 /** `[label: type detail]` for a request-carrying event (controlApplied):
@@ -206,7 +229,7 @@ function eventBodyChunks(
     // snapshot line.
     case "permissionRequested":
       return [
-        `[permission requested ${askDetail({ request: event.request }, options)}]`,
+        `[permission requested ${askDetail(event.request, undefined, options)}]`,
       ];
     case "permissionResolved":
       return [

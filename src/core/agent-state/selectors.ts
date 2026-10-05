@@ -84,10 +84,19 @@ export function queryingCount(state: AgentState): number {
 export const isIdle = (state: AgentState): boolean =>
   state.activity === "idle" && queryingCount(state) === 0;
 
+/** Tasks not yet ended: `pending`, `running` or `paused`. */
+export const liveTasks = (state: AgentState): readonly TaskState[] =>
+  state.tasks.filter(
+    (task) =>
+      task.status === "pending" ||
+      task.status === "running" ||
+      task.status === "paused",
+  );
+
 /** Nothing running anywhere: the main loop idle and no live task. What a
  *  Query restart (set-context) requires. */
 export const isQuiescent = (state: AgentState): boolean =>
-  isIdle(state) && state.tasks.length === 0;
+  isIdle(state) && liveTasks(state).length === 0;
 
 /** An ask with the task it belongs to; `task` absent for the main agent. */
 export interface PendingAsk {
@@ -95,11 +104,52 @@ export interface PendingAsk {
   readonly request: PermissionRequest;
 }
 
-/** Every pending ask, main agent first then tasks in order — what the
+/** Every pending ask, main agent first then live tasks in order — what the
  *  TUI dialog and the snapshot line iterate. */
 export const allPendingAsks = (state: AgentState): readonly PendingAsk[] => [
   ...state.pendingPermissions.map((request) => ({ request })),
-  ...state.tasks.flatMap((task) =>
+  ...liveTasks(state).flatMap((task) =>
     task.pendingPermissions.map((request) => ({ task, request })),
   ),
 ];
+
+/** No message will be produced without outside input (a prompt or an
+ *  ask's answer). Implied by `isQuiescent`. Definition:
+ *  docs/specs/permission-cli.md, "Input needed". */
+export const isInputNeeded = (state: AgentState): boolean => {
+  // Tool uses that wait on an ask: an asking call itself, or a live task's
+  // spawning call (every live task must itself be waiting).
+  const stalledToolUses = new Set(
+    state.pendingPermissions.map((request) => request.toolUseId),
+  );
+  const unresolvedToolUses = [...state.unresolvedToolUses];
+  for (const task of liveTasks(state)) {
+    if (
+      task.pendingPermissions.length === 0 &&
+      task.unresolvedToolUses.length === 0
+    ) {
+      // Generating, or a task with no frames (a background Bash).
+      return false;
+    }
+    if (task.toolUseId !== undefined) {
+      stalledToolUses.add(task.toolUseId);
+    }
+    for (const request of task.pendingPermissions) {
+      stalledToolUses.add(request.toolUseId);
+    }
+    unresolvedToolUses.push(...task.unresolvedToolUses);
+  }
+  if (
+    !unresolvedToolUses.every((toolUseId) => stalledToolUses.has(toolUseId))
+  ) {
+    // That tool use's result will resume its agent.
+    return false;
+  }
+  return state.unresolvedToolUses.length > 0 || isIdle(state);
+};
+
+/** Cannot progress until someone answers an ask. */
+export const isStoppedOnAsk = (state: AgentState): boolean =>
+  isInputNeeded(state) &&
+  // Input needed means every live task asks.
+  (state.pendingPermissions.length > 0 || liveTasks(state).length > 0);

@@ -1,0 +1,426 @@
+{
+  "scenario": "bg-ask",
+  "versions": {
+    "sdk": "0.3.280"
+  },
+  "cwd": "/tmp/clauctl-permcli-cwd-G2MBLc",
+  "timeline": [
+    {
+      "t": 137,
+      "what": "message",
+      "type": "system",
+      "subtype": "session_state_changed",
+      "state": "running"
+    },
+    {
+      "t": 147,
+      "what": "message",
+      "type": "system",
+      "subtype": "init"
+    },
+    {
+      "t": 2035,
+      "what": "message",
+      "type": "assistant",
+      "parent_tool_use_id": null,
+      "blocks": ["thinking"]
+    },
+    {
+      "t": 2532,
+      "what": "message",
+      "type": "assistant",
+      "parent_tool_use_id": null,
+      "blocks": ["tool_use:Agent:toolu_01HpCTBG5svmAPXsrXvRX4uA"]
+    },
+    {
+      "t": 2539,
+      "what": "message",
+      "type": "system",
+      "subtype": "background_tasks_changed"
+    },
+    {
+      "t": 2540,
+      "what": "message",
+      "type": "system",
+      "subtype": "task_started",
+      "task_id": "a37b202a5576a1e72"
+    },
+    {
+      "t": 2544,
+      "what": "message",
+      "type": "user",
+      "parent_tool_use_id": null,
+      "blocks": ["tool_result:toolu_01HpCTBG5svmAPXsrXvRX4uA"]
+    },
+    {
+      "t": 2550,
+      "what": "message",
+      "type": "rate_limit_event"
+    },
+    {
+      "t": 3850,
+      "what": "message",
+      "type": "assistant",
+      "parent_tool_use_id": null,
+      "blocks": ["thinking"]
+    },
+    {
+      "t": 3872,
+      "what": "message",
+      "type": "assistant",
+      "parent_tool_use_id": null,
+      "blocks": ["text"]
+    },
+    {
+      "t": 3878,
+      "what": "message",
+      "type": "result",
+      "subtype": "success"
+    },
+    {
+      "t": 4014,
+      "what": "message",
+      "type": "assistant",
+      "parent_tool_use_id": "toolu_01HpCTBG5svmAPXsrXvRX4uA",
+      "blocks": ["thinking"]
+    },
+    {
+      "t": 4425,
+      "what": "message",
+      "type": "assistant",
+      "parent_tool_use_id": "toolu_01HpCTBG5svmAPXsrXvRX4uA",
+      "blocks": ["tool_use:Bash:toolu_01WAQHUnHz3Amm3ESPJS5uSV"]
+    },
+    {
+      "t": 4429,
+      "what": "message",
+      "type": "system",
+      "subtype": "task_progress"
+    },
+    {
+      "t": 4437,
+      "what": "message",
+      "type": "system",
+      "subtype": "session_state_changed",
+      "state": "requires_action"
+    },
+    {
+      "t": 4437,
+      "what": "ask",
+      "toolName": "Bash",
+      "toolUseID": "toolu_01WAQHUnHz3Amm3ESPJS5uSV",
+      "agentID": "a37b202a5576a1e72"
+    },
+    {
+      "t": 9438,
+      "what": "deny",
+      "toolUseID": "toolu_01WAQHUnHz3Amm3ESPJS5uSV"
+    },
+    {
+      "t": 9440,
+      "what": "message",
+      "type": "system",
+      "subtype": "session_state_changed",
+      "state": "running"
+    },
+    {
+      "t": 9442,
+      "what": "message",
+      "type": "user",
+      "parent_tool_use_id": "toolu_01HpCTBG5svmAPXsrXvRX4uA",
+      "blocks": ["tool_result:toolu_01WAQHUnHz3Amm3ESPJS5uSV"]
+    },
+    {
+      "t": 11223,
+      "what": "message",
+      "type": "assistant",
+      "parent_tool_use_id": "toolu_01HpCTBG5svmAPXsrXvRX4uA",
+      "blocks": ["thinking"]
+    },
+    {
+      "t": 12018,
+      "what": "message",
+      "type": "assistant",
+      "parent_tool_use_id": "toolu_01HpCTBG5svmAPXsrXvRX4uA",
+      "blocks": ["text"]
+    },
+    {
+      "t": 12040,
+      "what": "message",
+      "type": "system",
+      "subtype": "background_tasks_changed"
+    },
+    {
+      "t": 12040,
+      "what": "message",
+      "type": "system",
+      "subtype": "task_updated",
+      "task_id": "a37b202a5576a1e72",
+      "status": "completed"
+    },
+    {
+      "t": 12041,
+      "what": "message",
+      "type": "system",
+      "subtype": "task_notification",
+      "task_id": "a37b202a5576a1e72",
+      "status": "completed"
+    },
+    {
+      "t": 12060,
+      "what": "message",
+      "type": "system",
+      "subtype": "init"
+    },
+    {
+      "t": 14411,
+      "what": "message",
+      "type": "assistant",
+      "parent_tool_use_id": null,
+      "blocks": ["thinking"]
+    },
+    {
+      "t": 14835,
+      "what": "message",
+      "type": "assistant",
+      "parent_tool_use_id": null,
+      "blocks": ["tool_use:SendMessage:toolu_0159tsioUmYuTWPRd2cRQ3QT"]
+    },
+    {
+      "t": 14846,
+      "what": "message",
+      "type": "system",
+      "subtype": "background_tasks_changed"
+    },
+    {
+      "t": 14846,
+      "what": "message",
+      "type": "system",
+      "subtype": "task_started",
+      "task_id": "a37b202a5576a1e72"
+    },
+    {
+      "t": 14851,
+      "what": "message",
+      "type": "user",
+      "parent_tool_use_id": null,
+      "blocks": ["tool_result:toolu_0159tsioUmYuTWPRd2cRQ3QT"]
+    },
+    {
+      "t": 16470,
+      "what": "message",
+      "type": "assistant",
+      "parent_tool_use_id": null,
+      "blocks": ["thinking"]
+    },
+    {
+      "t": 16472,
+      "what": "message",
+      "type": "user",
+      "parent_tool_use_id": null,
+      "blocks": ["text"]
+    },
+    {
+      "t": 16478,
+      "what": "message",
+      "type": "assistant",
+      "parent_tool_use_id": "toolu_01HpCTBG5svmAPXsrXvRX4uA",
+      "blocks": ["thinking"]
+    },
+    {
+      "t": 16884,
+      "what": "message",
+      "type": "assistant",
+      "parent_tool_use_id": "toolu_01HpCTBG5svmAPXsrXvRX4uA",
+      "blocks": ["tool_use:Bash:toolu_01WuUQQ4Udppb5GqV1xabMvQ"]
+    },
+    {
+      "t": 16886,
+      "what": "message",
+      "type": "system",
+      "subtype": "task_progress"
+    },
+    {
+      "t": 16891,
+      "what": "message",
+      "type": "system",
+      "subtype": "session_state_changed",
+      "state": "requires_action"
+    },
+    {
+      "t": 16892,
+      "what": "ask",
+      "toolName": "Bash",
+      "toolUseID": "toolu_01WuUQQ4Udppb5GqV1xabMvQ",
+      "agentID": "a37b202a5576a1e72"
+    },
+    {
+      "t": 18913,
+      "what": "message",
+      "type": "assistant",
+      "parent_tool_use_id": null,
+      "blocks": ["thinking"]
+    },
+    {
+      "t": 19183,
+      "what": "message",
+      "type": "assistant",
+      "parent_tool_use_id": null,
+      "blocks": ["text"]
+    },
+    {
+      "t": 19188,
+      "what": "message",
+      "type": "result",
+      "subtype": "success"
+    },
+    {
+      "t": 21893,
+      "what": "deny",
+      "toolUseID": "toolu_01WuUQQ4Udppb5GqV1xabMvQ"
+    },
+    {
+      "t": 21896,
+      "what": "message",
+      "type": "system",
+      "subtype": "session_state_changed",
+      "state": "running"
+    },
+    {
+      "t": 21898,
+      "what": "message",
+      "type": "user",
+      "parent_tool_use_id": "toolu_01HpCTBG5svmAPXsrXvRX4uA",
+      "blocks": ["tool_result:toolu_01WuUQQ4Udppb5GqV1xabMvQ"]
+    },
+    {
+      "t": 23647,
+      "what": "message",
+      "type": "assistant",
+      "parent_tool_use_id": "toolu_01HpCTBG5svmAPXsrXvRX4uA",
+      "blocks": ["thinking"]
+    },
+    {
+      "t": 23922,
+      "what": "message",
+      "type": "assistant",
+      "parent_tool_use_id": "toolu_01HpCTBG5svmAPXsrXvRX4uA",
+      "blocks": ["text"]
+    },
+    {
+      "t": 24334,
+      "what": "message",
+      "type": "assistant",
+      "parent_tool_use_id": "toolu_01HpCTBG5svmAPXsrXvRX4uA",
+      "blocks": ["tool_use:Bash:toolu_01KiUyHpydqHz2z6yqeo3HTk"]
+    },
+    {
+      "t": 24337,
+      "what": "message",
+      "type": "system",
+      "subtype": "task_progress"
+    },
+    {
+      "t": 24341,
+      "what": "message",
+      "type": "system",
+      "subtype": "session_state_changed",
+      "state": "requires_action"
+    },
+    {
+      "t": 24341,
+      "what": "ask",
+      "toolName": "Bash",
+      "toolUseID": "toolu_01KiUyHpydqHz2z6yqeo3HTk",
+      "agentID": "a37b202a5576a1e72"
+    },
+    {
+      "t": 29342,
+      "what": "deny",
+      "toolUseID": "toolu_01KiUyHpydqHz2z6yqeo3HTk"
+    },
+    {
+      "t": 29345,
+      "what": "message",
+      "type": "system",
+      "subtype": "session_state_changed",
+      "state": "running"
+    },
+    {
+      "t": 29346,
+      "what": "message",
+      "type": "user",
+      "parent_tool_use_id": "toolu_01HpCTBG5svmAPXsrXvRX4uA",
+      "blocks": ["tool_result:toolu_01KiUyHpydqHz2z6yqeo3HTk"]
+    },
+    {
+      "t": 30766,
+      "what": "message",
+      "type": "assistant",
+      "parent_tool_use_id": "toolu_01HpCTBG5svmAPXsrXvRX4uA",
+      "blocks": ["thinking"]
+    },
+    {
+      "t": 32095,
+      "what": "message",
+      "type": "assistant",
+      "parent_tool_use_id": "toolu_01HpCTBG5svmAPXsrXvRX4uA",
+      "blocks": ["text"]
+    },
+    {
+      "t": 32109,
+      "what": "message",
+      "type": "system",
+      "subtype": "background_tasks_changed"
+    },
+    {
+      "t": 32109,
+      "what": "message",
+      "type": "system",
+      "subtype": "task_updated",
+      "task_id": "a37b202a5576a1e72",
+      "status": "completed"
+    },
+    {
+      "t": 32110,
+      "what": "message",
+      "type": "system",
+      "subtype": "task_notification",
+      "task_id": "a37b202a5576a1e72",
+      "status": "completed"
+    },
+    {
+      "t": 32155,
+      "what": "message",
+      "type": "system",
+      "subtype": "init"
+    },
+    {
+      "t": 34672,
+      "what": "message",
+      "type": "assistant",
+      "parent_tool_use_id": null,
+      "blocks": ["thinking"]
+    },
+    {
+      "t": 35798,
+      "what": "message",
+      "type": "assistant",
+      "parent_tool_use_id": null,
+      "blocks": ["text"]
+    },
+    {
+      "t": 35803,
+      "what": "message",
+      "type": "result",
+      "subtype": "success"
+    },
+    {
+      "t": 35804,
+      "what": "message",
+      "type": "system",
+      "subtype": "session_state_changed",
+      "state": "idle"
+    }
+  ]
+}

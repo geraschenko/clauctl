@@ -19,10 +19,8 @@ import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
-import { isNotPendingError } from "../../src/core/protocol/index.ts";
 import { ProtocolClient } from "../../src/core/protocol-client/index.ts";
 import { agentDirPath, agentSocketPath } from "../../src/core/registry.ts";
-import { PLAIN_DENY_MESSAGE } from "../../src/tui/permission-dialog.ts";
 import {
   CAPTURE_COLS,
   captureInTmux,
@@ -176,9 +174,7 @@ async function captureClaudeDialog(
 /**
  * Spawn an isolated agent with the scenario's claude flags, send the
  * prompt over the socket (the ask is then in the attach snapshot), attach
- * in tmux and capture the dialog. The ask is plain-denied over the socket
- * rather than by a key in the pane: `archive` stops politely (waits for
- * idle), and an agent blocked on an ask never idles on its own.
+ * in tmux and capture the dialog. `archive` interrupts the pending ask.
  */
 async function captureClauctlDialog(
   resolved: ResolvedScenario,
@@ -234,25 +230,12 @@ async function captureClauctlDialog(
         `${base}.dialog.ask.json`,
         JSON.stringify(seed.pendingPermissions, null, 2) + "\n",
       );
-      for (const ask of seed.pendingPermissions) {
-        await client
-          .request({
-            type: "permission-response",
-            toolUseId: ask.toolUseId,
-            decision: { behavior: "deny", message: PLAIN_DENY_MESSAGE },
-          })
-          .catch((error: unknown) => {
-            if (!isNotPendingError(error)) throw error;
-          });
-      }
     } finally {
       client.close();
     }
   } finally {
     await execFileAsync(
       process.execPath,
-      // Bounded: a capture failure leaves the ask pending, and the polite
-      // stop would otherwise wait for an idle that never comes.
       [clauctlMain, "archive", "-t", agentId, "--timeout", "30"],
       { env: spawnEnv },
     ).catch((error: unknown) => {

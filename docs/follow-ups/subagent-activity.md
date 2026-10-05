@@ -140,3 +140,22 @@ Source: docs/derisk/permission-prompt/probe-bg-subagent.mjs, FINDINGS.md
    wait must either include task files or exclude them deliberately;
    set-context restarts the Query, which kills every task, so quiescence
    (no live tasks) is the guard — `isQuiescent` in the permission spec.
+
+## Nested tasks (permission-cli round 2, 2026-10-06)
+
+Subagents can launch subagents (tests/sdk/input-needed.test.ts case 7);
+claude's own TUI draws the nesting (`└` under the launching agent). Every
+`task_started`, nested or not, arrives as a top-level system message, so
+`AgentState.tasks` stays a flat list. For display, add
+`TaskState.parentTaskId?: string`, absent when the main agent launched the
+task. The fold sets it at `task_started`: the parent is the live task whose
+`unresolvedToolUses` holds the new task's `toolUseId`, because the spawning
+Agent frame's `parent_tool_use_id` is the parent's Agent call. A SendMessage
+resume keeps the original parent. The view builds the tree from that
+pointer. Display questions:
+
+- A background child can outlive its parent (case 8a: the parent ends
+  first). Decide how to draw an ended parent that has a live child.
+- Stopping a task ends its nested tasks (case 8b).
+- `isInputNeeded` does not use the pointer: it judges each live task on
+  its own (docs/specs/permission-cli.md, Definitions).

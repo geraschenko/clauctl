@@ -197,6 +197,7 @@ and get a working skeleton, not because they are out of scope forever.
   must not preclude it (hence `_tui --sdk-socket`), but builds none of it.
 - **Permission prompting** (`canUseTool` surfacing to a TUI client) — needs a
   daemon-protocol design of its own; lower risk than the TUI substrate.
+  Since implemented: docs/specs/permission-prompt.md.
 - **History**: transcript replay on connect (a `get-messages`-like mechanism).
   A usable daily-driver TUI needs this; it is the next protocol addition.
 - **Slash commands** — none in this pass.

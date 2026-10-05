@@ -1,7 +1,8 @@
 /**
  * The full `Query` passthrough (DECISION-4): every Query method as a flat
  * kebab-case subcommand — the daemon's mapping site documents the three
- * exclusions — plus the client-side `resolve-settings`. Turn submission
+ * exclusions — plus `permission-response` (the answer the `canUseTool` callback
+ * awaits) and the client-side `resolve-settings`. Turn submission
  * lives in prompt.ts.
  *
  * Every subcommand takes the agent as --target (reviving a dormant agent
@@ -11,7 +12,10 @@
 
 import type { UUID } from "node:crypto";
 import { readFileSync } from "node:fs";
-import { resolveSettings } from "@anthropic-ai/claude-agent-sdk";
+import {
+  type PermissionResult,
+  resolveSettings,
+} from "@anthropic-ai/claude-agent-sdk";
 import {
   booleanFlag,
   commandNoTarget,
@@ -19,6 +23,7 @@ import {
   completeChoices,
   enumFlag,
   parsedFlag,
+  requiredStringFlag,
   restArgs,
   stringArg,
   stringFlag,
@@ -242,8 +247,12 @@ async function setMaxThinkingTokens(
   });
 }
 
-/** Inline-JSON-or-file settings argument (apply-flag-settings, update-settings). */
-function parseSettingsArg(value: string): Record<string, unknown> {
+/** Inline-JSON-or-file object argument (settings, a permission decision);
+ *  `what` names it in usage errors. */
+function parseJsonObjectArg(
+  value: string,
+  what: string,
+): Record<string, unknown> {
   const raw = value.trimStart().startsWith("{")
     ? value
     : readFileSync(value, "utf8");
@@ -251,10 +260,10 @@ function parseSettingsArg(value: string): Record<string, unknown> {
   try {
     parsed = JSON.parse(raw);
   } catch (error) {
-    throw new UsageError(`settings is not valid JSON: ${String(error)}`);
+    throw new UsageError(`${what} is not valid JSON: ${String(error)}`);
   }
   if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
-    throw new UsageError("settings must be a JSON object");
+    throw new UsageError(`${what} must be a JSON object`);
   }
   return parsed as Record<string, unknown>;
 }
@@ -266,7 +275,27 @@ async function applyFlagSettings(
 ): Promise<void> {
   await sendRequest(this, {
     type: "apply-flag-settings",
-    settings: parseSettingsArg(settings) as FlagSettings,
+    settings: parseJsonObjectArg(settings, "settings") as FlagSettings,
+  });
+}
+
+const permissionResponseFlags = {
+  toolUseId: requiredStringFlag("The pending ask's tool use id", "id"),
+};
+
+type PermissionResponseFlags = InferFlags<typeof permissionResponseFlags>;
+
+/** The daemon validates the decision: a malformed one, like an ask that
+ *  is not pending, is its error. */
+async function permissionResponse(
+  this: CommandContext,
+  flags: PermissionResponseFlags,
+  decision: string,
+): Promise<void> {
+  await sendRequest(this, {
+    type: "permission-response",
+    toolUseId: flags.toolUseId,
+    decision: parseJsonObjectArg(decision, "decision") as PermissionResult,
   });
 }
 
@@ -281,7 +310,7 @@ async function updateSettings(
   await sendRequest(this, {
     type: "update-settings",
     source: oneOf(source, SETTINGS_SOURCES, "source"),
-    settings: parseSettingsArg(settings),
+    settings: parseJsonObjectArg(settings, "settings"),
   });
 }
 
@@ -777,6 +806,26 @@ export const sdkRoutes = {
     },
     audited: true,
     func: applyFlagSettings,
+  }),
+  "permission-response": commandOneTarget<PermissionResponseFlags, [string]>({
+    docs: {
+      brief:
+        "answer a pending permission ask (or AskUserQuestion) with a PermissionResult",
+    },
+    parameters: {
+      flags: permissionResponseFlags,
+      positional: {
+        kind: "tuple",
+        parameters: [
+          stringArg(
+            "Inline JSON or a PermissionResult file path",
+            "json-or-path",
+          ),
+        ],
+      },
+    },
+    audited: true,
+    func: permissionResponse,
   }),
   "update-settings": commandOneTarget<Record<never, never>, [string, string]>({
     docs: {

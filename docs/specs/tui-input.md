@@ -208,7 +208,8 @@ unconditionally.
 
 ### Non-goals
 
-- Interactive permission prompting (still future work, per tui.md).
+- Interactive permission prompting (since implemented:
+  docs/specs/permission-prompt.md).
 - History replay (transcript still starts blank on attach).
 - Auto-downloading fd (pi's ~370-line unverified-binary downloader is
   deliberately not mirrored).

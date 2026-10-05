@@ -2,6 +2,7 @@ import type { UUID } from "node:crypto";
 import type {
   EffortLevel,
   PermissionMode,
+  SDKTaskUpdatedMessage,
   SDKUserMessage,
 } from "@anthropic-ai/claude-agent-sdk";
 import type { PermissionRequest } from "./permission.ts";
@@ -10,24 +11,30 @@ import type { TrackerAnomaly } from "./tracker-anomaly.ts";
 
 export type AgentActivity = "idle" | "pending" | "working" | "compacting";
 
-/** One live entry of the CLI's task map (sdk.d.ts: "clients merge into
- *  their local task map"). A subagent is a task of type `local_agent`.
- *  Its transcript is `<session>/subagents/agent-<taskId>.jsonl` (entries
- *  carry the main session's id; `taskId` is the identity) — a per-task
- *  `session: SessionState` merged over that file is the planned
+/** One entry of the CLI's task map (sdk.d.ts: "clients merge into
+ *  their local task map") for the current session; it stays after it ends,
+ *  since SendMessage can resume it. A subagent is a task of type
+ *  `local_agent`. Its transcript is `<session>/subagents/agent-<taskId>.jsonl`
+ *  (entries carry the main session's id; `taskId` is the identity) — a
+ *  per-task `session: SessionState` merged over that file is the planned
  *  extension (docs/follow-ups/subagent-activity.md), not modeled yet. */
 export interface TaskState {
   readonly taskId: string;
-  /** The tool use that spawned it; subagent frames carry it as
+  /** The tool use that first spawned it (an Agent call, foreground or
+   *  background, or a background Bash call); subagent frames carry it as
    *  `parent_tool_use_id`. Absent for CLI-started tasks. */
   readonly toolUseId?: string;
   readonly description: string;
   readonly taskType?: string;
   readonly subagentType?: string;
   readonly background: boolean;
-  readonly status: "running" | "paused";
-  /** The task's own asks, arrival order. */
+  /** Live while `pending`, `running` or `paused` (`liveTasks`). */
+  readonly status: NonNullable<SDKTaskUpdatedMessage["patch"]["status"]>;
+  /** The task's own asks, arrival order; empty once it ends. */
   readonly pendingPermissions: readonly PermissionRequest[];
+  /** The task's tool uses awaiting their `tool_result`, arrival order;
+   *  empty once it ends. */
+  readonly unresolvedToolUses: readonly string[];
 }
 
 /**
@@ -67,11 +74,15 @@ export interface AgentState {
   /** The tracked file; trails `querySessionId` until the switch;
    *  undefined until the first file exists. */
   readonly fileSessionId?: UUID;
-  /** Live, non-ambient tasks in `task_started` order; a task leaves on a
-   *  terminal `task_updated` status or its `task_notification`. */
+  /** The query session's non-ambient tasks, live or ended, in first
+   *  `task_started` order; cleared when the query session changes. */
   readonly tasks: readonly TaskState[];
   /** The main agent's own asks, arrival order. */
   readonly pendingPermissions: readonly PermissionRequest[];
+  /** The main agent's tool uses awaiting their `tool_result`, arrival
+   *  order. A background call's result arrives at once; its work continues
+   *  as a task. */
+  readonly unresolvedToolUses: readonly string[];
   /** Set by the fold that detected it, absent on every other state:
    *  "the event just folded was anomalous". History lives in the log
    *  and the bundles. */
