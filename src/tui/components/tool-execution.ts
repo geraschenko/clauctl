@@ -44,6 +44,7 @@ import {
 import { CachedLinesComponent } from "./cached-lines.ts";
 import {
   toolViewFor,
+  type ToolHeader,
   type ToolView,
   type ToolViewContext,
 } from "../../format/entry-view/index.ts";
@@ -164,7 +165,9 @@ export class ToolExecutionComponent extends CachedLinesComponent {
   }
 
   protected computeLines(width: number): string[] {
-    return ["", ...this.headerLines(width), ...this.bodyLines(width)];
+    const header = this.view.header(this.args, this.context, this.result);
+    if (header === undefined) return [];
+    return ["", ...this.headerLines(header, width), ...this.bodyLines(width)];
   }
 
   /** Subagent lines are appended live, outside the cache: a streaming
@@ -186,10 +189,14 @@ export class ToolExecutionComponent extends CachedLinesComponent {
     ];
   }
 
-  private headerLines(width: number): string[] {
-    const header = this.view.header(this.args, this.context);
+  private headerLines(header: ToolHeader, width: number): string[] {
+    const name = header.name ?? this.toolName;
     if (header.description !== undefined) {
-      const lines = this.wrappedHeaderLines(header.description, width).lines;
+      const lines = this.wrappedHeaderLines(
+        name,
+        header.description,
+        width,
+      ).lines;
       if (header.arg !== undefined) {
         const argCapacity = Math.max(0, width - HEADER_CONTINUATION_INDENT);
         lines.push(
@@ -201,9 +208,9 @@ export class ToolExecutionComponent extends CachedLinesComponent {
     }
     const arg = header.arg;
     if (arg === undefined) {
-      return [this.headerPrefix(ANSI_STYLE)];
+      return [this.headerPrefix(ANSI_STYLE, name)];
     }
-    const wrapped = this.wrappedHeaderLines(arg, width);
+    const wrapped = this.wrappedHeaderLines(name, arg, width);
     // OSC 8 file link around the arg, like claude — only when the arg fits
     // untouched on a single line (wrapHeaderArg's width math and the "…)"
     // truncation slice both assume no escape bytes in the line). The wire
@@ -221,7 +228,7 @@ export class ToolExecutionComponent extends CachedLinesComponent {
       !argHasControlChars
     ) {
       return [
-        `${this.headerPrefix(ANSI_STYLE)}(${hyperlink(arg, pathToFileURL(linkPath).href)})`,
+        `${this.headerPrefix(ANSI_STYLE, name)}(${hyperlink(arg, pathToFileURL(linkPath).href)})`,
       ];
     }
     return wrapped.lines;
@@ -229,23 +236,24 @@ export class ToolExecutionComponent extends CachedLinesComponent {
 
   /** `▸ Name`: the glyph in the result state's color (pending grey), the
    *  name bold; `PLAIN_STYLE` gives the width the styled prefix occupies. */
-  private headerPrefix(style: Style): string {
+  private headerPrefix(style: Style, name: string): string {
     const glyphColor =
       this.result === undefined
         ? style.grey
         : this.result.isError
           ? style.error
           : style.success;
-    return `${glyphColor(TOOL_CALL_GLYPH)} ${style.bold(this.view.displayName ?? this.toolName)}`;
+    return `${glyphColor(TOOL_CALL_GLYPH)} ${style.bold(name)}`;
   }
 
   /** `▸ Name(text)` wrapped to HEADER_MAX_LINES, "…)"-truncated past
    *  them; `fitsOnOneLine` when `(text)` came through untouched. */
   private wrappedHeaderLines(
+    name: string,
     text: string,
     width: number,
   ): { lines: string[]; fitsOnOneLine: boolean } {
-    const prefixWidth = this.headerPrefix(PLAIN_STYLE).length;
+    const prefixWidth = this.headerPrefix(PLAIN_STYLE, name).length;
     const wrapped = wrapHeaderArg(
       `(${text})`,
       width - prefixWidth,
@@ -258,7 +266,7 @@ export class ToolExecutionComponent extends CachedLinesComponent {
     const fitsOnOneLine = !wrapped.truncated && wrapped.lines.length === 1;
     const lines = wrapped.lines.map((line, index) =>
       index === 0
-        ? `${this.headerPrefix(ANSI_STYLE)}${line}`
+        ? `${this.headerPrefix(ANSI_STYLE, name)}${line}`
         : `${" ".repeat(HEADER_CONTINUATION_INDENT)}${line}`,
     );
     if (wrapped.truncated) {
@@ -345,12 +353,21 @@ export function resultBlockLines(
   style: ResultBlockStyle | undefined,
 ): string[] {
   const capacity = Math.max(1, width - RESULT_CONTINUATION_INDENT);
-  const { visualLines } = truncateToVisualLines(
-    text,
-    Number.MAX_SAFE_INTEGER,
-    capacity,
-    0,
-  );
+  // A source line's wrapped continuations keep its leading whitespace, so
+  // indented text (an AskUserQuestion note under its answer) stays aligned.
+  const visualLines = text.split("\n").flatMap((sourceLine) => {
+    const leading = /^[ \t]*/.exec(sourceLine)?.[0] ?? "";
+    const hanging = leading.length < capacity / 2 ? leading : "";
+    const wrapped = truncateToVisualLines(
+      sourceLine.slice(hanging.length),
+      Number.MAX_SAFE_INTEGER,
+      capacity - hanging.length,
+      0,
+    ).visualLines;
+    return (wrapped.length === 0 ? [""] : wrapped).map(
+      (line) => hanging + line,
+    );
+  });
   const indent = " ".repeat(RESULT_CONTINUATION_INDENT);
   if (style === undefined) {
     return visualLines.map((line) => indent + line);

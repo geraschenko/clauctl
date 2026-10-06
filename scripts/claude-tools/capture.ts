@@ -42,6 +42,8 @@ import { join, dirname } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { promisify } from "node:util";
+import { query } from "@anthropic-ai/claude-agent-sdk";
+import { invariantOptions } from "../../src/core/options.ts";
 import {
   claudeEnv,
   ensureClaudeConfigDir,
@@ -127,14 +129,19 @@ function scrubbedEnv(): NodeJS.ProcessEnv {
   );
 }
 
+/** One SDK turn configured like the daemon's claude child (its invariant
+ *  options and a canUseTool), so the tool surface is the one clauctl
+ *  agents get: print mode (`claude -p`) omits AskUserQuestion. Only
+ *  ToolSearch may run. */
 async function runClaude(prompt: string, maxTurns: number): Promise<void> {
   const workdir = join(workdirBase, "claude-tools");
   await mkdir(workdir, { recursive: true });
-  const { stdout } = await execFileAsync(
-    resolveBundledClaude(),
-    ["-p", prompt, "--max-turns", String(maxTurns)],
-    {
+  const turn = query({
+    prompt,
+    options: {
+      ...invariantOptions(),
       cwd: workdir,
+      maxTurns,
       env: {
         ...scrubbedEnv(),
         ...claudeEnv,
@@ -142,9 +149,24 @@ async function runClaude(prompt: string, maxTurns: number): Promise<void> {
         HTTPS_PROXY: `http://127.0.0.1:${PROXY_PORT}`,
         NODE_TLS_REJECT_UNAUTHORIZED: "0",
       },
+      canUseTool: (toolName, input) =>
+        Promise.resolve(
+          toolName === "ToolSearch"
+            ? { behavior: "allow", updatedInput: input }
+            : {
+                behavior: "deny",
+                message: "tool-schema capture runs no tools",
+              },
+        ),
     },
-  );
-  console.log(`claude: ${stdout.trim().split("\n").at(-1)}`);
+  });
+  for await (const message of turn) {
+    if (message.type === "result") {
+      console.log(`claude: ${message.subtype}`);
+      break;
+    }
+  }
+  turn.close();
 }
 
 function isBuiltIn(name: string): boolean {

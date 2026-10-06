@@ -578,7 +578,7 @@ test("error results and non-readOnly tools break fold runs", () => {
   assert.match(renderedText(container), /Bash\(ls\)/);
 });
 
-test("claude layout: Update header, Added/removed summary, expanded diff", () => {
+test("claude layout: Edit header (claude shows Update), Added/removed summary, expanded diff", () => {
   const { renderer, container } = makeRenderer();
   renderer.appendEntry(
     sessionEntry({
@@ -628,7 +628,7 @@ test("claude layout: Update header, Added/removed summary, expanded diff", () =>
   // The diff renders beneath the summary in both toggle states, with
   // file-anchored numbers (old-file for -, new-file for +).
   const collapsed = renderedText(container);
-  assert.match(collapsed, /Update\(src\/a\.ts\)/);
+  assert.match(collapsed, /Edit\(src\/a\.ts\)/);
   assert.match(collapsed, /Added 2 lines, removed 1 line/);
   assert.match(collapsed, /4 -old line/);
   assert.match(collapsed, /5 \+new line two/);
@@ -1023,6 +1023,34 @@ test("a user frame renders its prompt and resolves tool results; its entry rende
   assert.equal(renderedText(container).match(/next question/g)?.length, 1);
   renderer.appendEntry(sessionEntry({ type: "user", uuid: "u1", message }));
   assert.equal(renderedText(container).match(/next question/g)?.length, 1);
+});
+
+test("the CLI's interrupt marker renders once as a notice, not a prompt, from its frame or its entry", () => {
+  const message = {
+    role: "user",
+    content: [
+      { type: "text", text: "[Request interrupted by user for tool use]" },
+    ],
+  };
+  const frameFirst = makeRenderer();
+  frameFirst.renderer.append({
+    type: "user",
+    uuid: "m1",
+    parent_tool_use_id: null,
+    message,
+  } as unknown as SDKMessage);
+  frameFirst.renderer.appendEntry(
+    sessionEntry({ type: "user", uuid: "m1", message }),
+  );
+  const entryOnly = makeRenderer();
+  entryOnly.renderer.appendEntry(
+    sessionEntry({ type: "user", uuid: "m1", message }),
+  );
+  for (const { container } of [frameFirst, entryOnly]) {
+    const text = renderedText(container);
+    assert.equal(text.match(/\[Request interrupted by user/g)?.length, 1);
+    assert.doesNotMatch(text, /❯/u);
+  }
 });
 
 test("a compact summary renders once: the frame as its boundary's anchor, the entry by isCompactSummary", () => {

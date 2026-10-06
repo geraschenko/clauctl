@@ -6,7 +6,11 @@ import {
   setCapabilities,
 } from "@earendil-works/pi-tui";
 import { stripAnsi } from "../../core/generated/text.ts";
-import { ToolExecutionComponent, wrapHeaderArg } from "./tool-execution.ts";
+import {
+  resultBlockLines,
+  ToolExecutionComponent,
+  wrapHeaderArg,
+} from "./tool-execution.ts";
 
 function withHyperlinks<T>(hyperlinks: boolean, body: () => T): T {
   setCapabilities({ images: null, trueColor: false, hyperlinks });
@@ -63,6 +67,37 @@ test("Bash header without a description is the command, wrapped as before", () =
     plainLines(new ToolExecutionComponent("Bash", "nope", undefined), 80),
     ["▸ Bash"],
   );
+});
+
+test("AskUserQuestion renders nothing until it resolves, then its outcome header", () => {
+  const component = new ToolExecutionComponent(
+    "AskUserQuestion",
+    {
+      questions: [
+        {
+          question: "Cats or dogs?",
+          header: "Pet",
+          multiSelect: false,
+          options: [
+            { label: "Cats", description: "" },
+            { label: "Dogs", description: "" },
+          ],
+        },
+      ],
+    },
+    undefined,
+  );
+  assert.deepEqual(component.render(80), []);
+  component.updateResult({
+    toolCallId: "t",
+    content: "declined",
+    isError: true,
+    toolUseResult: undefined,
+  });
+  assert.deepEqual(plainLines(component, 80), [
+    "▸ AskUserQuestion, user declined",
+    "  ✗  · Cats or dogs? (Cats / Dogs)",
+  ]);
 });
 
 test("collapsed result: one source line shown, more counted, errors with ✗", () => {
@@ -181,4 +216,24 @@ test("wrapHeaderArg: word wrap, embedded newlines, truncation flag", () => {
     lines: ["abcd", "efgh", ")"],
     truncated: false,
   });
+});
+
+test("resultBlockLines: a wrapped line's continuations keep its leading whitespace", () => {
+  const style = {
+    glyph: "⤷",
+    glyphColor: (text: string) => text,
+    textColor: (text: string) => text,
+  };
+  // Width 21 leaves 16 columns after the 5-column result indent.
+  const lines = resultBlockLines(
+    "· Q\n → A\n   one two three four",
+    21,
+    style,
+  ).map((line) => line.trimEnd());
+  assert.deepEqual(lines, [
+    "  ⤷  · Q",
+    "      → A",
+    "        one two three",
+    "        four",
+  ]);
 });

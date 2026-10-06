@@ -259,7 +259,7 @@ async function daemon(this: CommandContext, flags: DaemonFlags): Promise<void> {
     ...(resume !== undefined ? { resume } : { sessionId: seedSessionId }),
     canUseTool: (toolName, input, options) =>
       permissionBroker.request(
-        permissionRequestOf(toolName, input, options),
+        permissionRequestOf(toolName, input, options, Date.now()),
         options.signal,
       ),
   });

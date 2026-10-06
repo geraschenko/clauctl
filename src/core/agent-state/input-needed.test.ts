@@ -49,6 +49,7 @@ const ask = (toolUseId: string, agentId?: string): AgentEvent => ({
     toolUseId,
     toolName: "Bash",
     input: {},
+    arrivedAt: 0,
     suggestions: [],
     ...(agentId !== undefined && { agentId }),
   } as PermissionRequest,
@@ -171,6 +172,7 @@ const request = (toolUseId: string): PermissionRequest => ({
   toolUseId,
   toolName: "Bash",
   input: {},
+  arrivedAt: 0,
   suggestions: [],
 });
 

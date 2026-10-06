@@ -1,6 +1,7 @@
 /** The tool-view registry: the only module that imports the views. */
 
 import { agentView } from "./agent.ts";
+import { askUserQuestionView } from "./ask-user-question.ts";
 import { bashView } from "./bash.ts";
 import { defaultToolView } from "./default-tool-view.ts";
 import { editView } from "./edit.ts";
@@ -12,6 +13,7 @@ import { writeView } from "./write.ts";
 
 export const toolViews: { [K in ToolName]?: ToolView<ToolInputMap[K]> } = {
   Agent: agentView,
+  AskUserQuestion: askUserQuestionView,
   Bash: bashView,
   Edit: editView,
   Read: readView,

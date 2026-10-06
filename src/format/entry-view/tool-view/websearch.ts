@@ -12,10 +12,11 @@ import { defaultToolView } from "./default-tool-view.ts";
 import type { ToolView } from "./tool-view.ts";
 
 export const webSearchView: ToolView<WebSearchInput> = {
-  displayName: "Web Search",
   header(args) {
     const query = stringArg(args, "query");
-    return query === undefined ? {} : { arg: `"${query}"` };
+    return query === undefined
+      ? { name: "Web Search" }
+      : { name: "Web Search", arg: `"${query}"` };
   },
   resultSummary(args, result, context) {
     const structured = result.isError

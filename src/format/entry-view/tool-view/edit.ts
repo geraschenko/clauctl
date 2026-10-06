@@ -1,4 +1,5 @@
-// claude 2.1.211's Edit rendering: header "Update(path)", collapsed summary
+// claude 2.1.211's Edit rendering, except that the header keeps the tool
+// name, "Edit(path)", where claude shows "Update(path)"; collapsed summary
 // "Added N lines, removed M lines" (singular/plural, zero parts omitted),
 // and the line-numbered diff as resultBody — both driven by the structured
 // result's structuredPatch (formats captured in scripts/tui-parity/out/
@@ -126,7 +127,6 @@ function countClause(verb: string, count: number, style: Style): string {
 }
 
 export const editView: ToolView<EditInput> = {
-  displayName: "Update",
   header(args, context) {
     const path = stringArg(args, "file_path");
     return path === undefined ? {} : { arg: abbreviatePath(path, context.cwd) };

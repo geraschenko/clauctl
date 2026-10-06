@@ -109,7 +109,13 @@ test("archive interrupts a pending ask, and a re-ask after it, then stops once q
     ],
     unresolvedToolUses: ["toolu_ask"],
     pendingPermissions: [
-      { toolUseId: "toolu_ask", toolName: "Bash", input: {}, suggestions: [] },
+      {
+        toolUseId: "toolu_ask",
+        toolName: "Bash",
+        input: {},
+        arrivedAt: 0,
+        suggestions: [],
+      },
     ],
   };
   const sdkMessage = (message: Record<string, unknown>): AgentEvent => ({
@@ -147,6 +153,7 @@ test("archive interrupts a pending ask, and a re-ask after it, then stops once q
           toolUseId: "toolu_reask",
           toolName: "Bash",
           input: {},
+          arrivedAt: 0,
           suggestions: [],
         },
       },

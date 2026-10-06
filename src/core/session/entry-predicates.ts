@@ -1,10 +1,12 @@
 /**
  * Predicates over session entries that the tree filters, the entry views
  * and the TUI share: what a human typed (`isHumanPrompt`, `isPromptEntry`),
- * what an entry's message contains (`hasText`, `toolResultOnly`) and
- * whether a turn ended abnormally (`abnormalStopReason`).
+ * what an entry's message contains (`hasText`, `toolResultOnly`), the
+ * CLI's interrupt marker (`interruptMarkerText`) and whether a turn ended
+ * abnormally (`abnormalStopReason`).
  */
 
+import type { SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
 import { isRecord } from "../generated/util.ts";
 import { extractTextContent, hasContentBlock } from "../generated/text.ts";
 import {
@@ -53,6 +55,26 @@ export function isHumanPrompt(entry: SessionEntry): boolean {
   );
 }
 
+const INTERRUPT_MARKER_PREFIX = "[Request interrupted";
+
+/** The text of the CLI's interrupted-request marker, which the transcript
+ *  shows as a notice rather than a prompt; undefined for any other user
+ *  message. Takes an entry or a live user frame: the CLI sends the marker
+ *  as both, neither carrying `origin` (pinned by
+ *  tests/sdk/interrupt-marker.test.ts). */
+export function interruptMarkerText(
+  userMessage: SessionEntry | SDKUserMessage,
+): string | undefined {
+  if (
+    ("origin" in userMessage && userMessage.origin !== undefined) ||
+    !isRecord(userMessage.message)
+  ) {
+    return undefined;
+  }
+  const text = extractTextContent(userMessage.message.content).trim();
+  return text.startsWith(INTERRUPT_MARKER_PREFIX) ? text : undefined;
+}
+
 /** A prompt the human typed, whichever way the CLI recorded it: a `user`
  *  entry (submitted idle) or a `queued_command` attachment (steered
  *  mid-turn). Compact summaries are prompt rows too for the filters, but
@@ -92,7 +114,7 @@ const PRE_ORIGIN_NON_HUMAN_PREFIXES = [
   "<command-",
   "<local-command-",
   "<bash-",
-  "[Request interrupted",
+  INTERRUPT_MARKER_PREFIX,
 ];
 /** Not isMeta, has text, text not starting with a known non-human prefix.
  *  Callers guard `type === "user"`. */

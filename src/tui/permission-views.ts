@@ -139,7 +139,7 @@ function genericPermissionView(
     title: () => displayName ?? toolName,
     question: () => PROCEED,
     body(args, context) {
-      const arg = toolViewFor(toolName).header(args, context).arg;
+      const arg = toolViewFor(toolName).header(args, context)?.arg;
       return [
         arg === undefined ? toolName : `${toolName}(${arg})`,
         ...Object.entries(args).map(

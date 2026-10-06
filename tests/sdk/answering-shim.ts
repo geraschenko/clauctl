@@ -26,9 +26,14 @@ const REDACTED_HEADERS = new Set(["authorization", "x-api-key", "cookie"]);
 
 const SYNTHETIC_MESSAGE_ID = "msg_answering_shim";
 
-/** The SSE events of a one-word assistant reply with stop_reason end_turn. */
-function syntheticStream(model: string): string {
-  const events: [string, unknown][] = [
+/** The SSE events of an assistant message with one content block. */
+function singleBlockStream(
+  model: string,
+  contentBlock: object,
+  delta: object,
+  stopReason: "end_turn" | "tool_use",
+): string {
+  const events: [string, object][] = [
     [
       "message_start",
       {
@@ -44,19 +49,13 @@ function syntheticStream(model: string): string {
         },
       },
     ],
-    [
-      "content_block_start",
-      { index: 0, content_block: { type: "text", text: "" } },
-    ],
-    [
-      "content_block_delta",
-      { index: 0, delta: { type: "text_delta", text: "ok" } },
-    ],
+    ["content_block_start", { index: 0, content_block: contentBlock }],
+    ["content_block_delta", { index: 0, delta }],
     ["content_block_stop", { index: 0 }],
     [
       "message_delta",
       {
-        delta: { stop_reason: "end_turn", stop_sequence: null },
+        delta: { stop_reason: stopReason, stop_sequence: null },
         usage: { output_tokens: 1 },
       },
     ],
@@ -65,10 +64,39 @@ function syntheticStream(model: string): string {
   return events
     .map(
       ([type, data]) =>
-        `event: ${type}\ndata: ${JSON.stringify({ type, ...(data as object) })}\n\n`,
+        `event: ${type}\ndata: ${JSON.stringify({ type, ...data })}\n\n`,
     )
     .join("");
 }
+
+/** A one-word assistant reply with stop_reason end_turn. */
+function syntheticStream(model: string): string {
+  return singleBlockStream(
+    model,
+    { type: "text", text: "" },
+    { type: "text_delta", text: "ok" },
+    "end_turn",
+  );
+}
+
+/** An assistant reply calling `name` with `input`, verbatim and unvalidated. */
+export function toolUseStream(
+  model: string,
+  toolUseId: string,
+  name: string,
+  input: unknown,
+): string {
+  return singleBlockStream(
+    model,
+    { type: "tool_use", id: toolUseId, name, input: {} },
+    { type: "input_json_delta", partial_json: JSON.stringify(input) },
+    "tool_use",
+  );
+}
+
+/** Overrides the synthetic reply to one /v1/messages request: the SSE body
+ *  to send, or undefined for the synthetic end_turn reply. */
+export type ShimReply = (body: unknown) => string | undefined;
 
 function recordedHeaders(
   headers: http.IncomingHttpHeaders,
@@ -87,9 +115,11 @@ function recordedHeaders(
   );
 }
 
-/** Listens on 127.0.0.1; answers /v1/messages with the synthetic stream,
- *  everything else with an empty 200. */
-export function startAnsweringShim(): Promise<AnsweringShim> {
+/** Listens on 127.0.0.1; answers /v1/messages with `reply`'s stream or the
+ *  synthetic one, everything else with an empty 200. */
+export function startAnsweringShim(
+  reply: ShimReply = () => undefined,
+): Promise<AnsweringShim> {
   const requests: CapturedRequest[] = [];
   const server = http.createServer((req, res) => {
     const chunks: Buffer[] = [];
@@ -112,7 +142,7 @@ export function startAnsweringShim(): Promise<AnsweringShim> {
           "content-type": "text/event-stream",
           "cache-control": "no-cache",
         });
-        res.end(syntheticStream(model));
+        res.end(reply(body) ?? syntheticStream(model));
       } else {
         res.writeHead(200, { "content-type": "application/json" });
         res.end("{}");

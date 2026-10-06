@@ -10,6 +10,9 @@ import type {
  *  hands a host is the canUseTool argument list, serialized here. */
 export interface PermissionRequest {
   toolUseId: string;
+  /** When the daemon received the ask (epoch ms); orders `allPendingAsks`
+   *  first come first served. */
+  arrivedAt: number;
   toolName: string;
   input: Record<string, unknown>;
   suggestions: PermissionUpdate[];

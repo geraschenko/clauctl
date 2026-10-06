@@ -72,6 +72,16 @@ item.
    the key; in fullscreen we could append "or click". Parity spec says
    follow claude — leave the text.
 
+## Expansion levels (Anton, 2026-10-06)
+
+More than collapsed/expanded: there must be a "fully expanded" level that
+shows everything. Example: AskUserQuestion's default view shows each
+question, its answer, and in full anything the user typed (free text,
+notes), but not option previews; the fully expanded view adds the
+previews. This needs `ToolView` to take an expansion level. The same
+levels should serve `format messages` once it renders through tool views
+(format-messages-tool-views.md).
+
 ## Open questions
 
 - Should a click on a _collapsed_ fold line unfold to individually

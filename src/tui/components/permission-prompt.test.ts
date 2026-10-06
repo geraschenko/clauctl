@@ -3,7 +3,8 @@ import { test } from "node:test";
 import type { PermissionResult } from "@anthropic-ai/claude-agent-sdk";
 import { visibleWidth } from "@earendil-works/pi-tui";
 import { stripAnsi } from "../../core/generated/text.ts";
-import type { PermissionDialog } from "../permission-dialog.ts";
+import { KEY } from "../../test-support/keys.ts";
+import { feedbackDenial, type PermissionDialog } from "../permission-dialog.ts";
 import { PermissionPromptComponent } from "./permission-prompt.ts";
 
 const NO: PermissionResult = { behavior: "deny", message: "no" };
@@ -76,7 +77,7 @@ test("Esc sends the dialog's cancelDecision even without a deny row", () => {
   const prompt = new PermissionPromptComponent(dialog(), 1, (d) =>
     decisions.push(d),
   );
-  prompt.handleInput("\x1b");
+  prompt.handleInput(KEY.escape);
   assert.deepEqual(decisions, [NO]);
 });
 
@@ -85,4 +86,16 @@ test("the title's (+N more) follows pendingCount", () => {
   assert.ok(!stripAnsi(prompt.render(40)[1] ?? "").includes("more"));
   prompt.pendingCount = 3;
   assert.ok(stripAnsi(prompt.render(40)[1] ?? "").endsWith("(+2 more)"));
+});
+
+test("Tab's amend input sends the feedback deny, native's wording", () => {
+  const decisions: PermissionResult[] = [];
+  const prompt = new PermissionPromptComponent(
+    dialog({ tabAmends: true }),
+    1,
+    (d) => decisions.push(d),
+  );
+  for (const key of [KEY.tab, ..."use ls instead", KEY.enter])
+    prompt.handleInput(key);
+  assert.deepEqual(decisions, [feedbackDenial("use ls instead")]);
 });

@@ -41,19 +41,20 @@ import {
 } from "../core/agent-state/index.ts";
 import { ANSI_STYLE } from "../format/style.ts";
 import { PermissionPromptComponent } from "./components/permission-prompt.ts";
+import { QuestionPromptComponent } from "./components/question-prompt.ts";
+import { askUserQuestionInput } from "./question-dialog.ts";
 import { FitWidth } from "./components/fit-width.ts";
 import { permissionDialog, PLAIN_DENY_MESSAGE } from "./permission-dialog.ts";
 import type {
   AgentState,
   AgentEvent,
   GetEntriesResponse,
+  PermissionRequest,
   PermissionResolution,
 } from "../core/protocol/index.ts";
 import { isNotPendingError } from "../core/protocol/index.ts";
-import { randomUUID, type UUID } from "node:crypto";
-import { readFileSync, unlinkSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import type { UUID } from "node:crypto";
+import { readFileSync } from "node:fs";
 import type { SessionEntry } from "../core/session/file.ts";
 import type { TreeNodeRef } from "../core/tree/nodes.ts";
 import type { ProtocolClient } from "../core/protocol-client/index.ts";
@@ -77,6 +78,7 @@ import {
 } from "./keybindings.ts";
 import {
   editFileInExternalEditor,
+  editTextInExternalEditor,
   externalEditorCommand,
 } from "./external-editor.ts";
 import { VERSION } from "../core/generated/version.ts";
@@ -271,8 +273,13 @@ export interface TuiParts {
  */
 /** Transcript banner for a `permissionResolved`, so a TUI that did not
  *  answer still sees what happened (decided divergence: claude shows
- *  nothing beyond the tool result). */
-function resolutionBanner(resolution: PermissionResolution): string {
+ *  nothing beyond the tool result). None for AskUserQuestion, whose tool
+ *  result already shows the answers or the decline. */
+function resolutionBanner(
+  resolution: PermissionResolution,
+  resolvedRequest: PermissionRequest | undefined,
+): string | undefined {
+  if (resolvedRequest?.toolName === "AskUserQuestion") return undefined;
   switch (resolution.behavior) {
     case "allow": {
       const updates = resolution.updatedPermissions?.length ?? 0;
@@ -386,7 +393,9 @@ export class InteractiveMode {
   private readonly loader: Loader;
   private readonly editor: Editor;
   private readonly inputSlot = new Container();
-  private permissionPrompt?: PermissionPromptComponent;
+  // TDC: "permissionPrompt" is now a bad name for this field. What would be better? Maybe "dialogPrompt"? The main thing the reader needs to know about this is that it replaces the usual input box when the user is shown some kind of prompt, right?
+  private permissionPrompt?:
+    PermissionPromptComponent | QuestionPromptComponent;
   /** The ask the mounted prompt shows; a different head replaces it. */
   private promptedToolUseId?: string;
   /** Plans edited via ctrl+g, by ask: a task's plan ask can lose the head
@@ -687,10 +696,15 @@ export class InteractiveMode {
    *  transcript effect that must survive a buffered release. Runs for every
    *  event, including the ones released after attach. */
   private applyState(event: AgentEvent, state: AgentState): void {
+    const priorState = this.agentState;
     this.agentState = state;
     this.syncPermissionPrompt(state);
     if (event.kind === "permissionResolved") {
-      this.addBanner(resolutionBanner(event.resolution));
+      const resolvedRequest = allPendingAsks(priorState).find(
+        ({ request }) => request.toolUseId === event.toolUseId,
+      )?.request;
+      const banner = resolutionBanner(event.resolution, resolvedRequest);
+      if (banner !== undefined) this.addBanner(banner);
     }
     if (event.kind === "sessionFileChanged") {
       this.scanning = true;
@@ -762,7 +776,8 @@ export class InteractiveMode {
         this.addEventBanner("compacting…", event.uuid);
         break;
       case "interruptSent":
-        this.addEventBanner("interrupted", event.uuid);
+        // The CLI's interrupt marker renders the interrupt, from the session
+        // file too, so a late attacher sees it (interruptMarkerText).
         break;
       case "sdkMessage":
         if (
@@ -968,36 +983,40 @@ export class InteractiveMode {
 
   /**
    * app.editor.external (ctrl+g): edit the prompt in $VISUAL/$EDITOR with
-   * the TUI suspended. Exit 0 replaces the editor content — stripping one
-   * trailing newline, matching pi — nonzero keeps the original text. Events
-   * arriving while the TUI is suspended are not lost: rendering is
-   * deferred, not the socket-driven handleEvent (see the spec's WORK LOG,
-   * 2026-07-21).
+   * the TUI suspended. Exit 0 replaces the editor content; nonzero keeps
+   * the original text. Events arriving while the TUI is suspended are not
+   * lost: rendering is deferred, not the socket-driven handleEvent (see the
+   * spec's WORK LOG, 2026-07-21).
    */
   private async openExternalPromptEditor(): Promise<void> {
-    const editorCommand = externalEditorCommand();
-    if (editorCommand === undefined) {
+    if (externalEditorCommand() === undefined) {
       this.addBanner("set $EDITOR to edit the prompt", "warning");
       this.ui.requestRender();
       return;
     }
-    const tempPath = join(tmpdir(), `clauctl-editor-${randomUUID()}.md`);
+    const edited = await editTextInExternalEditor(
+      this.ui,
+      this.editor.getText(),
+    );
+    if (edited !== undefined) {
+      this.editor.setText(edited);
+    }
+  }
+
+  /** Text edited in the external editor; undefined when there is none or
+   *  it fails, each reported as a banner. */
+  private async editTextExternally(text: string): Promise<string | undefined> {
+    if (externalEditorCommand() === undefined) {
+      this.addBanner("set $EDITOR to use an external editor", "warning");
+      this.ui.requestRender();
+      return undefined;
+    }
     try {
-      writeFileSync(tempPath, this.editor.getText(), "utf8");
-      const exitedZero = await editFileInExternalEditor(
-        this.ui,
-        editorCommand,
-        tempPath,
-      );
-      if (exitedZero) {
-        this.editor.setText(readFileSync(tempPath, "utf8").replace(/\n$/, ""));
-      }
-    } finally {
-      try {
-        unlinkSync(tempPath);
-      } catch {
-        // Cleanup is best-effort; the file is in tmpdir anyway.
-      }
+      return await editTextInExternalEditor(this.ui, text);
+    } catch (error) {
+      this.addBanner(`external editor failed: ${String(error)}`, "error");
+      this.ui.requestRender();
+      return undefined;
     }
   }
 
@@ -1066,6 +1085,7 @@ export class InteractiveMode {
    *  the editor, replaces it when the head changes, and restores the editor
    *  (its text intact — the instance is never recreated) when none is
    *  pending. Opening closes any selector: the dialog is modal. */
+  // TDC: the "PermissionPrompt" part of this name has to change.
   private syncPermissionPrompt(state: AgentState): void {
     const asks = allPendingAsks(state);
     const head = asks[0];
@@ -1086,22 +1106,33 @@ export class InteractiveMode {
       }
       return;
     }
-    const dialog = permissionDialog(
-      head.request,
-      { cwd: state.cwd, style: ANSI_STYLE },
-      this.planEdits.get(head.request.toolUseId),
-    );
-    const prompt = new PermissionPromptComponent(
-      head.task === undefined
-        ? dialog
-        : {
-            ...dialog,
-            title: `${dialog.title} — task: ${head.task.description}`,
-          },
-      asks.length,
-      (decision) =>
-        this.sendPermissionResponse(head.request.toolUseId, decision),
-    );
+    const titleSuffix =
+      head.task === undefined ? undefined : ` — task: ${head.task.description}`;
+    const onDecide = (decision: PermissionResult): void =>
+      this.sendPermissionResponse(head.request.toolUseId, decision);
+    const questions = askUserQuestionInput(head.request);
+    let prompt: PermissionPromptComponent | QuestionPromptComponent;
+    // TDC: This logic of "permissions if questions is undefined" is shitty. How would you do this if head.request could be one of 10 different kinds of dialog box to present to the user? It seems like the logic of building the component should be extracted into a function, especially since this file is already 1500 lines. I suggest we turn interactive-mode.ts into a directory and make a barrel file to expose the public interface. See .dependency-cruiser.cjs and eslint.config.js for existing barrels.
+    if (questions === undefined) {
+      const dialog = permissionDialog(
+        head.request,
+        { cwd: state.cwd, style: ANSI_STYLE },
+        this.planEdits.get(head.request.toolUseId),
+      );
+      prompt = new PermissionPromptComponent(
+        { ...dialog, title: `${dialog.title}${titleSuffix ?? ""}` },
+        asks.length,
+        onDecide,
+      );
+    } else {
+      prompt = new QuestionPromptComponent(
+        questions,
+        titleSuffix,
+        asks.length,
+        onDecide,
+        (text) => this.editTextExternally(text),
+      );
+    }
     this.closeModelSelector();
     this.closeEffortSelector();
     this.closeTreeSelector();
@@ -1330,11 +1361,14 @@ export class InteractiveMode {
    */
   private handleGlobalKey(data: string): { consume: boolean } | undefined {
     // An open menu owns the interrupt and clear chords (cancel / clear
-    // search via tui.select.cancel, which the focused selector handles).
+    // search via tui.select.cancel, which the focused selector handles),
+    // as does a dialog's text input (Esc leaves it; see capturesEscape).
+    // TDC: these other selectors should also hide the input box. i.e. these should all be in inputSlot, right?
     const selectorOpen =
       this.modelSelector !== undefined ||
       this.treeSelector !== undefined ||
-      this.effortSelector !== undefined;
+      this.effortSelector !== undefined ||
+      this.permissionPrompt?.capturesEscape === true;
     // A pending ask is interruptible even with the main loop idle (a
     // background task's ask): the CLI aborts the ask and kills the task.
     if (
@@ -1374,7 +1408,12 @@ export class InteractiveMode {
       this.keybindings.matches(data, "app.editor.external") &&
       !selectorOpen
     ) {
-      const planFilePath = this.permissionPrompt?.dialog.planFilePath;
+      // The question dialog handles ctrl+g itself (notes mode).
+      // TDC: this seems bad. It's requiring InteractiveMode to understand the details of all these different things that can go in the input slot. Instead, it should delegate to whatever occupies the slot, be it a selector, the regular editor, a permission prompt, or the question prompt.
+      const planFilePath =
+        this.permissionPrompt instanceof PermissionPromptComponent
+          ? this.permissionPrompt.dialog.planFilePath
+          : undefined;
       const toolUseId = this.promptedToolUseId;
       if (
         promptOpen &&

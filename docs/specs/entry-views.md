@@ -280,7 +280,7 @@ Summaries per view:
 | assistant        | `▸` / `●` | parts joined by spaces: `[thinking] <thought>` per thinking block; `[<Name>: <description> — <arg>]` per tool_use (`toolViewFor(name).header(input, entry.cwd)`; omit absent parts and the `—`); text; `(stop_reason)` when abnormal and no text; `(no content)` when empty | thinking + text + tool-call `input` JSON lengths |
 | other            | `·`       | `entries.ts`'s current per-type summaries (`permission-mode`, `mode`, `ai-title`, `custom-title`, `last-prompt`, `queue-operation`, `file-history-snapshot`, `file-history-delta`); else `<type>[: <subtype>]` (so `system: informational` — the tree has no type column)   | 0                                                |
 
-`Name` in the assistant summary is `view.displayName ?? block.name`.
+`Name` in the assistant summary is `header.name ?? block.name`.
 
 ### `src/format/dag-lines.ts`
 

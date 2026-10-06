@@ -471,7 +471,11 @@ test("invariant: idle implies no querying entries across a busy scenario", () =>
 
 // --- tasks and permission asks -----------------------------------------------
 
-function permissionRequested(toolUseId: string, agentId?: string): AgentEvent {
+function permissionRequested(
+  toolUseId: string,
+  agentId?: string,
+  arrivedAt = 0,
+): AgentEvent {
   return {
     kind: "permissionRequested",
     uuid: stamp(),
@@ -479,6 +483,7 @@ function permissionRequested(toolUseId: string, agentId?: string): AgentEvent {
       toolUseId,
       toolName: "Bash",
       input: { command: "ls" },
+      arrivedAt,
       suggestions: [],
       ...(agentId !== undefined && { agentId }),
     },
@@ -566,7 +571,19 @@ test("task_notification ends a task in place and drops its asks", () => {
   assert.deepEqual(allPendingAsks(state), []);
 });
 
-test("asks route to their task or the main list; allPendingAsks lists main first", () => {
+test("allPendingAsks is first come first served: a later main-agent ask queues behind a task's ask", () => {
+  const state = run([
+    taskStarted("t1"),
+    permissionRequested("toolu_task", "t1", 1),
+    permissionRequested("toolu_main", undefined, 2),
+  ]);
+  assert.deepEqual(
+    allPendingAsks(state).map((ask) => ask.request.toolUseId),
+    ["toolu_task", "toolu_main"],
+  );
+});
+
+test("asks route to their task or the main list; same-millisecond asks list main first", () => {
   const state = run([
     taskStarted("t1"),
     permissionRequested("toolu_task", "t1"),
@@ -1371,6 +1388,7 @@ test("every event kind is observed under eventUuid on eventStream in every obser
         toolUseId: "toolu_1",
         toolName: "Bash",
         input: { command: "ls" },
+        arrivedAt: 0,
         suggestions: [],
       },
     },

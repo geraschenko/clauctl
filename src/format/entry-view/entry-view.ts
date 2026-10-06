@@ -205,15 +205,17 @@ function toolCallPart(
   maxChars: number,
 ): string {
   const name = typeof block.name === "string" ? block.name : "tool";
-  const view = toolViewFor(name);
-  const header = view.header(block.input, { cwd, style: PLAIN_STYLE });
-  const parts = [header.description, header.arg]
+  const header = toolViewFor(name).header(block.input, {
+    cwd,
+    style: PLAIN_STYLE,
+  });
+  const parts = [header?.description, header?.arg]
     .filter((part): part is string => part !== undefined)
     .map((part) => oneLinePrefix(part, maxChars));
-  const displayName = view.displayName ?? name;
+  const headerName = header?.name ?? name;
   return parts.length === 0
-    ? `[${displayName}]`
-    : `[${displayName}: ${parts.join(" — ")}]`;
+    ? `[${headerName}]`
+    : `[${headerName}: ${parts.join(" — ")}]`;
 }
 
 function assistantSummary(

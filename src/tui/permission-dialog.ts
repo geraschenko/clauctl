@@ -39,15 +39,33 @@ export interface PermissionDialog {
   planFilePath?: string;
 }
 
+/** claude's opening for every user rejection; the SDK sends deny messages
+ *  raw, so we prepend it ourselves. Pinned against claude's own wording by
+ *  tests/sdk/api-context.test.ts (rerun it on SDK upgrades). */
+const REJECTION_PREFIX =
+  "The user doesn't want to proceed with this tool use. The tool use was rejected (eg. if it was a file edit, the new_string was NOT written to the file). ";
+
 /** claude's own plain-deny text, sent verbatim. */
-export const PLAIN_DENY_MESSAGE =
-  "The user doesn't want to proceed with this tool use. The tool use was rejected (eg. if it was a file edit, the new_string was NOT written to the file). STOP what you are doing and wait for the user to tell you how to proceed.";
+export const PLAIN_DENY_MESSAGE = `${REJECTION_PREFIX}STOP what you are doing and wait for the user to tell you how to proceed.`;
 
 const ALLOW: PermissionResult = { behavior: "allow" };
-const PLAIN_DENY: PermissionResult = {
+export const PLAIN_DENY: PermissionResult = {
   behavior: "deny",
   message: PLAIN_DENY_MESSAGE,
 };
+
+/** claude's AskUserQuestion Cancel: the plain deny, ending the turn as an
+ *  interrupt does (tui-parity scenario `askuser-submit-cancel`; the CLI's
+ *  side pinned by tests/sdk/interrupt-marker.test.ts). */
+export const CANCEL_DENY: PermissionResult = { ...PLAIN_DENY, interrupt: true };
+
+/** A deny carrying user feedback, worded as native claude words it. */
+export function feedbackDenial(feedback: string): PermissionResult {
+  return {
+    behavior: "deny",
+    message: `${REJECTION_PREFIX}To tell you how to proceed, the user said:\n${feedback}`,
+  };
+}
 
 const decide = (label: string, decision: PermissionResult): PermissionRow => ({
   label,

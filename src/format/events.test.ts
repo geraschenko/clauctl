@@ -305,6 +305,7 @@ test("snapshot lists live tasks and pending asks, main before task, with the tas
     toolUseId: "toolu_main",
     toolName: "Bash",
     input: { command: "ls -la", description: "list" },
+    arrivedAt: 0,
     suggestions: [],
   };
   const output = format([
@@ -347,6 +348,7 @@ test("permission events render one-liners with the resolution summarised", () =>
     toolUseId: "toolu_1",
     toolName: "ExitPlanMode",
     input: {},
+    arrivedAt: 0,
     suggestions: [],
   };
   const output = format([

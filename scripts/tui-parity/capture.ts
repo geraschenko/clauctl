@@ -245,6 +245,88 @@ export interface CaptureSettle {
   /** tmux key names sent after the capture, before the pane is killed
    *  (a dialog's Escape: nothing is ever approved). */
   keysAfter?: string[];
+  /** tmux key names sent after the capture, each once the screen settled
+   *  from the previous one (Ink drops keys sent back to back); the screen
+   *  they lead to is captured as `afterKeys` (before `keysAfter`). */
+  keysThenCapture?: string[];
+}
+
+/** Polls `capture-pane -S -` with backoff until the normalized capture is
+ *  identical for SETTLE_POLLS consecutive polls, with a marker on screen
+ *  when `markers` is given (hard timeout). */
+async function awaitSettledScreen(
+  session: string,
+  markers: string[] | undefined,
+): Promise<void> {
+  let last: string | undefined;
+  let changedLines = "";
+  let stable = 0;
+  let delayMs = 300;
+  let dialogsDismissed = 0;
+  const deadline = Date.now() + SETTLE_TIMEOUT_MS;
+  while (stable < SETTLE_POLLS) {
+    if (Date.now() > deadline) {
+      throw new Error(
+        `pane did not settle within ${SETTLE_TIMEOUT_MS}ms; last capture:\n${last}\nlines changed since the poll before:\n${changedLines}`,
+      );
+    }
+    await delay(delayMs);
+    delayMs = Math.min(delayMs * 1.5, 2_000);
+    const current = normalize(
+      await tmux("capture-pane", "-p", "-t", session, "-S", "-"),
+    );
+    if (current.includes("\nPane is dead (status ")) {
+      throw new Error(`pane's command exited:\n${current}`);
+    }
+    const markerSeen =
+      markers === undefined ||
+      markers.some((marker) => current.includes(marker));
+    stable = markerSeen && current === last ? stable + 1 : 0;
+    if (current !== last && last !== undefined) {
+      const before = last.split("\n");
+      changedLines = current
+        .split("\n")
+        .flatMap((line, index) =>
+          line === before[index] ? [] : [`-${before[index] ?? ""}\n+${line}`],
+        )
+        .join("\n");
+    }
+    last = current;
+    // First-open dialogs (folder trust, external CLAUDE.md imports) settle
+    // like any screen; accept the default and keep polling. Trust answers
+    // persist per directory, so this normally fires once per workdir.
+    // A live dialog's "Enter to confirm…" hint is the LAST line of the
+    // visible viewport; anchoring there keeps transcripts that merely
+    // QUOTE dialog text (e.g. a session about this very harness, where
+    // the string appears mid-scrollback and even mid-viewport) from
+    // being mistaken for a stuck dialog.
+    if (stable >= SETTLE_POLLS) {
+      const viewport = await tmux("capture-pane", "-p", "-t", session);
+      const lastLine =
+        viewport
+          .split("\n")
+          .map((line) => line.trim())
+          .findLast((line) => line !== "") ?? "";
+      if (lastLine.startsWith("Enter to confirm")) {
+        if (dialogsDismissed >= 3) {
+          throw new Error(`pane stuck on a dialog:\n${viewport}`);
+        }
+        dialogsDismissed += 1;
+        await tmux("send-keys", "-t", session, "Enter");
+        stable = 0;
+        last = undefined;
+        delayMs = 300;
+      }
+    }
+  }
+}
+
+async function capturePane(
+  session: string,
+): Promise<{ plain: string; ansi: string }> {
+  const plain = await tmux("capture-pane", "-p", "-t", session, "-S", "-");
+  const ansi = await tmux("capture-pane", "-p", "-e", "-t", session, "-S", "-");
+  return { plain, ansi };
 }
 
 /**
@@ -262,7 +344,11 @@ export async function captureInTmux(
   target: CaptureTarget,
   cols: number,
   settle: CaptureSettle = {},
-): Promise<{ plain: string; ansi: string }> {
+): Promise<{
+  plain: string;
+  ansi: string;
+  afterKeys: { plain: string; ansi: string } | undefined;
+}> {
   const session = `cap-${randomUUID().slice(0, 8)}`;
   const envArgs = Object.entries(target.env ?? {}).flatMap(([key, value]) => [
     "-e",
@@ -286,81 +372,20 @@ export async function captureInTmux(
     // Keep the pane around if the command exits, so a crash is capturable
     // instead of tearing down the session mid-poll.
     await tmux("set-option", "-t", session, "remain-on-exit", "on");
-    let last: string | undefined;
-    let changedLines = "";
-    let stable = 0;
-    let delayMs = 300;
-    let dialogsDismissed = 0;
-    const deadline = Date.now() + SETTLE_TIMEOUT_MS;
-    while (stable < SETTLE_POLLS) {
-      if (Date.now() > deadline) {
-        throw new Error(
-          `pane did not settle within ${SETTLE_TIMEOUT_MS}ms; last capture:\n${last}\nlines changed since the poll before:\n${changedLines}`,
-        );
+    await awaitSettledScreen(session, settle.markers);
+    const captured = await capturePane(session);
+    let afterKeys: { plain: string; ansi: string } | undefined;
+    if (settle.keysThenCapture !== undefined) {
+      for (const key of settle.keysThenCapture) {
+        await tmux("send-keys", "-t", session, key);
+        await awaitSettledScreen(session, undefined);
       }
-      await delay(delayMs);
-      delayMs = Math.min(delayMs * 1.5, 2_000);
-      const current = normalize(
-        await tmux("capture-pane", "-p", "-t", session, "-S", "-"),
-      );
-      if (current.includes("\nPane is dead (status ")) {
-        throw new Error(`pane's command exited:\n${current}`);
-      }
-      const markerSeen =
-        settle.markers === undefined ||
-        settle.markers.some((marker) => current.includes(marker));
-      stable = markerSeen && current === last ? stable + 1 : 0;
-      if (current !== last && last !== undefined) {
-        const before = last.split("\n");
-        changedLines = current
-          .split("\n")
-          .flatMap((line, index) =>
-            line === before[index] ? [] : [`-${before[index] ?? ""}\n+${line}`],
-          )
-          .join("\n");
-      }
-      last = current;
-      // First-open dialogs (folder trust, external CLAUDE.md imports) settle
-      // like any screen; accept the default and keep polling. Trust answers
-      // persist per directory, so this normally fires once per workdir.
-      // A live dialog's "Enter to confirm…" hint is the LAST line of the
-      // visible viewport; anchoring there keeps transcripts that merely
-      // QUOTE dialog text (e.g. a session about this very harness, where
-      // the string appears mid-scrollback and even mid-viewport) from
-      // being mistaken for a stuck dialog.
-      if (stable >= SETTLE_POLLS) {
-        const viewport = await tmux("capture-pane", "-p", "-t", session);
-        const lastLine =
-          viewport
-            .split("\n")
-            .map((line) => line.trim())
-            .findLast((line) => line !== "") ?? "";
-        if (lastLine.startsWith("Enter to confirm")) {
-          if (dialogsDismissed >= 3) {
-            throw new Error(`pane stuck on a dialog:\n${viewport}`);
-          }
-          dialogsDismissed += 1;
-          await tmux("send-keys", "-t", session, "Enter");
-          stable = 0;
-          last = undefined;
-          delayMs = 300;
-        }
-      }
+      afterKeys = await capturePane(session);
     }
-    const plain = await tmux("capture-pane", "-p", "-t", session, "-S", "-");
-    const ansi = await tmux(
-      "capture-pane",
-      "-p",
-      "-e",
-      "-t",
-      session,
-      "-S",
-      "-",
-    );
     for (const key of settle.keysAfter ?? []) {
       await tmux("send-keys", "-t", session, key);
     }
-    return { plain, ansi };
+    return { ...captured, afterKeys };
   } finally {
     await tmux("kill-session", "-t", session).catch(() => {});
   }

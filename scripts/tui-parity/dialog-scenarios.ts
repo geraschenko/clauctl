@@ -22,9 +22,9 @@ export interface DialogScenario {
   /** Runs in the freshly wiped workdir before either side launches. */
   setup?(cwd: string): void;
   claudeArgs?: string[];
-  /** Claude side only (no clauctl counterpart yet; see
-   *  docs/specs/permission-cli.md for AskUserQuestion). */
-  claudeOnly?: boolean;
+  /** tmux key names sent once the dialog is captured; the screen they lead
+   *  to is captured and diffed too (`<name>.keys.*`). */
+  keysAtDialog?: string[];
 }
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));
@@ -56,6 +56,14 @@ const writeMcpConfig = (): void =>
       },
     }),
   );
+
+/** Pet (single-select: Cats, Dogs), then Colors (multi-select). */
+const ASKUSER_MULTI_PROMPT =
+  'Call the AskUserQuestion tool once with two questions: first "Do you prefer cats or dogs?" (header "Pet", options Cats and Dogs, single-select), then "Which colors do you like?" (header "Colors", options Red, Blue and Green, multiSelect true).';
+
+/** One preview-layout question: Grid has a preview, List none. */
+const ASKUSER_PREVIEW_PROMPT =
+  'Call the AskUserQuestion tool once with one single-select question "Which layout?" (header "Layout") and two options: "Grid" with preview "# Grid\\n\\nItems in **cells**." and "List" with no preview.';
 
 export const dialogScenarios: DialogScenario[] = [
   {
@@ -126,9 +134,63 @@ export const dialogScenarios: DialogScenario[] = [
   },
   {
     name: "askuser",
-    description: "AskUserQuestion's answer picker (claude only)",
-    claudeOnly: true,
+    description: "AskUserQuestion, one single-select question",
     prompt:
       "Use the AskUserQuestion tool to ask me whether I prefer cats or dogs.",
+  },
+  {
+    name: "askuser-esc",
+    description: "AskUserQuestion, Esc in selection mode",
+    prompt:
+      "Use the AskUserQuestion tool to ask me whether I prefer cats or dogs.",
+    keysAtDialog: ["Escape"],
+  },
+  {
+    name: "askuser-multi",
+    description: "AskUserQuestion, two questions, the second multi-select",
+    prompt: ASKUSER_MULTI_PROMPT,
+  },
+  {
+    name: "askuser-preview",
+    description: "AskUserQuestion, preview layout",
+    prompt: ASKUSER_PREVIEW_PROMPT,
+  },
+  {
+    name: "askuser-revisit",
+    description:
+      "AskUserQuestion keys: answer Pet with Dogs, then ← back to it (✔ on revisit, cursor on return, ← switches tabs)",
+    prompt: ASKUSER_MULTI_PROMPT,
+    keysAtDialog: ["Down", "Enter", "Left"],
+  },
+  {
+    name: "askuser-digit",
+    description: "AskUserQuestion keys: digit 2 on the Pet tab",
+    prompt: ASKUSER_MULTI_PROMPT,
+    keysAtDialog: ["2"],
+  },
+  {
+    name: "askuser-tab",
+    description: "AskUserQuestion keys: Tab on the Pet tab",
+    prompt: ASKUSER_MULTI_PROMPT,
+    keysAtDialog: ["Tab"],
+  },
+  {
+    name: "askuser-submit-tab",
+    description: "AskUserQuestion keys: answer Pet, → to the Submit tab",
+    prompt: ASKUSER_MULTI_PROMPT,
+    keysAtDialog: ["2", "Right"],
+  },
+  {
+    name: "askuser-submit-cancel",
+    description: "AskUserQuestion keys: the Submit tab's second row",
+    prompt: ASKUSER_MULTI_PROMPT,
+    keysAtDialog: ["2", "Right", "Down", "Enter"],
+  },
+  {
+    name: "askuser-notes-enter",
+    description:
+      "AskUserQuestion keys: type notes on the List row of a preview question, then Enter",
+    prompt: ASKUSER_PREVIEW_PROMPT,
+    keysAtDialog: ["Down", "n", "o", "k", "Enter"],
   },
 ];

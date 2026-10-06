@@ -7,6 +7,10 @@
  */
 
 import { spawn } from "node:child_process";
+import { randomUUID } from "node:crypto";
+import { readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { TUI } from "@earendil-works/pi-tui";
 
 /** $VISUAL ?? $EDITOR (empty strings count as unset); undefined when neither is set. */
@@ -46,5 +50,31 @@ export async function editFileInExternalEditor(
   } finally {
     ui.start();
     ui.requestRender(true);
+  }
+}
+
+/** Edit `text` in $VISUAL/$EDITOR with the TUI suspended; undefined if
+ *  no editor is set or it exited nonzero. One trailing newline is
+ *  stripped, matching pi. */
+export async function editTextInExternalEditor(
+  ui: TUI,
+  text: string,
+): Promise<string | undefined> {
+  const editorCommand = externalEditorCommand();
+  if (editorCommand === undefined) {
+    return undefined;
+  }
+  const tempPath = join(tmpdir(), `clauctl-editor-${randomUUID()}.md`);
+  try {
+    writeFileSync(tempPath, text, "utf8");
+    return (await editFileInExternalEditor(ui, editorCommand, tempPath))
+      ? readFileSync(tempPath, "utf8").replace(/\n$/, "")
+      : undefined;
+  } finally {
+    try {
+      unlinkSync(tempPath);
+    } catch {
+      // Cleanup is best-effort; the file is in tmpdir anyway.
+    }
   }
 }

@@ -5,7 +5,7 @@
 // resumes it against the answering shim, and inspects the one request
 // carrying the probe prompt. Every capture is also compared against the
 // conversion (criterion 2). Nothing is forwarded. LIVE: one CLI process
-// per capture, ~13 captures.
+// per capture, ~18 captures.
 //
 // Role convention in test names: "SR user block" = a
 // `<system-reminder>`-wrapped text block inside the user message that
@@ -18,6 +18,11 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { test } from "node:test";
+import type { PermissionResult } from "@anthropic-ai/claude-agent-sdk";
+import type {
+  AskUserQuestionInput,
+  ToolInputSchemas,
+} from "@anthropic-ai/claude-agent-sdk/sdk-tools.js";
 import { leafContext } from "../../src/commands/format.ts";
 import type { SessionEntry } from "../../src/core/session/file.ts";
 import {
@@ -25,6 +30,8 @@ import {
   type ApiComparison,
 } from "../../src/format/api-messages/compare-api-messages.ts";
 import { toApiMessages } from "../../src/format/api-messages/to-api-messages.ts";
+import { feedbackDenial, PLAIN_DENY } from "../../src/tui/permission-dialog.ts";
+import { chatDecision, EMPTY_ANSWER } from "../../src/tui/question-dialog.ts";
 import {
   captureInferenceRequest,
   splitPromptTurn,
@@ -634,4 +641,138 @@ test("branch: the abandoned sibling turn is absent; the leaf chain goes out", as
   assert.equal(occurrences(body, "dead end"), 0);
   assert.equal(occurrences(body, live), 1);
   assert.equal(body.messages[2]!.content, live);
+});
+
+// docs/specs/ask-user-question.md, criterion 5: persisted AskUserQuestion
+// exchanges (and an amend feedback deny) go out as converted. The
+// tool_result texts and toolUseResult shapes are as the CLI persisted them
+// in tests/sdk/ask-user-question.test.ts's runs (claude 2.1.280).
+const PET_INPUT: AskUserQuestionInput = {
+  questions: [
+    {
+      question: "Do you prefer cats or dogs?",
+      header: "Pet",
+      options: [
+        { label: "Cats", description: "Feline companions" },
+        { label: "Dogs", description: "Canine companions" },
+      ],
+      multiSelect: false,
+    },
+  ],
+};
+const LAYOUT_INPUT: AskUserQuestionInput = {
+  questions: [
+    {
+      question: "Which layout?",
+      header: "Layout",
+      options: [
+        { label: "Grid", description: "cells", preview: "Items in cells." },
+        { label: "List", description: "rows", preview: "One per row." },
+      ],
+      multiSelect: false,
+    },
+  ],
+};
+
+const denialText = (decision: PermissionResult): string =>
+  decision.behavior === "deny" ? decision.message : "";
+
+/** One tool call answered by `result`, then a closing reply; asserts the
+ *  tool_result goes out with the persisted content and error flag. */
+async function captureToolExchange(
+  name: string,
+  input: ToolInputSchemas,
+  result: { content: string; isError: boolean; toolUseResult: unknown },
+): Promise<void> {
+  const toolUseId = `toolu_fixture_${name}`;
+  const { body } = await captureFixture([
+    assistantReply(
+      [{ type: "tool_use", id: toolUseId, name, input }],
+      HAIKU,
+      "msg_fixture_ask",
+    ),
+    {
+      type: "user",
+      message: {
+        role: "user",
+        content: [
+          {
+            type: "tool_result",
+            tool_use_id: toolUseId,
+            content: result.content,
+            ...(result.isError ? { is_error: true } : {}),
+          },
+        ],
+      },
+      toolUseResult: result.toolUseResult,
+    },
+    assistantReply([{ type: "text", text: "ok" }], HAIKU, "msg_fixture_done"),
+  ]);
+  const toolResult = body.messages
+    .flatMap(({ content }) => (typeof content === "string" ? [] : content))
+    .find(
+      (block) =>
+        block.type === "tool_result" && block.tool_use_id === toolUseId,
+    );
+  assert.equal(toolResult?.content, result.content);
+  assert.equal(toolResult?.is_error === true, result.isError);
+}
+
+test("AskUserQuestion answered: the tool_result goes out as persisted", async () => {
+  await captureToolExchange(
+    "AskUserQuestion",
+    { ...PET_INPUT },
+    {
+      content:
+        'Your questions have been answered: "Do you prefer cats or dogs?"="Dogs". You can now continue with these answers in mind.',
+      isError: false,
+      toolUseResult: {
+        ...PET_INPUT,
+        answers: { "Do you prefer cats or dogs?": "Dogs" },
+        annotations: {},
+      },
+    },
+  );
+});
+
+test("AskUserQuestion answered with annotations: preview and notes in the tool_result", async () => {
+  const annotations = {
+    "Which layout?": { preview: "Items in cells.", notes: "tight spacing" },
+  };
+  await captureToolExchange(
+    "AskUserQuestion",
+    { ...LAYOUT_INPUT },
+    {
+      content:
+        'The user answered: "Which layout?"="Grid" selected preview:\nItems in cells. notes: tight spacing. Read the answers carefully — they may request clarification, changes, or that you not proceed — and follow what they actually say.',
+      isError: false,
+      toolUseResult: {
+        ...LAYOUT_INPUT,
+        answers: { "Which layout?": "Grid" },
+        annotations,
+      },
+    },
+  );
+});
+
+for (const [label, input, text] of [
+  ["plain deny", PET_INPUT, denialText(PLAIN_DENY)],
+  ["chat deny", PET_INPUT, denialText(chatDecision(PET_INPUT, [EMPTY_ANSWER]))],
+] as const) {
+  test(`AskUserQuestion ${label}: the deny message goes out verbatim`, async () => {
+    await captureToolExchange(
+      "AskUserQuestion",
+      { ...input },
+      { content: text, isError: true, toolUseResult: `Error: ${text}` },
+    );
+  });
+}
+
+test("amend feedback deny: the feedback deny goes out verbatim", async () => {
+  const text = denialText(feedbackDenial("use ls instead"));
+  await captureToolExchange(
+    "Bash",
+    { command: "rm -rf /tmp/x", description: "Remove x" },
+    { content: text, isError: true, toolUseResult: `Error: ${text}` },
+  );
 });

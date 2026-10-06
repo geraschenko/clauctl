@@ -338,6 +338,7 @@ test("permission-response settles the pending ask; a non-pending id or malformed
     toolUseId: "toolu_1",
     toolName: "Bash",
     input: { command: "ls" },
+    arrivedAt: 0,
     suggestions: [],
   };
   const decided = f.permissionBroker.request(

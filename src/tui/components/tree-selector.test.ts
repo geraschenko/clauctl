@@ -7,6 +7,7 @@ import { toDisplayTree } from "../../core/tree/display-tree.ts";
 import { entriesByUuid, type SessionEntry } from "../../core/session/file.ts";
 import type { TreeNodeRef } from "../../core/tree/nodes.ts";
 import { stripAnsi } from "../../core/generated/text.ts";
+import { KEY } from "../../test-support/keys.ts";
 import { resolveTreePick, TreeSelectorComponent } from "./tree-selector.ts";
 
 function uuid(n: number): UUID {
@@ -253,12 +254,6 @@ test("resolveTreePick: malformed summary pick uses user-row semantics", () => {
   });
 });
 
-const UP = "\x1b[A";
-const DOWN = "\x1b[B";
-const ENTER = "\r";
-const ESCAPE = "\x1b";
-const BACKSPACE = "\x7f";
-
 function isInverse(line: string): boolean {
   return line.includes("\x1b[7m");
 }
@@ -334,32 +329,32 @@ test("selector shows the display rows with the leaf's visible row pre-selected",
 
 test("selector enter reports the selected row's own occurrence ref", () => {
   const { selector, picks } = makeSelector();
-  selector.handleInput(ENTER);
+  selector.handleInput(KEY.enter);
   assert.deepEqual(picks, [{ uuid: uuid(6) }]);
 });
 
 test("selector navigation stops at the ends", () => {
   const { selector, picks } = makeSelector();
-  selector.handleInput(DOWN); // already on the last row: stays
-  selector.handleInput(ENTER);
+  selector.handleInput(KEY.down); // already on the last row: stays
+  selector.handleInput(KEY.enter);
   assert.deepEqual(picks, [{ uuid: uuid(6) }]);
   for (let step = 0; step < 10; step += 1) {
-    selector.handleInput(UP);
+    selector.handleInput(KEY.up);
   }
-  selector.handleInput(UP); // on the first row: stays
-  selector.handleInput(ENTER);
+  selector.handleInput(KEY.up); // on the first row: stays
+  selector.handleInput(KEY.enter);
   assert.deepEqual(picks.at(-1), { uuid: uuid(1) });
 });
 
 test("selector navigation skips connector lines", () => {
   const { selector, picks } = makeSelector();
-  selector.handleInput(UP);
-  selector.handleInput(UP);
+  selector.handleInput(KEY.up);
+  selector.handleInput(KEY.up);
   assert.equal(labelOf(selectedRow(selector)!), "answer two");
-  selector.handleInput(UP); // over the ├─╮ line
+  selector.handleInput(KEY.up); // over the ├─╮ line
   assert.equal(labelOf(selectedRow(selector)!), "second question");
-  selector.handleInput(DOWN);
-  selector.handleInput(ENTER);
+  selector.handleInput(KEY.down);
+  selector.handleInput(KEY.enter);
   assert.deepEqual(picks, [{ uuid: uuid(4) }]);
 });
 
@@ -385,17 +380,17 @@ test("selector backspace edits the search query", () => {
     selector.handleInput(char);
   }
   assert.deepEqual(renderedRows(selector), ["(no matching entries)"]);
-  selector.handleInput(BACKSPACE);
+  selector.handleInput(KEY.backspace);
   assert.deepEqual(renderedRows(selector), ["● answer two"]);
 });
 
 test("selector escape clears the search, then cancels", () => {
   const { selector, cancels } = makeSelector();
   selector.handleInput("z");
-  selector.handleInput(ESCAPE);
+  selector.handleInput(KEY.escape);
   assert.equal(cancels.length, 0);
   assert.equal(renderedRows(selector).length, 6);
-  selector.handleInput(ESCAPE);
+  selector.handleInput(KEY.escape);
   assert.equal(cancels.length, 1);
 });
 
@@ -407,7 +402,7 @@ test("selector with zero visible rows says so and ignores enter", () => {
   assert.ok(
     selector.render(100).map(stripAnsi).includes("(no matching entries)"),
   );
-  selector.handleInput(ENTER);
+  selector.handleInput(KEY.enter);
   assert.deepEqual(picks, []);
 });
 
@@ -416,7 +411,7 @@ test("selector warning renders persistently once set", () => {
   selector.setWarning("context changed while the tree selector is open");
   const lines = selector.render(100).map(stripAnsi);
   assert.ok(lines.includes("context changed while the tree selector is open"));
-  selector.handleInput(DOWN);
+  selector.handleInput(KEY.down);
   assert.ok(
     selector
       .render(100)

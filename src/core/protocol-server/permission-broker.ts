@@ -24,9 +24,11 @@ export function permissionRequestOf(
   toolName: string,
   input: Record<string, unknown>,
   options: Parameters<CanUseTool>[2],
+  arrivedAt: number,
 ): PermissionRequest {
   return {
     toolUseId: options.toolUseID,
+    arrivedAt,
     toolName,
     input,
     suggestions: options.suggestions ?? [],

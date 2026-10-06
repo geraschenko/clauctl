@@ -24,6 +24,7 @@
 - Do not delete explanatory comments unless they are obsolete; preserve or update them when refactoring.
 - Iterating over the same collection several times in one function is a design smell; combine passes unless a pass genuinely needs lookahead over the whole collection.
 - Doc comments state how to use and think about a symbol. Algorithm detail and caveats belong in the spec; a comment that restates or narrates the implementation is fluff — delete it. A comment a reviewer would skip should not exist.
+- Every assumption about Claude Code or SDK behaviour (message shapes, tool schemas, native wording, event ordering) is pinned by an SDK test in `tests/sdk/` or a scenario in `scripts/tui-parity/`, and the code relying on it names that test.
 
 ## Naming and References
 

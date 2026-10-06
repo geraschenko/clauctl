@@ -60,8 +60,25 @@ export function captureDialogInTmux(
   target: CaptureTarget,
   cols: number,
   markers: string[],
-): Promise<{ plain: string; ansi: string }> {
-  return captureInTmux(target, cols, { markers, keysAfter: ["Escape"] });
+  keysThenCapture?: string[],
+): ReturnType<typeof captureInTmux> {
+  return captureInTmux(target, cols, {
+    markers,
+    keysThenCapture,
+    keysAfter: ["Escape"],
+  });
+}
+
+/** Writes `<base>.<stage>.<side>.{txt,ansi}`; `keys` captures may be absent. */
+async function writeCapture(
+  base: string,
+  stage: "dialog" | "keys",
+  side: "claude" | "clauctl",
+  capture: { plain: string; ansi: string } | undefined,
+): Promise<void> {
+  if (capture === undefined) return;
+  await writeFile(`${base}.${stage}.${side}.txt`, normalize(capture.plain));
+  await writeFile(`${base}.${stage}.${side}.ansi`, capture.ansi);
 }
 
 /**
@@ -121,6 +138,7 @@ function definitionSha256(
         claudeVersion,
         resolved.prompt,
         resolved.scenario.claudeArgs ?? [],
+        resolved.scenario.keysAtDialog ?? [],
       ]),
     )
     .digest("hex");
@@ -141,7 +159,9 @@ async function captureClaudeDialog(
     !recapture &&
     existsSync(metaPath) &&
     existsSync(`${base}.dialog.claude.txt`) &&
-    existsSync(`${base}.dialog.claude.ansi`)
+    existsSync(`${base}.dialog.claude.ansi`) &&
+    (resolved.scenario.keysAtDialog === undefined ||
+      existsSync(`${base}.keys.claude.txt`))
   ) {
     const cached = JSON.parse(
       await readFile(metaPath, "utf8"),
@@ -164,9 +184,10 @@ async function captureClaudeDialog(
     },
     CAPTURE_COLS,
     DIALOG_MARKERS,
+    resolved.scenario.keysAtDialog,
   );
-  await writeFile(`${base}.dialog.claude.txt`, normalize(claude.plain));
-  await writeFile(`${base}.dialog.claude.ansi`, claude.ansi);
+  await writeCapture(base, "dialog", "claude", claude);
+  await writeCapture(base, "keys", "claude", claude.afterKeys);
   await writeFile(metaPath, JSON.stringify(meta, null, 2) + "\n");
   return false;
 }
@@ -219,10 +240,13 @@ async function captureClauctlDialog(
           env: clauctlEnv,
         },
         CAPTURE_COLS,
-        { markers: DIALOG_MARKERS },
+        {
+          markers: DIALOG_MARKERS,
+          keysThenCapture: resolved.scenario.keysAtDialog,
+        },
       );
-      await writeFile(`${base}.dialog.clauctl.txt`, normalize(clauctl.plain));
-      await writeFile(`${base}.dialog.clauctl.ansi`, clauctl.ansi);
+      await writeCapture(base, "dialog", "clauctl", clauctl);
+      await writeCapture(base, "keys", "clauctl", clauctl.afterKeys);
       const { seed } = await client.subscribe();
       // The ask payload behind the dialog (suggestions → row-2 label),
       // for triage against claude's label.
@@ -258,25 +282,29 @@ async function captureScenario(
     recaptureClaude,
   );
   const sides = `claude ${claudeCached ? "cached" : "tmux"}`;
-  if (resolved.scenario.claudeOnly) {
-    console.log(`${name} (${sides}): claude only`);
-    return false;
-  }
   await captureClauctlDialog(resolved, base);
-  const diff = await diffFiles(
-    `${base}.dialog.claude.txt`,
-    `${base}.dialog.clauctl.txt`,
-  );
-  await writeFile(`${base}.dialog.diff`, diff);
-  const differingLines = diff
-    .split("\n")
-    .filter((line) => /^[+-][^+-]/.test(line)).length;
-  console.log(
-    diff === ""
-      ? `${name} (${sides}, clauctl tmux): identical`
-      : `${name} (${sides}, clauctl tmux): ${differingLines} differing lines (${base}.dialog.diff)`,
-  );
-  return diff === "";
+  const stages =
+    resolved.scenario.keysAtDialog === undefined
+      ? (["dialog"] as const)
+      : (["dialog", "keys"] as const);
+  let identical = true;
+  for (const stage of stages) {
+    const diff = await diffFiles(
+      `${base}.${stage}.claude.txt`,
+      `${base}.${stage}.clauctl.txt`,
+    );
+    await writeFile(`${base}.${stage}.diff`, diff);
+    const differingLines = diff
+      .split("\n")
+      .filter((line) => /^[+-][^+-]/.test(line)).length;
+    console.log(
+      diff === ""
+        ? `${name} ${stage} (${sides}, clauctl tmux): identical`
+        : `${name} ${stage} (${sides}, clauctl tmux): ${differingLines} differing lines (${base}.${stage}.diff)`,
+    );
+    identical &&= diff === "";
+  }
+  return identical;
 }
 
 async function main(): Promise<void> {

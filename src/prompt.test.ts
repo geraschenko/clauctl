@@ -468,6 +468,7 @@ const ASKING_STATE: AgentState = {
       toolUseId: "toolu_ask",
       toolName: "Bash",
       input: { command: "rm -rf /tmp/x" },
+      arrivedAt: 0,
       suggestions: [],
     },
   ],

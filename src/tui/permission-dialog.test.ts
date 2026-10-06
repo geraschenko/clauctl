@@ -37,10 +37,15 @@ function probeRequest(scenario: string): {
   const ask = probe.asks[0]!;
   return {
     cwd: probe.cwd,
-    request: permissionRequestOf(ask.toolName, ask.input, {
-      ...ask.options,
-      signal: new AbortController().signal,
-    }),
+    request: permissionRequestOf(
+      ask.toolName,
+      ask.input,
+      {
+        ...ask.options,
+        signal: new AbortController().signal,
+      },
+      0,
+    ),
   };
 }
 
@@ -160,6 +165,7 @@ test("no suggestions → two rows; the SDK title replaces the question", () => {
       toolUseId: "t",
       toolName: "Bash",
       input: { command: "ls" },
+      arrivedAt: 0,
       suggestions: [],
       title: "Run ls?",
     },

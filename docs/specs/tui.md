@@ -152,19 +152,20 @@ connects (`SdkSocketClient.connect`) and hands off to `runInteractive`.
 
 Event → UI dispatch (the `InteractiveMode.handleEvent` switch):
 
-| `SdkEvent`                        | UI action                                                                                                       |
-| --------------------------------- | --------------------------------------------------------------------------------------------------------------- |
-| `userMessageQueued`               | add grey entry to the pending area                                                                              |
-| `userMessageDequeued`             | move ids from pending into the transcript as user messages                                                      |
-| `sdkMessage: stream_event`        | fold into the live streaming component (created at `message_start`)                                             |
-| `sdkMessage: assistant`           | finalize the streaming component with authoritative content; create tool-execution components for its toolCalls |
-| `sdkMessage: user`                | attach contained tool results to their tool-execution components                                                |
-| `sdkMessage: result`              | loader off; footer update                                                                                       |
-| `sdkMessage: system` (init)       | footer: model, session                                                                                          |
-| any with `parent_tool_use_id`     | route into the owning tool-execution component (nested)                                                         |
-| `interruptSent`, compact boundary | transcript marker / banner                                                                                      |
-| `controlApplied`, `compactSent`   | footer refresh / banner as applicable                                                                           |
-| any other `SDKMessage` variant    | ignored this pass                                                                                               |
+| `SdkEvent`                      | UI action                                                                                                       |
+| ------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| `userMessageQueued`             | add grey entry to the pending area                                                                              |
+| `userMessageDequeued`           | move ids from pending into the transcript as user messages                                                      |
+| `sdkMessage: stream_event`      | fold into the live streaming component (created at `message_start`)                                             |
+| `sdkMessage: assistant`         | finalize the streaming component with authoritative content; create tool-execution components for its toolCalls |
+| `sdkMessage: user`              | attach contained tool results to their tool-execution components                                                |
+| `sdkMessage: result`            | loader off; footer update                                                                                       |
+| `sdkMessage: system` (init)     | footer: model, session                                                                                          |
+| any with `parent_tool_use_id`   | route into the owning tool-execution component (nested)                                                         |
+| compact boundary                | banner                                                                                                          |
+| `interruptSent`                 | nothing; the CLI's interrupt marker (frame or entry) renders as a notice (`interruptMarkerText`)                |
+| `controlApplied`, `compactSent` | footer refresh / banner as applicable                                                                           |
+| any other `SDKMessage` variant  | ignored this pass                                                                                               |
 
 The `SDKMessage` union has ~36 variants (status, task notifications, hook
 events, rate limits, …); this pass renders the conversation-bearing ones

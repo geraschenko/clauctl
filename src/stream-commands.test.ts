@@ -243,6 +243,7 @@ const ASK = {
   toolUseId: "toolu_ask",
   toolName: "Bash",
   input: { command: "rm -rf /tmp/x" },
+  arrivedAt: 0,
   suggestions: [],
 };
 

@@ -73,6 +73,7 @@ import {
   queuedCommandSourceUuid,
   type SessionEntry,
 } from "../core/session/file.ts";
+import { interruptMarkerText } from "../core/session/entry-predicates.ts";
 import { AssistantMessageComponent } from "./components/assistant-message.ts";
 import { PendingBoundaryComponent } from "./components/pending-boundary.ts";
 import { ToolExecutionComponent } from "./components/tool-execution.ts";
@@ -385,14 +386,21 @@ export class TranscriptRenderer {
           } else if ((message as { isReplay?: boolean }).isReplay !== true) {
             // The CLI writes `isReplay: false` on frames the SDK type
             // declares without the field.
-            const views = userTurnViews(message);
-            if (views.length > 0 && this.firstRender(message.uuid)) {
-              this.addUserTurn(
-                views,
-                message.uuid,
-                part,
-                this.lastUserTurnItem(),
-              );
+            const marker = interruptMarkerText(message);
+            if (marker !== undefined) {
+              if (this.firstRender(message.uuid)) {
+                this.addPlain(bannerText(marker), message.uuid, part);
+              }
+            } else {
+              const views = userTurnViews(message);
+              if (views.length > 0 && this.firstRender(message.uuid)) {
+                this.addUserTurn(
+                  views,
+                  message.uuid,
+                  part,
+                  this.lastUserTurnItem(),
+                );
+              }
             }
           }
         }
@@ -611,9 +619,17 @@ export class TranscriptRenderer {
     }
     // A steered prompt's attachment is keyed by the prompt's own uuid.
     const key = queuedCommandSourceUuid(entry) ?? entry.uuid;
-    const views = entryUserViews(entry, message);
-    if (views.length > 0 && this.firstRender(key)) {
-      this.addUserTurn(views, key, part, this.parentUserTurnItem(entry));
+    const marker =
+      message?.type === "user" ? interruptMarkerText(entry) : undefined;
+    if (marker !== undefined) {
+      if (this.firstRender(key)) {
+        this.addPlain(bannerText(marker), key, part);
+      }
+    } else {
+      const views = entryUserViews(entry, message);
+      if (views.length > 0 && this.firstRender(key)) {
+        this.addUserTurn(views, key, part, this.parentUserTurnItem(entry));
+      }
     }
     if (message !== undefined) {
       this.stampEntry(message);

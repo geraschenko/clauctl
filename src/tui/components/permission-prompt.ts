@@ -17,7 +17,7 @@ import {
   type Focusable,
   wrapTextWithAnsi,
 } from "@earendil-works/pi-tui";
-import type { PermissionDialog } from "../permission-dialog.ts";
+import { feedbackDenial, type PermissionDialog } from "../permission-dialog.ts";
 import { DASHED_RULE } from "../permission-views.ts";
 import { getMarkdownTheme, theme } from "../theme.ts";
 
@@ -44,9 +44,15 @@ export class PermissionPromptComponent extends Container implements Focusable {
     this.selected = dialog.defaultToNo ? dialog.rows.length - 1 : 0;
   }
 
+  /** Esc belongs to the dialog (it closes the amend input), not to the
+   *  global interrupt. */
+  get capturesEscape(): boolean {
+    return this.amendInput !== undefined;
+  }
+
   private openAmend(): void {
     const input = new Input();
-    input.onSubmit = (message) => this.onDecide({ behavior: "deny", message });
+    input.onSubmit = (feedback) => this.onDecide(feedbackDenial(feedback));
     input.onEscape = () => {
       this.amendInput = undefined;
     };

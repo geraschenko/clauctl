@@ -17,6 +17,7 @@ const REPO = { cwd: "/repo", style: PLAIN_STYLE };
 // Tests exercise views through toolViewFor — the erased ToolView<unknown>
 // shape callers use — so fixture args need no generated-type ceremony.
 const agentView = toolViewFor("Agent");
+const askUserQuestionView = toolViewFor("AskUserQuestion");
 const bashView = toolViewFor("Bash");
 const editView = toolViewFor("Edit");
 const readView = toolViewFor("Read");
@@ -264,7 +265,7 @@ test("bashView header: description and command as separate parts", () => {
 });
 
 test("readView header: abbreviated path with the offset/limit range", () => {
-  const header = (args: unknown) => readView.header(args, REPO).arg;
+  const header = (args: unknown) => readView.header(args, REPO)?.arg;
   assert.equal(header({ file_path: "/repo/a.ts" }), "a.ts");
   assert.equal(
     header({ file_path: "/repo/a.ts", offset: 10, limit: 5 }),
@@ -351,7 +352,7 @@ test("writeView resultBody: line-numbered content preview", () => {
 
 test("webSearchView: quoted query header, Did N searches summary, no fold", () => {
   assert.equal(
-    webSearchView.header({ query: "latest node" }, PLAIN).arg,
+    webSearchView.header({ query: "latest node" }, PLAIN)?.arg,
     '"latest node"',
   );
   assert.equal(
@@ -399,7 +400,7 @@ test("agentView: Done line from structured totals", () => {
   );
   assert.equal(agentView.resultSummary({}, result({}), PLAIN), "");
   assert.equal(
-    agentView.header({ description: "Count files" }, PLAIN).arg,
+    agentView.header({ description: "Count files" }, PLAIN)?.arg,
     "Count files",
   );
 });
@@ -449,5 +450,105 @@ test("styled output strips to the plain output, method by method", () => {
   for (const [styled, expected] of cases) {
     assert.notEqual(styled, expected);
     assert.equal(stripAnsi(styled), expected);
+  }
+});
+
+test("askUserQuestionView: header by outcome, one line per question", () => {
+  const args = {
+    questions: [
+      {
+        question: "Cats or dogs?",
+        options: [{ label: "Cats" }, { label: "Dogs" }],
+      },
+      {
+        question: "Which color?",
+        options: [{ label: "Red" }, { label: "Blue" }],
+      },
+    ],
+  };
+  assert.equal(askUserQuestionView.header(args, PLAIN), undefined);
+  const answered = result({ answers: { "Cats or dogs?": "Dogs" } });
+  assert.equal(
+    askUserQuestionView.header(args, PLAIN, answered)?.name,
+    "AskUserQuestion, user answered",
+  );
+  assert.equal(
+    askUserQuestionView.resultSummary(args, answered, PLAIN),
+    "· Cats or dogs?\n → Dogs",
+  );
+  const declined = result(undefined, true, "rejected");
+  assert.equal(
+    askUserQuestionView.header(args, PLAIN, declined)?.name,
+    "AskUserQuestion, user declined",
+  );
+  assert.equal(
+    askUserQuestionView.resultSummary(args, declined, PLAIN),
+    "· Cats or dogs? (Cats / Dogs)\n· Which color? (Red / Blue)",
+  );
+});
+
+test("askUserQuestionView: the user's notes follow the answer in full, aligned under it", () => {
+  const args = {
+    questions: [
+      { question: "Cats or dogs?", options: [{ label: "Cats" }] },
+      { question: "Which color?", options: [{ label: "Red" }] },
+    ],
+  };
+  const answered = result({
+    answers: { "Cats or dogs?": "Dogs", "Which color?": "Red" },
+    annotations: {
+      "Cats or dogs?": { notes: "big ones\nthat bark" },
+      "Which color?": { notes: "" },
+    },
+  });
+  assert.equal(
+    askUserQuestionView.resultSummary(args, answered, PLAIN),
+    "· Cats or dogs?\n → Dogs\n   big ones\n   that bark\n· Which color?\n → Red",
+  );
+});
+
+// Native claude's notes-without-an-option answer, as recorded in session
+// d69ee703…: the answer is the placeholder "(notes only)".
+test("askUserQuestionView: notes typed without choosing an option", () => {
+  const args = {
+    questions: [{ question: "What happened?", options: [{ label: "A" }] }],
+  };
+  const answered = result({
+    answers: { "What happened?": "(notes only)" },
+    annotations: {
+      "What happened?": { notes: "This is typed in the notes field." },
+    },
+  });
+  assert.equal(
+    askUserQuestionView.resultSummary(args, answered, PLAIN),
+    "· What happened?\n → (notes only)\n   This is typed in the notes field.",
+  );
+});
+
+test("askUserQuestionView: invalid input is flagged in the header with the CLI's error as summary", () => {
+  const rejected = result(
+    undefined,
+    true,
+    "<tool_use_error>InputValidationError: AskUserQuestion failed</tool_use_error>",
+  );
+  const unreadable = { questions: "nope" };
+  // Readable by the view, but rejected by the CLI (no multiSelect).
+  const readable = {
+    questions: [
+      {
+        question: "Q?",
+        header: "H",
+        options: [{ label: "A" }, { label: "B" }],
+      },
+    ],
+  };
+  for (const args of [unreadable, readable]) {
+    assert.deepEqual(askUserQuestionView.header(args, PLAIN, rejected), {
+      name: "AskUserQuestion (invalid input)",
+    });
+    assert.equal(
+      askUserQuestionView.resultSummary(args, rejected, PLAIN),
+      defaultToolView.resultSummary(args, rejected, PLAIN),
+    );
   }
 });

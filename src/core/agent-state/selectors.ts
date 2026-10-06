@@ -104,14 +104,16 @@ export interface PendingAsk {
   readonly request: PermissionRequest;
 }
 
-/** Every pending ask, main agent first then live tasks in order — what the
- *  TUI dialog and the snapshot line iterate. */
-export const allPendingAsks = (state: AgentState): readonly PendingAsk[] => [
-  ...state.pendingPermissions.map((request) => ({ request })),
-  ...liveTasks(state).flatMap((task) =>
-    task.pendingPermissions.map((request) => ({ task, request })),
-  ),
-];
+/** Every pending ask, first come first served (`arrivedAt`; ties keep the
+ *  main agent first, then live tasks in order) — what the TUI dialog and
+ *  the snapshot line iterate. */
+export const allPendingAsks = (state: AgentState): readonly PendingAsk[] =>
+  [
+    ...state.pendingPermissions.map((request) => ({ request })),
+    ...liveTasks(state).flatMap((task) =>
+      task.pendingPermissions.map((request) => ({ task, request })),
+    ),
+  ].sort((a, b) => a.request.arrivedAt - b.request.arrivedAt);
 
 /** No message will be produced without outside input (a prompt or an
  *  ask's answer). Implied by `isQuiescent`. Definition:

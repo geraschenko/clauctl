@@ -14,6 +14,9 @@ import type { RenderToolResult } from "../../render-types.ts";
 import type { Style } from "../../style.ts";
 
 export interface ToolHeader {
+  /** This call's name where it differs from the tool name (WebSearch →
+   *  "Web Search", AskUserQuestion → "User answered:"). */
+  readonly name?: string;
   /** The call's purpose in words (Bash `description`); absent for tools
    *  without one. */
   readonly description?: string;
@@ -30,10 +33,14 @@ export interface ToolViewContext {
 }
 
 export interface ToolView<A> {
-  /** Rendered header name where it differs from the tool name:
-   *  Edit → "Update". Undefined → the tool name. */
-  displayName?: string;
-  header(args: A, context: ToolViewContext): ToolHeader;
+  /** `result` is absent while the call is pending. Undefined → nothing to
+   *  show for the call yet (AskUserQuestion, whose dialog presents it
+   *  while pending). */
+  header(
+    args: A,
+    context: ToolViewContext,
+    result?: RenderToolResult,
+  ): ToolHeader | undefined;
   /** Absolute path the header arg refers to; rendered as an OSC 8 file
    *  link when pi-tui's capability detection positively identifies a
    *  hyperlink-capable terminal (and the arg fits on a single header

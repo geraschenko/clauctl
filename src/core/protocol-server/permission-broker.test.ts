@@ -26,6 +26,7 @@ const request = (toolUseId: string): PermissionRequest => ({
   toolUseId,
   toolName: "Bash",
   input: { command: "ls" },
+  arrivedAt: 0,
   suggestions: [],
 });
 

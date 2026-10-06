@@ -33,6 +33,1584 @@ export interface AgentInput {
   isolation?: "worktree" | "remote";
 }
 
+export interface AskUserQuestionInput {
+  /**
+   * Questions to ask the user (1-4 questions)
+   *
+   * @minItems 1
+   * @maxItems 4
+   */
+  questions:
+    | [
+        {
+          /**
+           * The complete question to ask the user. Should be clear, specific, and end with a question mark. Example: "Which library should we use for date formatting?" If multiSelect is true, phrase it accordingly, e.g. "Which features do you want to enable?"
+           */
+          question: string;
+          /**
+           * Very short label displayed as a chip/tag (max 12 chars). Examples: "Auth method", "Library", "Approach".
+           */
+          header: string;
+          /**
+           * The available choices for this question. Must have 2-4 options. Each option should be a distinct, mutually exclusive choice (unless multiSelect is enabled). There should be no 'Other' option, that will be provided automatically.
+           *
+           * @minItems 2
+           * @maxItems 4
+           */
+          options:
+            | [
+                {
+                  /**
+                   * The display text for this option that the user will see and select. Should be concise (1-5 words) and clearly describe the choice.
+                   */
+                  label: string;
+                  /**
+                   * Explanation of what this option means or what will happen if chosen. Useful for providing context about trade-offs or implications.
+                   */
+                  description: string;
+                  /**
+                   * Optional preview content rendered when this option is focused. Use for mockups, code snippets, or visual comparisons that help users compare options. See the tool description for the expected content format.
+                   */
+                  preview?: string;
+                },
+                {
+                  /**
+                   * The display text for this option that the user will see and select. Should be concise (1-5 words) and clearly describe the choice.
+                   */
+                  label: string;
+                  /**
+                   * Explanation of what this option means or what will happen if chosen. Useful for providing context about trade-offs or implications.
+                   */
+                  description: string;
+                  /**
+                   * Optional preview content rendered when this option is focused. Use for mockups, code snippets, or visual comparisons that help users compare options. See the tool description for the expected content format.
+                   */
+                  preview?: string;
+                },
+              ]
+            | [
+                {
+                  /**
+                   * The display text for this option that the user will see and select. Should be concise (1-5 words) and clearly describe the choice.
+                   */
+                  label: string;
+                  /**
+                   * Explanation of what this option means or what will happen if chosen. Useful for providing context about trade-offs or implications.
+                   */
+                  description: string;
+                  /**
+                   * Optional preview content rendered when this option is focused. Use for mockups, code snippets, or visual comparisons that help users compare options. See the tool description for the expected content format.
+                   */
+                  preview?: string;
+                },
+                {
+                  /**
+                   * The display text for this option that the user will see and select. Should be concise (1-5 words) and clearly describe the choice.
+                   */
+                  label: string;
+                  /**
+                   * Explanation of what this option means or what will happen if chosen. Useful for providing context about trade-offs or implications.
+                   */
+                  description: string;
+                  /**
+                   * Optional preview content rendered when this option is focused. Use for mockups, code snippets, or visual comparisons that help users compare options. See the tool description for the expected content format.
+                   */
+                  preview?: string;
+                },
+                {
+                  /**
+                   * The display text for this option that the user will see and select. Should be concise (1-5 words) and clearly describe the choice.
+                   */
+                  label: string;
+                  /**
+                   * Explanation of what this option means or what will happen if chosen. Useful for providing context about trade-offs or implications.
+                   */
+                  description: string;
+                  /**
+                   * Optional preview content rendered when this option is focused. Use for mockups, code snippets, or visual comparisons that help users compare options. See the tool description for the expected content format.
+                   */
+                  preview?: string;
+                },
+              ]
+            | [
+                {
+                  /**
+                   * The display text for this option that the user will see and select. Should be concise (1-5 words) and clearly describe the choice.
+                   */
+                  label: string;
+                  /**
+                   * Explanation of what this option means or what will happen if chosen. Useful for providing context about trade-offs or implications.
+                   */
+                  description: string;
+                  /**
+                   * Optional preview content rendered when this option is focused. Use for mockups, code snippets, or visual comparisons that help users compare options. See the tool description for the expected content format.
+                   */
+                  preview?: string;
+                },
+                {
+                  /**
+                   * The display text for this option that the user will see and select. Should be concise (1-5 words) and clearly describe the choice.
+                   */
+                  label: string;
+                  /**
+                   * Explanation of what this option means or what will happen if chosen. Useful for providing context about trade-offs or implications.
+                   */
+                  description: string;
+                  /**
+                   * Optional preview content rendered when this option is focused. Use for mockups, code snippets, or visual comparisons that help users compare options. See the tool description for the expected content format.
+                   */
+                  preview?: string;
+                },
+                {
+                  /**
+                   * The display text for this option that the user will see and select. Should be concise (1-5 words) and clearly describe the choice.
+                   */
+                  label: string;
+                  /**
+                   * Explanation of what this option means or what will happen if chosen. Useful for providing context about trade-offs or implications.
+                   */
+                  description: string;
+                  /**
+                   * Optional preview content rendered when this option is focused. Use for mockups, code snippets, or visual comparisons that help users compare options. See the tool description for the expected content format.
+                   */
+                  preview?: string;
+                },
+                {
+                  /**
+                   * The display text for this option that the user will see and select. Should be concise (1-5 words) and clearly describe the choice.
+                   */
+                  label: string;
+                  /**
+                   * Explanation of what this option means or what will happen if chosen. Useful for providing context about trade-offs or implications.
+                   */
+                  description: string;
+                  /**
+                   * Optional preview content rendered when this option is focused. Use for mockups, code snippets, or visual comparisons that help users compare options. See the tool description for the expected content format.
+                   */
+                  preview?: string;
+                },
+              ];
+          /**
+           * Set to true to allow the user to select multiple options instead of just one. Use when choices are not mutually exclusive.
+           */
+          multiSelect: boolean;
+        },
+      ]
+    | [
+        {
+          /**
+           * The complete question to ask the user. Should be clear, specific, and end with a question mark. Example: "Which library should we use for date formatting?" If multiSelect is true, phrase it accordingly, e.g. "Which features do you want to enable?"
+           */
+          question: string;
+          /**
+           * Very short label displayed as a chip/tag (max 12 chars). Examples: "Auth method", "Library", "Approach".
+           */
+          header: string;
+          /**
+           * The available choices for this question. Must have 2-4 options. Each option should be a distinct, mutually exclusive choice (unless multiSelect is enabled). There should be no 'Other' option, that will be provided automatically.
+           *
+           * @minItems 2
+           * @maxItems 4
+           */
+          options:
+            | [
+                {
+                  /**
+                   * The display text for this option that the user will see and select. Should be concise (1-5 words) and clearly describe the choice.
+                   */
+                  label: string;
+                  /**
+                   * Explanation of what this option means or what will happen if chosen. Useful for providing context about trade-offs or implications.
+                   */
+                  description: string;
+                  /**
+                   * Optional preview content rendered when this option is focused. Use for mockups, code snippets, or visual comparisons that help users compare options. See the tool description for the expected content format.
+                   */
+                  preview?: string;
+                },
+                {
+                  /**
+                   * The display text for this option that the user will see and select. Should be concise (1-5 words) and clearly describe the choice.
+                   */
+                  label: string;
+                  /**
+                   * Explanation of what this option means or what will happen if chosen. Useful for providing context about trade-offs or implications.
+                   */
+                  description: string;
+                  /**
+                   * Optional preview content rendered when this option is focused. Use for mockups, code snippets, or visual comparisons that help users compare options. See the tool description for the expected content format.
+                   */
+                  preview?: string;
+                },
+              ]
+            | [
+                {
+                  /**
+                   * The display text for this option that the user will see and select. Should be concise (1-5 words) and clearly describe the choice.
+                   */
+                  label: string;
+                  /**
+                   * Explanation of what this option means or what will happen if chosen. Useful for providing context about trade-offs or implications.
+                   */
+                  description: string;
+                  /**
+                   * Optional preview content rendered when this option is focused. Use for mockups, code snippets, or visual comparisons that help users compare options. See the tool description for the expected content format.
+                   */
+                  preview?: string;
+                },
+                {
+                  /**
+                   * The display text for this option that the user will see and select. Should be concise (1-5 words) and clearly describe the choice.
+                   */
+                  label: string;
+                  /**
+                   * Explanation of what this option means or what will happen if chosen. Useful for providing context about trade-offs or implications.
+                   */
+                  description: string;
+                  /**
+                   * Optional preview content rendered when this option is focused. Use for mockups, code snippets, or visual comparisons that help users compare options. See the tool description for the expected content format.
+                   */
+                  preview?: string;
+                },
+                {
+                  /**
+                   * The display text for this option that the user will see and select. Should be concise (1-5 words) and clearly describe the choice.
+                   */
+                  label: string;
+                  /**
+                   * Explanation of what this option means or what will happen if chosen. Useful for providing context about trade-offs or implications.
+                   */
+                  description: string;
+                  /**
+                   * Optional preview content rendered when this option is focused. Use for mockups, code snippets, or visual comparisons that help users compare options. See the tool description for the expected content format.
+                   */
+                  preview?: string;
+                },
+              ]
+            | [
+                {
+                  /**
+                   * The display text for this option that the user will see and select. Should be concise (1-5 words) and clearly describe the choice.
+                   */
+                  label: string;
+                  /**
+                   * Explanation of what this option means or what will happen if chosen. Useful for providing context about trade-offs or implications.
+                   */
+                  description: string;
+                  /**
+                   * Optional preview content rendered when this option is focused. Use for mockups, code snippets, or visual comparisons that help users compare options. See the tool description for the expected content format.
+                   */
+                  preview?: string;
+                },
+                {
+                  /**
+                   * The display text for this option that the user will see and select. Should be concise (1-5 words) and clearly describe the choice.
+                   */
+                  label: string;
+                  /**
+                   * Explanation of what this option means or what will happen if chosen. Useful for providing context about trade-offs or implications.
+                   */
+                  description: string;
+                  /**
+                   * Optional preview content rendered when this option is focused. Use for mockups, code snippets, or visual comparisons that help users compare options. See the tool description for the expected content format.
+                   */
+                  preview?: string;
+                },
+                {
+                  /**
+                   * The display text for this option that the user will see and select. Should be concise (1-5 words) and clearly describe the choice.
+                   */
+                  label: string;
+                  /**
+                   * Explanation of what this option means or what will happen if chosen. Useful for providing context about trade-offs or implications.
+                   */
+                  description: string;
+                  /**
+                   * Optional preview content rendered when this option is focused. Use for mockups, code snippets, or visual comparisons that help users compare options. See the tool description for the expected content format.
+                   */
+                  preview?: string;
+                },
+                {
+                  /**
+                   * The display text for this option that the user will see and select. Should be concise (1-5 words) and clearly describe the choice.
+                   */
+                  label: string;
+                  /**
+                   * Explanation of what this option means or what will happen if chosen. Useful for providing context about trade-offs or implications.
+                   */
+                  description: string;
+                  /**
+                   * Optional preview content rendered when this option is focused. Use for mockups, code snippets, or visual comparisons that help users compare options. See the tool description for the expected content format.
+                   */
+                  preview?: string;
+                },
+              ];
+          /**
+           * Set to true to allow the user to select multiple options instead of just one. Use when choices are not mutually exclusive.
+           */
+          multiSelect: boolean;
+        },
+        {
+          /**
+           * The complete question to ask the user. Should be clear, specific, and end with a question mark. Example: "Which library should we use for date formatting?" If multiSelect is true, phrase it accordingly, e.g. "Which features do you want to enable?"
+           */
+          question: string;
+          /**
+           * Very short label displayed as a chip/tag (max 12 chars). Examples: "Auth method", "Library", "Approach".
+           */
+          header: string;
+          /**
+           * The available choices for this question. Must have 2-4 options. Each option should be a distinct, mutually exclusive choice (unless multiSelect is enabled). There should be no 'Other' option, that will be provided automatically.
+           *
+           * @minItems 2
+           * @maxItems 4
+           */
+          options:
+            | [
+                {
+                  /**
+                   * The display text for this option that the user will see and select. Should be concise (1-5 words) and clearly describe the choice.
+                   */
+                  label: string;
+                  /**
+                   * Explanation of what this option means or what will happen if chosen. Useful for providing context about trade-offs or implications.
+                   */
+                  description: string;
+                  /**
+                   * Optional preview content rendered when this option is focused. Use for mockups, code snippets, or visual comparisons that help users compare options. See the tool description for the expected content format.
+                   */
+                  preview?: string;
+                },
+                {
+                  /**
+                   * The display text for this option that the user will see and select. Should be concise (1-5 words) and clearly describe the choice.
+                   */
+                  label: string;
+                  /**
+                   * Explanation of what this option means or what will happen if chosen. Useful for providing context about trade-offs or implications.
+                   */
+                  description: string;
+                  /**
+                   * Optional preview content rendered when this option is focused. Use for mockups, code snippets, or visual comparisons that help users compare options. See the tool description for the expected content format.
+                   */
+                  preview?: string;
+                },
+              ]
+            | [
+                {
+                  /**
+                   * The display text for this option that the user will see and select. Should be concise (1-5 words) and clearly describe the choice.
+                   */
+                  label: string;
+                  /**
+                   * Explanation of what this option means or what will happen if chosen. Useful for providing context about trade-offs or implications.
+                   */
+                  description: string;
+                  /**
+                   * Optional preview content rendered when this option is focused. Use for mockups, code snippets, or visual comparisons that help users compare options. See the tool description for the expected content format.
+                   */
+                  preview?: string;
+                },
+                {
+                  /**
+                   * The display text for this option that the user will see and select. Should be concise (1-5 words) and clearly describe the choice.
+                   */
+                  label: string;
+                  /**
+                   * Explanation of what this option means or what will happen if chosen. Useful for providing context about trade-offs or implications.
+                   */
+                  description: string;
+                  /**
+                   * Optional preview content rendered when this option is focused. Use for mockups, code snippets, or visual comparisons that help users compare options. See the tool description for the expected content format.
+                   */
+                  preview?: string;
+                },
+                {
+                  /**
+                   * The display text for this option that the user will see and select. Should be concise (1-5 words) and clearly describe the choice.
+                   */
+                  label: string;
+                  /**
+                   * Explanation of what this option means or what will happen if chosen. Useful for providing context about trade-offs or implications.
+                   */
+                  description: string;
+                  /**
+                   * Optional preview content rendered when this option is focused. Use for mockups, code snippets, or visual comparisons that help users compare options. See the tool description for the expected content format.
+                   */
+                  preview?: string;
+                },
+              ]
+            | [
+                {
+                  /**
+                   * The display text for this option that the user will see and select. Should be concise (1-5 words) and clearly describe the choice.
+                   */
+                  label: string;
+                  /**
+                   * Explanation of what this option means or what will happen if chosen. Useful for providing context about trade-offs or implications.
+                   */
+                  description: string;
+                  /**
+                   * Optional preview content rendered when this option is focused. Use for mockups, code snippets, or visual comparisons that help users compare options. See the tool description for the expected content format.
+                   */
+                  preview?: string;
+                },
+                {
+                  /**
+                   * The display text for this option that the user will see and select. Should be concise (1-5 words) and clearly describe the choice.
+                   */
+                  label: string;
+                  /**
+                   * Explanation of what this option means or what will happen if chosen. Useful for providing context about trade-offs or implications.
+                   */
+                  description: string;
+                  /**
+                   * Optional preview content rendered when this option is focused. Use for mockups, code snippets, or visual comparisons that help users compare options. See the tool description for the expected content format.
+                   */
+                  preview?: string;
+                },
+                {
+                  /**
+                   * The display text for this option that the user will see and select. Should be concise (1-5 words) and clearly describe the choice.
+                   */
+                  label: string;
+                  /**
+                   * Explanation of what this option means or what will happen if chosen. Useful for providing context about trade-offs or implications.
+                   */
+                  description: string;
+                  /**
+                   * Optional preview content rendered when this option is focused. Use for mockups, code snippets, or visual comparisons that help users compare options. See the tool description for the expected content format.
+                   */
+                  preview?: string;
+                },
+                {
+                  /**
+                   * The display text for this option that the user will see and select. Should be concise (1-5 words) and clearly describe the choice.
+                   */
+                  label: string;
+                  /**
+                   * Explanation of what this option means or what will happen if chosen. Useful for providing context about trade-offs or implications.
+                   */
+                  description: string;
+                  /**
+                   * Optional preview content rendered when this option is focused. Use for mockups, code snippets, or visual comparisons that help users compare options. See the tool description for the expected content format.
+                   */
+                  preview?: string;
+                },
+              ];
+          /**
+           * Set to true to allow the user to select multiple options instead of just one. Use when choices are not mutually exclusive.
+           */
+          multiSelect: boolean;
+        },
+      ]
+    | [
+        {
+          /**
+           * The complete question to ask the user. Should be clear, specific, and end with a question mark. Example: "Which library should we use for date formatting?" If multiSelect is true, phrase it accordingly, e.g. "Which features do you want to enable?"
+           */
+          question: string;
+          /**
+           * Very short label displayed as a chip/tag (max 12 chars). Examples: "Auth method", "Library", "Approach".
+           */
+          header: string;
+          /**
+           * The available choices for this question. Must have 2-4 options. Each option should be a distinct, mutually exclusive choice (unless multiSelect is enabled). There should be no 'Other' option, that will be provided automatically.
+           *
+           * @minItems 2
+           * @maxItems 4
+           */
+          options:
+            | [
+                {
+                  /**
+                   * The display text for this option that the user will see and select. Should be concise (1-5 words) and clearly describe the choice.
+                   */
+                  label: string;
+                  /**
+                   * Explanation of what this option means or what will happen if chosen. Useful for providing context about trade-offs or implications.
+                   */
+                  description: string;
+                  /**
+                   * Optional preview content rendered when this option is focused. Use for mockups, code snippets, or visual comparisons that help users compare options. See the tool description for the expected content format.
+                   */
+                  preview?: string;
+                },
+                {
+                  /**
+                   * The display text for this option that the user will see and select. Should be concise (1-5 words) and clearly describe the choice.
+                   */
+                  label: string;
+                  /**
+                   * Explanation of what this option means or what will happen if chosen. Useful for providing context about trade-offs or implications.
+                   */
+                  description: string;
+                  /**
+                   * Optional preview content rendered when this option is focused. Use for mockups, code snippets, or visual comparisons that help users compare options. See the tool description for the expected content format.
+                   */
+                  preview?: string;
+                },
+              ]
+            | [
+                {
+                  /**
+                   * The display text for this option that the user will see and select. Should be concise (1-5 words) and clearly describe the choice.
+                   */
+                  label: string;
+                  /**
+                   * Explanation of what this option means or what will happen if chosen. Useful for providing context about trade-offs or implications.
+                   */
+                  description: string;
+                  /**
+                   * Optional preview content rendered when this option is focused. Use for mockups, code snippets, or visual comparisons that help users compare options. See the tool description for the expected content format.
+                   */
+                  preview?: string;
+                },
+                {
+                  /**
+                   * The display text for this option that the user will see and select. Should be concise (1-5 words) and clearly describe the choice.
+                   */
+                  label: string;
+                  /**
+                   * Explanation of what this option means or what will happen if chosen. Useful for providing context about trade-offs or implications.
+                   */
+                  description: string;
+                  /**
+                   * Optional preview content rendered when this option is focused. Use for mockups, code snippets, or visual comparisons that help users compare options. See the tool description for the expected content format.
+                   */
+                  preview?: string;
+                },
+                {
+                  /**
+                   * The display text for this option that the user will see and select. Should be concise (1-5 words) and clearly describe the choice.
+                   */
+                  label: string;
+                  /**
+                   * Explanation of what this option means or what will happen if chosen. Useful for providing context about trade-offs or implications.
+                   */
+                  description: string;
+                  /**
+                   * Optional preview content rendered when this option is focused. Use for mockups, code snippets, or visual comparisons that help users compare options. See the tool description for the expected content format.
+                   */
+                  preview?: string;
+                },
+              ]
+            | [
+                {
+                  /**
+                   * The display text for this option that the user will see and select. Should be concise (1-5 words) and clearly describe the choice.
+                   */
+                  label: string;
+                  /**
+                   * Explanation of what this option means or what will happen if chosen. Useful for providing context about trade-offs or implications.
+                   */
+                  description: string;
+                  /**
+                   * Optional preview content rendered when this option is focused. Use for mockups, code snippets, or visual comparisons that help users compare options. See the tool description for the expected content format.
+                   */
+                  preview?: string;
+                },
+                {
+                  /**
+                   * The display text for this option that the user will see and select. Should be concise (1-5 words) and clearly describe the choice.
+                   */
+                  label: string;
+                  /**
+                   * Explanation of what this option means or what will happen if chosen. Useful for providing context about trade-offs or implications.
+                   */
+                  description: string;
+                  /**
+                   * Optional preview content rendered when this option is focused. Use for mockups, code snippets, or visual comparisons that help users compare options. See the tool description for the expected content format.
+                   */
+                  preview?: string;
+                },
+                {
+                  /**
+                   * The display text for this option that the user will see and select. Should be concise (1-5 words) and clearly describe the choice.
+                   */
+                  label: string;
+                  /**
+                   * Explanation of what this option means or what will happen if chosen. Useful for providing context about trade-offs or implications.
+                   */
+                  description: string;
+                  /**
+                   * Optional preview content rendered when this option is focused. Use for mockups, code snippets, or visual comparisons that help users compare options. See the tool description for the expected content format.
+                   */
+                  preview?: string;
+                },
+                {
+                  /**
+                   * The display text for this option that the user will see and select. Should be concise (1-5 words) and clearly describe the choice.
+                   */
+                  label: string;
+                  /**
+                   * Explanation of what this option means or what will happen if chosen. Useful for providing context about trade-offs or implications.
+                   */
+                  description: string;
+                  /**
+                   * Optional preview content rendered when this option is focused. Use for mockups, code snippets, or visual comparisons that help users compare options. See the tool description for the expected content format.
+                   */
+                  preview?: string;
+                },
+              ];
+          /**
+           * Set to true to allow the user to select multiple options instead of just one. Use when choices are not mutually exclusive.
+           */
+          multiSelect: boolean;
+        },
+        {
+          /**
+           * The complete question to ask the user. Should be clear, specific, and end with a question mark. Example: "Which library should we use for date formatting?" If multiSelect is true, phrase it accordingly, e.g. "Which features do you want to enable?"
+           */
+          question: string;
+          /**
+           * Very short label displayed as a chip/tag (max 12 chars). Examples: "Auth method", "Library", "Approach".
+           */
+          header: string;
+          /**
+           * The available choices for this question. Must have 2-4 options. Each option should be a distinct, mutually exclusive choice (unless multiSelect is enabled). There should be no 'Other' option, that will be provided automatically.
+           *
+           * @minItems 2
+           * @maxItems 4
+           */
+          options:
+            | [
+                {
+                  /**
+                   * The display text for this option that the user will see and select. Should be concise (1-5 words) and clearly describe the choice.
+                   */
+                  label: string;
+                  /**
+                   * Explanation of what this option means or what will happen if chosen. Useful for providing context about trade-offs or implications.
+                   */
+                  description: string;
+                  /**
+                   * Optional preview content rendered when this option is focused. Use for mockups, code snippets, or visual comparisons that help users compare options. See the tool description for the expected content format.
+                   */
+                  preview?: string;
+                },
+                {
+                  /**
+                   * The display text for this option that the user will see and select. Should be concise (1-5 words) and clearly describe the choice.
+                   */
+                  label: string;
+                  /**
+                   * Explanation of what this option means or what will happen if chosen. Useful for providing context about trade-offs or implications.
+                   */
+                  description: string;
+                  /**
+                   * Optional preview content rendered when this option is focused. Use for mockups, code snippets, or visual comparisons that help users compare options. See the tool description for the expected content format.
+                   */
+                  preview?: string;
+                },
+              ]
+            | [
+                {
+                  /**
+                   * The display text for this option that the user will see and select. Should be concise (1-5 words) and clearly describe the choice.
+                   */
+                  label: string;
+                  /**
+                   * Explanation of what this option means or what will happen if chosen. Useful for providing context about trade-offs or implications.
+                   */
+                  description: string;
+                  /**
+                   * Optional preview content rendered when this option is focused. Use for mockups, code snippets, or visual comparisons that help users compare options. See the tool description for the expected content format.
+                   */
+                  preview?: string;
+                },
+                {
+                  /**
+                   * The display text for this option that the user will see and select. Should be concise (1-5 words) and clearly describe the choice.
+                   */
+                  label: string;
+                  /**
+                   * Explanation of what this option means or what will happen if chosen. Useful for providing context about trade-offs or implications.
+                   */
+                  description: string;
+                  /**
+                   * Optional preview content rendered when this option is focused. Use for mockups, code snippets, or visual comparisons that help users compare options. See the tool description for the expected content format.
+                   */
+                  preview?: string;
+                },
+                {
+                  /**
+                   * The display text for this option that the user will see and select. Should be concise (1-5 words) and clearly describe the choice.
+                   */
+                  label: string;
+                  /**
+                   * Explanation of what this option means or what will happen if chosen. Useful for providing context about trade-offs or implications.
+                   */
+                  description: string;
+                  /**
+                   * Optional preview content rendered when this option is focused. Use for mockups, code snippets, or visual comparisons that help users compare options. See the tool description for the expected content format.
+                   */
+                  preview?: string;
+                },
+              ]
+            | [
+                {
+                  /**
+                   * The display text for this option that the user will see and select. Should be concise (1-5 words) and clearly describe the choice.
+                   */
+                  label: string;
+                  /**
+                   * Explanation of what this option means or what will happen if chosen. Useful for providing context about trade-offs or implications.
+                   */
+                  description: string;
+                  /**
+                   * Optional preview content rendered when this option is focused. Use for mockups, code snippets, or visual comparisons that help users compare options. See the tool description for the expected content format.
+                   */
+                  preview?: string;
+                },
+                {
+                  /**
+                   * The display text for this option that the user will see and select. Should be concise (1-5 words) and clearly describe the choice.
+                   */
+                  label: string;
+                  /**
+                   * Explanation of what this option means or what will happen if chosen. Useful for providing context about trade-offs or implications.
+                   */
+                  description: string;
+                  /**
+                   * Optional preview content rendered when this option is focused. Use for mockups, code snippets, or visual comparisons that help users compare options. See the tool description for the expected content format.
+                   */
+                  preview?: string;
+                },
+                {
+                  /**
+                   * The display text for this option that the user will see and select. Should be concise (1-5 words) and clearly describe the choice.
+                   */
+                  label: string;
+                  /**
+                   * Explanation of what this option means or what will happen if chosen. Useful for providing context about trade-offs or implications.
+                   */
+                  description: string;
+                  /**
+                   * Optional preview content rendered when this option is focused. Use for mockups, code snippets, or visual comparisons that help users compare options. See the tool description for the expected content format.
+                   */
+                  preview?: string;
+                },
+                {
+                  /**
+                   * The display text for this option that the user will see and select. Should be concise (1-5 words) and clearly describe the choice.
+                   */
+                  label: string;
+                  /**
+                   * Explanation of what this option means or what will happen if chosen. Useful for providing context about trade-offs or implications.
+                   */
+                  description: string;
+                  /**
+                   * Optional preview content rendered when this option is focused. Use for mockups, code snippets, or visual comparisons that help users compare options. See the tool description for the expected content format.
+                   */
+                  preview?: string;
+                },
+              ];
+          /**
+           * Set to true to allow the user to select multiple options instead of just one. Use when choices are not mutually exclusive.
+           */
+          multiSelect: boolean;
+        },
+        {
+          /**
+           * The complete question to ask the user. Should be clear, specific, and end with a question mark. Example: "Which library should we use for date formatting?" If multiSelect is true, phrase it accordingly, e.g. "Which features do you want to enable?"
+           */
+          question: string;
+          /**
+           * Very short label displayed as a chip/tag (max 12 chars). Examples: "Auth method", "Library", "Approach".
+           */
+          header: string;
+          /**
+           * The available choices for this question. Must have 2-4 options. Each option should be a distinct, mutually exclusive choice (unless multiSelect is enabled). There should be no 'Other' option, that will be provided automatically.
+           *
+           * @minItems 2
+           * @maxItems 4
+           */
+          options:
+            | [
+                {
+                  /**
+                   * The display text for this option that the user will see and select. Should be concise (1-5 words) and clearly describe the choice.
+                   */
+                  label: string;
+                  /**
+                   * Explanation of what this option means or what will happen if chosen. Useful for providing context about trade-offs or implications.
+                   */
+                  description: string;
+                  /**
+                   * Optional preview content rendered when this option is focused. Use for mockups, code snippets, or visual comparisons that help users compare options. See the tool description for the expected content format.
+                   */
+                  preview?: string;
+                },
+                {
+                  /**
+                   * The display text for this option that the user will see and select. Should be concise (1-5 words) and clearly describe the choice.
+                   */
+                  label: string;
+                  /**
+                   * Explanation of what this option means or what will happen if chosen. Useful for providing context about trade-offs or implications.
+                   */
+                  description: string;
+                  /**
+                   * Optional preview content rendered when this option is focused. Use for mockups, code snippets, or visual comparisons that help users compare options. See the tool description for the expected content format.
+                   */
+                  preview?: string;
+                },
+              ]
+            | [
+                {
+                  /**
+                   * The display text for this option that the user will see and select. Should be concise (1-5 words) and clearly describe the choice.
+                   */
+                  label: string;
+                  /**
+                   * Explanation of what this option means or what will happen if chosen. Useful for providing context about trade-offs or implications.
+                   */
+                  description: string;
+                  /**
+                   * Optional preview content rendered when this option is focused. Use for mockups, code snippets, or visual comparisons that help users compare options. See the tool description for the expected content format.
+                   */
+                  preview?: string;
+                },
+                {
+                  /**
+                   * The display text for this option that the user will see and select. Should be concise (1-5 words) and clearly describe the choice.
+                   */
+                  label: string;
+                  /**
+                   * Explanation of what this option means or what will happen if chosen. Useful for providing context about trade-offs or implications.
+                   */
+                  description: string;
+                  /**
+                   * Optional preview content rendered when this option is focused. Use for mockups, code snippets, or visual comparisons that help users compare options. See the tool description for the expected content format.
+                   */
+                  preview?: string;
+                },
+                {
+                  /**
+                   * The display text for this option that the user will see and select. Should be concise (1-5 words) and clearly describe the choice.
+                   */
+                  label: string;
+                  /**
+                   * Explanation of what this option means or what will happen if chosen. Useful for providing context about trade-offs or implications.
+                   */
+                  description: string;
+                  /**
+                   * Optional preview content rendered when this option is focused. Use for mockups, code snippets, or visual comparisons that help users compare options. See the tool description for the expected content format.
+                   */
+                  preview?: string;
+                },
+              ]
+            | [
+                {
+                  /**
+                   * The display text for this option that the user will see and select. Should be concise (1-5 words) and clearly describe the choice.
+                   */
+                  label: string;
+                  /**
+                   * Explanation of what this option means or what will happen if chosen. Useful for providing context about trade-offs or implications.
+                   */
+                  description: string;
+                  /**
+                   * Optional preview content rendered when this option is focused. Use for mockups, code snippets, or visual comparisons that help users compare options. See the tool description for the expected content format.
+                   */
+                  preview?: string;
+                },
+                {
+                  /**
+                   * The display text for this option that the user will see and select. Should be concise (1-5 words) and clearly describe the choice.
+                   */
+                  label: string;
+                  /**
+                   * Explanation of what this option means or what will happen if chosen. Useful for providing context about trade-offs or implications.
+                   */
+                  description: string;
+                  /**
+                   * Optional preview content rendered when this option is focused. Use for mockups, code snippets, or visual comparisons that help users compare options. See the tool description for the expected content format.
+                   */
+                  preview?: string;
+                },
+                {
+                  /**
+                   * The display text for this option that the user will see and select. Should be concise (1-5 words) and clearly describe the choice.
+                   */
+                  label: string;
+                  /**
+                   * Explanation of what this option means or what will happen if chosen. Useful for providing context about trade-offs or implications.
+                   */
+                  description: string;
+                  /**
+                   * Optional preview content rendered when this option is focused. Use for mockups, code snippets, or visual comparisons that help users compare options. See the tool description for the expected content format.
+                   */
+                  preview?: string;
+                },
+                {
+                  /**
+                   * The display text for this option that the user will see and select. Should be concise (1-5 words) and clearly describe the choice.
+                   */
+                  label: string;
+                  /**
+                   * Explanation of what this option means or what will happen if chosen. Useful for providing context about trade-offs or implications.
+                   */
+                  description: string;
+                  /**
+                   * Optional preview content rendered when this option is focused. Use for mockups, code snippets, or visual comparisons that help users compare options. See the tool description for the expected content format.
+                   */
+                  preview?: string;
+                },
+              ];
+          /**
+           * Set to true to allow the user to select multiple options instead of just one. Use when choices are not mutually exclusive.
+           */
+          multiSelect: boolean;
+        },
+      ]
+    | [
+        {
+          /**
+           * The complete question to ask the user. Should be clear, specific, and end with a question mark. Example: "Which library should we use for date formatting?" If multiSelect is true, phrase it accordingly, e.g. "Which features do you want to enable?"
+           */
+          question: string;
+          /**
+           * Very short label displayed as a chip/tag (max 12 chars). Examples: "Auth method", "Library", "Approach".
+           */
+          header: string;
+          /**
+           * The available choices for this question. Must have 2-4 options. Each option should be a distinct, mutually exclusive choice (unless multiSelect is enabled). There should be no 'Other' option, that will be provided automatically.
+           *
+           * @minItems 2
+           * @maxItems 4
+           */
+          options:
+            | [
+                {
+                  /**
+                   * The display text for this option that the user will see and select. Should be concise (1-5 words) and clearly describe the choice.
+                   */
+                  label: string;
+                  /**
+                   * Explanation of what this option means or what will happen if chosen. Useful for providing context about trade-offs or implications.
+                   */
+                  description: string;
+                  /**
+                   * Optional preview content rendered when this option is focused. Use for mockups, code snippets, or visual comparisons that help users compare options. See the tool description for the expected content format.
+                   */
+                  preview?: string;
+                },
+                {
+                  /**
+                   * The display text for this option that the user will see and select. Should be concise (1-5 words) and clearly describe the choice.
+                   */
+                  label: string;
+                  /**
+                   * Explanation of what this option means or what will happen if chosen. Useful for providing context about trade-offs or implications.
+                   */
+                  description: string;
+                  /**
+                   * Optional preview content rendered when this option is focused. Use for mockups, code snippets, or visual comparisons that help users compare options. See the tool description for the expected content format.
+                   */
+                  preview?: string;
+                },
+              ]
+            | [
+                {
+                  /**
+                   * The display text for this option that the user will see and select. Should be concise (1-5 words) and clearly describe the choice.
+                   */
+                  label: string;
+                  /**
+                   * Explanation of what this option means or what will happen if chosen. Useful for providing context about trade-offs or implications.
+                   */
+                  description: string;
+                  /**
+                   * Optional preview content rendered when this option is focused. Use for mockups, code snippets, or visual comparisons that help users compare options. See the tool description for the expected content format.
+                   */
+                  preview?: string;
+                },
+                {
+                  /**
+                   * The display text for this option that the user will see and select. Should be concise (1-5 words) and clearly describe the choice.
+                   */
+                  label: string;
+                  /**
+                   * Explanation of what this option means or what will happen if chosen. Useful for providing context about trade-offs or implications.
+                   */
+                  description: string;
+                  /**
+                   * Optional preview content rendered when this option is focused. Use for mockups, code snippets, or visual comparisons that help users compare options. See the tool description for the expected content format.
+                   */
+                  preview?: string;
+                },
+                {
+                  /**
+                   * The display text for this option that the user will see and select. Should be concise (1-5 words) and clearly describe the choice.
+                   */
+                  label: string;
+                  /**
+                   * Explanation of what this option means or what will happen if chosen. Useful for providing context about trade-offs or implications.
+                   */
+                  description: string;
+                  /**
+                   * Optional preview content rendered when this option is focused. Use for mockups, code snippets, or visual comparisons that help users compare options. See the tool description for the expected content format.
+                   */
+                  preview?: string;
+                },
+              ]
+            | [
+                {
+                  /**
+                   * The display text for this option that the user will see and select. Should be concise (1-5 words) and clearly describe the choice.
+                   */
+                  label: string;
+                  /**
+                   * Explanation of what this option means or what will happen if chosen. Useful for providing context about trade-offs or implications.
+                   */
+                  description: string;
+                  /**
+                   * Optional preview content rendered when this option is focused. Use for mockups, code snippets, or visual comparisons that help users compare options. See the tool description for the expected content format.
+                   */
+                  preview?: string;
+                },
+                {
+                  /**
+                   * The display text for this option that the user will see and select. Should be concise (1-5 words) and clearly describe the choice.
+                   */
+                  label: string;
+                  /**
+                   * Explanation of what this option means or what will happen if chosen. Useful for providing context about trade-offs or implications.
+                   */
+                  description: string;
+                  /**
+                   * Optional preview content rendered when this option is focused. Use for mockups, code snippets, or visual comparisons that help users compare options. See the tool description for the expected content format.
+                   */
+                  preview?: string;
+                },
+                {
+                  /**
+                   * The display text for this option that the user will see and select. Should be concise (1-5 words) and clearly describe the choice.
+                   */
+                  label: string;
+                  /**
+                   * Explanation of what this option means or what will happen if chosen. Useful for providing context about trade-offs or implications.
+                   */
+                  description: string;
+                  /**
+                   * Optional preview content rendered when this option is focused. Use for mockups, code snippets, or visual comparisons that help users compare options. See the tool description for the expected content format.
+                   */
+                  preview?: string;
+                },
+                {
+                  /**
+                   * The display text for this option that the user will see and select. Should be concise (1-5 words) and clearly describe the choice.
+                   */
+                  label: string;
+                  /**
+                   * Explanation of what this option means or what will happen if chosen. Useful for providing context about trade-offs or implications.
+                   */
+                  description: string;
+                  /**
+                   * Optional preview content rendered when this option is focused. Use for mockups, code snippets, or visual comparisons that help users compare options. See the tool description for the expected content format.
+                   */
+                  preview?: string;
+                },
+              ];
+          /**
+           * Set to true to allow the user to select multiple options instead of just one. Use when choices are not mutually exclusive.
+           */
+          multiSelect: boolean;
+        },
+        {
+          /**
+           * The complete question to ask the user. Should be clear, specific, and end with a question mark. Example: "Which library should we use for date formatting?" If multiSelect is true, phrase it accordingly, e.g. "Which features do you want to enable?"
+           */
+          question: string;
+          /**
+           * Very short label displayed as a chip/tag (max 12 chars). Examples: "Auth method", "Library", "Approach".
+           */
+          header: string;
+          /**
+           * The available choices for this question. Must have 2-4 options. Each option should be a distinct, mutually exclusive choice (unless multiSelect is enabled). There should be no 'Other' option, that will be provided automatically.
+           *
+           * @minItems 2
+           * @maxItems 4
+           */
+          options:
+            | [
+                {
+                  /**
+                   * The display text for this option that the user will see and select. Should be concise (1-5 words) and clearly describe the choice.
+                   */
+                  label: string;
+                  /**
+                   * Explanation of what this option means or what will happen if chosen. Useful for providing context about trade-offs or implications.
+                   */
+                  description: string;
+                  /**
+                   * Optional preview content rendered when this option is focused. Use for mockups, code snippets, or visual comparisons that help users compare options. See the tool description for the expected content format.
+                   */
+                  preview?: string;
+                },
+                {
+                  /**
+                   * The display text for this option that the user will see and select. Should be concise (1-5 words) and clearly describe the choice.
+                   */
+                  label: string;
+                  /**
+                   * Explanation of what this option means or what will happen if chosen. Useful for providing context about trade-offs or implications.
+                   */
+                  description: string;
+                  /**
+                   * Optional preview content rendered when this option is focused. Use for mockups, code snippets, or visual comparisons that help users compare options. See the tool description for the expected content format.
+                   */
+                  preview?: string;
+                },
+              ]
+            | [
+                {
+                  /**
+                   * The display text for this option that the user will see and select. Should be concise (1-5 words) and clearly describe the choice.
+                   */
+                  label: string;
+                  /**
+                   * Explanation of what this option means or what will happen if chosen. Useful for providing context about trade-offs or implications.
+                   */
+                  description: string;
+                  /**
+                   * Optional preview content rendered when this option is focused. Use for mockups, code snippets, or visual comparisons that help users compare options. See the tool description for the expected content format.
+                   */
+                  preview?: string;
+                },
+                {
+                  /**
+                   * The display text for this option that the user will see and select. Should be concise (1-5 words) and clearly describe the choice.
+                   */
+                  label: string;
+                  /**
+                   * Explanation of what this option means or what will happen if chosen. Useful for providing context about trade-offs or implications.
+                   */
+                  description: string;
+                  /**
+                   * Optional preview content rendered when this option is focused. Use for mockups, code snippets, or visual comparisons that help users compare options. See the tool description for the expected content format.
+                   */
+                  preview?: string;
+                },
+                {
+                  /**
+                   * The display text for this option that the user will see and select. Should be concise (1-5 words) and clearly describe the choice.
+                   */
+                  label: string;
+                  /**
+                   * Explanation of what this option means or what will happen if chosen. Useful for providing context about trade-offs or implications.
+                   */
+                  description: string;
+                  /**
+                   * Optional preview content rendered when this option is focused. Use for mockups, code snippets, or visual comparisons that help users compare options. See the tool description for the expected content format.
+                   */
+                  preview?: string;
+                },
+              ]
+            | [
+                {
+                  /**
+                   * The display text for this option that the user will see and select. Should be concise (1-5 words) and clearly describe the choice.
+                   */
+                  label: string;
+                  /**
+                   * Explanation of what this option means or what will happen if chosen. Useful for providing context about trade-offs or implications.
+                   */
+                  description: string;
+                  /**
+                   * Optional preview content rendered when this option is focused. Use for mockups, code snippets, or visual comparisons that help users compare options. See the tool description for the expected content format.
+                   */
+                  preview?: string;
+                },
+                {
+                  /**
+                   * The display text for this option that the user will see and select. Should be concise (1-5 words) and clearly describe the choice.
+                   */
+                  label: string;
+                  /**
+                   * Explanation of what this option means or what will happen if chosen. Useful for providing context about trade-offs or implications.
+                   */
+                  description: string;
+                  /**
+                   * Optional preview content rendered when this option is focused. Use for mockups, code snippets, or visual comparisons that help users compare options. See the tool description for the expected content format.
+                   */
+                  preview?: string;
+                },
+                {
+                  /**
+                   * The display text for this option that the user will see and select. Should be concise (1-5 words) and clearly describe the choice.
+                   */
+                  label: string;
+                  /**
+                   * Explanation of what this option means or what will happen if chosen. Useful for providing context about trade-offs or implications.
+                   */
+                  description: string;
+                  /**
+                   * Optional preview content rendered when this option is focused. Use for mockups, code snippets, or visual comparisons that help users compare options. See the tool description for the expected content format.
+                   */
+                  preview?: string;
+                },
+                {
+                  /**
+                   * The display text for this option that the user will see and select. Should be concise (1-5 words) and clearly describe the choice.
+                   */
+                  label: string;
+                  /**
+                   * Explanation of what this option means or what will happen if chosen. Useful for providing context about trade-offs or implications.
+                   */
+                  description: string;
+                  /**
+                   * Optional preview content rendered when this option is focused. Use for mockups, code snippets, or visual comparisons that help users compare options. See the tool description for the expected content format.
+                   */
+                  preview?: string;
+                },
+              ];
+          /**
+           * Set to true to allow the user to select multiple options instead of just one. Use when choices are not mutually exclusive.
+           */
+          multiSelect: boolean;
+        },
+        {
+          /**
+           * The complete question to ask the user. Should be clear, specific, and end with a question mark. Example: "Which library should we use for date formatting?" If multiSelect is true, phrase it accordingly, e.g. "Which features do you want to enable?"
+           */
+          question: string;
+          /**
+           * Very short label displayed as a chip/tag (max 12 chars). Examples: "Auth method", "Library", "Approach".
+           */
+          header: string;
+          /**
+           * The available choices for this question. Must have 2-4 options. Each option should be a distinct, mutually exclusive choice (unless multiSelect is enabled). There should be no 'Other' option, that will be provided automatically.
+           *
+           * @minItems 2
+           * @maxItems 4
+           */
+          options:
+            | [
+                {
+                  /**
+                   * The display text for this option that the user will see and select. Should be concise (1-5 words) and clearly describe the choice.
+                   */
+                  label: string;
+                  /**
+                   * Explanation of what this option means or what will happen if chosen. Useful for providing context about trade-offs or implications.
+                   */
+                  description: string;
+                  /**
+                   * Optional preview content rendered when this option is focused. Use for mockups, code snippets, or visual comparisons that help users compare options. See the tool description for the expected content format.
+                   */
+                  preview?: string;
+                },
+                {
+                  /**
+                   * The display text for this option that the user will see and select. Should be concise (1-5 words) and clearly describe the choice.
+                   */
+                  label: string;
+                  /**
+                   * Explanation of what this option means or what will happen if chosen. Useful for providing context about trade-offs or implications.
+                   */
+                  description: string;
+                  /**
+                   * Optional preview content rendered when this option is focused. Use for mockups, code snippets, or visual comparisons that help users compare options. See the tool description for the expected content format.
+                   */
+                  preview?: string;
+                },
+              ]
+            | [
+                {
+                  /**
+                   * The display text for this option that the user will see and select. Should be concise (1-5 words) and clearly describe the choice.
+                   */
+                  label: string;
+                  /**
+                   * Explanation of what this option means or what will happen if chosen. Useful for providing context about trade-offs or implications.
+                   */
+                  description: string;
+                  /**
+                   * Optional preview content rendered when this option is focused. Use for mockups, code snippets, or visual comparisons that help users compare options. See the tool description for the expected content format.
+                   */
+                  preview?: string;
+                },
+                {
+                  /**
+                   * The display text for this option that the user will see and select. Should be concise (1-5 words) and clearly describe the choice.
+                   */
+                  label: string;
+                  /**
+                   * Explanation of what this option means or what will happen if chosen. Useful for providing context about trade-offs or implications.
+                   */
+                  description: string;
+                  /**
+                   * Optional preview content rendered when this option is focused. Use for mockups, code snippets, or visual comparisons that help users compare options. See the tool description for the expected content format.
+                   */
+                  preview?: string;
+                },
+                {
+                  /**
+                   * The display text for this option that the user will see and select. Should be concise (1-5 words) and clearly describe the choice.
+                   */
+                  label: string;
+                  /**
+                   * Explanation of what this option means or what will happen if chosen. Useful for providing context about trade-offs or implications.
+                   */
+                  description: string;
+                  /**
+                   * Optional preview content rendered when this option is focused. Use for mockups, code snippets, or visual comparisons that help users compare options. See the tool description for the expected content format.
+                   */
+                  preview?: string;
+                },
+              ]
+            | [
+                {
+                  /**
+                   * The display text for this option that the user will see and select. Should be concise (1-5 words) and clearly describe the choice.
+                   */
+                  label: string;
+                  /**
+                   * Explanation of what this option means or what will happen if chosen. Useful for providing context about trade-offs or implications.
+                   */
+                  description: string;
+                  /**
+                   * Optional preview content rendered when this option is focused. Use for mockups, code snippets, or visual comparisons that help users compare options. See the tool description for the expected content format.
+                   */
+                  preview?: string;
+                },
+                {
+                  /**
+                   * The display text for this option that the user will see and select. Should be concise (1-5 words) and clearly describe the choice.
+                   */
+                  label: string;
+                  /**
+                   * Explanation of what this option means or what will happen if chosen. Useful for providing context about trade-offs or implications.
+                   */
+                  description: string;
+                  /**
+                   * Optional preview content rendered when this option is focused. Use for mockups, code snippets, or visual comparisons that help users compare options. See the tool description for the expected content format.
+                   */
+                  preview?: string;
+                },
+                {
+                  /**
+                   * The display text for this option that the user will see and select. Should be concise (1-5 words) and clearly describe the choice.
+                   */
+                  label: string;
+                  /**
+                   * Explanation of what this option means or what will happen if chosen. Useful for providing context about trade-offs or implications.
+                   */
+                  description: string;
+                  /**
+                   * Optional preview content rendered when this option is focused. Use for mockups, code snippets, or visual comparisons that help users compare options. See the tool description for the expected content format.
+                   */
+                  preview?: string;
+                },
+                {
+                  /**
+                   * The display text for this option that the user will see and select. Should be concise (1-5 words) and clearly describe the choice.
+                   */
+                  label: string;
+                  /**
+                   * Explanation of what this option means or what will happen if chosen. Useful for providing context about trade-offs or implications.
+                   */
+                  description: string;
+                  /**
+                   * Optional preview content rendered when this option is focused. Use for mockups, code snippets, or visual comparisons that help users compare options. See the tool description for the expected content format.
+                   */
+                  preview?: string;
+                },
+              ];
+          /**
+           * Set to true to allow the user to select multiple options instead of just one. Use when choices are not mutually exclusive.
+           */
+          multiSelect: boolean;
+        },
+        {
+          /**
+           * The complete question to ask the user. Should be clear, specific, and end with a question mark. Example: "Which library should we use for date formatting?" If multiSelect is true, phrase it accordingly, e.g. "Which features do you want to enable?"
+           */
+          question: string;
+          /**
+           * Very short label displayed as a chip/tag (max 12 chars). Examples: "Auth method", "Library", "Approach".
+           */
+          header: string;
+          /**
+           * The available choices for this question. Must have 2-4 options. Each option should be a distinct, mutually exclusive choice (unless multiSelect is enabled). There should be no 'Other' option, that will be provided automatically.
+           *
+           * @minItems 2
+           * @maxItems 4
+           */
+          options:
+            | [
+                {
+                  /**
+                   * The display text for this option that the user will see and select. Should be concise (1-5 words) and clearly describe the choice.
+                   */
+                  label: string;
+                  /**
+                   * Explanation of what this option means or what will happen if chosen. Useful for providing context about trade-offs or implications.
+                   */
+                  description: string;
+                  /**
+                   * Optional preview content rendered when this option is focused. Use for mockups, code snippets, or visual comparisons that help users compare options. See the tool description for the expected content format.
+                   */
+                  preview?: string;
+                },
+                {
+                  /**
+                   * The display text for this option that the user will see and select. Should be concise (1-5 words) and clearly describe the choice.
+                   */
+                  label: string;
+                  /**
+                   * Explanation of what this option means or what will happen if chosen. Useful for providing context about trade-offs or implications.
+                   */
+                  description: string;
+                  /**
+                   * Optional preview content rendered when this option is focused. Use for mockups, code snippets, or visual comparisons that help users compare options. See the tool description for the expected content format.
+                   */
+                  preview?: string;
+                },
+              ]
+            | [
+                {
+                  /**
+                   * The display text for this option that the user will see and select. Should be concise (1-5 words) and clearly describe the choice.
+                   */
+                  label: string;
+                  /**
+                   * Explanation of what this option means or what will happen if chosen. Useful for providing context about trade-offs or implications.
+                   */
+                  description: string;
+                  /**
+                   * Optional preview content rendered when this option is focused. Use for mockups, code snippets, or visual comparisons that help users compare options. See the tool description for the expected content format.
+                   */
+                  preview?: string;
+                },
+                {
+                  /**
+                   * The display text for this option that the user will see and select. Should be concise (1-5 words) and clearly describe the choice.
+                   */
+                  label: string;
+                  /**
+                   * Explanation of what this option means or what will happen if chosen. Useful for providing context about trade-offs or implications.
+                   */
+                  description: string;
+                  /**
+                   * Optional preview content rendered when this option is focused. Use for mockups, code snippets, or visual comparisons that help users compare options. See the tool description for the expected content format.
+                   */
+                  preview?: string;
+                },
+                {
+                  /**
+                   * The display text for this option that the user will see and select. Should be concise (1-5 words) and clearly describe the choice.
+                   */
+                  label: string;
+                  /**
+                   * Explanation of what this option means or what will happen if chosen. Useful for providing context about trade-offs or implications.
+                   */
+                  description: string;
+                  /**
+                   * Optional preview content rendered when this option is focused. Use for mockups, code snippets, or visual comparisons that help users compare options. See the tool description for the expected content format.
+                   */
+                  preview?: string;
+                },
+              ]
+            | [
+                {
+                  /**
+                   * The display text for this option that the user will see and select. Should be concise (1-5 words) and clearly describe the choice.
+                   */
+                  label: string;
+                  /**
+                   * Explanation of what this option means or what will happen if chosen. Useful for providing context about trade-offs or implications.
+                   */
+                  description: string;
+                  /**
+                   * Optional preview content rendered when this option is focused. Use for mockups, code snippets, or visual comparisons that help users compare options. See the tool description for the expected content format.
+                   */
+                  preview?: string;
+                },
+                {
+                  /**
+                   * The display text for this option that the user will see and select. Should be concise (1-5 words) and clearly describe the choice.
+                   */
+                  label: string;
+                  /**
+                   * Explanation of what this option means or what will happen if chosen. Useful for providing context about trade-offs or implications.
+                   */
+                  description: string;
+                  /**
+                   * Optional preview content rendered when this option is focused. Use for mockups, code snippets, or visual comparisons that help users compare options. See the tool description for the expected content format.
+                   */
+                  preview?: string;
+                },
+                {
+                  /**
+                   * The display text for this option that the user will see and select. Should be concise (1-5 words) and clearly describe the choice.
+                   */
+                  label: string;
+                  /**
+                   * Explanation of what this option means or what will happen if chosen. Useful for providing context about trade-offs or implications.
+                   */
+                  description: string;
+                  /**
+                   * Optional preview content rendered when this option is focused. Use for mockups, code snippets, or visual comparisons that help users compare options. See the tool description for the expected content format.
+                   */
+                  preview?: string;
+                },
+                {
+                  /**
+                   * The display text for this option that the user will see and select. Should be concise (1-5 words) and clearly describe the choice.
+                   */
+                  label: string;
+                  /**
+                   * Explanation of what this option means or what will happen if chosen. Useful for providing context about trade-offs or implications.
+                   */
+                  description: string;
+                  /**
+                   * Optional preview content rendered when this option is focused. Use for mockups, code snippets, or visual comparisons that help users compare options. See the tool description for the expected content format.
+                   */
+                  preview?: string;
+                },
+              ];
+          /**
+           * Set to true to allow the user to select multiple options instead of just one. Use when choices are not mutually exclusive.
+           */
+          multiSelect: boolean;
+        },
+      ];
+  /**
+   * User answers collected by the permission component
+   */
+  answers?: {
+    [k: string]: string;
+  };
+  /**
+   * Optional per-question annotations from the user (e.g., notes on preview selections). Keyed by question text.
+   */
+  annotations?: {
+    [k: string]: {
+      /**
+       * The preview content of the selected option, if the question used previews.
+       */
+      preview?: string;
+      /**
+       * Free-text notes the user added to their selection.
+       */
+      notes?: string;
+    };
+  };
+  /**
+   * Optional metadata for tracking and analytics purposes. Not displayed to user.
+   */
+  metadata?: {
+    /**
+     * Optional identifier for the source of this question (e.g., "remember" for /remember command). Used for analytics tracking.
+     */
+    source?: string;
+  };
+}
+
 export interface BashInput {
   /**
    * The command to execute
@@ -234,6 +1812,8 @@ export interface EditInput {
   replace_all?: boolean;
 }
 
+export interface EnterPlanModeInput {}
+
 export interface EnterWorktreeInput {
   /**
    * Optional name for a new worktree. Each "/"-separated segment may contain only letters, digits, dots, underscores, and dashes; max 64 chars total. A random name is generated if not provided. Mutually exclusive with `path`.
@@ -243,6 +1823,23 @@ export interface EnterWorktreeInput {
    * Path to an existing worktree to switch into instead of creating a new one. Must appear in `git worktree list` for the current repo — or, on first entry from the launch directory, for a repo nested inside it (multi-repo workspace). Mutually exclusive with `name`.
    */
   path?: string;
+}
+
+export interface ExitPlanModeInput {
+  /**
+   * Deprecated: no longer used.
+   */
+  allowedPrompts?: {
+    /**
+     * The tool this prompt applies to
+     */
+    tool: "Bash";
+    /**
+     * Semantic description of the action, e.g. "run tests", "install dependencies"
+     */
+    prompt: string;
+  }[];
+  [k: string]: unknown;
 }
 
 export interface ExitWorktreeInput {
@@ -564,6 +2161,7 @@ export interface WriteInput {
 
 export type ToolName =
   | "Agent"
+  | "AskUserQuestion"
   | "Bash"
   | "CronCreate"
   | "CronDelete"
@@ -571,7 +2169,9 @@ export type ToolName =
   | "DeferredToolPlaceholder"
   | "DesignSync"
   | "Edit"
+  | "EnterPlanMode"
   | "EnterWorktree"
+  | "ExitPlanMode"
   | "ExitWorktree"
   | "ListAgents"
   | "Monitor"
@@ -592,6 +2192,7 @@ export type ToolName =
 
 export const TOOL_NAMES: readonly ToolName[] = [
   "Agent",
+  "AskUserQuestion",
   "Bash",
   "CronCreate",
   "CronDelete",
@@ -599,7 +2200,9 @@ export const TOOL_NAMES: readonly ToolName[] = [
   "DeferredToolPlaceholder",
   "DesignSync",
   "Edit",
+  "EnterPlanMode",
   "EnterWorktree",
+  "ExitPlanMode",
   "ExitWorktree",
   "ListAgents",
   "Monitor",
@@ -621,6 +2224,7 @@ export const TOOL_NAMES: readonly ToolName[] = [
 
 export interface ToolInputMap {
   Agent: AgentInput;
+  AskUserQuestion: AskUserQuestionInput;
   Bash: BashInput;
   CronCreate: CronCreateInput;
   CronDelete: CronDeleteInput;
@@ -628,7 +2232,9 @@ export interface ToolInputMap {
   DeferredToolPlaceholder: DeferredToolPlaceholderInput;
   DesignSync: DesignSyncInput;
   Edit: EditInput;
+  EnterPlanMode: EnterPlanModeInput;
   EnterWorktree: EnterWorktreeInput;
+  ExitPlanMode: ExitPlanModeInput;
   ExitWorktree: ExitWorktreeInput;
   ListAgents: ListAgentsInput;
   Monitor: MonitorInput;

@@ -10,9 +10,15 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import type { CanUseTool } from "@anthropic-ai/claude-agent-sdk";
-import { type Terminal, TuiMainScreen } from "@earendil-works/pi-tui";
+import {
+  KeybindingsManager,
+  setKeybindings,
+  type Terminal,
+  TuiMainScreen,
+} from "@earendil-works/pi-tui";
 import { initialAgentState } from "../core/agent-state/index.ts";
 import { stripAnsi } from "../core/generated/text.ts";
+import { KEY } from "../test-support/keys.ts";
 import type { ProtocolClient } from "../core/protocol-client/index.ts";
 import { permissionRequestOf } from "../core/protocol-server/index.ts";
 import type {
@@ -21,6 +27,9 @@ import type {
   ProtocolRequest,
 } from "../core/protocol/index.ts";
 import { InteractiveMode } from "./interactive-mode.ts";
+import { CLAUCTL_KEYBINDINGS } from "./keybindings.ts";
+
+setKeybindings(new KeybindingsManager(CLAUCTL_KEYBINDINGS, {}));
 
 /**
  * A terminal that draws nowhere and lets the test type. Each `sendKeys`
@@ -105,10 +114,15 @@ function probeAsk(): PermissionRequest {
     }>;
   };
   const ask = probe.asks[0]!;
-  return permissionRequestOf(ask.toolName, ask.input, {
-    ...ask.options,
-    signal: new AbortController().signal,
-  });
+  return permissionRequestOf(
+    ask.toolName,
+    ask.input,
+    {
+      ...ask.options,
+      signal: new AbortController().signal,
+    },
+    0,
+  );
 }
 
 const SETTINGS = {
@@ -178,6 +192,114 @@ test("an ask arriving during history replay shows once the replay ends", async (
   assert.ok(screen().includes(DIALOG_QUESTION));
 });
 
+test("Esc in the question dialog's notes mode returns to selection instead of interrupting", async () => {
+  const ask = permissionRequestOf(
+    "AskUserQuestion",
+    {
+      questions: [
+        {
+          question: "Which layout?",
+          header: "Layout",
+          multiSelect: false,
+          options: [
+            { label: "Grid", description: "", preview: "Grid preview" },
+            { label: "List", description: "" },
+          ],
+        },
+      ],
+    },
+    {
+      signal: new AbortController().signal,
+      toolUseID: "toolu_q",
+      requestId: "req_q",
+    },
+    0,
+  );
+  const seed = { ...initialAgentState(), pendingPermissions: [ask] };
+  const { screen, sendKeys, history, sent } = mount(seed);
+  history.resolve({ entries: [] });
+  await settle();
+  const interrupts = (): number =>
+    sent.filter((request) => request.type === "interrupt").length;
+  sendKeys("n");
+  sendKeys("x");
+  sendKeys(KEY.escape);
+  assert.equal(interrupts(), 0);
+  assert.ok(screen().includes("Notes: x"));
+  assert.ok(screen().includes("n to add notes · Esc to cancel"));
+  sendKeys(KEY.escape);
+  assert.equal(interrupts(), 1, "Esc in selection mode interrupts");
+});
+
+test("Esc in the permission dialog's amend input closes it instead of interrupting", async () => {
+  const seed = { ...initialAgentState(), pendingPermissions: [probeAsk()] };
+  const { screen, sendKeys, history, sent } = mount(seed);
+  history.resolve({ entries: [] });
+  await settle();
+  const interrupts = (): number =>
+    sent.filter((request) => request.type === "interrupt").length;
+  sendKeys(KEY.tab);
+  sendKeys("x");
+  sendKeys(KEY.escape);
+  assert.equal(interrupts(), 0);
+  assert.ok(screen().includes(DIALOG_QUESTION));
+  sendKeys(KEY.escape);
+  assert.equal(interrupts(), 1, "Esc on the rows interrupts");
+});
+
+test("a resolved AskUserQuestion ask adds no banner; other asks do", async () => {
+  const question = permissionRequestOf(
+    "AskUserQuestion",
+    {
+      questions: [
+        {
+          question: "Cats or dogs?",
+          header: "Pet",
+          multiSelect: false,
+          options: [
+            { label: "Cats", description: "" },
+            { label: "Dogs", description: "" },
+          ],
+        },
+      ],
+    },
+    {
+      signal: new AbortController().signal,
+      toolUseID: "toolu_pet",
+      requestId: "req_pet",
+    },
+    0,
+  );
+  const bash = probeAsk();
+  const seed = {
+    ...initialAgentState(),
+    pendingPermissions: [question, bash],
+  };
+  const { mode, screen, history } = mount(seed);
+  history.resolve({ entries: [] });
+  await settle();
+  mode.handleEvent(
+    {
+      kind: "permissionResolved",
+      uuid: crypto.randomUUID(),
+      toolUseId: question.toolUseId,
+      resolution: { behavior: "allow" },
+    },
+    { ...initialAgentState(), pendingPermissions: [bash] },
+  );
+  assert.ok(!screen().includes("permission allowed"));
+  mode.handleEvent(
+    {
+      kind: "permissionResolved",
+      uuid: crypto.randomUUID(),
+      toolUseId: bash.toolUseId,
+      resolution: { behavior: "allow" },
+    },
+    initialAgentState(),
+  );
+  assert.ok(screen().includes("permission allowed"));
+});
+
 test("a /model fetch that completes while the dialog is up opens no selector", async () => {
   const ask = probeAsk();
   const { mode, screen, sendKeys, history, models, sent } =
@@ -187,7 +309,7 @@ test("a /model fetch that completes while the dialog is up opens no selector", a
   sendKeys("/model");
   // Enter is a chunk of its own; "\r" is what the key sends in raw mode
   // ("\n" is ctrl+j).
-  sendKeys("\r");
+  sendKeys(KEY.enter);
   assert.ok(sent.some((request) => request.type === "supported-models"));
   mode.handleEvent(
     { kind: "permissionRequested", uuid: crypto.randomUUID(), request: ask },
