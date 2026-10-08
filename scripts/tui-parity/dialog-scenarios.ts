@@ -40,6 +40,7 @@ const VICTIM_DIR = "/tmp/clauctl-tui-parity-victim";
  * so the ask arrives without suggestions (spec: no-row-2 numbering).
  */
 export const ASK_RULE_COMMAND = "echo parity-ask-rule";
+const ASK_RULE_PROMPT = `Use the Bash tool to run \`${ASK_RULE_COMMAND}\` and report the output.`;
 
 /** `--mcp-config` takes a file on both sides (the native CLI's flag is
  *  variadic, so inline JSON would swallow the prompt that follows). */
@@ -87,7 +88,25 @@ export const dialogScenarios: DialogScenario[] = [
   {
     name: "ask-rule",
     description: "suggestion-less ask forced by a permissions.ask rule",
-    prompt: `Use the Bash tool to run \`${ASK_RULE_COMMAND}\` and report the output.`,
+    prompt: ASK_RULE_PROMPT,
+  },
+  {
+    name: "amend-yes-typing",
+    description: "Tab on Yes opens the amend input; text typed into it",
+    prompt: ASK_RULE_PROMPT,
+    keysAtDialog: ["Tab", "o", "k"],
+  },
+  {
+    name: "amend-yes",
+    description: "Tab on Yes, text, Enter: the tool runs with the text",
+    prompt: ASK_RULE_PROMPT,
+    keysAtDialog: ["Tab", "o", "k", "Enter"],
+  },
+  {
+    name: "amend-no",
+    description: "Tab on No, text, Enter: a deny carrying the text",
+    prompt: ASK_RULE_PROMPT,
+    keysAtDialog: ["Down", "Tab", "o", "k", "Enter"],
   },
   {
     name: "edit",

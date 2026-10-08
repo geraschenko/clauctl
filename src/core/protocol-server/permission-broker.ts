@@ -9,10 +9,14 @@
 
 import type {
   CanUseTool,
+  HookCallback,
+  HookCallbackMatcher,
+  HookEvent,
   PermissionResult,
   PermissionUpdate,
 } from "@anthropic-ai/claude-agent-sdk";
 import {
+  allowFeedbackContext,
   NOT_PENDING_ERROR,
   type PermissionRequest,
 } from "../protocol/index.ts";
@@ -68,10 +72,43 @@ export class PermissionBroker {
     (decision: PermissionResult) => void
   >();
 
-  private readonly events: EventHub;
+  /** Allow feedback by toolUseId, recorded by respond() and taken once by
+   *  feedbackHooks. */
+  private readonly feedbackByToolUseId = new Map<string, string>();
 
-  constructor(events: EventHub) {
+  private readonly events: Pick<EventHub, "emit">;
+
+  /** The SDK hooks that hand recorded feedback to the agent that ran the
+   *  tool; the daemon passes them as `Options.hooks`. Callback hooks reach
+   *  subagents, fire on failure too, and emit no stream hook events
+   *  (tests/sdk/amend-allow.test.ts). */
+  readonly feedbackHooks: Partial<Record<HookEvent, HookCallbackMatcher[]>>;
+
+  constructor(events: Pick<EventHub, "emit">) {
     this.events = events;
+    const attachFeedback: HookCallback = async (input) => {
+      if (
+        input.hook_event_name !== "PostToolUse" &&
+        input.hook_event_name !== "PostToolUseFailure"
+      ) {
+        return {};
+      }
+      const feedback = this.feedbackByToolUseId.get(input.tool_use_id);
+      if (feedback === undefined) return {};
+      this.feedbackByToolUseId.delete(input.tool_use_id);
+      return {
+        hookSpecificOutput: {
+          hookEventName: input.hook_event_name,
+          additionalContext: allowFeedbackContext(feedback),
+        },
+      };
+    };
+    // An allowed tool that fails fires PostToolUseFailure instead of
+    // PostToolUse; a deny runs nothing and carries its text itself.
+    this.feedbackHooks = {
+      PostToolUse: [{ hooks: [attachFeedback] }],
+      PostToolUseFailure: [{ hooks: [attachFeedback] }],
+    };
   }
 
   /** Parks the ask until respond(), abort, or cancelAll(). Throws on a
@@ -99,15 +136,27 @@ export class PermissionBroker {
     });
   }
 
-  /** Throws NOT_PENDING_ERROR when the toolUseId is not pending. */
-  respond(toolUseId: string, decision: PermissionResult): void {
-    if (!this.settle(toolUseId, decision)) {
+  /** Throws NOT_PENDING_ERROR when the toolUseId is not pending; then
+   *  records nothing. `feedback` is allow feedback, validated by the
+   *  caller. */
+  respond(
+    toolUseId: string,
+    decision: PermissionResult,
+    feedback?: string,
+  ): void {
+    if (!this.resolvers.has(toolUseId)) {
       throw new Error(NOT_PENDING_ERROR);
     }
+    if (feedback !== undefined) {
+      this.feedbackByToolUseId.set(toolUseId, feedback);
+    }
+    this.settle(toolUseId, decision);
   }
 
-  /** Idempotent; a later abort for an already-cancelled ask is a no-op. */
+  /** Idempotent; a later abort for an already-cancelled ask is a no-op.
+   *  Also drops unconsumed feedback. */
   cancelAll(): void {
+    this.feedbackByToolUseId.clear();
     for (const toolUseId of [...this.resolvers.keys()]) {
       this.settle(toolUseId, { behavior: "cancelled" });
     }

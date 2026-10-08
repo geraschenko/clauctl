@@ -81,6 +81,8 @@ while it held (probe `bg-ask`, `fg-ask`).
    nothing; a not-pending ask or malformed decision is the daemon's error
    (exit 1). It answers AskUserQuestion too (an allow with
    `updatedInput.answers`; both arrive through `canUseTool`).
+   `--feedback <text>` attaches allow feedback, the request's `feedback`
+   field (docs/specs/permission-amend-allow.md).
 6. **`status`** connects to a live daemon, takes the subscribe seed, and
    prints `input-needed: yes|no` plus one indented `pendingAskLines` line
    per pending ask; `--json` gains `inputNeeded` and `pendingAsks: {

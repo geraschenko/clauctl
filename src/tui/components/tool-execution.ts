@@ -121,6 +121,7 @@ export class ToolExecutionComponent extends CachedLinesComponent {
   private readonly view: ToolView<unknown>;
   private expanded = false;
   private result?: RenderToolResult;
+  private readonly hookContexts: string[] = [];
 
   constructor(toolName: string, args: unknown, cwd: string | undefined) {
     super();
@@ -136,6 +137,12 @@ export class ToolExecutionComponent extends CachedLinesComponent {
 
   setExpanded(expanded: boolean): void {
     this.expanded = expanded;
+  }
+
+  /** Show context a hook handed the agent with this tool's result, under
+   *  the result. */
+  addHookContext(text: string): void {
+    this.hookContexts.push(text);
   }
 
   /** Nest a subagent-produced component under this tool. */
@@ -161,13 +168,20 @@ export class ToolExecutionComponent extends CachedLinesComponent {
   }
 
   protected cacheKey(): readonly unknown[] {
-    return [this.expanded, this.result];
+    return [this.expanded, this.result, this.hookContexts.length];
   }
 
   protected computeLines(width: number): string[] {
     const header = this.view.header(this.args, this.context, this.result);
     if (header === undefined) return [];
-    return ["", ...this.headerLines(header, width), ...this.bodyLines(width)];
+    return [
+      "",
+      ...this.headerLines(header, width),
+      ...this.bodyLines(width),
+      ...this.hookContexts.flatMap((text) =>
+        resultBlockLines(text, width, HOOK_CONTEXT_BLOCK_STYLE),
+      ),
+    ];
   }
 
   /** Subagent lines are appended live, outside the cache: a streaming
@@ -340,6 +354,13 @@ export const ERROR_RESULT_BLOCK_STYLE: ResultBlockStyle = {
   glyph: TOOL_RESULT_ERROR_GLYPH,
   glyphColor: ANSI_STYLE.error,
   textColor: ANSI_STYLE.error,
+};
+
+/** Hook context under a tool's result: the result glyph, the text grey. */
+const HOOK_CONTEXT_BLOCK_STYLE: ResultBlockStyle = {
+  glyph: TOOL_RESULT_GLYPH,
+  glyphColor: ANSI_STYLE.grey,
+  textColor: ANSI_STYLE.grey,
 };
 
 /** A ⤷-block: `text` wrapped to the result capacity, the first line after

@@ -31,8 +31,8 @@ commit ad83fc2) done 2026-10-07. Changes:
   `CANCEL_DENY`, which ends the turn like native.
 
 Deferred: docs/follow-ups/{format-messages-tool-views,
-permission-amend-allow, keybindings-select, interactive-mode-split,
-input-slot-dialogs}.md.
+keybindings-select, interactive-mode-split, input-slot-dialogs}.md;
+Tab on an allow row: docs/specs/permission-amend-allow.md.
 
 # SPEC
 

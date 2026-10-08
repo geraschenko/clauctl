@@ -15,7 +15,12 @@ import fs, {
 import { syncBuiltinESMExports } from "node:module";
 import { join } from "node:path";
 import { test, type TestContext } from "node:test";
-import type { Query, SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
+import type {
+  HookJSONOutput,
+  PermissionResult,
+  Query,
+  SDKUserMessage,
+} from "@anthropic-ai/claude-agent-sdk";
 import { initialAgentState, settled } from "../agent-state/index.ts";
 import type {
   GetContextResponse,
@@ -381,6 +386,106 @@ test("permission-response settles the pending ask; a non-pending id or malformed
     }),
     /permission not pending/,
   );
+});
+
+/** Parks a Bash ask for `toolUseId` with the fixture's broker. */
+function parkAsk(f: Fixture, toolUseId: string): Promise<PermissionResult> {
+  return f.permissionBroker.request(
+    {
+      toolUseId,
+      toolName: "Bash",
+      input: { command: "ls" },
+      arrivedAt: 0,
+      suggestions: [],
+    },
+    new AbortController().signal,
+  );
+}
+
+/** What the broker's PostToolUse hook hands the agent for `toolUseId`. */
+async function postToolUseOutput(
+  f: Fixture,
+  toolUseId: string,
+): Promise<HookJSONOutput> {
+  const hook = f.permissionBroker.feedbackHooks.PostToolUse?.[0]?.hooks[0];
+  assert.ok(hook !== undefined);
+  return hook(
+    {
+      hook_event_name: "PostToolUse",
+      session_id: "s",
+      transcript_path: "/t",
+      cwd: "/",
+      tool_name: "Bash",
+      tool_input: {},
+      tool_response: {},
+      tool_use_id: toolUseId,
+    },
+    toolUseId,
+    { signal: new AbortController().signal },
+  );
+}
+
+test("permission-response feedback: non-string or with a deny is rejected and the ask stays pending; with an allow it settles", async (t) => {
+  const f = fixture(t);
+  const decided = parkAsk(f, "toolu_1");
+  await assert.rejects(
+    f.handle({
+      type: "permission-response",
+      toolUseId: "toolu_1",
+      decision: { behavior: "allow" },
+      feedback: 5 as unknown as string,
+      id: "p0",
+    }),
+    /feedback must be a string/,
+  );
+  await assert.rejects(
+    f.handle({
+      type: "permission-response",
+      toolUseId: "toolu_1",
+      decision: { behavior: "deny", message: "no" },
+      feedback: "ok",
+      id: "p1",
+    }),
+    /feedback is for an allow; a deny carries its text in decision\.message/,
+  );
+  assert.equal(f.events.agentState.pendingPermissions.length, 1);
+  await f.handle({
+    type: "permission-response",
+    toolUseId: "toolu_1",
+    decision: { behavior: "allow" },
+    feedback: "ok",
+    id: "p2",
+  });
+  assert.deepEqual(await decided, { behavior: "allow" });
+  assert.deepEqual(await postToolUseOutput(f, "toolu_1"), {
+    hookSpecificOutput: {
+      hookEventName: "PostToolUse",
+      additionalContext: "The user approved this tool call and added: ok",
+    },
+  });
+});
+
+test("permission-response feedback: empty is no feedback, with an allow or a deny", async (t) => {
+  const f = fixture(t);
+  const allowed = parkAsk(f, "toolu_1");
+  const denied = parkAsk(f, "toolu_2");
+  await f.handle({
+    type: "permission-response",
+    toolUseId: "toolu_1",
+    decision: { behavior: "allow" },
+    feedback: "",
+    id: "p0",
+  });
+  await f.handle({
+    type: "permission-response",
+    toolUseId: "toolu_2",
+    decision: { behavior: "deny", message: "no" },
+    feedback: "",
+    id: "p1",
+  });
+  assert.deepEqual(await allowed, { behavior: "allow" });
+  assert.deepEqual(await denied, { behavior: "deny", message: "no" });
+  assert.deepEqual(await postToolUseOutput(f, "toolu_1"), {});
 });
 
 test("/compact is rejected when not idle", async (t) => {

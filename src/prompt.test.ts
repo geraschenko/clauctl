@@ -37,6 +37,7 @@ import {
 } from "./core/generated/test-util.ts";
 import { agentSocketPath, writeAgentRecord } from "./core/registry.ts";
 import type { SessionEntry } from "./core/session/file.ts";
+import { uuidN } from "./test-support/uuids.ts";
 
 const UUID_A = "00000000-0000-4000-8000-00000000000a" as UUID;
 const UUID_B = "00000000-0000-4000-8000-00000000000b" as UUID;
@@ -64,9 +65,6 @@ function userMessage(text: string): SDKUserMessage {
     parent_tool_use_id: null,
   } as SDKUserMessage;
 }
-
-const uuidN = (n: number): UUID =>
-  `00000000-0000-0000-0000-${String(n).padStart(12, "0")}`;
 
 function queuedEvent(n: number, text: string): AgentEvent {
   return {

@@ -43,9 +43,27 @@ export type PermissionResolution = PermissionResult | { behavior: "cancelled" };
 
 export const NOT_PENDING_ERROR = "permission not pending";
 
-/** The protocol client's request() wraps daemon errors as `daemon rejected
- *  <type>: <error>`; this is the one predicate clients use to recognize
- *  a lost permission race through that wrapping. */
-export function isNotPendingError(error: unknown): boolean {
-  return error instanceof Error && error.message.includes(NOT_PENDING_ERROR);
+const ALLOW_FEEDBACK_PREFIX = "The user approved this tool call and added: ";
+
+/** The hook context that hands allow feedback to the agent
+ *  (docs/specs/permission-amend-allow.md). */
+export function allowFeedbackContext(feedback: string): string {
+  return `${ALLOW_FEEDBACK_PREFIX}${feedback}`;
+}
+
+/** The feedback in a context allowFeedbackContext made; undefined for any
+ *  other hook's context. */
+export function allowFeedbackOf(context: string): string | undefined {
+  return context.startsWith(ALLOW_FEEDBACK_PREFIX)
+    ? context.slice(ALLOW_FEEDBACK_PREFIX.length)
+    : undefined;
+}
+
+/** How a hook context reads to the user: allow feedback as typed, any
+ *  other hook's context under its hook name (`PostToolUse:Bash`). */
+export function hookContextDisplayText(
+  hookName: string,
+  context: string,
+): string {
+  return allowFeedbackOf(context) ?? `${hookName}: ${context}`;
 }

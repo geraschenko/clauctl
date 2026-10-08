@@ -30,9 +30,11 @@ options and the same consequences.
   (with a message that becomes the tool result), or `cancelled` (the CLI
   aborted the ask — interrupt — or the Query was torn down).
 - **Plain deny**: `No` / Esc. Sends claude's fixed message (below).
-- **Amended deny**: Tab (or the plan dialog's "Tell Claude what to change"
-  row) opens a one-line input; Enter sends the typed text as the deny
-  message. This embeds the text in the tool result (no extra API round
+- **Amended deny**: Tab on a non-allow row (or the plan dialog's "Tell
+  Claude what to change" row) opens a one-line input; Enter sends the
+  typed text as the deny message. Tab on an allow row sends that allow
+  with the text as allow feedback instead
+  (docs/specs/permission-amend-allow.md). This embeds the text in the tool result (no extra API round
   trip); we expose it because it is the SDK's API, knowing the model
   sometimes misreads such tool results.
 - **Task**: an entry of the CLI's task map (`system/task_started` …
@@ -71,7 +73,9 @@ options and the same consequences.
    last row and ignores digits.
 4. **Every subscriber agrees.** Two attached TUIs both show the dialog;
    the first `permission-response` wins, the loser's dialog closes on the
-   `permissionResolved` event and its own late response fails silently.
+   `permissionResolved` event, and its own late response shows the
+   `permission response failed` banner (docs/specs/permission-amend-allow.md,
+   Behaviour 7).
 5. **Interrupt dismisses.** ctrl+c (`app.interrupt`) while the dialog is up
    sends `interrupt` as usual; the CLI aborts the ask, the daemon emits
    `permissionResolved cancelled`, and every dialog closes. `set-context`
@@ -246,10 +250,6 @@ export type ProtocolRequest =
   | { type: "permission-response"; toolUseId: string; decision: PermissionResult };
 
 export const NOT_PENDING_ERROR = "permission not pending";
-/** The protocol client's request() wraps daemon errors as `daemon rejected
- *  <type>: <error>`; this is the one predicate clients use to recognize
- *  a lost permission race through that wrapping. */
-export function isNotPendingError(error: unknown): boolean;
 // version.ts — bumped from 2: new required snapshot field, new events,
 // new request. A hello with another version now rejects connect()
 // instead of warning: an old fold cannot represent a pending ask.
@@ -489,9 +489,9 @@ the one waiting. The status line shows `N subagents` while `tasks` is
 non-empty (existence only; per-task stop and switching stay with
 docs/follow-ups/subagent-activity.md). The `Editor`
 instance is never recreated, so text typed before the ask appeared is
-intact after it resolves. `onDecide` sends `permission-response`; a
-rejection matching `isNotPendingError` is a lost race and is dropped
-silently; any other error banners.
+intact after it resolves. `onDecide` sends `permission-response`; any
+rejection, a lost race included, banners
+(docs/specs/permission-amend-allow.md, Behaviour 7).
 
 The dialog is modal: opening it closes any open selector
 (model/effort/tree) and a selector fetch that completes while a dialog is
@@ -677,7 +677,7 @@ TUI mounts the dialog from the snapshot with no replay.
 - **SDK 0.3.280 `canUseTool` options `defaultToNo` and `suppressAlwaysAllowRule`** (added after the derisk) ride the wire and are honored as the SDK doc prescribes: no row 2; open on the last row, no digit shortcut. No captured ask sets either yet (the derisk payloads predate 0.3.280), so the sdk live test does not cover them.
 - **Stopping a task under a pending ask** (`tests/sdk/task-stop-under-ask.test.ts`, FINDINGS.md): both `interrupt()` with the main loop idle and `TaskStop` abort the ask's `signal` _before_ the `task_updated (killed)` / `task_notification` events, so the broker's cancellation reaches the fold first and a removed task never leaves a resolver behind. Consequently ctrl+c is allowed whenever an ask pends, not only while `!isIdle`: on a background task's ask it kills the task (the CLI's semantics).
 - **`protocol/permission.ts`** holds `PermissionRequest`,
-  `PermissionResolution`, `NOT_PENDING_ERROR`, `isNotPendingError`: both
+  `PermissionResolution`, `NOT_PENDING_ERROR`: both
   `agent-event.ts` and `agent-state.ts` need the request type and neither
   imports the other; a third sibling keeps it that way.
 - **Selector named `allPendingAsks`** (spec: `pendingPermissions(state)`):

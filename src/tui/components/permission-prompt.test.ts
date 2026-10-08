@@ -88,14 +88,85 @@ test("the title's (+N more) follows pendingCount", () => {
   assert.ok(stripAnsi(prompt.render(40)[1] ?? "").endsWith("(+2 more)"));
 });
 
-test("Tab's amend input sends the feedback deny, native's wording", () => {
-  const decisions: PermissionResult[] = [];
-  const prompt = new PermissionPromptComponent(
-    dialog({ tabAmends: true }),
-    1,
-    (d) => decisions.push(d),
+type Decided = [PermissionResult, string?];
+
+/** The calls `onDecide` received after `keys`, each with its feedback. */
+function decidedAfter(
+  dialogUnderTest: PermissionDialog,
+  keys: string[],
+): Decided[] {
+  const decided: Decided[] = [];
+  const prompt = new PermissionPromptComponent(dialogUnderTest, 1, (...args) =>
+    decided.push(args),
   );
-  for (const key of [KEY.tab, ..."use ls instead", KEY.enter])
-    prompt.handleInput(key);
-  assert.deepEqual(decisions, [feedbackDenial("use ls instead")]);
+  for (const key of keys) prompt.handleInput(key);
+  return decided;
+}
+
+const DONT_ASK_AGAIN: PermissionResult = {
+  behavior: "allow",
+  updatedPermissions: [
+    {
+      type: "addRules",
+      rules: [{ toolName: "Bash", ruleContent: "make:*" }],
+      behavior: "allow",
+      destination: "localSettings",
+    },
+  ],
+};
+
+const amendDialog = dialog({
+  tabAmends: true,
+  rows: [
+    {
+      label: "Yes",
+      action: { kind: "decide", decision: { behavior: "allow" } },
+    },
+    {
+      label: "Yes, and don't ask again",
+      action: { kind: "decide", decision: DONT_ASK_AGAIN },
+    },
+    { label: "No", action: { kind: "decide", decision: NO } },
+  ],
+});
+
+test("Tab on an allow row sends that allow with the text as feedback; empty text sends the plain allow", () => {
+  assert.deepEqual(decidedAfter(amendDialog, [KEY.tab, ..."ok", KEY.enter]), [
+    [{ behavior: "allow" }, "ok"],
+  ]);
+  assert.deepEqual(decidedAfter(amendDialog, [KEY.tab, KEY.enter]), [
+    [{ behavior: "allow" }],
+  ]);
+  assert.deepEqual(
+    decidedAfter(amendDialog, [KEY.down, KEY.tab, ..."ok", KEY.enter]),
+    [[DONT_ASK_AGAIN, "ok"]],
+  );
+});
+
+test("Tab on a deny row sends the feedback deny, native's wording", () => {
+  assert.deepEqual(
+    decidedAfter(amendDialog, [
+      KEY.down,
+      KEY.down,
+      KEY.tab,
+      ..."use ls",
+      KEY.enter,
+    ]),
+    [[feedbackDenial("use ls")]],
+  );
+});
+
+test("the plan dialog's amend row sends the feedback deny", () => {
+  const planDialog = dialog({
+    rows: [
+      {
+        label: "Yes",
+        action: { kind: "decide", decision: { behavior: "allow" } },
+      },
+      { label: "Tell Claude what to change", action: { kind: "amend" } },
+    ],
+  });
+  assert.deepEqual(decidedAfter(planDialog, ["2", ..."smaller", KEY.enter]), [
+    [feedbackDenial("smaller")],
+  ]);
 });

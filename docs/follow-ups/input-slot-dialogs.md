@@ -25,6 +25,15 @@ commit ad83fc2, `src/tui/interactive-mode.ts`).
   request's `toolName` (looked up by `toolUseId` in the pre-event state),
   not by UI state. That part lands in the AskUserQuestion cleanup.
 
+## Decided (Anton, 2026-10-08)
+
+- The input slot becomes a discriminated union of its occupants (editor,
+  selectors, permission prompt, question prompt), not a shared interface.
+  Each occupant keeps its own callbacks: the permission prompt's
+  `onDecide(decision, feedback?)` and the question prompt's
+  `onDecide(decision)` need not share a signature
+  (docs/specs/permission-amend-allow.md). Task tg c60bca6d.
+
 ## Open
 
 - Name for the slot occupant field and the occupant interface (what it

@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import type { UUID } from "node:crypto";
 import { test } from "node:test";
 import type {
   SDKMessage,
@@ -12,9 +11,7 @@ import {
   type QueueModelState,
 } from "./queue-model.ts";
 import type { AgentEvent } from "../protocol/index.ts";
-
-const uuidN = (n: number): UUID =>
-  `00000000-0000-0000-0000-${String(n).padStart(12, "0")}`;
+import { stampN, uuidN } from "../../test-support/uuids.ts";
 
 function userMessage(overrides: Partial<SDKUserMessage> = {}): SDKUserMessage {
   return {
@@ -61,26 +58,24 @@ const toolResult = toolResultMessage();
 interface Scenario {
   state: QueueModelState;
   events: AgentEvent[];
-  /** Messages accepted so far; the next one is stamped `uuidN(accepted + 1)`. */
-  accepted: number;
 }
 
+/** `message` is stamped `uuidN(n)`, its queued event `stampN(n)`. */
 function accept(
   scenario: Scenario,
+  n: number,
   message: SDKUserMessage,
   isIdle: boolean,
 ): Scenario {
-  const accepted = scenario.accepted + 1;
   const transition = acceptUserMessage(
     scenario.state,
-    { ...message, uuid: uuidN(accepted) },
+    { ...message, uuid: uuidN(n) },
     isIdle,
-    uuidN(1000 + accepted),
+    stampN(n),
   );
   return {
     state: transition.state,
     events: [...scenario.events, ...transition.events],
-    accepted,
   };
 }
 
@@ -89,12 +84,11 @@ function observe(scenario: Scenario, message: SDKMessage): Scenario {
   return {
     state: transition.state,
     events: [...scenario.events, ...transition.events],
-    accepted: scenario.accepted,
   };
 }
 
 function start(): Scenario {
-  return { state: INITIAL_QUEUE_MODEL_STATE, events: [], accepted: 0 };
+  return { state: INITIAL_QUEUE_MODEL_STATE, events: [] };
 }
 
 function dequeues(scenario: Scenario): AgentEvent[] {
@@ -104,11 +98,11 @@ function dequeues(scenario: Scenario): AgentEvent[] {
 }
 
 test("idle accept: queued+dequeued pair, delivery turn", () => {
-  const scenario = accept(start(), userMessage(), true);
+  const scenario = accept(start(), 1, userMessage(), true);
   assert.equal(scenario.events.length, 2);
   assert.deepEqual(scenario.events[0], {
     kind: "userMessageQueued",
-    uuid: uuidN(1001),
+    uuid: stampN(1),
     message: userMessage({ uuid: uuidN(1) }),
   });
   assert.deepEqual(scenario.events[1], {
@@ -120,28 +114,33 @@ test("idle accept: queued+dequeued pair, delivery turn", () => {
 });
 
 test("idle accept of a no-query message dequeues as append", () => {
-  const scenario = accept(start(), userMessage({ shouldQuery: false }), true);
+  const scenario = accept(
+    start(),
+    1,
+    userMessage({ shouldQuery: false }),
+    true,
+  );
   assert.deepEqual(dequeues(scenario), [
     { kind: "userMessageDequeued", delivery: "append", uuids: [uuidN(1)] },
   ]);
 });
 
 test("busy accept: queued only", () => {
-  const scenario = accept(start(), userMessage(), false);
+  const scenario = accept(start(), 1, userMessage(), false);
   assert.equal(scenario.events.length, 1);
   assert.equal(scenario.events[0]!.kind, "userMessageQueued");
   assert.equal(scenario.state.queued.length, 1);
 });
 
 test("a queued event carries its own stamp; the prompt keeps its stamped uuid", () => {
-  let scenario = accept(start(), userMessage(), true);
-  scenario = accept(scenario, userMessage(), false);
+  let scenario = accept(start(), 1, userMessage(), true);
+  scenario = accept(scenario, 2, userMessage(), false);
   const queuedEvents = scenario.events.filter(
     (event) => event.kind === "userMessageQueued",
   );
   assert.deepEqual(
     queuedEvents.map((event) => event.uuid),
-    [uuidN(1001), uuidN(1002)],
+    [stampN(1), stampN(2)],
   );
   assert.deepEqual(
     queuedEvents.map((event) => event.message.uuid),
@@ -156,15 +155,15 @@ test("an unstamped message is rejected", () => {
         INITIAL_QUEUE_MODEL_STATE,
         userMessage(),
         true,
-        uuidN(1000),
+        stampN(1),
       ),
     /no uuid/u,
   );
 });
 
 test("group demotion: marked demotables steer at assistant activity, one event each", () => {
-  let scenario = accept(start(), userMessage(), false); // uuid 1, default
-  scenario = accept(scenario, userMessage({ priority: "next" }), false); // uuid 2
+  let scenario = accept(start(), 1, userMessage(), false); // default
+  scenario = accept(scenario, 2, userMessage({ priority: "next" }), false);
   scenario = observe(scenario, toolResult);
   assert.deepEqual(dequeues(scenario), []);
   scenario = observe(scenario, assistant);
@@ -177,7 +176,7 @@ test("group demotion: marked demotables steer at assistant activity, one event e
 
 test("later blocks of one response do not steer; the next response's first frame does", () => {
   let scenario = observe(start(), assistantFrame("msg_1"));
-  scenario = accept(scenario, userMessage(), false);
+  scenario = accept(scenario, 1, userMessage(), false);
   scenario = observe(scenario, assistantFrame("msg_1")); // second tool_use block
   scenario = observe(scenario, toolResult); // first of two results
   scenario = observe(scenario, assistantFrame("msg_1")); // third block, filed interleaved
@@ -191,7 +190,7 @@ test("later blocks of one response do not steer; the next response's first frame
 });
 
 test("subagent frames neither mark nor steer", () => {
-  let scenario = accept(start(), userMessage(), false);
+  let scenario = accept(start(), 1, userMessage(), false);
   scenario = observe(scenario, toolResultMessage("toolu_task"));
   scenario = observe(scenario, assistantFrame("msg_sub", "toolu_task"));
   assert.deepEqual(dequeues(scenario), []);
@@ -206,7 +205,7 @@ test("subagent frames neither mark nor steer", () => {
 
 test("a synthetic assistant (e.g. after /compact) is a response boundary", () => {
   let scenario = observe(start(), assistantFrame("msg_1"));
-  scenario = accept(scenario, userMessage(), false);
+  scenario = accept(scenario, 1, userMessage(), false);
   scenario = observe(scenario, toolResult);
   scenario = observe(
     scenario,
@@ -218,9 +217,9 @@ test("a synthetic assistant (e.g. after /compact) is a response boundary", () =>
 });
 
 test("straggler: accepted between tool_result and the next response waits its own boundary", () => {
-  let scenario = accept(start(), userMessage(), false); // uuid 1
+  let scenario = accept(start(), 1, userMessage(), false);
   scenario = observe(scenario, toolResult);
-  scenario = accept(scenario, userMessage(), false); // uuid 2, the straggler
+  scenario = accept(scenario, 2, userMessage(), false); // the straggler
   scenario = observe(scenario, assistant);
   assert.deepEqual(dequeues(scenario), [
     { kind: "userMessageDequeued", delivery: "steer", uuids: [uuidN(1)] },
@@ -236,16 +235,16 @@ test("straggler: accepted between tool_result and the next response waits its ow
 });
 
 test("later and now are not demotable", () => {
-  let scenario = accept(start(), userMessage({ priority: "later" }), false);
-  scenario = accept(scenario, userMessage({ priority: "now" }), false);
+  let scenario = accept(start(), 1, userMessage({ priority: "later" }), false);
+  scenario = accept(scenario, 2, userMessage({ priority: "now" }), false);
   scenario = observe(scenario, toolResult);
   scenario = observe(scenario, assistant);
   assert.deepEqual(dequeues(scenario), []);
 });
 
 test("same-priority merge: one dequeue carrying both uuids", () => {
-  let scenario = accept(start(), userMessage({ priority: "later" }), false);
-  scenario = accept(scenario, userMessage({ priority: "later" }), false);
+  let scenario = accept(start(), 1, userMessage({ priority: "later" }), false);
+  scenario = accept(scenario, 2, userMessage({ priority: "later" }), false);
   scenario = observe(scenario, result);
   assert.deepEqual(dequeues(scenario), [
     {
@@ -258,9 +257,9 @@ test("same-priority merge: one dequeue carrying both uuids", () => {
 });
 
 test("c_perm drain order: now cuts ahead, then next, then later", () => {
-  let scenario = accept(start(), userMessage({ priority: "next" }), false); // uuid 1
-  scenario = accept(scenario, userMessage({ priority: "later" }), false); // uuid 2
-  scenario = accept(scenario, userMessage({ priority: "now" }), false); // uuid 3
+  let scenario = accept(start(), 1, userMessage({ priority: "next" }), false);
+  scenario = accept(scenario, 2, userMessage({ priority: "later" }), false);
+  scenario = accept(scenario, 3, userMessage({ priority: "now" }), false);
   scenario = observe(scenario, result);
   scenario = observe(scenario, result);
   scenario = observe(scenario, result);
@@ -272,7 +271,7 @@ test("c_perm drain order: now cuts ahead, then next, then later", () => {
 });
 
 test("no-query would-be-steer stays steer", () => {
-  let scenario = accept(start(), userMessage({ shouldQuery: false }), false);
+  let scenario = accept(start(), 1, userMessage({ shouldQuery: false }), false);
   scenario = observe(scenario, toolResult);
   scenario = observe(scenario, assistant);
   assert.deepEqual(dequeues(scenario), [
@@ -284,6 +283,7 @@ test("no-query bucket dequeues as append at the result", () => {
   const scenario = observe(
     accept(
       start(),
+      1,
       userMessage({ priority: "later", shouldQuery: false }),
       false,
     ),
@@ -297,10 +297,11 @@ test("no-query bucket dequeues as append at the result", () => {
 test("an append at the head of a bucket is its own run; the querying member follows at the next result", () => {
   let scenario = accept(
     start(),
+    1,
     userMessage({ priority: "later", shouldQuery: false }),
     false,
   );
-  scenario = accept(scenario, userMessage({ priority: "later" }), false);
+  scenario = accept(scenario, 2, userMessage({ priority: "later" }), false);
   scenario = observe(scenario, result);
   assert.deepEqual(dequeues(scenario), [
     { kind: "userMessageDequeued", delivery: "append", uuids: [uuidN(1)] },
@@ -316,14 +317,15 @@ test("an append at the head of a bucket is its own run; the querying member foll
 });
 
 test("[Q, Q, A, Q] in one bucket drains as turn, append, turn over three results", () => {
-  let scenario = accept(start(), userMessage({ priority: "later" }), false);
-  scenario = accept(scenario, userMessage({ priority: "later" }), false);
+  let scenario = accept(start(), 1, userMessage({ priority: "later" }), false);
+  scenario = accept(scenario, 2, userMessage({ priority: "later" }), false);
   scenario = accept(
     scenario,
+    3,
     userMessage({ priority: "later", shouldQuery: false }),
     false,
   );
-  scenario = accept(scenario, userMessage({ priority: "later" }), false);
+  scenario = accept(scenario, 4, userMessage({ priority: "later" }), false);
   scenario = observe(scenario, result);
   scenario = observe(scenario, result);
   scenario = observe(scenario, result);
@@ -340,15 +342,16 @@ test("[Q, Q, A, Q] in one bucket drains as turn, append, turn over three results
 });
 
 test("a higher priority accepted mid-drain cuts ahead of the bucket's remaining runs", () => {
-  let scenario = accept(start(), userMessage({ priority: "later" }), false); // uuid 1
+  let scenario = accept(start(), 1, userMessage({ priority: "later" }), false);
   scenario = accept(
     scenario,
+    2,
     userMessage({ priority: "later", shouldQuery: false }),
     false,
-  ); // uuid 2
-  scenario = accept(scenario, userMessage({ priority: "later" }), false); // uuid 3
+  );
+  scenario = accept(scenario, 3, userMessage({ priority: "later" }), false);
   scenario = observe(scenario, result); // run 1 (uuid 1) runs
-  scenario = accept(scenario, userMessage(), false); // uuid 4, default priority
+  scenario = accept(scenario, 4, userMessage(), false); // default priority
   scenario = observe(scenario, result);
   scenario = observe(scenario, result);
   scenario = observe(scenario, result);
@@ -362,19 +365,21 @@ test("a higher priority accepted mid-drain cuts ahead of the bucket's remaining 
 });
 
 test("only a turn dequeues several uuids: steers and appends are runs of one", () => {
-  let scenario = accept(start(), userMessage({ shouldQuery: false }), false);
-  scenario = accept(scenario, userMessage({ shouldQuery: false }), false);
-  scenario = accept(scenario, userMessage(), false);
-  scenario = accept(scenario, userMessage(), false);
+  let scenario = accept(start(), 1, userMessage({ shouldQuery: false }), false);
+  scenario = accept(scenario, 2, userMessage({ shouldQuery: false }), false);
+  scenario = accept(scenario, 3, userMessage(), false);
+  scenario = accept(scenario, 4, userMessage(), false);
   scenario = observe(scenario, toolResult);
   scenario = observe(scenario, assistant);
   scenario = accept(
     scenario,
+    5,
     userMessage({ priority: "later", shouldQuery: false }),
     false,
   );
   scenario = accept(
     scenario,
+    6,
     userMessage({ priority: "later", shouldQuery: false }),
     false,
   );
@@ -390,12 +395,13 @@ test("only a turn dequeues several uuids: steers and appends are runs of one", (
 });
 
 test("a slash command mid-turn is not steered: it runs as its own turn at the result", () => {
-  let scenario = accept(start(), userMessage(), false); // uuid 1, steered
+  let scenario = accept(start(), 1, userMessage(), false); // steered
   scenario = accept(
     scenario,
+    2,
     userMessage({ message: { role: "user", content: "/cost" } }),
     false,
-  ); // uuid 2
+  );
   scenario = observe(scenario, toolResult);
   scenario = observe(scenario, assistant);
   assert.deepEqual(dequeues(scenario), [
@@ -410,9 +416,34 @@ test("a slash command mid-turn is not steered: it runs as its own turn at the re
   assert.deepEqual(scenario.state.queued, []);
 });
 
+test("leading whitespace still makes a command; a leading zero-width space does not (tests/sdk/steer-slash-trim.test.ts)", () => {
+  let scenario = accept(
+    start(),
+    1,
+    userMessage({
+      message: { role: "user", content: " /tmp/x is the target" },
+    }),
+    false,
+  );
+  scenario = accept(
+    scenario,
+    2,
+    userMessage({
+      message: { role: "user", content: "\u200b/tmp/x is the target" },
+    }),
+    false,
+  ); // steered
+  scenario = observe(scenario, toolResult);
+  scenario = observe(scenario, assistant);
+  assert.deepEqual(dequeues(scenario), [
+    { kind: "userMessageDequeued", delivery: "steer", uuids: [uuidN(2)] },
+  ]);
+});
+
 test("a /command in a text block is a command too: not steered, its own turn at the result", () => {
   let scenario = accept(
     start(),
+    1,
     userMessage({
       message: {
         role: "user",
@@ -437,16 +468,17 @@ test("a /command in a text block is a command too: not steered, its own turn at 
 });
 
 test("[text, /command, text] in one bucket drains as three turns", () => {
-  let scenario = accept(start(), userMessage({ priority: "later" }), false);
+  let scenario = accept(start(), 1, userMessage({ priority: "later" }), false);
   scenario = accept(
     scenario,
+    2,
     userMessage({
       priority: "later",
       message: { role: "user", content: "/cost" },
     }),
     false,
   );
-  scenario = accept(scenario, userMessage({ priority: "later" }), false);
+  scenario = accept(scenario, 3, userMessage({ priority: "later" }), false);
   scenario = observe(scenario, result);
   scenario = observe(scenario, result);
   scenario = observe(scenario, result);

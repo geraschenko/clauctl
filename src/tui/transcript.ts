@@ -69,10 +69,12 @@ import type {
 } from "@anthropic-ai/claude-agent-sdk";
 import {
   entryToSessionMessage,
+  hookAdditionalContext,
   queuedCommandPrompt,
   queuedCommandSourceUuid,
   type SessionEntry,
 } from "../core/session/file.ts";
+import { hookContextDisplayText } from "../core/protocol/index.ts";
 import { interruptMarkerText } from "../core/session/entry-predicates.ts";
 import { AssistantMessageComponent } from "./components/assistant-message.ts";
 import { PendingBoundaryComponent } from "./components/pending-boundary.ts";
@@ -131,6 +133,8 @@ interface ToolItem extends ItemKey {
   component: ToolExecutionComponent;
   view: ToolView<unknown>;
   result?: RenderToolResult;
+  /** A hook handed the agent context with the result; a fold would hide it. */
+  hasHookContext?: true;
 }
 
 interface PlainItem extends ItemKey {
@@ -197,8 +201,8 @@ export class TranscriptRenderer {
   /** Top-level tool items only (fold bookkeeping). */
   private readonly toolItems = new Map<string, ToolItem>();
   private readonly assistantComponents: AssistantMessageComponent[] = [];
-  /** Uuids whose visible content is on screen: a top-level item or a
-   *  command-output attachment. A prompt's entry keys the run's last
+  /** Uuids whose visible content is on screen: a top-level item, a
+   *  command-output attachment, or hook context under its tool. A prompt's entry keys the run's last
    *  member; a steer's attachment keys its `source_uuid`. */
   private readonly renderedUuids = new Set<UUID>();
   /** Replacement lookup for `replaceItem` and the parent lookup of a
@@ -577,7 +581,9 @@ export class TranscriptRenderer {
 
   /**
    * Render one session entry as `append` renders its query message:
-   * boundary entries render the compact_boundary banner; a user entry, or
+   * boundary entries render the compact_boundary banner; a
+   * `hook_additional_context` attachment renders under the tool it names
+   * (docs/specs/permission-amend-allow.md, Transcript display); a user entry, or
    * one with no message of its own (a steered prompt's `queued_command`
    * attachment, a local command), renders as a user turn
    * (`appendUserEntry`); anything else → `appendMessage`. Session-entry
@@ -609,6 +615,21 @@ export class TranscriptRenderer {
         entry.uuid,
         part,
       );
+      return;
+    }
+    const hookContext = hookAdditionalContext(entry.attachment);
+    if (hookContext !== undefined) {
+      const tool = this.toolComponents.get(hookContext.toolUseId);
+      if (tool !== undefined && this.firstRender(entry.uuid)) {
+        tool.addHookContext(
+          hookContextDisplayText(hookContext.hookName, hookContext.context),
+        );
+        const item = this.toolItems.get(hookContext.toolUseId);
+        if (item !== undefined) {
+          item.hasHookContext = true;
+        }
+        this.rebuild();
+      }
       return;
     }
     const message = entryToSessionMessage(entry) as
@@ -1082,7 +1103,8 @@ function isFoldable(item: TranscriptItem): boolean {
       return (
         READ_ONLY_TOOLS.has(item.name) &&
         item.result !== undefined &&
-        !item.result.isError
+        !item.result.isError &&
+        item.hasHookContext === undefined
       );
     case "assistant": {
       if (item.rendered === undefined) {

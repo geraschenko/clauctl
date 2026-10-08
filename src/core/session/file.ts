@@ -141,6 +141,28 @@ function queuedCommandAttachment(
     : undefined;
 }
 
+/** Context a PostToolUse/PostToolUseFailure hook handed to the agent with
+ *  a tool's result, from an entry's `attachment` payload of type
+ *  `hook_additional_context` (tests/sdk/amend-allow.test.ts). Undefined for
+ *  every other payload. */
+export function hookAdditionalContext(
+  attachment: unknown,
+): { toolUseId: string; hookName: string; context: string } | undefined {
+  if (!isRecord(attachment) || attachment.type !== "hook_additional_context") {
+    return undefined;
+  }
+  const { toolUseID, hookName, content } = attachment;
+  if (
+    typeof toolUseID !== "string" ||
+    typeof hookName !== "string" ||
+    !Array.isArray(content) ||
+    !content.every((line) => typeof line === "string")
+  ) {
+    return undefined;
+  }
+  return { toolUseId: toolUseID, hookName, context: content.join("\n") };
+}
+
 /** The `content` of the entry's message: a string or content blocks. */
 export function messageContent(entry: SessionEntry): unknown {
   return isRecord(entry.message) ? entry.message.content : undefined;

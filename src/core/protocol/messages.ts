@@ -332,6 +332,10 @@ export type ProtocolRequest =
       type: "permission-response";
       toolUseId: string;
       decision: PermissionResult;
+      /** Allow feedback (allow only; empty means none): handed to the agent that
+       *  ran the tool with the tool's result, if the tool completes
+       *  (docs/specs/permission-amend-allow.md). */
+      feedback?: string;
     }
   // Response data is the daemon's current AgentState; every event emitted
   // after it follows as an AgentEventRecord line until the connection closes.

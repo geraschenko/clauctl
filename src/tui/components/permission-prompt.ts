@@ -2,8 +2,9 @@
  * The permission dialog that replaces the editor while an ask is pending
  * (docs/specs/permission-prompt.md, "Dialog layout"). Rows mode: digits,
  * tui.select.up/down, confirm, cancel (`cancelDecision`), Tab (amend). Amend
- * mode: a pi-tui Input whose Enter sends an amended deny and whose Esc
- * returns to the rows. Knows nothing about tools: it renders a
+ * mode: a pi-tui Input whose Enter sends, on an allow row, that allow with
+ * the text as feedback, and on any other row an amended deny; its Esc
+ * returns to the rows (docs/specs/permission-amend-allow.md). Knows nothing about tools: it renders a
  * PermissionDialog and reports a PermissionResult.
  */
 
@@ -17,7 +18,11 @@ import {
   type Focusable,
   wrapTextWithAnsi,
 } from "@earendil-works/pi-tui";
-import { feedbackDenial, type PermissionDialog } from "../permission-dialog.ts";
+import {
+  feedbackDenial,
+  type PermissionDialog,
+  type PermissionRow,
+} from "../permission-dialog.ts";
 import { DASHED_RULE } from "../permission-views.ts";
 import { getMarkdownTheme, theme } from "../theme.ts";
 
@@ -28,14 +33,17 @@ export class PermissionPromptComponent extends Container implements Focusable {
   readonly dialog: PermissionDialog;
   /** All pending asks including this one; the title shows `(+N more)`. */
   pendingCount: number;
-  private readonly onDecide: (decision: PermissionResult) => void;
+  private readonly onDecide: (
+    decision: PermissionResult,
+    feedback?: string,
+  ) => void;
   private selected: number;
   private amendInput: Input | undefined;
 
   constructor(
     dialog: PermissionDialog,
     pendingCount: number,
-    onDecide: (decision: PermissionResult) => void,
+    onDecide: (decision: PermissionResult, feedback?: string) => void,
   ) {
     super();
     this.dialog = dialog;
@@ -50,9 +58,23 @@ export class PermissionPromptComponent extends Container implements Focusable {
     return this.amendInput !== undefined;
   }
 
-  private openAmend(): void {
+  /** `row` is the focused row (Tab) or the plan dialog's amend row. */
+  private openAmend(row: PermissionRow): void {
     const input = new Input();
-    input.onSubmit = (feedback) => this.onDecide(feedbackDenial(feedback));
+    input.onSubmit = (text) => {
+      if (
+        row.action.kind === "decide" &&
+        row.action.decision.behavior === "allow"
+      ) {
+        if (text.length === 0) {
+          this.onDecide(row.action.decision);
+        } else {
+          this.onDecide(row.action.decision, text);
+        }
+      } else {
+        this.onDecide(feedbackDenial(text));
+      }
+    };
     input.onEscape = () => {
       this.amendInput = undefined;
     };
@@ -63,7 +85,7 @@ export class PermissionPromptComponent extends Container implements Focusable {
     const row = this.dialog.rows[this.selected];
     if (row === undefined) return;
     if (row.action.kind === "amend") {
-      this.openAmend();
+      this.openAmend(row);
     } else {
       this.onDecide(row.action.decision);
     }
@@ -91,7 +113,8 @@ export class PermissionPromptComponent extends Container implements Focusable {
     } else if (keybindings.matches(data, "tui.select.cancel")) {
       this.onDecide(this.dialog.cancelDecision);
     } else if (matchesKey(data, "tab") && this.dialog.tabAmends) {
-      this.openAmend();
+      const row = this.dialog.rows[this.selected];
+      if (row !== undefined) this.openAmend(row);
     }
   }
 

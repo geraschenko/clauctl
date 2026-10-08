@@ -1,20 +1,17 @@
 import assert from "node:assert/strict";
-import type { UUID } from "node:crypto";
 import { test } from "node:test";
 import type { SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
 import type { AgentState, AgentEvent } from "../core/protocol/index.ts";
 import { initialAgentState } from "../core/agent-state/index.ts";
 import { EventFormatter } from "./events.ts";
 import type { MessageFormatOptions, TailRecord } from "./types.ts";
+import { uuidN } from "../test-support/uuids.ts";
 
 const OPTIONS: MessageFormatOptions = {
   toolResults: "summary",
   maxToolArgChars: 120,
   maxErrorLines: 10,
 };
-
-const uuidN = (n: number): UUID =>
-  `00000000-0000-0000-0000-${String(n).padStart(12, "0")}`;
 
 /** A prompt stamped `uuidN(n)` — the uuid its entry and dequeue carry. */
 function prompt(text: string, n: number): SDKUserMessage {

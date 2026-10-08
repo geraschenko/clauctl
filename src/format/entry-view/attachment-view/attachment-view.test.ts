@@ -3,6 +3,7 @@ import { test } from "node:test";
 import { defaultAttachmentView } from "./attachment-view.ts";
 import { attachmentViewFor } from "./attachment-view-for.ts";
 import { oneLinePrefix } from "../../../core/generated/text.ts";
+import { allowFeedbackContext } from "../../../core/protocol/index.ts";
 
 const WIDTH = 80;
 
@@ -134,4 +135,25 @@ test("token_usage and instructions compress the wire text", () => {
     ".claude/CLAUDE.md, x/CLAUDE.md, memory/MEMORY.md",
   );
   assert.equal(summaryOf("instructions", {}), "");
+});
+
+test("hook_additional_context: allow feedback as typed; another hook's context under its hook name", () => {
+  const payload = (content: string[]): unknown => ({
+    type: "hook_additional_context",
+    content,
+    hookName: "PostToolUse:Bash",
+    toolUseID: "toolu_1",
+    hookEvent: "PostToolUse",
+  });
+  assert.equal(
+    summaryOf(
+      "hook_additional_context",
+      payload([allowFeedbackContext('"anvil" is the secret word.')]),
+    ),
+    '"anvil" is the secret word.',
+  );
+  assert.equal(
+    summaryOf("hook_additional_context", payload(["lint passed"])),
+    "PostToolUse:Bash: lint passed",
+  );
 });

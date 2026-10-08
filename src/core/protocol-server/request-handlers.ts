@@ -264,10 +264,22 @@ export function createRequestHandler(
         if (typeof request.toolUseId !== "string") {
           throw new Error("permission-response: toolUseId must be a string");
         }
-        deps.permissionBroker.respond(
-          request.toolUseId,
-          validatePermissionResult(request.decision),
-        );
+        const decision = validatePermissionResult(request.decision);
+        if (
+          request.feedback !== undefined &&
+          typeof request.feedback !== "string"
+        ) {
+          throw new Error("permission-response: feedback must be a string");
+        }
+        // Empty feedback is no feedback, so `--feedback "$TEXT"` works
+        // whatever $TEXT holds.
+        const feedback = request.feedback === "" ? undefined : request.feedback;
+        if (feedback !== undefined && decision.behavior !== "allow") {
+          throw new Error(
+            "permission-response: feedback is for an allow; a deny carries its text in decision.message",
+          );
+        }
+        deps.permissionBroker.respond(request.toolUseId, decision, feedback);
         return undefined;
       }
       case "get-context":

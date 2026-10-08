@@ -175,3 +175,86 @@ test("validatePermissionResult accepts the wire shapes and rejects the rest", ()
     assert.throws(() => validatePermissionResult(value), pattern);
   }
 });
+
+/** Calls the broker's hook for `event` the way the CLI would. */
+async function callFeedbackHook(
+  permissionBroker: PermissionBroker,
+  event: "PostToolUse" | "PostToolUseFailure",
+  toolUseId: string,
+): Promise<unknown> {
+  const hook = permissionBroker.feedbackHooks[event]?.[0]?.hooks[0];
+  assert.ok(hook !== undefined);
+  const base = {
+    session_id: "s",
+    transcript_path: "/t",
+    cwd: "/",
+    tool_name: "Bash",
+    tool_input: {},
+    tool_use_id: toolUseId,
+  };
+  const input =
+    event === "PostToolUse"
+      ? { ...base, hook_event_name: event, tool_response: {} }
+      : { ...base, hook_event_name: event, error: "failed" };
+  return hook(input, toolUseId, { signal: new AbortController().signal });
+}
+
+const ALLOW = { behavior: "allow" } as const;
+const context = (event: string, text: string): unknown => ({
+  hookSpecificOutput: {
+    hookEventName: event,
+    additionalContext: `The user approved this tool call and added: ${text}`,
+  },
+});
+
+test("feedback is handed out once, by either hook, to its own tool use only", async () => {
+  const permissionBroker = new PermissionBroker(hub());
+  const signal = new AbortController().signal;
+  const first = permissionBroker.request(request("t1"), signal);
+  const second = permissionBroker.request(request("t2"), signal);
+  permissionBroker.respond("t1", ALLOW, "one");
+  permissionBroker.respond("t2", ALLOW, "two");
+  assert.deepEqual(await first, ALLOW);
+  await second;
+  assert.deepEqual(
+    await callFeedbackHook(permissionBroker, "PostToolUse", "other"),
+    {},
+  );
+  assert.deepEqual(
+    await callFeedbackHook(permissionBroker, "PostToolUseFailure", "t1"),
+    context("PostToolUseFailure", "one"),
+  );
+  assert.deepEqual(
+    await callFeedbackHook(permissionBroker, "PostToolUse", "t1"),
+    {},
+  );
+  assert.deepEqual(
+    await callFeedbackHook(permissionBroker, "PostToolUse", "t2"),
+    context("PostToolUse", "two"),
+  );
+});
+
+test("a not-pending respond records no feedback; cancelAll drops it and later asks still work", async () => {
+  const permissionBroker = new PermissionBroker(hub());
+  const signal = new AbortController().signal;
+  assert.throws(() => permissionBroker.respond("t1", ALLOW, "late"));
+  assert.deepEqual(
+    await callFeedbackHook(permissionBroker, "PostToolUse", "t1"),
+    {},
+  );
+  const asked = permissionBroker.request(request("t2"), signal);
+  permissionBroker.respond("t2", ALLOW, "dropped");
+  await asked;
+  permissionBroker.cancelAll();
+  assert.deepEqual(
+    await callFeedbackHook(permissionBroker, "PostToolUse", "t2"),
+    {},
+  );
+  const again = permissionBroker.request(request("t3"), signal);
+  permissionBroker.respond("t3", ALLOW, "kept");
+  await again;
+  assert.deepEqual(
+    await callFeedbackHook(permissionBroker, "PostToolUse", "t3"),
+    context("PostToolUse", "kept"),
+  );
+});

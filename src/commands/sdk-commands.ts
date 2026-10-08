@@ -281,6 +281,10 @@ async function applyFlagSettings(
 
 const permissionResponseFlags = {
   toolUseId: requiredStringFlag("The pending ask's tool use id", "id"),
+  feedback: stringFlag(
+    "Allow feedback: text the agent sees with the tool's result",
+    "text",
+  ),
 };
 
 type PermissionResponseFlags = InferFlags<typeof permissionResponseFlags>;
@@ -296,6 +300,7 @@ async function permissionResponse(
     type: "permission-response",
     toolUseId: flags.toolUseId,
     decision: parseJsonObjectArg(decision, "decision") as PermissionResult,
+    ...(flags.feedback !== undefined && { feedback: flags.feedback }),
   });
 }
 

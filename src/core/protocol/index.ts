@@ -19,7 +19,9 @@ export {
   type TaskState,
 } from "./agent-state.ts";
 export {
-  isNotPendingError,
+  allowFeedbackContext,
+  allowFeedbackOf,
+  hookContextDisplayText,
   NOT_PENDING_ERROR,
   type PermissionRequest,
   type PermissionResolution,

@@ -6,6 +6,7 @@ import type {
   SDKMessage,
   SDKUserMessage,
 } from "@anthropic-ai/claude-agent-sdk";
+import { allowFeedbackContext } from "../core/protocol/index.ts";
 import type { SessionEntry } from "../core/session/file.ts";
 import { TranscriptRenderer } from "./transcript.ts";
 
@@ -416,6 +417,59 @@ test("appendEntry renders a queued_command attachment as the user turn it was; o
     }),
   );
   assert.equal(container.children.length, rendered);
+});
+
+test("appendEntry renders a hook_additional_context attachment once, under the tool it names, which then does not fold", () => {
+  const { renderer, container } = makeRenderer();
+  renderer.appendEntry(
+    sessionEntry({
+      type: "assistant",
+      uuid: "a1",
+      message: {
+        content: [
+          {
+            type: "tool_use",
+            id: "tool-1",
+            name: "Read",
+            input: { file_path: "/tmp/x" },
+          },
+        ],
+        stop_reason: "tool_use",
+      },
+    }),
+  );
+  renderer.appendEntry(
+    sessionEntry({
+      type: "user",
+      uuid: "u1",
+      message: {
+        role: "user",
+        content: [
+          { type: "tool_result", tool_use_id: "tool-1", content: "done" },
+        ],
+      },
+    }),
+  );
+  const items = container.children.length;
+  const hookEntry = sessionEntry({
+    type: "attachment",
+    uuid: "h1",
+    attachment: {
+      type: "hook_additional_context",
+      content: [allowFeedbackContext("zebra feedback")],
+      hookName: "PostToolUse:Read",
+      hookEvent: "PostToolUse",
+      toolUseID: "tool-1",
+    },
+  });
+  renderer.appendEntry(hookEntry);
+  renderer.appendEntry(hookEntry);
+  assert.equal(container.children.length, items, "no item of its own");
+  const text = renderedText(container);
+  assert.doesNotMatch(text, /ctrl\+o to expand/);
+  assert.doesNotMatch(text, /The user approved|PostToolUse/);
+  assert.equal(text.split("zebra feedback").length, 2, "rendered once");
+  assert.ok(text.indexOf("Read") < text.indexOf("zebra feedback"));
 });
 
 test("conversation_reset clears the transcript and shows a banner", () => {

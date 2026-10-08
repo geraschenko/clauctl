@@ -52,7 +52,6 @@ import type {
   PermissionRequest,
   PermissionResolution,
 } from "../core/protocol/index.ts";
-import { isNotPendingError } from "../core/protocol/index.ts";
 import type { UUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import type { SessionEntry } from "../core/session/file.ts";
@@ -1108,8 +1107,6 @@ export class InteractiveMode {
     }
     const titleSuffix =
       head.task === undefined ? undefined : ` — task: ${head.task.description}`;
-    const onDecide = (decision: PermissionResult): void =>
-      this.sendPermissionResponse(head.request.toolUseId, decision);
     const questions = askUserQuestionInput(head.request);
     let prompt: PermissionPromptComponent | QuestionPromptComponent;
     // TDC: This logic of "permissions if questions is undefined" is shitty. How would you do this if head.request could be one of 10 different kinds of dialog box to present to the user? It seems like the logic of building the component should be extracted into a function, especially since this file is already 1500 lines. I suggest we turn interactive-mode.ts into a directory and make a barrel file to expose the public interface. See .dependency-cruiser.cjs and eslint.config.js for existing barrels.
@@ -1122,14 +1119,20 @@ export class InteractiveMode {
       prompt = new PermissionPromptComponent(
         { ...dialog, title: `${dialog.title}${titleSuffix ?? ""}` },
         asks.length,
-        onDecide,
+        (decision, feedback) =>
+          this.sendPermissionResponse(
+            head.request.toolUseId,
+            decision,
+            feedback,
+          ),
       );
     } else {
       prompt = new QuestionPromptComponent(
         questions,
         titleSuffix,
         asks.length,
-        onDecide,
+        (decision) =>
+          this.sendPermissionResponse(head.request.toolUseId, decision),
         (text) => this.editTextExternally(text),
       );
     }
@@ -1143,22 +1146,22 @@ export class InteractiveMode {
     this.ui.setFocus(prompt);
   }
 
-  /** A not-pending rejection is a lost race (another client answered, or
-   *  the ask was cancelled) whose resolution event already explains it. */
+  /** Any failure shows a banner. */
   private sendPermissionResponse(
     toolUseId: string,
     decision: PermissionResult,
+    feedback?: string,
   ): void {
     void this.client
-      .request({ type: "permission-response", toolUseId, decision })
+      .request({
+        type: "permission-response",
+        toolUseId,
+        decision,
+        ...(feedback !== undefined && { feedback }),
+      })
       .catch((error: unknown) => {
-        if (!isNotPendingError(error)) {
-          this.addBanner(
-            `permission response failed: ${String(error)}`,
-            "error",
-          );
-          this.ui.requestRender();
-        }
+        this.addBanner(`permission response failed: ${String(error)}`, "error");
+        this.ui.requestRender();
       });
   }
 

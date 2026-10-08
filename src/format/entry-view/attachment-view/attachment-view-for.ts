@@ -7,6 +7,7 @@ import {
 import { dateChangeView } from "./date-change.ts";
 import { deferredToolsDeltaView } from "./deferred-tools-delta.ts";
 import { fileView } from "./file.ts";
+import { hookAdditionalContextView } from "./hook-additional-context.ts";
 import { hookSuccessView } from "./hook-success.ts";
 import { instructionsView } from "./instructions.ts";
 import { skillListingView } from "./skill-listing.ts";
@@ -27,6 +28,7 @@ export const attachmentViews: Readonly<
   already_read_file: fileView,
   directory: fileView,
   hook_success: hookSuccessView,
+  hook_additional_context: hookAdditionalContextView,
   date_change: dateChangeView,
   deferred_tools_delta: deferredToolsDeltaView,
   skill_listing: skillListingView,

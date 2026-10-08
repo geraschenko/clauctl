@@ -18,12 +18,11 @@ import {
 } from "../core/agent-state/index.ts";
 import type { SessionEntry } from "../core/session/file.ts";
 import { SessionModels } from "./session-models.ts";
+import { stampN, uuidN } from "../test-support/uuids.ts";
 
 const SESSION_A = "aaaaaaaa-0000-0000-0000-000000000001" as const;
 const SESSION_B = "bbbbbbbb-0000-0000-0000-000000000002" as const;
 const SESSION_C = "cccccccc-0000-0000-0000-000000000003" as const;
-const uuidN = (n: number): UUID =>
-  `00000000-0000-0000-0000-${String(n).padStart(12, "0")}`;
 
 const failOnInvalid = (message: string): never => {
   throw new Error(`unexpected onInvalid: ${message}`);
@@ -108,11 +107,11 @@ const entryEvent = (
 // --- prompts: stamped uuid `uuidN(n)`, dequeued as the query observation,
 // filed as a `user` entry (a merged run under its last uuid) or, steered, as
 // a `queued_command` attachment naming the uuid as source_uuid. The queued
-// event itself is stamped `uuidN(1000 + n)`, a query node of its own.
+// event itself is stamped `stampN(n)`, a query node of its own.
 
 const queued = (n: number, text: string): AgentEvent => ({
   kind: "userMessageQueued",
-  uuid: uuidN(1000 + n),
+  uuid: stampN(n),
   message: {
     type: "user",
     message: { role: "user", content: text },
@@ -240,10 +239,7 @@ const fileOpenedA: [UUID, UUID][] = [
 /** `init`'s stamp, resolved in its own step when nothing pends ahead. */
 const initResolvedA: [UUID, UUID] = [SESSION_A, uuidN(901)];
 /** `queued(n)`'s stamp, likewise. */
-const queuedResolvedA = (n: number): [UUID, UUID] => [
-  SESSION_A,
-  uuidN(1000 + n),
-];
+const queuedResolvedA = (n: number): [UUID, UUID] => [SESSION_A, stampN(n)];
 
 test("SessionModels: entries follow the file session across a rollover, query messages their own session, dropped sessions their session model", () => {
   const h = new Harness();

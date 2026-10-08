@@ -24,16 +24,15 @@ import {
 import { freshSessionState } from "./session-state.ts";
 import type { SessionEntry } from "../session/file.ts";
 import { hasPending, pending } from "../stream-merge.ts";
+import { stampN, uuidN } from "../../test-support/uuids.ts";
 
 const SESSION_A = "aaaaaaaa-0000-0000-0000-000000000001" as const;
 const SESSION_B = "bbbbbbbb-0000-0000-0000-000000000002" as const;
-const uuidN = (n: number): UUID =>
-  `00000000-0000-0000-0000-${String(n).padStart(12, "0")}`;
 
 /** The hub's stamp on an event whose payload carries no uuid: distinct
- *  per call, from 1000 up so it never collides with a test's own ids. */
-let stampCounter = 1000;
-const stamp = (): UUID => uuidN(stampCounter++);
+ *  per call. */
+let stampCounter = 0;
+const stamp = (): UUID => stampN(++stampCounter);
 
 // The fold only inspects the fields each step reads, so minimal stubs
 // suffice; assistant messages get the usage payload and the (wire-mandatory)

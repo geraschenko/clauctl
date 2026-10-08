@@ -106,12 +106,41 @@ Source: docs/derisk/permission-prompt/probe-bg-subagent.mjs, FINDINGS.md
   not blocked. `AgentState.tasks: TaskState[]` (permission-prompt spec)
   is the task map this note builds on; the per-task `SessionState` is
   the field to add there.
-- **Hypothesis: steering a subagent.** The CLI TUI can send a prompt to
-  a running subagent; sdk.d.ts exposes no `Query` method for it, but the
-  input `SDKUserMessage` shape has `parent_tool_use_id: string | null`.
-  Probe: push a user message with `parent_tool_use_id = <the Task
-  tool_use id>` while the subagent runs and check whether it lands in
-  the subagent's file (`agent-<id>.jsonl`) rather than the main one.
+- **Steering a subagent through the SDK input: refuted (2026-10-08).**
+  The hypothesis was that an input `SDKUserMessage` with
+  `parent_tool_use_id = <the Agent tool_use id>` reaches the running
+  subagent. Free answering-shim probes (claude 2.1.280, SDK 0.3.280; a
+  throwaway probe written for docs/specs/permission-amend-allow.md, not
+  kept) sent such a message
+  (`shouldQuery: false`) from `canUseTool` while the subagent's Bash ask
+  was parked, then allowed it:
+  - foreground Agent (`run_in_background: false`): the message was
+    steered into the **main** agent's next request, after the Agent's
+    `tool_result` ("The user sent a new message while you were
+    working…"). It became a `queued_command` attachment in the main file.
+    The subagent's request after its Bash `tool_result` did not carry it;
+  - Agent without `run_in_background` (the shim's call ran in the
+    background): the message became a plain user entry in the main file
+    after the main turn's result. The main agent saw it, as a separate
+    text block after the Agent's `tool_result`, in the task-notification
+    turn.
+
+  sdk.d.ts has no other route: no `Query` method or input field addresses
+  a running subagent. So clauctl cannot steer subagents for now.
+  What does reach a subagent is a hook: a PostToolUse `additionalContext`
+  returned for a subagent's tool use lands in that subagent's next
+  request (tests/sdk/amend-allow.test.ts). Hook inputs carry `agent_id`.
+  This lets clauctl attach text to a subagent's tool result, but it is
+  not a prompt.
+  Still uncertain:
+  - whether `shouldQuery: true` (the default) behaves differently. Only
+    `shouldQuery: false` was probed;
+  - whether the claude TUI's own "message a running subagent" uses a
+    control request the SDK does not expose (not checked: no greps of
+    the CLI binary);
+  - whether the main agent's `SendMessage` tool, which resumes a stopped
+    agent by `agentId` (the Agent `tool_result` advertises it), is a
+    usable indirect route.
 - **`forwardSubagentText`** (`Options`, documented default false): only
   tool_use/tool_result blocks of subagents are forwarded otherwise. The
   probe saw subagent thinking/text frames without setting it, so either

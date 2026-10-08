@@ -257,6 +257,7 @@ async function daemon(this: CommandContext, flags: DaemonFlags): Promise<void> {
     cwd: record.cwd,
     env: childEnv(record.persistedOptions.env, agentId),
     ...(resume !== undefined ? { resume } : { sessionId: seedSessionId }),
+    hooks: permissionBroker.feedbackHooks,
     canUseTool: (toolName, input, options) =>
       permissionBroker.request(
         permissionRequestOf(toolName, input, options, Date.now()),
