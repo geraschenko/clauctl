@@ -1,7 +1,7 @@
 /**
  * Direct render of a session file: the attach TUI's replay pipeline
  * (readSessionEntries → buildTree + toDisplayTree → nearestVisibleNode →
- * pathToLeaf, cf. interactive-mode.ts replay) fed through the exact
+ * pathToLeaf, cf. tui/interactive-mode/interactive-mode.ts replay) fed through the exact
  * TranscriptRenderer the attach TUI uses, without tmux or a live agent.
  * The leaf is the context tree's, matching what get-entries reports for a
  * freshly started daemon. Output is the

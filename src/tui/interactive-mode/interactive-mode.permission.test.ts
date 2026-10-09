@@ -16,18 +16,18 @@ import {
   type Terminal,
   TuiMainScreen,
 } from "@earendil-works/pi-tui";
-import { initialAgentState } from "../core/agent-state/index.ts";
-import { stripAnsi } from "../core/generated/text.ts";
-import { KEY } from "../test-support/keys.ts";
-import type { ProtocolClient } from "../core/protocol-client/index.ts";
-import { permissionRequestOf } from "../core/protocol-server/index.ts";
+import { initialAgentState } from "../../core/agent-state/index.ts";
+import { stripAnsi } from "../../core/generated/text.ts";
+import { KEY } from "../../test-support/keys.ts";
+import type { ProtocolClient } from "../../core/protocol-client/index.ts";
+import { permissionRequestOf } from "../../core/protocol-server/index.ts";
 import type {
   AgentState,
   PermissionRequest,
   ProtocolRequest,
-} from "../core/protocol/index.ts";
+} from "../../core/protocol/index.ts";
 import { InteractiveMode } from "./interactive-mode.ts";
-import { CLAUCTL_KEYBINDINGS } from "./keybindings.ts";
+import { CLAUCTL_KEYBINDINGS } from "../keybindings.ts";
 
 setKeybindings(new KeybindingsManager(CLAUCTL_KEYBINDINGS, {}));
 

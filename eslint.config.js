@@ -38,6 +38,11 @@ const barrelPatterns = [
     group: ["**/tool-view/*", "!**/tool-view/index.ts"],
     message: "Import tool-view/index.ts; the siblings are implementation.",
   },
+  {
+    group: ["**/interactive-mode/*", "!**/interactive-mode/index.ts"],
+    message:
+      "Import interactive-mode/index.ts; the siblings are implementation.",
+  },
 ];
 
 /** Inside a barrel, siblings import each other, never their own barrel. */
@@ -106,6 +111,7 @@ export default tseslint.config(
   barrelImplementation("format/entry-view"),
   barrelImplementation("format/entry-view/attachment-view"),
   barrelImplementation("format/entry-view/tool-view"),
+  barrelImplementation("tui/interactive-mode"),
   {
     files: ["src/core/agent-state/observe-event/**"],
     rules: {

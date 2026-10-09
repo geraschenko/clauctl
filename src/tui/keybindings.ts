@@ -4,7 +4,7 @@
  * `<configDir>/keybindings.json` (pi's flat `actionId → key | key[]` schema,
  * so pi users feel at home). This module owns the definitions, the config
  * file's read/rewrite logic, and warning formatting; wiring the manager into
- * the TUI lives in interactive-mode.ts.
+ * the TUI lives in interactive-mode/.
  *
  * The config file carries two metadata fields, both stripped from the
  * bindings on read: `default_bindings` (documents every action and its

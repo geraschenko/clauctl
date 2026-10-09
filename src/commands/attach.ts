@@ -10,7 +10,7 @@ import { oneTarget, type CommandContext } from "../core/generated/targets.ts";
 import { ensureAgentRunning } from "./lifecycle.ts";
 import { agentSocketPath } from "../core/registry.ts";
 import { ProtocolClient } from "../core/protocol-client/index.ts";
-import { runInteractive } from "../tui/interactive-mode.ts";
+import { runInteractive } from "../tui/interactive-mode/index.ts";
 
 export async function attach(this: CommandContext): Promise<void> {
   const { id: targetId } = oneTarget(this);

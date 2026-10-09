@@ -4,29 +4,18 @@
  * at a fraction of the size — everything pi-core-specific (extensions,
  * session trees, model registry, settings, auth) has no counterpart here.
  * All claude-specificity of *content* lives in sdk-render.ts; this file owns
- * layout, keybindings, and the AgentEvent → component dispatch.
+ * keybindings and the AgentEvent → component dispatch.
  */
 
 import {
   Container,
   Editor,
   getKeybindings,
-  isViewportTUI,
   KeybindingsManager,
   Loader,
-  ProcessTerminal,
-  ScrollView,
-  setKeybindings,
   Text,
-  TuiAltScreen,
-  TuiMainScreen,
-  VStack,
-  type Component,
-  type StackEntry,
   type TUI,
-  type TuiMode,
 } from "@earendil-works/pi-tui";
-import { copyToClipboard, initTheme } from "@earendil-works/pi-coding-agent";
 import type {
   EffortLevel,
   ModelInfo,
@@ -38,35 +27,32 @@ import {
   allPendingAsks,
   anomalyReport,
   isIdle,
-} from "../core/agent-state/index.ts";
-import { ANSI_STYLE } from "../format/style.ts";
-import { PermissionPromptComponent } from "./components/permission-prompt.ts";
-import { QuestionPromptComponent } from "./components/question-prompt.ts";
-import { askUserQuestionInput } from "./question-dialog.ts";
-import { FitWidth } from "./components/fit-width.ts";
-import { permissionDialog, PLAIN_DENY_MESSAGE } from "./permission-dialog.ts";
+} from "../../core/agent-state/index.ts";
+import { ANSI_STYLE } from "../../format/style.ts";
+import { PermissionPromptComponent } from "../components/permission-prompt.ts";
+import { QuestionPromptComponent } from "../components/question-prompt.ts";
+import { askUserQuestionInput } from "../question-dialog.ts";
+import { permissionDialog } from "../permission-dialog.ts";
 import type {
   AgentState,
   AgentEvent,
   GetEntriesResponse,
-  PermissionRequest,
-  PermissionResolution,
-} from "../core/protocol/index.ts";
+} from "../../core/protocol/index.ts";
 import type { UUID } from "node:crypto";
 import { readFileSync } from "node:fs";
-import type { SessionEntry } from "../core/session/file.ts";
-import type { TreeNodeRef } from "../core/tree/nodes.ts";
-import type { ProtocolClient } from "../core/protocol-client/index.ts";
-import { findFd, TuiAutocompleteProvider } from "./autocomplete.ts";
-import { EffortSelectorComponent } from "./components/effort-selector.ts";
-import { FooterComponent } from "./components/footer.ts";
-import { FooterDataProvider } from "./footer-data-provider.ts";
-import { ModelSelectorComponent } from "./components/model-selector.ts";
-import { PendingMessagesComponent } from "./components/pending-messages.ts";
+import type { SessionEntry } from "../../core/session/file.ts";
+import type { TreeNodeRef } from "../../core/tree/nodes.ts";
+import type { ProtocolClient } from "../../core/protocol-client/index.ts";
+import { findFd, TuiAutocompleteProvider } from "../autocomplete.ts";
+import { EffortSelectorComponent } from "../components/effort-selector.ts";
+import { FooterComponent } from "../components/footer.ts";
+import { FooterDataProvider } from "../footer-data-provider.ts";
+import { ModelSelectorComponent } from "../components/model-selector.ts";
+import { PendingMessagesComponent } from "../components/pending-messages.ts";
 import {
   resolveTreePick,
   TreeSelectorComponent,
-} from "./components/tree-selector.ts";
+} from "../components/tree-selector.ts";
 import {
   CLAUCTL_KEYBINDINGS,
   conflictWarnings,
@@ -74,60 +60,22 @@ import {
   promoteEditedDefaults,
   readKeybindingsConfig,
   writeDefaultBindings,
-} from "./keybindings.ts";
+} from "../keybindings.ts";
 import {
   editFileInExternalEditor,
   editTextInExternalEditor,
   externalEditorCommand,
-} from "./external-editor.ts";
-import { VERSION } from "../core/generated/version.ts";
-import { userText } from "../format/sdk-render.ts";
-import type { SessionModel } from "./session-model.ts";
-import { SessionModels } from "./session-models.ts";
-import {
-  readSettings,
-  settingsPath,
-  type ClauctlSettings,
-} from "../core/settings.ts";
-import { TranscriptRenderer } from "./transcript.ts";
-import { getEditorTheme, theme, type ThemeColor } from "./theme.ts";
-
-/**
- * Parse the locally intercepted `/model` command: the first
- * whitespace-delimited token must be exactly `/model` (case-sensitive);
- * the argument is the trimmed remainder. Returns null for any other text;
- * `model` undefined means bare `/model` (open the menu).
- */
-export function parseModelCommand(
-  text: string,
-): { model: string | undefined } | null {
-  const trimmed = text.trim();
-  const spaceIndex = trimmed.search(/\s/);
-  const token = spaceIndex === -1 ? trimmed : trimmed.slice(0, spaceIndex);
-  if (token !== "/model") {
-    return null;
-  }
-  const arg = spaceIndex === -1 ? "" : trimmed.slice(spaceIndex).trim();
-  return { model: arg === "" ? undefined : arg };
-}
-
-/**
- * Parse the locally intercepted `/effort` command; same first-token parse
- * as parseModelCommand. `level` undefined means bare `/effort` (open the
- * menu).
- */
-export function parseEffortCommand(
-  text: string,
-): { level: string | undefined } | null {
-  const trimmed = text.trim();
-  const spaceIndex = trimmed.search(/\s/);
-  const token = spaceIndex === -1 ? trimmed : trimmed.slice(0, spaceIndex);
-  if (token !== "/effort") {
-    return null;
-  }
-  const arg = spaceIndex === -1 ? "" : trimmed.slice(spaceIndex).trim();
-  return { level: arg === "" ? undefined : arg };
-}
+} from "../external-editor.ts";
+import { VERSION } from "../../core/generated/version.ts";
+import { userText } from "../../format/sdk-render.ts";
+import type { SessionModel } from "../session-model.ts";
+import { SessionModels } from "../session-models.ts";
+import { type ClauctlSettings } from "../../core/settings.ts";
+import { TranscriptRenderer } from "../transcript.ts";
+import { getEditorTheme, theme, type ThemeColor } from "../theme.ts";
+import { mountParts } from "./layout.ts";
+import { parseEffortCommand, parseModelCommand } from "./local-commands.ts";
+import { resolutionBanner } from "./resolution-banner.ts";
 
 /** How an interactive session ended; attach.ts turns this into the exit
  *  message and code. */
@@ -135,236 +83,6 @@ export type InteractiveOutcome =
   | { kind: "detached" } // app.detach pressed; the agent keeps running
   | { kind: "shutdown"; reason: string } // daemon shutdown event received
   | { kind: "connectionLost" }; // socket closed unannounced (daemon crash)
-
-/**
- * Connect the TUI to a subscribed client. Owns the subscribe ordering: events
- * may be delivered before the snapshot promise settles (ProtocolClient
- * contract), so they buffer in a closure until InteractiveMode exists — the
- * same gating `tail` does. Resolves with how the session ended: `done`
- * (detach key, shutdown event) races the event pump, whose own end means the
- * socket closed unannounced — the pump subsumes waitClosed because the event
- * queue closes with the socket, and draining it first is what lets a shutdown
- * line already on the wire still win the race.
- */
-export async function runInteractive(
-  client: ProtocolClient,
-  logDirectory: string,
-): Promise<InteractiveOutcome> {
-  initTheme("dark");
-  // The global manager must be set before InteractiveMode exists: its Editor
-  // resolves tui.* ids against getKeybindings(), which otherwise caches a
-  // TUI_KEYBINDINGS-only fallback on first use.
-  const configRead = readKeybindingsConfig(
-    keybindingsPath(),
-    CLAUCTL_KEYBINDINGS,
-  );
-  const keybindingWarnings = configRead.ok
-    ? [...configRead.warnings]
-    : [`config ignored, using defaults: ${configRead.error}`];
-  const keybindings = new KeybindingsManager(
-    CLAUCTL_KEYBINDINGS,
-    configRead.ok ? configRead.bindings : {},
-  );
-  setKeybindings(keybindings);
-  keybindingWarnings.push(...conflictWarnings(keybindings));
-  const startupWarnings = keybindingWarnings.map(
-    (warning) => `keybindings: ${warning}`,
-  );
-  const settingsRead = readSettings(settingsPath());
-  startupWarnings.push(
-    ...settingsRead.warnings.map((warning) => `settings: ${warning}`),
-  );
-  const { seed, events } = await client.subscribe({
-    pid: process.pid,
-    client: "clauctl attach",
-  });
-  const ui = createTui(settingsRead.settings.tuiMode, logDirectory);
-  const interactiveMode = new InteractiveMode(
-    ui,
-    client,
-    seed,
-    startupWarnings,
-    settingsRead.settings,
-  );
-  // Events arriving while the UI is built wait in the queue; the pump starts
-  // only once there is something to hand them to. Racing it propagates a
-  // handler failure, which would otherwise be an unhandled rejection.
-  const pump = (async () => {
-    for await (const { event, state } of events) {
-      interactiveMode.handleEvent(event, state);
-    }
-  })();
-  ui.start();
-  try {
-    // `done` settles inside the pump's iteration (handleEvent), strictly
-    // before the pump itself can resolve — so an announced shutdown never
-    // misreports as connectionLost.
-    return await Promise.race([
-      interactiveMode.done,
-      pump.then((): InteractiveOutcome => ({ kind: "connectionLost" })),
-    ]);
-  } finally {
-    // The mode is about to be disposed, so drop anything still queued.
-    events.cancel();
-    // Fullscreen restores the pre-attach main screen instead of dumping the
-    // rendered document: attach/detach is frequent, and the transcript
-    // remains available by reattaching.
-    ui.stop({ preserveScreen: ui.mode === "fullscreen" });
-    interactiveMode.dispose();
-    client.close();
-  }
-}
-
-/**
- * Renderer selection (the composition point for settings.tuiMode): regular
- * mode is pi-tui's main-buffer document renderer; fullscreen is the
- * alternate-screen viewport renderer, whose transcript search styling and
- * selection-copy mirror pi's createInteractiveTui. The hardware cursor stays
- * hidden and clear-on-shrink off (pi-tui's defaults; pi exposes both as
- * settings, we have no need yet). logDirectory is the agent directory —
- * pi-tui only writes there on a fatal render invariant (pi-tui-crash.log)
- * or under PI_TUI_DEBUG_REDRAW=1; without it crash dumps go to the OS temp
- * directory.
- */
-function createTui(
-  tuiMode: TuiMode,
-  logDirectory: string,
-): TuiMainScreen | TuiAltScreen {
-  const terminal = new ProcessTerminal();
-  if (tuiMode === "fullscreen") {
-    const styleSearchMatch = (text: string) =>
-      theme.bg("searchMatchBg", theme.fg("searchMatchText", text));
-    return new TuiAltScreen(terminal, false, logDirectory, {
-      searchMatchStyle: (text) => theme.underline(styleSearchMatch(text)),
-      searchCurrentMatchStyle: (text) =>
-        theme.bold(theme.inverse(styleSearchMatch(text))),
-      copySelection: async (text) => {
-        try {
-          await copyToClipboard(text);
-          return true;
-        } catch {
-          return false;
-        }
-      },
-    });
-  }
-  return new TuiMainScreen(terminal, false, logDirectory);
-}
-
-/** The components the TUI composes, in one place so both mount paths draw
- *  from the same set. */
-export interface TuiParts {
-  chatContainer: Container;
-  statusContainer: Container;
-  pendingMessages: Component;
-  /** Holds the editor, or the permission prompt while an ask is pending. */
-  inputSlot: Container;
-  hintText: Component;
-  footer: Component;
-}
-
-/**
- * The non-transcript components in visual order, with their fullscreen dock
- * sizing (minSize keeps the editor at 3 rows and the footer at 1 on short
- * terminals). The single source of the below-transcript ordering: the
- * fullscreen dock VStack consumes the entries, the regular-mode flat mount
- * consumes just the components.
- */
-/** Transcript banner for a `permissionResolved`, so a TUI that did not
- *  answer still sees what happened (decided divergence: claude shows
- *  nothing beyond the tool result). None for AskUserQuestion, whose tool
- *  result already shows the answers or the decline. */
-function resolutionBanner(
-  resolution: PermissionResolution,
-  resolvedRequest: PermissionRequest | undefined,
-): string | undefined {
-  if (resolvedRequest?.toolName === "AskUserQuestion") return undefined;
-  switch (resolution.behavior) {
-    case "allow": {
-      const updates = resolution.updatedPermissions?.length ?? 0;
-      return updates === 0
-        ? "permission allowed"
-        : `permission allowed (+${updates} updates)`;
-    }
-    case "deny":
-      return resolution.message === PLAIN_DENY_MESSAGE
-        ? "permission denied"
-        : `permission denied: ${resolution.message}`;
-    case "cancelled":
-      return "permission cancelled";
-  }
-}
-
-function dockEntries(parts: TuiParts): StackEntry[] {
-  return [
-    { component: parts.statusContainer, shrink: 1, minSize: 0 },
-    { component: parts.pendingMessages, shrink: 1, minSize: 0 },
-    { component: parts.inputSlot, shrink: 1, minSize: 3 },
-    { component: parts.hintText, shrink: 1, minSize: 0 },
-    { component: parts.footer, shrink: 1, minSize: 1 },
-  ];
-}
-
-/** The layout TuiAltScreen renders: transcript in a scroll region that takes
- *  the spare height, everything else in a fixed-bottom dock. */
-export interface FullscreenLayout {
-  /** The component handed to TuiAltScreen.setLayoutRoot. */
-  layoutRoot: VStack;
-  transcriptScrollView: ScrollView;
-}
-
-/**
- * Pure layout composition (exported for tests): wraps the transcript
- * container in the primary ScrollView — follow:"end" keeps it pinned to new
- * output until the user scrolls, overscroll:"chain" lets wheel input past
- * the edges fall through — and docks the dockEntries components below it;
- * the transcript absorbs the spare height via grow:1.
- */
-export function buildFullscreenLayout(parts: TuiParts): FullscreenLayout {
-  const transcriptScrollView = new ScrollView(parts.chatContainer, {
-    follow: "end",
-    primary: true,
-    overscroll: "chain",
-  });
-  const layoutRoot = new VStack([
-    {
-      component: transcriptScrollView,
-      basis: 0,
-      grow: 1,
-      shrink: 1,
-      minSize: 1,
-    },
-    {
-      component: new VStack(dockEntries(parts)),
-      basis: "auto",
-      grow: 0,
-      shrink: 1,
-      minSize: 1,
-    },
-  ]);
-  return { layoutRoot, transcriptScrollView };
-}
-
-/**
- * Mount the parts on the renderer — the one place that knows the two
- * rendering shapes. A viewport renderer gets the explicit layout root;
- * regular mode gets the flat document (transcript, then the dock components
- * in the same dockEntries order). Either/or, unlike pi's mount, which does
- * both unconditionally because its runtime mode switching moves the same
- * components between renderers; without that (a recorded non-goal), the
- * unused mount would just be a second copy of the layout to keep in sync.
- */
-function mountParts(ui: TUI, parts: TuiParts): void {
-  if (isViewportTUI(ui)) {
-    ui.setLayoutRoot(buildFullscreenLayout(parts).layoutRoot);
-    return;
-  }
-  // Regular mode is where an over-wide line crashes the screen (fit-width.ts).
-  ui.addChild(new FitWidth(parts.chatContainer));
-  for (const { component } of dockEntries(parts)) {
-    ui.addChild(new FitWidth(component));
-  }
-}
 
 export class InteractiveMode {
   readonly done: Promise<InteractiveOutcome>;

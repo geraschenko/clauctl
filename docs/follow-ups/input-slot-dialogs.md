@@ -20,7 +20,9 @@ commit ad83fc2, `src/tui/interactive-mode.ts`).
 ## Decided (Anton, 2026-10-06)
 
 - Do this after the keybindings work (docs/specs/dialog-keybindings.md) and after
-  splitting interactive-mode.ts into a directory (interactive-mode-split.md).
+  splitting interactive-mode.ts into a directory
+  (docs/specs/interactive-mode-split.md; the code is now in
+  `src/tui/interactive-mode/`).
 - Whether a `permissionResolved` banner shows is decided by the resolved
   request's `toolName` (looked up by `toolUseId` in the pre-event state),
   not by UI state. That part lands in the AskUserQuestion cleanup.

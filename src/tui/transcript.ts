@@ -1,6 +1,6 @@
 /**
  * TranscriptRenderer: the single source of truth for transcript content.
- * Live attach (interactive-mode.ts) and render-from-file
+ * Live attach (interactive-mode/interactive-mode.ts) and render-from-file
  * (scripts/tui-parity/render-session.ts) both render through this class, so
  * the two paths cannot drift. It owns the transcript components — streaming
  * fold, tool components, user/assistant blocks, banners — while the caller
