@@ -12,6 +12,7 @@ import {
   type Focusable,
 } from "@earendil-works/pi-tui";
 import type { ModelInfo } from "@anthropic-ai/claude-agent-sdk";
+import { keyHints } from "../keybindings.ts";
 import { getEditorTheme, theme } from "../theme.ts";
 
 const MAX_VISIBLE_MODELS = 10;
@@ -39,11 +40,15 @@ export class ModelSelectorComponent extends Container implements Focusable {
     this.selectList.onSelect = (item) =>
       onSelect(modelsByValue.get(item.value)!);
     this.selectList.onCancel = onCancel;
-    const cancelKey =
-      getKeybindings().getKeys("tui.select.cancel")[0] ?? "escape";
+    const hint = keyHints(getKeybindings(), [
+      ["tui.select.cancel", "to cancel"],
+    ]).join(", ");
     this.addChild(
       new Text(
-        theme.fg("accent", `select model (${cancelKey} to cancel)`),
+        theme.fg(
+          "accent",
+          hint === "" ? "select model" : `select model (${hint})`,
+        ),
         1,
         0,
       ),

@@ -1,10 +1,10 @@
 /**
  * The permission dialog that replaces the editor while an ask is pending
  * (docs/specs/permission-prompt.md, "Dialog layout"). Rows mode: digits,
- * tui.select.up/down, confirm, cancel (`cancelDecision`), Tab (amend). Amend
- * mode: a pi-tui Input whose Enter sends, on an allow row, that allow with
- * the text as feedback, and on any other row an amended deny; its Esc
- * returns to the rows (docs/specs/permission-amend-allow.md). Knows nothing about tools: it renders a
+ * tui.select.up/down, confirm, cancel (`cancelDecision`), app.permission.amend.
+ * Amend mode: a pi-tui Input whose Enter sends, on an allow row, that allow
+ * with the text as feedback, and on any other row an amended deny; its Esc
+ * returns to the rows, and app.editor.external edits its text (docs/specs/permission-amend-allow.md). Knows nothing about tools: it renders a
  * PermissionDialog and reports a PermissionResult.
  */
 
@@ -14,8 +14,8 @@ import {
   getKeybindings,
   Input,
   Markdown,
-  matchesKey,
   type Focusable,
+  type Keybinding,
   wrapTextWithAnsi,
 } from "@earendil-works/pi-tui";
 import {
@@ -23,6 +23,7 @@ import {
   type PermissionDialog,
   type PermissionRow,
 } from "../permission-dialog.ts";
+import { keyHints } from "../keybindings.ts";
 import { DASHED_RULE } from "../permission-views.ts";
 import { getMarkdownTheme, theme } from "../theme.ts";
 
@@ -37,6 +38,7 @@ export class PermissionPromptComponent extends Container implements Focusable {
     decision: PermissionResult,
     feedback?: string,
   ) => void;
+  private readonly editText: (text: string) => Promise<string | undefined>;
   private selected: number;
   private amendInput: Input | undefined;
 
@@ -44,11 +46,13 @@ export class PermissionPromptComponent extends Container implements Focusable {
     dialog: PermissionDialog,
     pendingCount: number,
     onDecide: (decision: PermissionResult, feedback?: string) => void,
+    editText: (text: string) => Promise<string | undefined>,
   ) {
     super();
     this.dialog = dialog;
     this.pendingCount = pendingCount;
     this.onDecide = onDecide;
+    this.editText = editText;
     this.selected = dialog.defaultToNo ? dialog.rows.length - 1 : 0;
   }
 
@@ -92,11 +96,18 @@ export class PermissionPromptComponent extends Container implements Focusable {
   }
 
   handleInput(data: string): void {
-    if (this.amendInput !== undefined) {
-      this.amendInput.handleInput(data);
+    const keybindings = getKeybindings();
+    const amendInput = this.amendInput;
+    if (amendInput !== undefined) {
+      if (keybindings.matches(data, "app.editor.external")) {
+        void this.editText(amendInput.getValue()).then((edited) => {
+          if (edited !== undefined) amendInput.setValue(edited);
+        });
+      } else {
+        amendInput.handleInput(data);
+      }
       return;
     }
-    const keybindings = getKeybindings();
     const digit =
       /^[1-9]$/.test(data) && !this.dialog.defaultToNo
         ? Number(data) - 1
@@ -112,7 +123,10 @@ export class PermissionPromptComponent extends Container implements Focusable {
       this.confirm();
     } else if (keybindings.matches(data, "tui.select.cancel")) {
       this.onDecide(this.dialog.cancelDecision);
-    } else if (matchesKey(data, "tab") && this.dialog.tabAmends) {
+    } else if (
+      keybindings.matches(data, "app.permission.amend") &&
+      this.dialog.tabAmends
+    ) {
       const row = this.dialog.rows[this.selected];
       if (row !== undefined) this.openAmend(row);
     }
@@ -120,6 +134,10 @@ export class PermissionPromptComponent extends Container implements Focusable {
 
   override render(width: number): string[] {
     const { dialog } = this;
+    const keybindings = getKeybindings();
+    const hint = (
+      segments: ReadonlyArray<readonly [Keybinding, string]>,
+    ): string => keyHints(keybindings, segments).join(" · ");
     const more =
       this.pendingCount > 1 ? ` (+${this.pendingCount - 1} more)` : "";
     const lines = [
@@ -147,7 +165,14 @@ export class PermissionPromptComponent extends Container implements Focusable {
       this.amendInput.focused = this.focused;
       lines.push(
         ...this.amendInput.render(width),
-        theme.fg("dim", " Enter to send · Esc back to the options"),
+        theme.fg(
+          "dim",
+          ` ${hint([
+            ["tui.input.submit", "to send"],
+            ["tui.select.cancel", "back to the options"],
+            ["app.editor.external", "to edit in your editor"],
+          ])}`,
+        ),
       );
       return lines;
     }
@@ -165,13 +190,19 @@ export class PermissionPromptComponent extends Container implements Focusable {
           : wrapped),
       );
     });
-    const hint = dialog.tabAmends
-      ? "Esc to cancel · Tab to amend"
+    const rowsHint = dialog.tabAmends
+      ? hint([
+          ["tui.select.cancel", "to cancel"],
+          ["app.permission.amend", "to amend"],
+        ])
       : dialog.planFilePath === undefined
         ? undefined
-        : "Esc to cancel · ctrl+g to edit the plan";
-    if (hint !== undefined) {
-      lines.push("", theme.fg("dim", ` ${hint}`));
+        : hint([
+            ["tui.select.cancel", "to cancel"],
+            ["app.editor.external", "to edit the plan"],
+          ]);
+    if (rowsHint !== undefined) {
+      lines.push("", theme.fg("dim", ` ${rowsHint}`));
     }
     return lines;
   }

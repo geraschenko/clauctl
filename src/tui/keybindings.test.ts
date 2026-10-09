@@ -8,8 +8,11 @@ import {
   type KeybindingDefinitions,
 } from "@earendil-works/pi-tui";
 import {
+  CLAUCTL_KEYBINDINGS,
   conflictWarnings,
   defaultBindings,
+  keyHints,
+  keyLabel,
   promoteEditedDefaults,
   readKeybindingsConfig,
   writeDefaultBindings,
@@ -235,4 +238,34 @@ test("conflictWarnings: formats user-vs-user key claims", () => {
   assert.match(warnings[0]!, /key "ctrl\+x" is bound to multiple actions/);
   assert.match(warnings[0]!, /app.one/);
   assert.match(warnings[0]!, /app.two/);
+});
+
+test("keyLabel: the first bound key, named as native hints name it", () => {
+  const manager = new KeybindingsManager(CLAUCTL_KEYBINDINGS, {
+    "app.question.notes": [],
+    "tui.select.confirm": ["return", "ctrl+j"],
+  });
+  assert.equal(keyLabel(manager, "tui.select.cancel"), "Esc");
+  assert.equal(keyLabel(manager, "tui.select.confirm"), "Enter");
+  assert.equal(keyLabel(manager, "app.question.nextTab"), "Tab");
+  assert.equal(keyLabel(manager, "app.question.toggle"), "Space");
+  assert.equal(keyLabel(manager, "tui.select.up"), "↑");
+  assert.equal(keyLabel(manager, "tui.select.down"), "↓");
+  assert.equal(keyLabel(manager, "app.question.previousTab"), "shift+tab");
+  assert.equal(keyLabel(manager, "app.editor.external"), "ctrl+g");
+  assert.equal(keyLabel(manager, "app.question.notes"), undefined);
+});
+
+test("keyHints: labelled segments, unbound actions dropped", () => {
+  const manager = new KeybindingsManager(CLAUCTL_KEYBINDINGS, {
+    "app.question.notes": [],
+  });
+  assert.deepEqual(
+    keyHints(manager, [
+      ["tui.select.confirm", "to select"],
+      ["app.question.notes", "to add notes"],
+      ["tui.select.cancel", "to cancel"],
+    ]),
+    ["Enter to select", "Esc to cancel"],
+  );
 });

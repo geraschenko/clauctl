@@ -179,6 +179,7 @@ test("revisiting a tab keeps the Type something text cursor at its end", () => {
     "a",
     "b",
     "c",
+    KEY.up,
     KEY.tab,
     KEY.shiftTab,
     KEY.down,
@@ -256,4 +257,81 @@ test("a task's ask and further pending asks extend the title line", () => {
     () => Promise.resolve(undefined),
   );
   assert.match(screen(prompt), / ☐ Pet — task: explore \(\+2 more\)/);
+});
+
+test("several questions: the navigation hint drops the tab key on the Type something row, which offers ctrl+g", () => {
+  const { prompt } = mount(asInput(PET, COLORS));
+  assert.match(
+    screen(prompt),
+    /Enter to select · Tab\/↑\/↓ to navigate · Esc to cancel/,
+  );
+  press(prompt, KEY.down, KEY.down);
+  assert.match(
+    screen(prompt),
+    /Enter to select · ↑\/↓ to navigate · ctrl\+g to edit in your editor · Esc to cancel/,
+  );
+});
+
+test("Type something row: left/right edit the text and Tab/Shift+Tab stay on the question", () => {
+  const { prompt } = mount(asInput(PET, COLORS));
+  press(prompt, KEY.down, KEY.down, "a", "c", KEY.left, "b", KEY.tab);
+  press(prompt, KEY.shiftTab, KEY.right, "d");
+  const text = screen(prompt);
+  assert.match(text, /Do you prefer cats or dogs\?/);
+  assert.match(text, /❯ 3\. abcd/);
+});
+
+test("Type something row: Enter commits the typed answer", () => {
+  const input = asInput(PET);
+  const { prompt, decisions } = mount(input);
+  press(prompt, KEY.down, KEY.down, "x", KEY.enter);
+  assert.deepEqual(decisions, [
+    submitDecision(input, [
+      { ...EMPTY_ANSWER, otherText: "x", otherSelected: true },
+    ]),
+  ]);
+});
+
+test("multi-select Type something: Enter deselects the typed answer and it stays deselected", () => {
+  const { prompt } = mount(asInput(COLORS));
+  press(prompt, KEY.down, KEY.down, "x");
+  assert.match(screen(prompt), /❯ 3\. \[✔\] x/);
+  press(prompt, KEY.enter);
+  assert.match(screen(prompt), /❯ 3\. \[ \] x/);
+});
+
+test("Type something row: ctrl+g fills the text from the editor", async () => {
+  let editing: Promise<string> | undefined;
+  const { prompt } = mount(asInput(PET), () => {
+    editing = Promise.resolve("from editor");
+    return editing;
+  });
+  press(prompt, KEY.down, KEY.down, "x", KEY.ctrlG);
+  // The prompt's own continuation was registered first, so it has run.
+  await editing;
+  assert.match(screen(prompt), /❯ 3\. from editor/);
+});
+
+test("notes: Enter on the last question's notes advances to the Submit tab", () => {
+  const { prompt } = mount(asInput(PET, LAYOUT));
+  press(prompt, KEY.tab, "n", "o", "k", KEY.enter);
+  assert.match(screen(prompt), /Review your answers/);
+});
+
+test("app.question.nextTab follows a remap, in dispatch and in the hint", () => {
+  setKeybindings(
+    new KeybindingsManager(CLAUCTL_KEYBINDINGS, {
+      "app.question.nextTab": "]",
+    }),
+  );
+  try {
+    const { prompt } = mount(asInput(PET, COLORS));
+    assert.match(screen(prompt), /Enter to select · \]\/↑\/↓ to navigate/);
+    press(prompt, KEY.tab);
+    assert.match(screen(prompt), /Do you prefer cats or dogs\?/);
+    press(prompt, "]");
+    assert.match(screen(prompt), /Which colors\?/);
+  } finally {
+    setKeybindings(new KeybindingsManager(CLAUCTL_KEYBINDINGS, {}));
+  }
 });

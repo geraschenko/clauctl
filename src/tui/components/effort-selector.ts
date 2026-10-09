@@ -12,6 +12,7 @@ import {
   type Focusable,
 } from "@earendil-works/pi-tui";
 import type { EffortLevel } from "@anthropic-ai/claude-agent-sdk";
+import { keyHints } from "../keybindings.ts";
 import { getEditorTheme, theme } from "../theme.ts";
 
 const MAX_VISIBLE_LEVELS = 10;
@@ -34,11 +35,15 @@ export class EffortSelectorComponent extends Container implements Focusable {
     // Items are built from `levels`, so the value round-trips as EffortLevel.
     this.selectList.onSelect = (item) => onSelect(item.value as EffortLevel);
     this.selectList.onCancel = onCancel;
-    const cancelKey =
-      getKeybindings().getKeys("tui.select.cancel")[0] ?? "escape";
+    const hint = keyHints(getKeybindings(), [
+      ["tui.select.cancel", "to cancel"],
+    ]).join(", ");
     this.addChild(
       new Text(
-        theme.fg("accent", `select effort level (${cancelKey} to cancel)`),
+        theme.fg(
+          "accent",
+          hint === "" ? "select effort level" : `select effort level (${hint})`,
+        ),
         1,
         0,
       ),

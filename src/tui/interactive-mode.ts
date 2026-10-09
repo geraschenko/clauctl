@@ -1125,6 +1125,7 @@ export class InteractiveMode {
             decision,
             feedback,
           ),
+        (text) => this.editTextExternally(text),
       );
     } else {
       prompt = new QuestionPromptComponent(

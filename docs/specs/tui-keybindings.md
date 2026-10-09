@@ -28,9 +28,9 @@ user experience).
 
 1. Every command chord the clauctl TUI dispatches on is declared in one
    definitions map (`CLAUCTL_KEYBINDINGS`) with an action id, default
-   key(s), and description. (Two deliberate exceptions: text input into
-   the tree selector's search — printable characters and backspace — is
-   editing, not a command chord; and the ctrl+] detach chord is fixed at
+   key(s), and description. (Two deliberate exceptions: printable text
+   typed into the tree selector's search is editing, not a command chord
+   (its backspace is `tui.editor.deleteCharBackward`); and the ctrl+] detach chord is fixed at
    the tty level by the attach client, so the registry cannot remap it.)
 2. A user can remap any action — including pi-tui's built-in editor and
    select-list keys — by editing `keybindings.json` in the clauctl config
@@ -42,9 +42,9 @@ user experience).
    ids, key conflicts among user overrides, `default_bindings` drift)
    surface as transcript banners — never silently ignored, never fatal to
    the TUI.
-5. Key hints shown in the UI (the selectors' "esc to cancel", …) render
-   the _resolved_ keys via `manager.getKeys()`, so they stay correct under
-   remaps. (The "detach with ctrl+]" hint is deliberately literal — the
+5. Key hints shown in the UI (the selectors' "Esc to cancel", …) render
+   the _resolved_ keys via `keyLabel` (docs/specs/dialog-keybindings.md),
+   so they stay correct under remaps. (The "detach with ctrl+]" hint is deliberately literal — the
    chord is fixed outside the registry, see criterion 1.)
 6. Default behavior is unchanged except one accepted change: **ctrl+c now
    acts as cancel in an open tree or model selector** (via
@@ -177,6 +177,9 @@ plus:
 | `app.thinking.toggle`      | `ctrl+t`    | toggle thinking blocks (existing)                            |
 | `app.permissionMode.cycle` | `shift+tab` | cycle permission mode (existing)                             |
 | `app.editor.external`      | `ctrl+g`    | external prompt editor (phase 2)                             |
+
+Dialog actions (`app.question.*`, `app.permission.amend`) are listed in
+docs/specs/dialog-keybindings.md, "Action set".
 
 Ids reuse pi's names where the meaning matches (portable user configs);
 `app.permissionMode.cycle` is clauctl-specific (pi's shift+tab means

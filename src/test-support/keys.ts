@@ -7,6 +7,8 @@ export const KEY = {
   shiftTab: "\x1b[Z",
   up: "\x1b[A",
   down: "\x1b[B",
+  right: "\x1b[C",
+  left: "\x1b[D",
   backspace: "\x7f",
   ctrlG: "\x07",
 } as const;

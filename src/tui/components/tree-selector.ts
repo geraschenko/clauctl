@@ -10,7 +10,6 @@ import type { UUID } from "node:crypto";
 import {
   Container,
   getKeybindings,
-  matchesKey,
   truncateToWidth,
   type Focusable,
 } from "@earendil-works/pi-tui";
@@ -33,6 +32,7 @@ import { extractTextContent } from "../../core/generated/text.ts";
 import { passesFilter, treeLines } from "../../format/tree.ts";
 import { isHumanPrompt } from "../../core/session/entry-predicates.ts";
 import type { TreeSettings } from "../../core/settings.ts";
+import { keyHints } from "../keybindings.ts";
 import { theme } from "../theme.ts";
 
 const MAX_VISIBLE_LINES = 15;
@@ -349,14 +349,15 @@ export class TreeSelectorComponent extends Container implements Focusable {
       this.showLines(filterLines(tree, this.searchQuery));
     }
     const lines: string[] = [];
-    const keybindings = getKeybindings();
-    const confirmKey = keybindings.getKeys("tui.select.confirm")[0] ?? "enter";
-    const cancelKey = keybindings.getKeys("tui.select.cancel")[0] ?? "escape";
+    const hint = keyHints(getKeybindings(), [
+      ["tui.select.confirm", "to rewind"],
+      ["tui.select.cancel", "to cancel"],
+    ]).join(", ");
     lines.push(
       truncateToWidth(
         theme.fg(
           "accent",
-          `pick a tree entry (${confirmKey} to rewind, ${cancelKey} to cancel)`,
+          hint === "" ? "pick a tree entry" : `pick a tree entry (${hint})`,
         ),
         width,
         "…",
@@ -396,9 +397,8 @@ export class TreeSelectorComponent extends Container implements Focusable {
   }
 
   handleInput(data: string): void {
-    // Command chords resolve through the global registry (tui.select.*);
-    // search editing (backspace, printable input) is text editing and stays
-    // on hard-coded keys.
+    // Every chord resolves through the global registry; printable input is
+    // search text.
     const keybindings = getKeybindings();
     if (keybindings.matches(data, "tui.select.up")) {
       this.selectedLine = this.nearestSelectableLine(this.selectedLine - 1, -1);
@@ -427,7 +427,7 @@ export class TreeSelectorComponent extends Container implements Focusable {
       } else {
         this.onCancel();
       }
-    } else if (matchesKey(data, "backspace")) {
+    } else if (keybindings.matches(data, "tui.editor.deleteCharBackward")) {
       this.searchQuery = this.searchQuery.slice(0, -1);
     } else if (isPrintable(data)) {
       this.searchQuery += data;

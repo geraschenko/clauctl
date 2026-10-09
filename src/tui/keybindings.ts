@@ -18,6 +18,7 @@ import { dirname, join } from "node:path";
 import { clauctlConfigDir } from "../core/config-dir.ts";
 import {
   TUI_KEYBINDINGS,
+  type Keybinding,
   type KeybindingDefinitions,
   type KeybindingsConfig,
   type KeybindingsManager,
@@ -41,6 +42,11 @@ declare module "@earendil-works/pi-tui" {
     "app.thinking.toggle": true;
     "app.permissionMode.cycle": true;
     "app.editor.external": true;
+    "app.question.nextTab": true;
+    "app.question.previousTab": true;
+    "app.question.toggle": true;
+    "app.question.notes": true;
+    "app.permission.amend": true;
   }
 }
 
@@ -80,7 +86,63 @@ export const CLAUCTL_KEYBINDINGS = {
     defaultKeys: "ctrl+g",
     description: "Edit the prompt in an external editor",
   },
+  "app.question.nextTab": {
+    defaultKeys: ["tab", "right"],
+    description: "Show the next question tab",
+  },
+  "app.question.previousTab": {
+    defaultKeys: ["shift+tab", "left"],
+    description: "Show the previous question tab",
+  },
+  "app.question.toggle": {
+    defaultKeys: "space",
+    description: "Toggle the focused multi-select option",
+  },
+  "app.question.notes": {
+    defaultKeys: "n",
+    description: "Add notes to a question with previews",
+  },
+  "app.permission.amend": {
+    defaultKeys: "tab",
+    description: "Amend the focused permission option with text",
+  },
 } satisfies KeybindingDefinitions;
+
+/** Native claude's names for keys whose ids hints should not show raw. */
+const KEY_LABELS: Record<string, string> = {
+  escape: "Esc",
+  esc: "Esc",
+  enter: "Enter",
+  return: "Enter",
+  tab: "Tab",
+  space: "Space",
+  up: "↑",
+  down: "↓",
+  left: "←",
+  right: "→",
+};
+
+/** The first key bound to `keybinding`, as hints display it; undefined
+ *  when the action is unbound. */
+export function keyLabel(
+  keybindings: KeybindingsManager,
+  keybinding: Keybinding,
+): string | undefined {
+  const key = keybindings.getKeys(keybinding)[0];
+  return key === undefined ? undefined : (KEY_LABELS[key] ?? key);
+}
+
+/** `"<key> <text>"` for each `[keybinding, text]` hint segment, dropping
+ *  unbound actions; the caller joins them. */
+export function keyHints(
+  keybindings: KeybindingsManager,
+  segments: ReadonlyArray<readonly [Keybinding, string]>,
+): string[] {
+  return segments.flatMap(([keybinding, text]) => {
+    const label = keyLabel(keybindings, keybinding);
+    return label === undefined ? [] : [`${label} ${text}`];
+  });
+}
 
 /** <clauctlConfigDir()>/keybindings.json */
 export function keybindingsPath(): string {

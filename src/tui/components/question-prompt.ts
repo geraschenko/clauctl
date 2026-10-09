@@ -12,8 +12,8 @@ import {
   getKeybindings,
   Input,
   Markdown,
-  matchesKey,
   type Focusable,
+  type Keybinding,
   truncateToWidth,
   visibleWidth,
   wrapTextWithAnsi,
@@ -27,6 +27,7 @@ import {
   submitDecision,
   usesPreviewLayout,
 } from "../question-dialog.ts";
+import { keyHints, keyLabel } from "../keybindings.ts";
 import { getMarkdownTheme, theme } from "../theme.ts";
 
 type Question = AskUserQuestionInput["questions"][number];
@@ -94,10 +95,22 @@ export class QuestionPromptComponent extends Container implements Focusable {
     this.onDecide = onDecide;
     this.editText = editText;
     this.answers = input.questions.map(() => EMPTY_ANSWER);
-    this.otherInputs = input.questions.map(
-      () => new Input({ prompt: "", placeholder: FREE_TEXT_PLACEHOLDER }),
-    );
-    this.notesInputs = input.questions.map(() => new Input({ prompt: "" }));
+    this.otherInputs = input.questions.map(() => {
+      const otherInput = new Input({
+        prompt: "",
+        placeholder: FREE_TEXT_PLACEHOLDER,
+      });
+      otherInput.onSubmit = () => this.act({ kind: "other" });
+      return otherInput;
+    });
+    this.notesInputs = input.questions.map(() => {
+      const notesInput = new Input({ prompt: "" });
+      notesInput.onSubmit = () => this.submitNotes();
+      notesInput.onEscape = () => {
+        this.mode = "select";
+      };
+      return notesInput;
+    });
   }
 
   /** The current question's inputs; read on question tabs only. */
@@ -157,11 +170,32 @@ export class QuestionPromptComponent extends Container implements Focusable {
     return rows.filter((candidate) => !unnumbered(candidate)).indexOf(row) + 1;
   }
 
-  private setAnswer(update: Partial<QuestionAnswer>): void {
-    this.answers[this.activeQuestionIndex] = {
-      ...this.answers[this.activeQuestionIndex]!,
+  private setAnswer(
+    questionIndex: number,
+    update: Partial<QuestionAnswer>,
+  ): void {
+    this.answers[questionIndex] = {
+      ...this.answers[questionIndex]!,
       ...update,
     };
+  }
+
+  /** The free-text answer follows its input's text; on multi-select,
+   *  nonempty text selects it. */
+  private syncOtherAnswer(questionIndex: number): void {
+    const otherText = this.otherInputs[questionIndex]!.getValue();
+    this.setAnswer(questionIndex, {
+      otherText,
+      ...(this.askInput.questions[questionIndex]?.multiSelect
+        ? { otherSelected: otherText !== "" }
+        : {}),
+    });
+  }
+
+  private syncNotesAnswer(questionIndex: number): void {
+    this.setAnswer(questionIndex, {
+      notes: this.notesInputs[questionIndex]!.getValue(),
+    });
   }
 
   private switchTab(tab: number): void {
@@ -189,18 +223,26 @@ export class QuestionPromptComponent extends Container implements Focusable {
           const selected = answer.selected.includes(row.index)
             ? answer.selected.filter((index) => index !== row.index)
             : [...answer.selected, row.index];
-          this.setAnswer({ selected });
+          this.setAnswer(this.activeQuestionIndex, { selected });
         } else {
-          this.setAnswer({ selected: [row.index], otherSelected: false });
+          this.setAnswer(this.activeQuestionIndex, {
+            selected: [row.index],
+            otherSelected: false,
+          });
           this.advance();
         }
         return;
       case "other":
         if (answer === undefined || answer.otherText === "") return;
         if (question?.multiSelect) {
-          this.setAnswer({ otherSelected: !answer.otherSelected });
+          this.setAnswer(this.activeQuestionIndex, {
+            otherSelected: !answer.otherSelected,
+          });
         } else {
-          this.setAnswer({ selected: [], otherSelected: true });
+          this.setAnswer(this.activeQuestionIndex, {
+            selected: [],
+            otherSelected: true,
+          });
           this.advance();
         }
         return;
@@ -219,41 +261,52 @@ export class QuestionPromptComponent extends Container implements Focusable {
     }
   }
 
-  private async editNotes(): Promise<void> {
-    const edited = await this.editText(this.notesInput.getValue());
+  /** Replace `input`'s text with the external editor's result, then
+   *  `sync` the answer from it. */
+  private async editExternally(input: Input, sync: () => void): Promise<void> {
+    const edited = await this.editText(input.getValue());
     if (edited !== undefined) {
-      this.notesInput.setValue(edited);
-      this.setAnswer({ notes: edited });
+      input.setValue(edited);
+      sync();
+    }
+  }
+
+  /** Forward a key to a text input; `sync` the answer only when the text
+   *  changed, so a submit fired by the key keeps what it decided. */
+  private forwardToInput(input: Input, data: string, sync: () => void): void {
+    const before = input.getValue();
+    input.handleInput(data);
+    if (input.getValue() !== before) sync();
+  }
+
+  /** Enter in notes mode: native answers with the focused option, as Enter
+   *  in selection mode does (session d69ee703…'s "Beta" retry). */
+  private submitNotes(): void {
+    this.mode = "select";
+    const row = this.rows()[this.focusedRowIndex];
+    if (row?.kind === "option") {
+      this.act(row);
+    } else {
+      this.advance();
     }
   }
 
   handleInput(data: string): void {
     const keybindings = getKeybindings();
+    const questionIndex = this.activeQuestionIndex;
     if (this.mode === "notes") {
+      const notesInput = this.notesInput;
+      const sync = (): void => this.syncNotesAnswer(questionIndex);
       if (keybindings.matches(data, "app.editor.external")) {
-        void this.editNotes();
-      } else if (keybindings.matches(data, "tui.select.cancel")) {
-        this.mode = "select";
-      } else if (keybindings.matches(data, "tui.select.confirm")) {
-        // Native answers with the focused option, as Enter in selection
-        // mode does (session d69ee703…'s "Beta" retry).
-        this.mode = "select";
-        const row = this.rows()[this.focusedRowIndex];
-        if (row?.kind === "option") {
-          this.act(row);
-        } else {
-          this.advance();
-        }
+        void this.editExternally(notesInput, sync);
       } else {
-        this.notesInput.handleInput(data);
-        this.setAnswer({ notes: this.notesInput.getValue() });
+        this.forwardToInput(notesInput, data, sync);
       }
       return;
     }
     const question = this.question;
     const rows = this.rows();
     const row = rows[this.focusedRowIndex];
-    const onOther = row?.kind === "other";
     if (keybindings.matches(data, "tui.select.cancel")) {
       this.onDecide(CANCEL_DENY);
     } else if (keybindings.matches(data, "tui.select.up")) {
@@ -263,26 +316,26 @@ export class QuestionPromptComponent extends Container implements Focusable {
         rows.length - 1,
         this.focusedRowIndex + 1,
       );
+    } else if (row?.kind === "other") {
+      const otherInput = this.otherInput;
+      const sync = (): void => this.syncOtherAnswer(questionIndex);
+      if (keybindings.matches(data, "app.editor.external")) {
+        void this.editExternally(otherInput, sync);
+      } else {
+        this.forwardToInput(otherInput, data, sync);
+      }
     } else if (keybindings.matches(data, "tui.select.confirm")) {
       if (row !== undefined) this.act(row);
     } else if (
       this.hasTabs &&
-      // TDC: This seems bad. We're mixing hardcoded keybindings with configurable keybindings. We should just add default keybindings that are configurable. I think these belong under "tui.select", since these are handling actions when a selection dialog is up. The names should match the _semantics_, not the keystrokes, so "tui.select.next" and "tui.select.previous". Do an audit of any other places we're using matchesKey ... we probably need to fix that too.
-      (matchesKey(data, "tab") || (!onOther && matchesKey(data, "right")))
+      keybindings.matches(data, "app.question.nextTab")
     ) {
       this.switchTab(this.activeQuestionIndex + 1);
     } else if (
       this.hasTabs &&
-      (matchesKey(data, "shift+tab") || (!onOther && matchesKey(data, "left")))
+      keybindings.matches(data, "app.question.previousTab")
     ) {
       this.switchTab(this.activeQuestionIndex - 1);
-    } else if (onOther) {
-      this.otherInput.handleInput(data);
-      const otherText = this.otherInput.getValue();
-      this.setAnswer({
-        otherText,
-        ...(question?.multiSelect ? { otherSelected: otherText !== "" } : {}),
-      });
     } else if (/^[1-9]$/.test(data)) {
       const target = rows.find(
         (candidate) => this.rowNumber(rows, candidate) === Number(data),
@@ -292,13 +345,13 @@ export class QuestionPromptComponent extends Container implements Focusable {
         this.act(target);
       }
     } else if (
-      matchesKey(data, "space") &&
+      keybindings.matches(data, "app.question.toggle") &&
       row?.kind === "option" &&
       question?.multiSelect
     ) {
       this.act(row);
     } else if (
-      data === "n" &&
+      keybindings.matches(data, "app.question.notes") &&
       question !== undefined &&
       usesPreviewLayout(question)
     ) {
@@ -492,9 +545,14 @@ export class QuestionPromptComponent extends Container implements Focusable {
       this.notesInput.focused = this.focused;
       notesLine = `Notes: ${(this.notesInput.render(Math.max(1, previewPaneWidth - 7))[0] ?? "").trimEnd()}`;
     } else {
+      const notesKey = keyLabel(getKeybindings(), "app.question.notes");
+      const placeholder =
+        notesKey === undefined
+          ? "Notes:"
+          : `Notes: press ${notesKey} to add notes`;
       notesLine = theme.fg(
         "dim",
-        notes === "" ? "Notes: press n to add notes" : `Notes: ${notes}`,
+        notes === "" ? placeholder : `Notes: ${notes}`,
       );
     }
     return [
@@ -540,18 +598,42 @@ export class QuestionPromptComponent extends Container implements Focusable {
     ];
   }
 
+  /** The footer hint, naming the keys bound to the actions that handle
+   *  them in the current state. */
   private hint(question: Question | undefined): string {
+    const keybindings = getKeybindings();
     if (this.mode === "notes") {
-      // TDC: can we use the actual values from keybindings, so that if the user configures different values, we show those?
-      return "Enter to select · Esc to go back · ctrl+g to edit in your editor";
+      return keyHints(keybindings, [
+        ["tui.input.submit", "to select"],
+        ["tui.select.cancel", "to go back"],
+        ["app.editor.external", "to edit in your editor"],
+      ]).join(" · ");
     }
-    const navigate = this.hasTabs
-      ? "Tab/Arrow keys to navigate"
-      : "↑/↓ to navigate";
-    const notes =
-      question !== undefined && usesPreviewLayout(question)
-        ? " · n to add notes"
-        : "";
-    return `Enter to select · ${navigate}${notes} · Esc to cancel`;
+    const onOther = this.rows()[this.focusedRowIndex]?.kind === "other";
+    const navigationActions: Keybinding[] = [
+      ...(this.hasTabs && !onOther ? ["app.question.nextTab" as const] : []),
+      "tui.select.up",
+      "tui.select.down",
+    ];
+    const navigationKeys = navigationActions.flatMap(
+      (keybinding) => keyLabel(keybindings, keybinding) ?? [],
+    );
+    return [
+      ...keyHints(keybindings, [
+        [onOther ? "tui.input.submit" : "tui.select.confirm", "to select"],
+      ]),
+      ...(navigationKeys.length === 0
+        ? []
+        : [`${navigationKeys.join("/")} to navigate`]),
+      ...keyHints(keybindings, [
+        ...(onOther
+          ? [["app.editor.external", "to edit in your editor"] as const]
+          : []),
+        ...(question !== undefined && usesPreviewLayout(question)
+          ? [["app.question.notes", "to add notes"] as const]
+          : []),
+        ["tui.select.cancel", "to cancel"],
+      ]),
+    ].join(" · ");
   }
 }
