@@ -103,7 +103,7 @@ function summaryEntry(
   };
 }
 
-// --- the spec's concrete examples --------------------------------------------
+// --- session-tree.md's concrete examples --------------------------------------------
 
 test("up_to compaction of a linear conversation renders linearly (criterion 2)", () => {
   const sid = uuid();

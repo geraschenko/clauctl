@@ -1,5 +1,5 @@
 /**
- * Run an external editor over a suspended TUI. Mirrors the shape of pi's
+ * Run an external editor while the TUI is stopped. Mirrors the shape of pi's
  * (private, hence non-reusable) InteractiveMode.openExternalEditor: async
  * spawn with inherited stdio — not spawnSync, which on Windows can keep
  * Node's console input read active after ui.stop() pauses stdin, racing
@@ -19,11 +19,14 @@ export function externalEditorCommand(): string | undefined {
 }
 
 /**
- * Suspend the TUI, run the editor on filePath, resume and force a full
- * re-render (editors use the alternate screen) — resume runs in a finally,
- * including on spawn errors. The command is split on spaces (supports
+ * Stop the TUI so the editor owns the terminal, run it on filePath, then
+ * restart the TUI with a full re-render (editors use the alternate screen);
+ * the restart runs in a finally, including on spawn errors. The command is split on spaces (supports
  * "code --wait"; quoted arguments and paths with spaces are deliberately
  * unsupported, matching pi). Returns true when the editor exited 0.
+ * Agent events keep arriving while the editor owns the terminal; pi-tui
+ * skips rendering while stopped (`TUI.stop` sets the `stopped` flag its
+ * render paths check), and the re-render on restart shows them.
  */
 export async function editFileInExternalEditor(
   ui: TUI,

@@ -1,8 +1,8 @@
 /**
  * The transcript presentation of API messages (docs/specs/api-messages.md
  * Examples): role headers, text verbatim, structured blocks as one-line
- * brackets. The headers and brackets are reader conventions; the spec
- * records why.
+ * brackets. The headers and brackets are reader conventions;
+ * api-messages.md records why.
  */
 
 import type { ApiContentBlock, ApiMessage } from "./to-api-messages.ts";

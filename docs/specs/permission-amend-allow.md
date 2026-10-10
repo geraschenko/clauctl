@@ -285,7 +285,7 @@ tests/sdk/steer-slash-trim.test.ts, pins both cases.
   what to do next").
 - Steering subagents: the SDK input cannot reach one
   (docs/follow-ups/subagent-activity.md).
-- The input-slot union (tg c60bca6d, docs/follow-ups/input-slot-dialogs.md).
+- The input-slot union (tg c60bca6d, docs/specs/input-slot.md).
 
 # IMPLEMENTATION IDEAS
 

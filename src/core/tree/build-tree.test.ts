@@ -86,7 +86,7 @@ function summaryEntry(
   };
 }
 
-// --- native shapes (the spec's concrete examples) ---------------------------
+// --- native shapes (session-tree.md's concrete examples) ---------------------------
 
 test("up_to shape: block right after its anchor's row, decorated post entries", () => {
   const sid = uuid();

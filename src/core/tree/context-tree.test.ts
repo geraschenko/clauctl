@@ -404,7 +404,7 @@ test("contextAt throws on an unknown ref", () => {
   );
 });
 
-// --- matching: the spec's examples -------------------------------------------
+// --- matching: context-tree.md's examples -------------------------------------------
 
 /** The context tree of `entries` and the materialized set at the moment
  *  the display pass reaches `boundary` (every full-tree occurrence before

@@ -61,16 +61,21 @@ function mount(
   input: AskUserQuestionInput,
   editText: (text: string) => Promise<string | undefined> = () =>
     Promise.resolve(undefined),
-): { prompt: QuestionPromptComponent; decisions: PermissionResult[] } {
+): {
+  prompt: QuestionPromptComponent;
+  decisions: PermissionResult[];
+  interrupts: () => number;
+} {
   const decisions: PermissionResult[] = [];
-  const prompt = new QuestionPromptComponent(
-    input,
-    undefined,
-    1,
-    (decision) => decisions.push(decision),
-    editText,
-  );
-  return { prompt, decisions };
+  let interruptCount = 0;
+  const prompt = new QuestionPromptComponent(input, undefined, 1, {
+    decide: (decision) => decisions.push(decision),
+    editText: editText,
+    interrupt: () => {
+      interruptCount += 1;
+    },
+  });
+  return { prompt, decisions, interrupts: () => interruptCount };
 }
 
 const screen = (prompt: QuestionPromptComponent, width = 80): string =>
@@ -99,19 +104,29 @@ test("one single-select question: choosing an option submits", () => {
   ]);
 });
 
-test("digits choose; Esc cancels (deny and interrupt); Chat about this sends the clarify deny", () => {
+test("digits choose; ctrl+c cancels (deny and interrupt); Chat about this sends the clarify deny", () => {
   const input = asInput(PET);
   const digit = mount(input);
   press(digit.prompt, "1");
   assert.deepEqual(digit.decisions, [
     submitDecision(input, [{ ...EMPTY_ANSWER, selected: [0] }]),
   ]);
-  const esc = mount(input);
-  press(esc.prompt, KEY.escape);
-  assert.deepEqual(esc.decisions, [CANCEL_DENY]);
+  const cancel = mount(input);
+  press(cancel.prompt, KEY.ctrlC);
+  assert.deepEqual(cancel.decisions, [CANCEL_DENY]);
+  assert.equal(cancel.interrupts(), 0, "the deny itself ends the turn");
   const chat = mount(input);
   press(chat.prompt, "4");
   assert.deepEqual(chat.decisions, [chatDecision(input, [EMPTY_ANSWER])]);
+});
+
+test("Esc interrupts from the option rows and from the Type something row, without deciding", () => {
+  const { prompt, decisions, interrupts } = mount(asInput(PET));
+  press(prompt, KEY.escape);
+  press(prompt, KEY.down, KEY.down, "F", KEY.escape);
+  assert.equal(interrupts(), 2);
+  assert.deepEqual(decisions, []);
+  assert.match(screen(prompt), /❯ 3\. F/, "the typed text survives");
 });
 
 test("free text on the Type something row is chosen with Enter", () => {
@@ -253,8 +268,11 @@ test("a task's ask and further pending asks extend the title line", () => {
     asInput(PET),
     " — task: explore",
     3,
-    () => {},
-    () => Promise.resolve(undefined),
+    {
+      decide: () => {},
+      editText: () => Promise.resolve(undefined),
+      interrupt: () => {},
+    },
   );
   assert.match(screen(prompt), / ☐ Pet — task: explore \(\+2 more\)/);
 });

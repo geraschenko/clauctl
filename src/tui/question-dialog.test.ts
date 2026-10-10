@@ -1,7 +1,7 @@
 /**
  * The AskUserQuestion decisions (docs/specs/ask-user-question.md,
  * Behaviour 6). Expected wordings are native claude's tool_results
- * captured 2026-10-06 (the spec's IMPLEMENTATION IDEAS).
+ * captured 2026-10-06 (ask-user-question.md, IMPLEMENTATION IDEAS).
  */
 
 import assert from "node:assert/strict";

@@ -254,7 +254,8 @@ export function userText(message: SDKUserMessage): string {
  * local-command tags (`<command-name>`, `<local-command-stdout>`,
  * `<bash-input>`/`<bash-stdout>`/`<bash-stderr>`), and context tags like
  * `<ide_selection>`. Tag shapes are empirical, from captured 2.1.211
- * sessions (see the tui-rendering-parity spec WORK LOG).
+ * sessions (docs/specs/tui-rendering-parity.md, WORK LOG 2026-07-18
+ * critique round).
  */
 export type UserTurnView =
   | { kind: "prompt"; text: string }

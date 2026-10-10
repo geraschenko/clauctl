@@ -289,7 +289,7 @@ test("a compacted session renders linear with the chain ending on the summary", 
   );
 });
 
-/** The spec's up_to example: a compaction mid-way through a linear
+/** docs/specs/tree-presentation.md's up_to example: a compaction mid-way through a linear
  *  conversation with a follow-up turn. */
 function upToSession(): SnapshotDocument {
   const boundary: SessionEntry = {

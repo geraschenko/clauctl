@@ -60,14 +60,20 @@ function noPreviewBody(): string[] {
   return [theme.fg("dim", "No preview available")];
 }
 
+/** What the question prompt can do beyond rendering its questions. */
+export interface QuestionPromptActions {
+  decide(decision: PermissionResult): void;
+  editText(text: string): Promise<string | undefined>;
+  interrupt(): void;
+}
+
 export class QuestionPromptComponent extends Container implements Focusable {
   focused = false;
   /** All pending asks including this one; the title shows `(+N more)`. */
   pendingCount: number;
   private readonly askInput: AskUserQuestionInput;
   private readonly titleSuffix: string | undefined;
-  private readonly onDecide: (decision: PermissionResult) => void;
-  private readonly editText: (text: string) => Promise<string | undefined>;
+  private readonly actions: QuestionPromptActions;
   private readonly answers: QuestionAnswer[];
   /** The tab shown: a question index, or `questions.length` for the
    *  Submit tab. */
@@ -85,15 +91,13 @@ export class QuestionPromptComponent extends Container implements Focusable {
     input: AskUserQuestionInput,
     titleSuffix: string | undefined,
     pendingCount: number,
-    onDecide: (decision: PermissionResult) => void,
-    editText: (text: string) => Promise<string | undefined>,
+    actions: QuestionPromptActions,
   ) {
     super();
     this.askInput = input;
     this.titleSuffix = titleSuffix;
     this.pendingCount = pendingCount;
-    this.onDecide = onDecide;
-    this.editText = editText;
+    this.actions = actions;
     this.answers = input.questions.map(() => EMPTY_ANSWER);
     this.otherInputs = input.questions.map(() => {
       const otherInput = new Input({
@@ -120,12 +124,6 @@ export class QuestionPromptComponent extends Container implements Focusable {
 
   private get notesInput(): Input {
     return this.notesInputs[this.activeQuestionIndex]!;
-  }
-
-  /** Esc belongs to the dialog (it leaves the notes input), not to the
-   *  global interrupt. */
-  get capturesEscape(): boolean {
-    return this.mode === "notes";
   }
 
   /** The active tab's question; undefined on the Submit tab. */
@@ -210,7 +208,7 @@ export class QuestionPromptComponent extends Container implements Focusable {
     if (this.hasTabs) {
       this.switchTab(this.activeQuestionIndex + 1);
     } else {
-      this.onDecide(submitDecision(this.askInput, this.answers));
+      this.actions.decide(submitDecision(this.askInput, this.answers));
     }
   }
 
@@ -250,13 +248,13 @@ export class QuestionPromptComponent extends Container implements Focusable {
         this.advance();
         return;
       case "chat":
-        this.onDecide(chatDecision(this.askInput, this.answers));
+        this.actions.decide(chatDecision(this.askInput, this.answers));
         return;
       case "submit":
-        this.onDecide(submitDecision(this.askInput, this.answers));
+        this.actions.decide(submitDecision(this.askInput, this.answers));
         return;
       case "cancel":
-        this.onDecide(CANCEL_DENY);
+        this.actions.decide(CANCEL_DENY);
         return;
     }
   }
@@ -264,7 +262,7 @@ export class QuestionPromptComponent extends Container implements Focusable {
   /** Replace `input`'s text with the external editor's result, then
    *  `sync` the answer from it. */
   private async editExternally(input: Input, sync: () => void): Promise<void> {
-    const edited = await this.editText(input.getValue());
+    const edited = await this.actions.editText(input.getValue());
     if (edited !== undefined) {
       input.setValue(edited);
       sync();
@@ -304,11 +302,15 @@ export class QuestionPromptComponent extends Container implements Focusable {
       }
       return;
     }
+    if (keybindings.matches(data, "app.interrupt")) {
+      this.actions.interrupt();
+      return;
+    }
     const question = this.question;
     const rows = this.rows();
     const row = rows[this.focusedRowIndex];
     if (keybindings.matches(data, "tui.select.cancel")) {
-      this.onDecide(CANCEL_DENY);
+      this.actions.decide(CANCEL_DENY);
     } else if (keybindings.matches(data, "tui.select.up")) {
       this.focusedRowIndex = Math.max(0, this.focusedRowIndex - 1);
     } else if (keybindings.matches(data, "tui.select.down")) {

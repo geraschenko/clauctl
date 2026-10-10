@@ -9,11 +9,11 @@
 
 import {
   Container,
-  Editor,
   getKeybindings,
   KeybindingsManager,
   Loader,
   Text,
+  type Component,
   type TUI,
 } from "@earendil-works/pi-tui";
 import type {
@@ -27,6 +27,7 @@ import {
   allPendingAsks,
   anomalyReport,
   isIdle,
+  type PendingAsk,
 } from "../../core/agent-state/index.ts";
 import { ANSI_STYLE } from "../../format/style.ts";
 import { PermissionPromptComponent } from "../components/permission-prompt.ts";
@@ -49,6 +50,7 @@ import { FooterComponent } from "../components/footer.ts";
 import { FooterDataProvider } from "../footer-data-provider.ts";
 import { ModelSelectorComponent } from "../components/model-selector.ts";
 import { PendingMessagesComponent } from "../components/pending-messages.ts";
+import { PromptEditor } from "../components/prompt-editor.ts";
 import {
   resolveTreePick,
   TreeSelectorComponent,
@@ -84,6 +86,24 @@ export type InteractiveOutcome =
   | { kind: "shutdown"; reason: string } // daemon shutdown event received
   | { kind: "connectionLost" }; // socket closed unannounced (daemon crash)
 
+/** What the input slot shows: the prompt editor, or what replaces it
+ *  (docs/specs/input-slot.md). */
+type InputSlotOccupant =
+  | { kind: "editor" }
+  | { kind: "modelSelector"; selector: ModelSelectorComponent }
+  | { kind: "effortSelector"; selector: EffortSelectorComponent }
+  | { kind: "treeSelector"; selector: TreeSelectorComponent }
+  | {
+      kind: "permissionPrompt";
+      toolUseId: string;
+      prompt: PermissionPromptComponent;
+    }
+  | {
+      kind: "questionPrompt";
+      toolUseId: string;
+      prompt: QuestionPromptComponent;
+    };
+
 export class InteractiveMode {
   readonly done: Promise<InteractiveOutcome>;
   private finish!: (outcome: InteractiveOutcome) => void;
@@ -108,13 +128,10 @@ export class InteractiveMode {
   private readonly statusContainer = new Container();
   private readonly hintText = new Text("", 1, 0);
   private readonly loader: Loader;
-  private readonly editor: Editor;
+  /** Lives across occupancies, so text typed before an ask survives it. */
+  private readonly editor: PromptEditor;
   private readonly inputSlot = new Container();
-  // TDC: "permissionPrompt" is now a bad name for this field. What would be better? Maybe "dialogPrompt"? The main thing the reader needs to know about this is that it replaces the usual input box when the user is shown some kind of prompt, right?
-  private permissionPrompt?:
-    PermissionPromptComponent | QuestionPromptComponent;
-  /** The ask the mounted prompt shows; a different head replaces it. */
-  private promptedToolUseId?: string;
+  private inputSlotOccupant: InputSlotOccupant = { kind: "editor" };
   /** Plans edited via ctrl+g, by ask: a task's plan ask can lose the head
    *  to a newer main-agent ask and regain it later, edit intact. Cleared
    *  when no ask is pending. */
@@ -154,13 +171,13 @@ export class InteractiveMode {
   private scanning = false;
 
   private readonly autocomplete: TuiAutocompleteProvider;
-  private modelSelector?: ModelSelectorComponent;
-  /** True from `/model` submit until the supported-models read settles. */
-  private modelSelectorPending = false;
-  private treeSelector?: TreeSelectorComponent;
-  private effortSelector?: EffortSelectorComponent;
-  /** True from `/effort` submit until the supported-models read settles. */
-  private effortSelectorPending = false;
+  /** The token of the latest selector command whose fetch is in flight.
+   *  Each command takes a fresh `{}`, distinct by identity from every
+   *  other, so a fetch result mounts only while its token is still this
+   *  one (a newer selector command replaces it; `/tree` and a mounted ask
+   *  prompt clear it). A boolean could not tell a stale fetch from the
+   *  current one. */
+  private pendingSelectorRequest: object | undefined;
 
   constructor(
     ui: TUI,
@@ -190,7 +207,25 @@ export class InteractiveMode {
       (text: string) => theme.fg("accent", text),
       (text: string) => theme.fg("dim", text),
     );
-    this.editor = new Editor(ui, getEditorTheme());
+    this.editor = new PromptEditor(ui, getEditorTheme(), {
+      interrupt: () => {
+        // No ask can be pending while the editor occupies the slot.
+        if (isIdle(this.agentState)) return false;
+        this.interrupt();
+        return true;
+      },
+      cyclePermissionMode: () => this.cyclePermissionMode(),
+      editExternally: () => void this.openExternalPromptEditor(),
+      onCleared: () => {
+        this.hintText.setText(
+          theme.fg(
+            "dim",
+            `detach with ${this.keybindings.getKeys("app.detach").join(", ")}`,
+          ),
+        );
+        this.ui.requestRender();
+      },
+    });
     this.editor.onSubmit = (text: string) => this.submit(text);
 
     if (seedState.cwd !== undefined) {
@@ -212,7 +247,7 @@ export class InteractiveMode {
     ui.addInputListener((data) => this.handleGlobalKey(data));
     // An agent already blocked at attach shows its dialog before the
     // history replay fills the transcript.
-    this.syncPermissionPrompt(seedState);
+    this.syncAskPrompt(seedState);
 
     // The seed state fills the pending area (the footer reads it via
     // syncActivity below); the transcript fills asynchronously via
@@ -415,7 +450,7 @@ export class InteractiveMode {
   private applyState(event: AgentEvent, state: AgentState): void {
     const priorState = this.agentState;
     this.agentState = state;
-    this.syncPermissionPrompt(state);
+    this.syncAskPrompt(state);
     if (event.kind === "permissionResolved") {
       const resolvedRequest = allPendingAsks(priorState).find(
         ({ request }) => request.toolUseId === event.toolUseId,
@@ -444,9 +479,11 @@ export class InteractiveMode {
     } else if (event.kind === "contextChanged") {
       // An open selector keeps its now-stale tree; the warning tells the
       // attached user some other process changed the context under them.
-      this.treeSelector?.setWarning(
-        "context changed while the tree selector is open",
-      );
+      if (this.inputSlotOccupant.kind === "treeSelector") {
+        this.inputSlotOccupant.selector.setWarning(
+          "context changed while the tree selector is open",
+        );
+      }
     } else if (
       event.kind === "sdkMessage" &&
       event.message.type === "system" &&
@@ -698,25 +735,25 @@ export class InteractiveMode {
     this.ui.requestRender();
   }
 
-  /**
-   * app.editor.external (ctrl+g): edit the prompt in $VISUAL/$EDITOR with
-   * the TUI suspended. Exit 0 replaces the editor content; nonzero keeps
-   * the original text. Events arriving while the TUI is suspended are not
-   * lost: rendering is deferred, not the socket-driven handleEvent (see the
-   * spec's WORK LOG, 2026-07-21).
-   */
+  /** Edit the prompt text in the external editor: exit 0 replaces it,
+   *  nonzero keeps it. Failures are reported as a banner. */
   private async openExternalPromptEditor(): Promise<void> {
     if (externalEditorCommand() === undefined) {
       this.addBanner("set $EDITOR to edit the prompt", "warning");
       this.ui.requestRender();
       return;
     }
-    const edited = await editTextInExternalEditor(
-      this.ui,
-      this.editor.getText(),
-    );
-    if (edited !== undefined) {
-      this.editor.setText(edited);
+    try {
+      const edited = await editTextInExternalEditor(
+        this.ui,
+        this.editor.getText(),
+      );
+      if (edited !== undefined) {
+        this.editor.setText(edited);
+      }
+    } catch (error) {
+      this.addBanner(`external editor failed: ${String(error)}`, "error");
+      this.ui.requestRender();
     }
   }
 
@@ -739,7 +776,7 @@ export class InteractiveMode {
 
   /** ctrl+g on the ExitPlanMode dialog: edit claude's plan file in place;
    *  exit 0 remounts the dialog showing the edited plan, which approval
-   *  then sends as `updatedInput`. */
+   *  then sends as `updatedInput`. Failures are reported as a banner. */
   private async openPlanEditor(
     toolUseId: string,
     planFilePath: string,
@@ -750,10 +787,26 @@ export class InteractiveMode {
       this.ui.requestRender();
       return;
     }
-    if (await editFileInExternalEditor(this.ui, editorCommand, planFilePath)) {
-      this.planEdits.set(toolUseId, readFileSync(planFilePath, "utf8"));
-      this.promptedToolUseId = undefined;
-      this.syncPermissionPrompt(this.agentState);
+    try {
+      if (
+        await editFileInExternalEditor(this.ui, editorCommand, planFilePath)
+      ) {
+        // A resolved ask does not regain an entry; only the displayed
+        // prompt remounts (a head-losing ask shows the edit on regaining it).
+        const asks = allPendingAsks(this.agentState);
+        if (asks.some(({ request }) => request.toolUseId === toolUseId)) {
+          this.planEdits.set(toolUseId, readFileSync(planFilePath, "utf8"));
+        }
+        const occupant = this.inputSlotOccupant;
+        if (
+          occupant.kind === "permissionPrompt" &&
+          occupant.toolUseId === toolUseId
+        ) {
+          this.showAskPrompt(asks);
+        }
+      }
+    } catch (error) {
+      this.addBanner(`external editor failed: ${String(error)}`, "error");
     }
     this.ui.requestRender();
   }
@@ -769,100 +822,134 @@ export class InteractiveMode {
   }
 
   private openModelSelector(): void {
-    if (this.modelSelector !== undefined || this.modelSelectorPending) {
-      return;
-    }
-    this.modelSelectorPending = true;
+    const token = {};
+    this.pendingSelectorRequest = token;
     void this.client.request({ type: "supported-models" }).then(
       (data) => {
-        this.modelSelectorPending = false;
-        if (this.permissionPrompt !== undefined) return;
+        if (this.pendingSelectorRequest !== token) return;
+        this.pendingSelectorRequest = undefined;
         const selector = new ModelSelectorComponent(
           data as ModelInfo[],
           (model) => {
-            this.closeModelSelector();
+            this.occupyInputSlot({ kind: "editor" });
             this.sendSetModel(model.value);
           },
-          () => this.closeModelSelector(),
+          () => this.occupyInputSlot({ kind: "editor" }),
         );
-        this.modelSelector = selector;
-        this.statusContainer.addChild(selector);
-        this.ui.setFocus(selector);
-        this.ui.requestRender();
+        this.occupyInputSlot({ kind: "modelSelector", selector });
       },
       (error: unknown) => {
-        this.modelSelectorPending = false;
+        if (this.pendingSelectorRequest === token) {
+          this.pendingSelectorRequest = undefined;
+        }
         this.addBanner(`supported-models failed: ${String(error)}`, "error");
         this.ui.requestRender();
       },
     );
   }
 
-  /** Mounts the dialog for the head of `allPendingAsks(state)` in place of
-   *  the editor, replaces it when the head changes, and restores the editor
-   *  (its text intact — the instance is never recreated) when none is
-   *  pending. Opening closes any selector: the dialog is modal. */
-  // TDC: the "PermissionPrompt" part of this name has to change.
-  private syncPermissionPrompt(state: AgentState): void {
+  /** Swap the slot's component for the occupant's, focus it, render. */
+  private occupyInputSlot(occupant: InputSlotOccupant): void {
+    this.inputSlot.removeChild(
+      occupantComponent(this.inputSlotOccupant, this.editor),
+    );
+    const component = occupantComponent(occupant, this.editor);
+    this.inputSlot.addChild(component);
+    this.inputSlotOccupant = occupant;
+    this.ui.setFocus(component);
+    this.ui.requestRender();
+  }
+
+  /** Make the slot show the head pending ask's prompt; with no ask
+   *  pending, an ask prompt gives the slot back to the editor (a selector
+   *  stays). Call on every state change. */
+  private syncAskPrompt(state: AgentState): void {
     const asks = allPendingAsks(state);
     const head = asks[0];
+    const occupant = this.inputSlotOccupant;
+    const isAskPrompt =
+      occupant.kind === "permissionPrompt" ||
+      occupant.kind === "questionPrompt";
     if (head === undefined) {
       this.planEdits.clear();
-      if (this.permissionPrompt !== undefined) {
-        this.inputSlot.removeChild(this.permissionPrompt);
-        this.inputSlot.addChild(this.editor);
-        this.permissionPrompt = undefined;
-        this.promptedToolUseId = undefined;
-        this.ui.setFocus(this.editor);
-      }
+      if (isAskPrompt) this.occupyInputSlot({ kind: "editor" });
       return;
     }
-    if (head.request.toolUseId === this.promptedToolUseId) {
-      if (this.permissionPrompt !== undefined) {
-        this.permissionPrompt.pendingCount = asks.length;
-      }
+    if (isAskPrompt && occupant.toolUseId === head.request.toolUseId) {
+      occupant.prompt.pendingCount = asks.length;
       return;
     }
+    this.showAskPrompt(asks);
+  }
+
+  /** Mount the head ask's prompt (superseding any selector fetch); also
+   *  the remount after a plan edit. */
+  private showAskPrompt(asks: readonly PendingAsk[]): void {
+    this.pendingSelectorRequest = undefined;
+    this.occupyInputSlot(this.askPromptOccupant(asks[0]!, asks.length));
+  }
+
+  /** The occupant for an ask: question prompt for AskUserQuestion
+   *  (`askUserQuestionInput` defined), permission prompt otherwise. */
+  private askPromptOccupant(
+    ask: PendingAsk,
+    pendingCount: number,
+  ): Extract<
+    InputSlotOccupant,
+    { kind: "permissionPrompt" | "questionPrompt" }
+  > {
+    const { toolUseId } = ask.request;
     const titleSuffix =
-      head.task === undefined ? undefined : ` — task: ${head.task.description}`;
-    const questions = askUserQuestionInput(head.request);
-    let prompt: PermissionPromptComponent | QuestionPromptComponent;
-    // TDC: This logic of "permissions if questions is undefined" is shitty. How would you do this if head.request could be one of 10 different kinds of dialog box to present to the user? It seems like the logic of building the component should be extracted into a function, especially since this file is already 1500 lines. I suggest we turn interactive-mode.ts into a directory and make a barrel file to expose the public interface. See .dependency-cruiser.cjs and eslint.config.js for existing barrels.
-    if (questions === undefined) {
-      const dialog = permissionDialog(
-        head.request,
-        { cwd: state.cwd, style: ANSI_STYLE },
-        this.planEdits.get(head.request.toolUseId),
-      );
-      prompt = new PermissionPromptComponent(
-        { ...dialog, title: `${dialog.title}${titleSuffix ?? ""}` },
-        asks.length,
-        (decision, feedback) =>
-          this.sendPermissionResponse(
-            head.request.toolUseId,
-            decision,
-            feedback,
-          ),
-        (text) => this.editTextExternally(text),
-      );
-    } else {
-      prompt = new QuestionPromptComponent(
-        questions,
-        titleSuffix,
-        asks.length,
-        (decision) =>
-          this.sendPermissionResponse(head.request.toolUseId, decision),
-        (text) => this.editTextExternally(text),
-      );
+      ask.task === undefined ? undefined : ` — task: ${ask.task.description}`;
+    const editText = (text: string): Promise<string | undefined> =>
+      this.editTextExternally(text);
+    // A pending ask is interruptible even with the main loop idle (a
+    // background task's ask): the CLI aborts the ask and kills the task.
+    const interrupt = (): void => this.interrupt();
+    const questions = askUserQuestionInput(ask.request);
+    if (questions !== undefined) {
+      return {
+        kind: "questionPrompt",
+        toolUseId,
+        prompt: new QuestionPromptComponent(
+          questions,
+          titleSuffix,
+          pendingCount,
+          {
+            decide: (decision) =>
+              this.sendPermissionResponse(toolUseId, decision),
+            editText,
+            interrupt,
+          },
+        ),
+      };
     }
-    this.closeModelSelector();
-    this.closeEffortSelector();
-    this.closeTreeSelector();
-    this.inputSlot.removeChild(this.permissionPrompt ?? this.editor);
-    this.inputSlot.addChild(prompt);
-    this.permissionPrompt = prompt;
-    this.promptedToolUseId = head.request.toolUseId;
-    this.ui.setFocus(prompt);
+    const dialog = permissionDialog(
+      ask.request,
+      { cwd: this.agentState.cwd, style: ANSI_STYLE },
+      this.planEdits.get(toolUseId),
+    );
+    return {
+      kind: "permissionPrompt",
+      toolUseId,
+      prompt: new PermissionPromptComponent(
+        { ...dialog, title: `${dialog.title}${titleSuffix ?? ""}` },
+        pendingCount,
+        {
+          decide: (decision, feedback) =>
+            this.sendPermissionResponse(toolUseId, decision, feedback),
+          editText,
+          editPlan: (planFilePath) =>
+            void this.openPlanEditor(toolUseId, planFilePath),
+          interrupt,
+        },
+      ),
+    };
+  }
+
+  /** Send `interrupt`; failures are ignored. */
+  private interrupt(): void {
+    void this.client.request({ type: "interrupt" }).catch(() => {});
   }
 
   /** Any failure shows a banner. */
@@ -884,16 +971,6 @@ export class InteractiveMode {
       });
   }
 
-  private closeModelSelector(): void {
-    if (this.modelSelector === undefined) {
-      return;
-    }
-    this.statusContainer.removeChild(this.modelSelector);
-    this.modelSelector = undefined;
-    this.ui.setFocus(this.editor);
-    this.ui.requestRender();
-  }
-
   /**
    * `/effort` (both forms): fetch supported-models and resolve the current
    * model's levels. Bare form: open the selector. With `level`: validate
@@ -903,14 +980,15 @@ export class InteractiveMode {
    * opens one.
    */
   private handleEffortCommand(level?: string): void {
-    if (this.effortSelector !== undefined || this.effortSelectorPending) {
-      return;
-    }
-    this.effortSelectorPending = true;
+    // Only the bare form opens a selector, so only it takes a token.
+    const token = level === undefined ? {} : undefined;
+    if (token !== undefined) this.pendingSelectorRequest = token;
     void this.client.request({ type: "supported-models" }).then(
       (data) => {
-        this.effortSelectorPending = false;
-        if (this.permissionPrompt !== undefined) return;
+        if (token !== undefined) {
+          if (this.pendingSelectorRequest !== token) return;
+          this.pendingSelectorRequest = undefined;
+        }
         const models = data as ModelInfo[];
         // agentState.model holds a set-model request value or the SDK init
         // message's resolved id, depending on history — so match both.
@@ -953,32 +1031,21 @@ export class InteractiveMode {
         const selector = new EffortSelectorComponent(
           levels,
           (picked) => {
-            this.closeEffortSelector();
+            this.occupyInputSlot({ kind: "editor" });
             this.sendSetEffort(picked);
           },
-          () => this.closeEffortSelector(),
+          () => this.occupyInputSlot({ kind: "editor" }),
         );
-        this.effortSelector = selector;
-        this.statusContainer.addChild(selector);
-        this.ui.setFocus(selector);
-        this.ui.requestRender();
+        this.occupyInputSlot({ kind: "effortSelector", selector });
       },
       (error: unknown) => {
-        this.effortSelectorPending = false;
+        if (token !== undefined && this.pendingSelectorRequest === token) {
+          this.pendingSelectorRequest = undefined;
+        }
         this.addBanner(`supported-models failed: ${String(error)}`, "error");
         this.ui.requestRender();
       },
     );
-  }
-
-  private closeEffortSelector(): void {
-    if (this.effortSelector === undefined) {
-      return;
-    }
-    this.statusContainer.removeChild(this.effortSelector);
-    this.effortSelector = undefined;
-    this.ui.setFocus(this.editor);
-    this.ui.requestRender();
   }
 
   private sendSetEffort(level: EffortLevel): void {
@@ -995,9 +1062,7 @@ export class InteractiveMode {
   }
 
   private openTreeSelector(): void {
-    if (this.treeSelector !== undefined) {
-      return;
-    }
+    this.pendingSelectorRequest = undefined;
     const fileSessionModel = this.fileSessionModel();
     if (fileSessionModel === undefined) {
       this.addBanner("no session file to navigate yet", "warning");
@@ -1017,12 +1082,9 @@ export class InteractiveMode {
       fileSessionModel.toolNames,
       this.settings.tree,
       (pick) => this.confirmTreePick(fileSessionModel, pick),
-      () => this.closeTreeSelector(),
+      () => this.occupyInputSlot({ kind: "editor" }),
     );
-    this.treeSelector = selector;
-    this.statusContainer.addChild(selector);
-    this.ui.setFocus(selector);
-    this.ui.requestRender();
+    this.occupyInputSlot({ kind: "treeSelector", selector });
   }
 
   /** The selector stays dumb; the busy gate and the request live here. The
@@ -1043,7 +1105,7 @@ export class InteractiveMode {
       fileSessionModel.byUuid,
       pick,
     );
-    this.closeTreeSelector();
+    this.occupyInputSlot({ kind: "editor" });
     const request =
       action.rewindTo === null
         ? { type: "set-context" as const, uuids: [] }
@@ -1064,16 +1126,6 @@ export class InteractiveMode {
     );
   }
 
-  private closeTreeSelector(): void {
-    if (this.treeSelector === undefined) {
-      return;
-    }
-    this.statusContainer.removeChild(this.treeSelector);
-    this.treeSelector = undefined;
-    this.ui.setFocus(this.editor);
-    this.ui.requestRender();
-  }
-
   /**
    * Registered as a TUI input listener, which pi-tui runs before the focused
    * component sees the key: `{consume: true}` stops dispatch there (keeping
@@ -1082,37 +1134,6 @@ export class InteractiveMode {
    * not export its InputListenerResult.
    */
   private handleGlobalKey(data: string): { consume: boolean } | undefined {
-    // An open menu owns the interrupt and clear chords (cancel / clear
-    // search via tui.select.cancel, which the focused selector handles),
-    // as does a dialog's text input (Esc leaves it; see capturesEscape).
-    // TDC: these other selectors should also hide the input box. i.e. these should all be in inputSlot, right?
-    const selectorOpen =
-      this.modelSelector !== undefined ||
-      this.treeSelector !== undefined ||
-      this.effortSelector !== undefined ||
-      this.permissionPrompt?.capturesEscape === true;
-    // A pending ask is interruptible even with the main loop idle (a
-    // background task's ask): the CLI aborts the ask and kills the task.
-    if (
-      this.keybindings.matches(data, "app.interrupt") &&
-      (!isIdle(this.agentState) ||
-        allPendingAsks(this.agentState).length > 0) &&
-      !selectorOpen
-    ) {
-      void this.client.request({ type: "interrupt" }).catch(() => {});
-      return { consume: true };
-    }
-    // The permission dialog is modal: interrupt, detach and tools.expand
-    // still work; mode cycling, the external editor and clear act on the
-    // editor it has replaced.
-    const promptOpen = this.permissionPrompt !== undefined;
-    if (
-      this.keybindings.matches(data, "app.permissionMode.cycle") &&
-      !promptOpen
-    ) {
-      this.cyclePermissionMode();
-      return { consume: true };
-    }
     if (this.keybindings.matches(data, "app.tools.expand")) {
       this.toolsExpanded = !this.toolsExpanded;
       this.transcript.setToolsExpanded(this.toolsExpanded);
@@ -1126,58 +1147,11 @@ export class InteractiveMode {
       this.ui.requestRender();
       return { consume: true };
     }
-    if (
-      this.keybindings.matches(data, "app.editor.external") &&
-      !selectorOpen
-    ) {
-      // The question dialog handles ctrl+g itself (notes mode).
-      // TDC: this seems bad. It's requiring InteractiveMode to understand the details of all these different things that can go in the input slot. Instead, it should delegate to whatever occupies the slot, be it a selector, the regular editor, a permission prompt, or the question prompt.
-      const planFilePath =
-        this.permissionPrompt instanceof PermissionPromptComponent
-          ? this.permissionPrompt.dialog.planFilePath
-          : undefined;
-      const toolUseId = this.promptedToolUseId;
-      if (
-        promptOpen &&
-        (planFilePath === undefined || toolUseId === undefined)
-      ) {
-        return undefined;
-      }
-      void (
-        planFilePath === undefined || toolUseId === undefined
-          ? this.openExternalPromptEditor()
-          : this.openPlanEditor(toolUseId, planFilePath)
-      ).catch((error: unknown) => {
-        this.addBanner(`external editor failed: ${String(error)}`, "error");
-        this.ui.requestRender();
-      });
-      return { consume: true };
-    }
-    if (
-      this.keybindings.matches(data, "app.clear") &&
-      !selectorOpen &&
-      !promptOpen
-    ) {
-      // Cleared text stays reachable via up/down history (unlike pi, which
-      // discards it).
-      const clearedText = this.editor.getText();
-      if (clearedText.trim() !== "") {
-        this.editor.addToHistory(clearedText);
-      }
-      this.editor.setText("");
-      this.hintText.setText(
-        theme.fg(
-          "dim",
-          `detach with ${this.keybindings.getKeys("app.detach").join(", ")}`,
-        ),
-      );
-      this.ui.requestRender();
-      return { consume: true };
-    }
     if (this.keybindings.matches(data, "app.detach")) {
       this.finish({ kind: "detached" });
       return { consume: true };
     }
+    // Every other key reaches the input slot's occupant through focus.
     this.hintText.setText("");
     return undefined;
   }
@@ -1234,5 +1208,26 @@ export class InteractiveMode {
     } else {
       this.loader.setMessage(this.agentState.activity);
     }
+  }
+}
+
+/** The component that represents `occupant` in the input slot. */
+function occupantComponent(
+  occupant: InputSlotOccupant,
+  editor: PromptEditor,
+): Component {
+  switch (occupant.kind) {
+    case "editor":
+      return editor;
+    case "modelSelector":
+      return occupant.selector;
+    case "effortSelector":
+      return occupant.selector;
+    case "treeSelector":
+      return occupant.selector;
+    case "permissionPrompt":
+      return occupant.prompt;
+    case "questionPrompt":
+      return occupant.prompt;
   }
 }

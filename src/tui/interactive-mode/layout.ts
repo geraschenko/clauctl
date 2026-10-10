@@ -20,7 +20,8 @@ export interface TuiParts {
   chatContainer: Container;
   statusContainer: Container;
   pendingMessages: Component;
-  /** Holds the editor, or the permission prompt while an ask is pending. */
+  /** Holds the input slot occupant: the prompt editor, a selector, or an
+   *  ask prompt (docs/specs/input-slot.md). */
   inputSlot: Container;
   hintText: Component;
   footer: Component;

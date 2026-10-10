@@ -2,7 +2,7 @@
 // rely on (docs/specs/permission-cli.md, "SDK tests"). Each case drives one
 // session (haiku unless noted) through the SDK, records every message and
 // permission ask in arrival order, and asserts an ordering. The case
-// numbers match the spec's list.
+// numbers match that section's list.
 
 import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";

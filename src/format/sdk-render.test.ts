@@ -270,7 +270,8 @@ test("userText handles string and block content", () => {
 });
 
 // userTurnViews fixtures are verbatim tag shapes from captured 2.1.211
-// sessions (parity spec WORK LOG).
+// sessions (docs/specs/tui-rendering-parity.md, WORK LOG 2026-07-18
+// critique round).
 
 test("userTurnViews: plain prompt and tool-result carrier", () => {
   assert.deepEqual(userTurnViews(sdkUserMessage("just a question")), [

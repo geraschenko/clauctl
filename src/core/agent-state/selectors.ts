@@ -70,7 +70,7 @@ export function isQuerying(message: SDKUserMessage): boolean {
   return message.shouldQuery !== false;
 }
 
-/** Queued messages that predict a future `result` ("Q" in the spec). */
+/** Queued messages that predict a future `result` ("Q" in docs/specs/phase-2-sdk-sock-protocol.md). */
 export function queryingCount(state: AgentState): number {
   return state.queuedMessages.filter((entry) => isQuerying(entry.message))
     .length;

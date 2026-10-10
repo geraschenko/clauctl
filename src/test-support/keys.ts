@@ -10,5 +10,6 @@ export const KEY = {
   right: "\x1b[C",
   left: "\x1b[D",
   backspace: "\x7f",
+  ctrlC: "\x03",
   ctrlG: "\x07",
 } as const;

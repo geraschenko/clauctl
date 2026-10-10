@@ -90,7 +90,7 @@ const exitPlanModeRows = (
   { label: "Tell Claude what to change", action: { kind: "amend" } },
 ];
 
-/** Row-2 label per the spec's derivation table; first matching row wins. */
+/** Row-2 label per permission-prompt.md's derivation table; first matching row wins. */
 export function suggestionsLabel(
   suggestions: PermissionUpdate[],
   toolName: string,

@@ -29,37 +29,34 @@ import { getMarkdownTheme, theme } from "../theme.ts";
 
 const BODY_INDENT = "   ";
 
+/** What the permission prompt can do beyond rendering its dialog. */
+export interface PermissionPromptActions {
+  decide(decision: PermissionResult, feedback?: string): void;
+  editText(text: string): Promise<string | undefined>;
+  /** ctrl+g on the ExitPlanMode dialog: edit the plan file. */
+  editPlan(planFilePath: string): void;
+  interrupt(): void;
+}
+
 export class PermissionPromptComponent extends Container implements Focusable {
   focused = false;
-  readonly dialog: PermissionDialog;
+  private readonly dialog: PermissionDialog;
   /** All pending asks including this one; the title shows `(+N more)`. */
   pendingCount: number;
-  private readonly onDecide: (
-    decision: PermissionResult,
-    feedback?: string,
-  ) => void;
-  private readonly editText: (text: string) => Promise<string | undefined>;
+  private readonly actions: PermissionPromptActions;
   private selected: number;
   private amendInput: Input | undefined;
 
   constructor(
     dialog: PermissionDialog,
     pendingCount: number,
-    onDecide: (decision: PermissionResult, feedback?: string) => void,
-    editText: (text: string) => Promise<string | undefined>,
+    actions: PermissionPromptActions,
   ) {
     super();
     this.dialog = dialog;
     this.pendingCount = pendingCount;
-    this.onDecide = onDecide;
-    this.editText = editText;
+    this.actions = actions;
     this.selected = dialog.defaultToNo ? dialog.rows.length - 1 : 0;
-  }
-
-  /** Esc belongs to the dialog (it closes the amend input), not to the
-   *  global interrupt. */
-  get capturesEscape(): boolean {
-    return this.amendInput !== undefined;
   }
 
   /** `row` is the focused row (Tab) or the plan dialog's amend row. */
@@ -71,12 +68,12 @@ export class PermissionPromptComponent extends Container implements Focusable {
         row.action.decision.behavior === "allow"
       ) {
         if (text.length === 0) {
-          this.onDecide(row.action.decision);
+          this.actions.decide(row.action.decision);
         } else {
-          this.onDecide(row.action.decision, text);
+          this.actions.decide(row.action.decision, text);
         }
       } else {
-        this.onDecide(feedbackDenial(text));
+        this.actions.decide(feedbackDenial(text));
       }
     };
     input.onEscape = () => {
@@ -91,7 +88,7 @@ export class PermissionPromptComponent extends Container implements Focusable {
     if (row.action.kind === "amend") {
       this.openAmend(row);
     } else {
-      this.onDecide(row.action.decision);
+      this.actions.decide(row.action.decision);
     }
   }
 
@@ -100,12 +97,23 @@ export class PermissionPromptComponent extends Container implements Focusable {
     const amendInput = this.amendInput;
     if (amendInput !== undefined) {
       if (keybindings.matches(data, "app.editor.external")) {
-        void this.editText(amendInput.getValue()).then((edited) => {
+        void this.actions.editText(amendInput.getValue()).then((edited) => {
           if (edited !== undefined) amendInput.setValue(edited);
         });
       } else {
         amendInput.handleInput(data);
       }
+      return;
+    }
+    if (keybindings.matches(data, "app.interrupt")) {
+      this.actions.interrupt();
+      return;
+    }
+    if (
+      keybindings.matches(data, "app.editor.external") &&
+      this.dialog.planFilePath !== undefined
+    ) {
+      this.actions.editPlan(this.dialog.planFilePath);
       return;
     }
     const digit =
@@ -122,7 +130,7 @@ export class PermissionPromptComponent extends Container implements Focusable {
     } else if (keybindings.matches(data, "tui.select.confirm")) {
       this.confirm();
     } else if (keybindings.matches(data, "tui.select.cancel")) {
-      this.onDecide(this.dialog.cancelDecision);
+      this.actions.decide(this.dialog.cancelDecision);
     } else if (
       keybindings.matches(data, "app.permission.amend") &&
       this.dialog.tabAmends

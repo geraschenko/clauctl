@@ -25,20 +25,15 @@ signature makes plain what it does, even if it has only one user.
   be its own small class.
 - The `/keybindings` flow: `openKeybindingsEditor` and
   `reloadKeybindings`.
-- Local slash commands: today `submit` matches `/tree`, `/keybindings`
-  and `/reload-keybindings` with ad-hoc regexes, and
-  `local-commands.ts` parses `/model` and `/effort`. The right solution
-  is a proper slash-command registry. Look at how pi registers and
-  parses commands (pi-coding-agent's slash commands and extension
-  command registration) for inspiration.
 
 ## Not here
 
-Dialog construction, the selectors, the input slot occupant and the
-delegation in `handleGlobalKey` belong to the input-slot task
-(docs/follow-ups/input-slot-dialogs.md, tg c60bca6d).
+- Dialog construction, the selectors, the input slot occupant and the
+  delegation in `handleGlobalKey`: the input-slot task
+  (docs/specs/input-slot.md, tg c60bca6d).
+- Local slash-command parsing: a registry, its own task
+  (docs/follow-ups/slash-command-registry.md).
 
-## Open
+## Order (Anton, 2026-10-10)
 
-- Order relative to the input-slot task.
-- Whether the slash-command registry is its own task.
+After the input-slot task.

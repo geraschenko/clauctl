@@ -49,8 +49,12 @@ test("defaultToNo opens on the last row and ignores digits", () => {
   const prompt = new PermissionPromptComponent(
     dialog({ rows, defaultToNo: true }),
     1,
-    (d) => decisions.push(d),
-    NO_EDITOR,
+    {
+      decide: (d) => decisions.push(d),
+      editText: NO_EDITOR,
+      editPlan: () => {},
+      interrupt: () => {},
+    },
   );
   prompt.handleInput("1");
   assert.deepEqual(decisions, []);
@@ -62,7 +66,12 @@ test("defaultToNo opens on the last row and ignores digits", () => {
 });
 
 test("a body line's own newlines stay separate lines, each indented", () => {
-  const lines = new PermissionPromptComponent(dialog(), 1, () => {}, NO_EDITOR)
+  const lines = new PermissionPromptComponent(dialog(), 1, {
+    decide: () => {},
+    editText: NO_EDITOR,
+    editPlan: () => {},
+    interrupt: () => {},
+  })
     .render(40)
     .map(stripAnsi);
   assert.deepEqual(lines.slice(3, 6), [
@@ -74,35 +83,38 @@ test("a body line's own newlines stay separate lines, each indented", () => {
 
 test("a long body line wraps within the width", () => {
   const long = "x ".repeat(40).trim();
-  const lines = new PermissionPromptComponent(
-    dialog({ body: [long] }),
-    1,
-    () => {},
-    NO_EDITOR,
-  ).render(30);
+  const lines = new PermissionPromptComponent(dialog({ body: [long] }), 1, {
+    decide: () => {},
+    editText: NO_EDITOR,
+    editPlan: () => {},
+    interrupt: () => {},
+  }).render(30);
   assert.ok(lines.length > 6);
   assert.ok(lines.every((line) => visibleWidth(line) <= 30));
 });
 
-test("Esc sends the dialog's cancelDecision even without a deny row", () => {
+test("ctrl+c sends the dialog's cancelDecision even without a deny row; Esc interrupts instead", () => {
   const decisions: PermissionResult[] = [];
-  const prompt = new PermissionPromptComponent(
-    dialog(),
-    1,
-    (d) => decisions.push(d),
-    NO_EDITOR,
-  );
+  let interrupts = 0;
+  const prompt = new PermissionPromptComponent(dialog(), 1, {
+    decide: (d) => decisions.push(d),
+    editText: NO_EDITOR,
+    editPlan: () => {},
+    interrupt: () => interrupts++,
+  });
   prompt.handleInput(KEY.escape);
+  assert.deepEqual([decisions, interrupts], [[], 1]);
+  prompt.handleInput(KEY.ctrlC);
   assert.deepEqual(decisions, [NO]);
 });
 
 test("the title's (+N more) follows pendingCount", () => {
-  const prompt = new PermissionPromptComponent(
-    dialog(),
-    1,
-    () => {},
-    NO_EDITOR,
-  );
+  const prompt = new PermissionPromptComponent(dialog(), 1, {
+    decide: () => {},
+    editText: NO_EDITOR,
+    editPlan: () => {},
+    interrupt: () => {},
+  });
   assert.ok(!stripAnsi(prompt.render(40)[1] ?? "").includes("more"));
   prompt.pendingCount = 3;
   assert.ok(stripAnsi(prompt.render(40)[1] ?? "").endsWith("(+2 more)"));
@@ -116,12 +128,12 @@ function decidedAfter(
   keys: string[],
 ): Decided[] {
   const decided: Decided[] = [];
-  const prompt = new PermissionPromptComponent(
-    dialogUnderTest,
-    1,
-    (...args) => decided.push(args),
-    NO_EDITOR,
-  );
+  const prompt = new PermissionPromptComponent(dialogUnderTest, 1, {
+    decide: (...args) => decided.push(args),
+    editText: NO_EDITOR,
+    editPlan: () => {},
+    interrupt: () => {},
+  });
   for (const key of keys) prompt.handleInput(key);
   return decided;
 }
@@ -198,16 +210,16 @@ test("ctrl+g in the amend input replaces its text with the editor's", async () =
   const decided: Decided[] = [];
   const edited: string[] = [];
   let editing: Promise<string> | undefined;
-  const prompt = new PermissionPromptComponent(
-    amendDialog,
-    1,
-    (...args) => decided.push(args),
-    (text) => {
+  const prompt = new PermissionPromptComponent(amendDialog, 1, {
+    decide: (...args) => decided.push(args),
+    editText: (text) => {
       edited.push(text);
       editing = Promise.resolve("from editor");
       return editing;
     },
-  );
+    editPlan: () => {},
+    interrupt: () => {},
+  });
   for (const key of [KEY.tab, ..."ok", KEY.ctrlG]) prompt.handleInput(key);
   // The prompt's own continuation was registered first, so it has run.
   await editing;
@@ -216,13 +228,30 @@ test("ctrl+g in the amend input replaces its text with the editor's", async () =
   assert.deepEqual(decided, [[{ behavior: "allow" }, "from editor"]]);
 });
 
-test("the amend input's hint names the bound keys", () => {
-  const prompt = new PermissionPromptComponent(
-    amendDialog,
+test("ctrl+g on a plan dialog's rows edits the plan file; without a plan file it does nothing", () => {
+  const plansEdited: string[] = [];
+  const actions = {
+    decide: () => assert.fail("no decision"),
+    editText: NO_EDITOR,
+    editPlan: (planFilePath: string) => plansEdited.push(planFilePath),
+    interrupt: () => {},
+  };
+  new PermissionPromptComponent(
+    dialog({ planFilePath: "/tmp/plan.md" }),
     1,
-    () => {},
-    NO_EDITOR,
-  );
+    actions,
+  ).handleInput(KEY.ctrlG);
+  new PermissionPromptComponent(dialog(), 1, actions).handleInput(KEY.ctrlG);
+  assert.deepEqual(plansEdited, ["/tmp/plan.md"]);
+});
+
+test("the amend input's hint names the bound keys", () => {
+  const prompt = new PermissionPromptComponent(amendDialog, 1, {
+    decide: () => {},
+    editText: NO_EDITOR,
+    editPlan: () => {},
+    interrupt: () => {},
+  });
   const hint = (): string | undefined =>
     prompt.render(80).map(stripAnsi).at(-1);
   assert.equal(hint(), " Esc to cancel · Tab to amend");

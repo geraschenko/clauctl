@@ -101,7 +101,10 @@ const spawnCommand = commandNoTarget<SpawnFlags, string[]>({
   parameters: {
     flags: spawnFlags,
     aliases: { a: "attach" },
-    positional: restArgs("claude-style flags (see spec)", "claude-flags"),
+    positional: restArgs(
+      "claude CLI flags for the agent (flags clauctl owns are rejected)",
+      "claude-flags",
+    ),
   },
   func: spawn,
 });
