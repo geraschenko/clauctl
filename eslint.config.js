@@ -43,6 +43,10 @@ const barrelPatterns = [
     message:
       "Import interactive-mode/index.ts; the siblings are implementation.",
   },
+  {
+    group: ["**/transcript/*", "!**/transcript/index.ts"],
+    message: "Import transcript/index.ts; the siblings are implementation.",
+  },
 ];
 
 /** Inside a barrel, siblings import each other, never their own barrel. */
@@ -112,6 +116,7 @@ export default tseslint.config(
   barrelImplementation("format/entry-view/attachment-view"),
   barrelImplementation("format/entry-view/tool-view"),
   barrelImplementation("tui/interactive-mode"),
+  barrelImplementation("tui/transcript"),
   {
     files: ["src/core/agent-state/observe-event/**"],
     rules: {

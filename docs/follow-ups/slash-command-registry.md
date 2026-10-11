@@ -1,6 +1,6 @@
 # A registry for local slash commands
 
-Split out of docs/follow-ups/interactive-mode-class-split.md (Anton,
+Split out of the class split (docs/specs/interactive-mode-class-split.md; Anton,
 2026-10-09): this is a task of its own.
 
 ## Problem

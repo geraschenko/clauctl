@@ -8,7 +8,7 @@ its own investigation.
 Where the time plausibly goes (unmeasured — profile before optimizing):
 
 - The attach fetches the full entry list and `renderHistory` renders the
-  whole `pathToLeaf` through `TranscriptRenderer.appendEntry`, one
+  whole `pathToLeaf` through `Transcript.appendEntry`, one
   component per item, with a `rebuild` per append.
 - The daemon's history read walks the whole file (rolling builders,
   context tree, `byUuid`).

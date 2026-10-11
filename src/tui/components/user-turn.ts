@@ -1,6 +1,6 @@
 // One user turn — prompt text, slash command, its output — as a single
 // component, so a dequeue echo's provisional rendering is replaced in place
-// by the entry's (TranscriptRenderer.replaceContent). Composes
+// by the entry's (Transcript.replaceContent). Composes
 // UserMessageComponent (prompt, contextTag) and UserCommandComponent
 // (slashCommand, bashInput; an output view attaches to the turn's command
 // child while it holds none, else renders as a standalone ⤷ block).

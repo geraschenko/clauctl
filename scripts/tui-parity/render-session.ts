@@ -2,7 +2,7 @@
  * Direct render of a session file: the attach TUI's replay pipeline
  * (readSessionEntries → buildTree + toDisplayTree → nearestVisibleNode →
  * pathToLeaf, cf. tui/interactive-mode/interactive-mode.ts replay) fed through the exact
- * TranscriptRenderer the attach TUI uses, without tmux or a live agent.
+ * Transcript the attach TUI uses, without tmux or a live agent.
  * The leaf is the context tree's, matching what get-entries reports for a
  * freshly started daemon. Output is the
  * transcript container only — no footer, editor, status or pending area.
@@ -18,7 +18,7 @@ import {
   entriesByUuid,
   readSessionEntries,
 } from "../../src/core/session/file.ts";
-import { TranscriptRenderer } from "../../src/tui/transcript.ts";
+import { Transcript } from "../../src/tui/transcript/index.ts";
 
 export function renderSessionFile(
   sessionFilePath: string,
@@ -37,7 +37,7 @@ export function renderSessionFile(
   const leafNode =
     leaf === null ? null : (displayTree.nearestVisibleNode(leaf) ?? null);
   const container = new Container();
-  const renderer = new TranscriptRenderer(container);
+  const renderer = new Transcript(container);
   for (const ref of pathToLeaf(displayTree.parentMap, byUuid, leafNode)) {
     renderer.appendEntry(byUuid.get(ref.uuid)!);
   }

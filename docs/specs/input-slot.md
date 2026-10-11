@@ -338,7 +338,7 @@ supersede rule (criterion 5).
 ### Non-goals
 
 - The class split and the slash-command registry
-  (docs/follow-ups/interactive-mode-class-split.md,
+  (docs/specs/interactive-mode-class-split.md,
   docs/follow-ups/slash-command-registry.md).
 - The tree selector's planned full-view redesign; that is a layout
   question, not an occupant one.

@@ -13,13 +13,11 @@ import {
   KeybindingsManager,
   Loader,
   Text,
-  type Component,
   type TUI,
 } from "@earendil-works/pi-tui";
 import type {
   EffortLevel,
   ModelInfo,
-  PermissionMode,
   SDKControlInitializeResponse,
 } from "@anthropic-ai/claude-agent-sdk";
 import type { PermissionResult } from "@anthropic-ai/claude-agent-sdk";
@@ -29,11 +27,6 @@ import {
   isIdle,
   type PendingAsk,
 } from "../../core/agent-state/index.ts";
-import { ANSI_STYLE } from "../../format/style.ts";
-import { PermissionPromptComponent } from "../components/permission-prompt.ts";
-import { QuestionPromptComponent } from "../components/question-prompt.ts";
-import { askUserQuestionInput } from "../question-dialog.ts";
-import { permissionDialog } from "../permission-dialog.ts";
 import type {
   AgentState,
   AgentEvent,
@@ -56,14 +49,6 @@ import {
   TreeSelectorComponent,
 } from "../components/tree-selector.ts";
 import {
-  CLAUCTL_KEYBINDINGS,
-  conflictWarnings,
-  keybindingsPath,
-  promoteEditedDefaults,
-  readKeybindingsConfig,
-  writeDefaultBindings,
-} from "../keybindings.ts";
-import {
   editFileInExternalEditor,
   editTextInExternalEditor,
   externalEditorCommand,
@@ -73,10 +58,19 @@ import { userText } from "../../format/sdk-render.ts";
 import type { SessionModel } from "../session-model.ts";
 import { SessionModels } from "../session-models.ts";
 import { type ClauctlSettings } from "../../core/settings.ts";
-import { TranscriptRenderer } from "../transcript.ts";
-import { getEditorTheme, theme, type ThemeColor } from "../theme.ts";
+import { Transcript, type Banner } from "../transcript/index.ts";
+import { getEditorTheme, theme } from "../theme.ts";
 import { mountParts } from "./layout.ts";
 import { parseEffortCommand, parseModelCommand } from "./local-commands.ts";
+import { nextPermissionMode } from "./permission-mode-cycle.ts";
+import { effortLevelsOf } from "./effort-levels.ts";
+import { HeldLiveEvents } from "./held-live-events.ts";
+import { editKeybindings, reloadKeybindings } from "./keybindings-commands.ts";
+import {
+  occupantComponent,
+  type InputSlotOccupant,
+} from "./input-slot-occupant.ts";
+import { askPromptOccupant, type AskPromptHandlers } from "./ask-prompt.ts";
 import { resolutionBanner } from "./resolution-banner.ts";
 
 /** How an interactive session ended; attach.ts turns this into the exit
@@ -85,24 +79,6 @@ export type InteractiveOutcome =
   | { kind: "detached" } // app.detach pressed; the agent keeps running
   | { kind: "shutdown"; reason: string } // daemon shutdown event received
   | { kind: "connectionLost" }; // socket closed unannounced (daemon crash)
-
-/** What the input slot shows: the prompt editor, or what replaces it
- *  (docs/specs/input-slot.md). */
-type InputSlotOccupant =
-  | { kind: "editor" }
-  | { kind: "modelSelector"; selector: ModelSelectorComponent }
-  | { kind: "effortSelector"; selector: EffortSelectorComponent }
-  | { kind: "treeSelector"; selector: TreeSelectorComponent }
-  | {
-      kind: "permissionPrompt";
-      toolUseId: string;
-      prompt: PermissionPromptComponent;
-    }
-  | {
-      kind: "questionPrompt";
-      toolUseId: string;
-      prompt: QuestionPromptComponent;
-    };
 
 export class InteractiveMode {
   readonly done: Promise<InteractiveOutcome>;
@@ -136,6 +112,7 @@ export class InteractiveMode {
    *  to a newer main-agent ask and regain it later, edit intact. Cleared
    *  when no ask is pending. */
   private readonly planEdits = new Map<string, string>();
+  private readonly askPromptHandlers: AskPromptHandlers;
   /** Git-branch data for the footer. The daemon always seeds cwd, so this
    *  is only undefined for a (theoretical) unseeded subscribe response —
    *  the footer then simply never shows a branch. */
@@ -143,7 +120,7 @@ export class InteractiveMode {
   private readonly footer: FooterComponent;
 
   /** All transcript content renders through this (recreated on reload). */
-  private transcript: TranscriptRenderer;
+  private transcript: Transcript;
   /** The global manager set by runInteractive; also consulted by pi-tui's
    *  Editor and SelectList, so remaps apply everywhere at once. */
   private readonly keybindings: KeybindingsManager;
@@ -152,19 +129,8 @@ export class InteractiveMode {
   private showThinking = false;
   private readonly settings: ClauctlSettings;
 
-  /**
-   * Live events held back until history replay finishes (undefined
-   * afterwards), so live output cannot interleave with — or precede — the
-   * replayed transcript.
-   */
-  private liveEventsDuringReplay: Array<[AgentEvent, AgentState]> | undefined =
-    [];
-  /** `reloadHistory` waiting for the buffer to reach its snapshot cut
-   *  (`eventsBefore` counts events pushed to the subscription, which runs
-   *  ahead of the pump that delivers them here). A shutdown inside the cut
-   *  is never buffered, so the wait then stays pending — moot, the mode is
-   *  finishing. */
-  private cutAwaiter: { position: number; resolve: () => void } | undefined;
+  /** Defined while history replays; undefined afterwards. */
+  private heldLiveEvents: HeldLiveEvents | undefined = new HeldLiveEvents();
   /** Between `sessionFileChanged` and `scanComplete` the transcript is
    *  blank and nothing renders live: the scan's entries and the query
    *  messages arriving meanwhile reach it through the rebuild at the end. */
@@ -193,7 +159,7 @@ export class InteractiveMode {
     this.settings = settings;
     this.transcript = this.freshTranscript();
     this.sessionModels = new SessionModels(
-      (message) => this.addBanner(message),
+      (message) => this.transcript.addBanner({ text: message }),
       (sessionId, uuid, entry) => this.onResolved(sessionId, uuid, entry),
       (sessionId) => this.onContextChanged(sessionId),
     );
@@ -227,6 +193,16 @@ export class InteractiveMode {
       },
     });
     this.editor.onSubmit = (text: string) => this.submit(text);
+    this.askPromptHandlers = {
+      respond: (toolUseId, decision, feedback) =>
+        this.sendPermissionResponse(toolUseId, decision, feedback),
+      editText: (text) => this.editTextExternally(text),
+      editPlan: (toolUseId, planFilePath) =>
+        void this.openPlanEditor(toolUseId, planFilePath),
+      // A pending ask is interruptible even with the main loop idle (a
+      // background task's ask): the CLI aborts the ask and kills the task.
+      interrupt: () => this.interrupt(),
+    };
 
     if (seedState.cwd !== undefined) {
       this.footerData = new FooterDataProvider(seedState.cwd);
@@ -276,7 +252,9 @@ export class InteractiveMode {
         this.autocomplete.setCommands(init.commands);
       },
       (error: unknown) => {
-        this.addBanner(`command list fetch failed: ${String(error)}`);
+        this.transcript.addBanner({
+          text: `command list fetch failed: ${String(error)}`,
+        });
         this.ui.requestRender();
       },
     );
@@ -288,8 +266,8 @@ export class InteractiveMode {
    * The attach-time history fetch: `get-entries {payload: "full"}` seeds
    * the session models (the response's event count is its snapshot cut,
    * and the state at that cut is the one the daemon answered against —
-   * read from the buffer once the pump has delivered that far), the
-   * buffered live events release their state effects, then the transcript
+   * read from the held live events once the pump has delivered that far),
+   * the held live events release their state effects, then the transcript
    * fills from the models below the startup banners — unless the release
    * left a scan window open, whose `scanComplete` rebuilds instead.
    * `startupWarnings` describe the keybindings and settings as read at
@@ -297,51 +275,39 @@ export class InteractiveMode {
    */
   private async reloadHistory(startupWarnings: string[]): Promise<void> {
     for (const warning of startupWarnings) {
-      this.transcript.addBanner(warning, "warning");
+      this.transcript.addBanner({ text: warning, color: "warning" });
     }
-    this.liveEventsDuringReplay = [];
+    const heldLiveEvents = this.heldLiveEvents!;
     try {
       const { data, eventsBefore } = await this.client.requestWithEventCount({
         type: "get-entries",
         payload: "full",
       });
       const snapshot = data as GetEntriesResponse;
-      await this.bufferedUpTo(eventsBefore);
+      // Nothing folds into agentState while events are held: it is the seed.
+      const cutState = await heldLiveEvents.stateAtCut(
+        eventsBefore,
+        this.agentState,
+      );
       this.sessionModels.applySnapshot(
         snapshot.entries!,
         eventsBefore,
-        this.stateAtCut(eventsBefore),
+        cutState,
       );
     } catch (error) {
-      this.addBanner(`history fetch failed: ${String(error)}`);
+      this.transcript.addBanner({
+        text: `history fetch failed: ${String(error)}`,
+      });
       this.sessionModels.applySnapshot([], 0, this.agentState);
     }
-    const buffered = this.liveEventsDuringReplay;
-    this.liveEventsDuringReplay = undefined;
-    for (const [event, state] of buffered) {
+    this.heldLiveEvents = undefined;
+    for (const [event, state] of heldLiveEvents.events) {
       this.applyState(event, state);
     }
     if (!this.scanning) {
       this.renderHistory();
     }
     this.ui.requestRender();
-  }
-
-  /** Resolves once `liveEventsDuringReplay` holds `position` events. */
-  private bufferedUpTo(position: number): Promise<void> {
-    return this.liveEventsDuringReplay!.length >= position
-      ? Promise.resolve()
-      : new Promise((resolve) => {
-          this.cutAwaiter = { position, resolve };
-        });
-  }
-
-  /** The state the first `eventsBefore` buffered events folded to: the
-   *  seed when none preceded the snapshot response. */
-  private stateAtCut(eventsBefore: number): AgentState {
-    return eventsBefore === 0
-      ? this.agentState
-      : this.liveEventsDuringReplay![eventsBefore - 1]![1];
   }
 
   private resetTranscript(): void {
@@ -353,8 +319,8 @@ export class InteractiveMode {
    *  scrollback whatever follows. The welcome line self-identifies the
    *  product (Agent SDK branding guidelines: our own branding, not Claude
    *  Code's). */
-  private freshTranscript(): TranscriptRenderer {
-    const transcript = new TranscriptRenderer(
+  private freshTranscript(): Transcript {
+    const transcript = new Transcript(
       this.chatContainer,
       this.settings.showResolvedBoundary,
     );
@@ -362,10 +328,10 @@ export class InteractiveMode {
     transcript.setToolsExpanded(this.toolsExpanded);
     transcript.setCompactSummaryExpanded(this.toolsExpanded);
     transcript.setShowThinking(this.showThinking);
-    transcript.addBanner(
-      `Welcome to clauctl TUI ${theme.fg("dim", `v${VERSION}`)}`,
-      "accent",
-    );
+    transcript.addBanner({
+      text: `Welcome to clauctl TUI ${theme.fg("dim", `v${VERSION}`)}`,
+      color: "accent",
+    });
     return transcript;
   }
 
@@ -414,7 +380,7 @@ export class InteractiveMode {
 
   handleEvent(event: AgentEvent, state: AgentState): void {
     // Terminal and order-independent, so it must not wait out a history
-    // replay: the socket may close right behind it, and a buffered shutdown
+    // replay: the socket may close right behind it, and a held shutdown
     // would then misreport as connectionLost.
     if (event.kind === "shutdown") {
       this.finish({ kind: "shutdown", reason: event.reason });
@@ -424,16 +390,9 @@ export class InteractiveMode {
     // cut is a socket position — while state and rendering wait out the
     // history replay. Live, the state (and its scan gate) updates before
     // the models fire `onResolved`, so the callback reads the current gate.
-    if (this.liveEventsDuringReplay !== undefined) {
+    if (this.heldLiveEvents !== undefined) {
       this.sessionModels.observe(event, state);
-      this.liveEventsDuringReplay.push([event, state]);
-      if (
-        this.cutAwaiter !== undefined &&
-        this.liveEventsDuringReplay.length >= this.cutAwaiter.position
-      ) {
-        this.cutAwaiter.resolve();
-        this.cutAwaiter = undefined;
-      }
+      this.heldLiveEvents.hold(event, state);
       return;
     }
     this.applyState(event, state);
@@ -445,7 +404,7 @@ export class InteractiveMode {
   /** The event's effects outside the transcript — the state itself, the
    *  scan gate, and the components that read the state: the pending area,
    *  the command list, the footer — plus the anomaly banner, the one
-   *  transcript effect that must survive a buffered release. Runs for every
+   *  transcript effect that must survive the release of held events. Runs for every
    *  event, including the ones released after attach. */
   private applyState(event: AgentEvent, state: AgentState): void {
     const priorState = this.agentState;
@@ -456,7 +415,7 @@ export class InteractiveMode {
         ({ request }) => request.toolUseId === event.toolUseId,
       )?.request;
       const banner = resolutionBanner(event.resolution, resolvedRequest);
-      if (banner !== undefined) this.addBanner(banner);
+      if (banner !== undefined) this.transcript.addBanner({ text: banner });
     }
     if (event.kind === "sessionFileChanged") {
       this.scanning = true;
@@ -467,7 +426,10 @@ export class InteractiveMode {
     // so `state.anomaly` (the TUI's fold detecting the same thing) is not
     // read: the report names the bundle.
     if (event.kind === "trackerAnomaly") {
-      this.addBanner(anomalyReport(event.anomaly, event.bundlePath), "warning");
+      this.transcript.addBanner({
+        text: anomalyReport(event.anomaly, event.bundlePath),
+        color: "warning",
+      });
     }
     if (event.kind === "userMessageQueued") {
       this.pendingMessages.add(
@@ -568,7 +530,7 @@ export class InteractiveMode {
     entry: SessionEntry | undefined,
   ): void {
     if (
-      this.liveEventsDuringReplay !== undefined ||
+      this.heldLiveEvents !== undefined ||
       this.scanning ||
       sessionId !== this.agentState.querySessionId
     ) {
@@ -582,7 +544,7 @@ export class InteractiveMode {
    *  `onResolved`. */
   private onContextChanged(sessionId: UUID): void {
     if (
-      this.liveEventsDuringReplay !== undefined ||
+      this.heldLiveEvents !== undefined ||
       this.scanning ||
       sessionId !== this.agentState.querySessionId
     ) {
@@ -591,18 +553,12 @@ export class InteractiveMode {
     this.rebuildTranscript();
   }
 
-  private addBanner(text: string, color: ThemeColor = "dim"): void {
-    // Through the renderer so banners keep their transcript position across
-    // its fold-state rebuilds.
-    this.transcript.addBanner(text, color);
-  }
-
   /** A banner rendering the query-side event `uuid`, keyed so the
    *  event's resolution moves it. The event folds (and the session models
    *  observe) before it renders, so a resolution in its own step has
    *  already fired: then the banner is resolved here. */
   private addEventBanner(text: string, uuid: UUID): void {
-    this.transcript.addBanner(text, "dim", uuid);
+    this.transcript.addBanner({ text }, uuid);
     if (this.querySessionModel()?.queryMessages.has(uuid) !== true) {
       this.transcript.resolve(uuid, undefined);
     }
@@ -632,11 +588,13 @@ export class InteractiveMode {
       return;
     }
     if (/^\/keybindings(\s|$)/.test(text.trim())) {
-      void this.openKeybindingsEditor();
+      void editKeybindings(this.ui, this.keybindings).then((banners) =>
+        this.addBanners(banners),
+      );
       return;
     }
     if (/^\/reload-keybindings(\s|$)/.test(text.trim())) {
-      this.reloadKeybindings();
+      this.addBanners(reloadKeybindings(this.keybindings));
       return;
     }
     // The queued echo comes back as a userMessageQueued event; nothing is
@@ -644,94 +602,13 @@ export class InteractiveMode {
     void this.client
       .request({ type: "prompt", content: text })
       .catch((error: unknown) => {
-        this.addBanner(`prompt failed: ${String(error)}`);
+        this.transcript.addBanner({ text: `prompt failed: ${String(error)}` });
         this.ui.requestRender();
       });
   }
 
-  /**
-   * `/keybindings`: refresh default_bindings (skipped with a banner when the
-   * existing file is unparseable — the editor still opens, since this is
-   * also the repair tool), edit the file in $VISUAL/$EDITOR with the TUI
-   * suspended, promote post-editor default_bindings edits to top-level
-   * overrides (only when the refresh succeeded — without that baseline,
-   * drift is not attributable to this session), then reload.
-   */
-  private async openKeybindingsEditor(): Promise<void> {
-    const editorCommand = externalEditorCommand();
-    if (editorCommand === undefined) {
-      this.addBanner("set $EDITOR to edit keybindings", "warning");
-      this.ui.requestRender();
-      return;
-    }
-    const path = keybindingsPath();
-    let refreshed = true;
-    try {
-      writeDefaultBindings(path, CLAUCTL_KEYBINDINGS);
-    } catch (error) {
-      refreshed = false;
-      this.addBanner(
-        `keybindings: defaults refresh skipped: ${String(error)}`,
-        "warning",
-      );
-    }
-    const exitedZero = await editFileInExternalEditor(
-      this.ui,
-      editorCommand,
-      path,
-    );
-    if (!exitedZero) {
-      this.addBanner(
-        "keybindings: editor exited nonzero; changes not applied",
-        "warning",
-      );
-      this.ui.requestRender();
-      return;
-    }
-    if (refreshed) {
-      try {
-        const { warnings } = promoteEditedDefaults(path, CLAUCTL_KEYBINDINGS);
-        for (const warning of warnings) {
-          this.addBanner(`keybindings: ${warning}`, "warning");
-        }
-      } catch (error) {
-        this.addBanner(`keybindings: ${String(error)}`, "error");
-        this.ui.requestRender();
-        return;
-      }
-    }
-    this.reloadKeybindings();
-  }
-
-  /**
-   * `/reload-keybindings` (also the tail of openKeybindingsEditor): re-read
-   * the config and apply it to the existing manager instance — pi-tui
-   * components hold the same reference, so they see the change. A fatal
-   * read keeps the current live bindings: a temporary syntax error must not
-   * strip a working configuration.
-   */
-  private reloadKeybindings(): void {
-    const configRead = readKeybindingsConfig(
-      keybindingsPath(),
-      CLAUCTL_KEYBINDINGS,
-    );
-    if (!configRead.ok) {
-      this.addBanner(`keybindings not reloaded: ${configRead.error}`, "error");
-      this.ui.requestRender();
-      return;
-    }
-    this.keybindings.setUserBindings(configRead.bindings);
-    const warnings = [
-      ...configRead.warnings,
-      ...conflictWarnings(this.keybindings),
-    ];
-    if (warnings.length === 0) {
-      this.addBanner("keybindings reloaded");
-    } else {
-      for (const warning of warnings) {
-        this.addBanner(`keybindings: ${warning}`, "warning");
-      }
-    }
+  private addBanners(banners: readonly Banner[]): void {
+    for (const banner of banners) this.transcript.addBanner(banner);
     this.ui.requestRender();
   }
 
@@ -739,7 +616,10 @@ export class InteractiveMode {
    *  nonzero keeps it. Failures are reported as a banner. */
   private async openExternalPromptEditor(): Promise<void> {
     if (externalEditorCommand() === undefined) {
-      this.addBanner("set $EDITOR to edit the prompt", "warning");
+      this.transcript.addBanner({
+        text: "set $EDITOR to edit the prompt",
+        color: "warning",
+      });
       this.ui.requestRender();
       return;
     }
@@ -752,7 +632,10 @@ export class InteractiveMode {
         this.editor.setText(edited);
       }
     } catch (error) {
-      this.addBanner(`external editor failed: ${String(error)}`, "error");
+      this.transcript.addBanner({
+        text: `external editor failed: ${String(error)}`,
+        color: "error",
+      });
       this.ui.requestRender();
     }
   }
@@ -761,14 +644,20 @@ export class InteractiveMode {
    *  it fails, each reported as a banner. */
   private async editTextExternally(text: string): Promise<string | undefined> {
     if (externalEditorCommand() === undefined) {
-      this.addBanner("set $EDITOR to use an external editor", "warning");
+      this.transcript.addBanner({
+        text: "set $EDITOR to use an external editor",
+        color: "warning",
+      });
       this.ui.requestRender();
       return undefined;
     }
     try {
       return await editTextInExternalEditor(this.ui, text);
     } catch (error) {
-      this.addBanner(`external editor failed: ${String(error)}`, "error");
+      this.transcript.addBanner({
+        text: `external editor failed: ${String(error)}`,
+        color: "error",
+      });
       this.ui.requestRender();
       return undefined;
     }
@@ -783,7 +672,10 @@ export class InteractiveMode {
   ): Promise<void> {
     const editorCommand = externalEditorCommand();
     if (editorCommand === undefined) {
-      this.addBanner("set $EDITOR to edit the plan", "warning");
+      this.transcript.addBanner({
+        text: "set $EDITOR to edit the plan",
+        color: "warning",
+      });
       this.ui.requestRender();
       return;
     }
@@ -806,7 +698,10 @@ export class InteractiveMode {
         }
       }
     } catch (error) {
-      this.addBanner(`external editor failed: ${String(error)}`, "error");
+      this.transcript.addBanner({
+        text: `external editor failed: ${String(error)}`,
+        color: "error",
+      });
     }
     this.ui.requestRender();
   }
@@ -816,7 +711,10 @@ export class InteractiveMode {
     void this.client
       .request({ type: "set-model", model })
       .catch((error: unknown) => {
-        this.addBanner(`set-model failed: ${String(error)}`, "error");
+        this.transcript.addBanner({
+          text: `set-model failed: ${String(error)}`,
+          color: "error",
+        });
         this.ui.requestRender();
       });
   }
@@ -842,7 +740,10 @@ export class InteractiveMode {
         if (this.pendingSelectorRequest === token) {
           this.pendingSelectorRequest = undefined;
         }
-        this.addBanner(`supported-models failed: ${String(error)}`, "error");
+        this.transcript.addBanner({
+          text: `supported-models failed: ${String(error)}`,
+          color: "error",
+        });
         this.ui.requestRender();
       },
     );
@@ -886,65 +787,16 @@ export class InteractiveMode {
    *  the remount after a plan edit. */
   private showAskPrompt(asks: readonly PendingAsk[]): void {
     this.pendingSelectorRequest = undefined;
-    this.occupyInputSlot(this.askPromptOccupant(asks[0]!, asks.length));
-  }
-
-  /** The occupant for an ask: question prompt for AskUserQuestion
-   *  (`askUserQuestionInput` defined), permission prompt otherwise. */
-  private askPromptOccupant(
-    ask: PendingAsk,
-    pendingCount: number,
-  ): Extract<
-    InputSlotOccupant,
-    { kind: "permissionPrompt" | "questionPrompt" }
-  > {
-    const { toolUseId } = ask.request;
-    const titleSuffix =
-      ask.task === undefined ? undefined : ` — task: ${ask.task.description}`;
-    const editText = (text: string): Promise<string | undefined> =>
-      this.editTextExternally(text);
-    // A pending ask is interruptible even with the main loop idle (a
-    // background task's ask): the CLI aborts the ask and kills the task.
-    const interrupt = (): void => this.interrupt();
-    const questions = askUserQuestionInput(ask.request);
-    if (questions !== undefined) {
-      return {
-        kind: "questionPrompt",
-        toolUseId,
-        prompt: new QuestionPromptComponent(
-          questions,
-          titleSuffix,
-          pendingCount,
-          {
-            decide: (decision) =>
-              this.sendPermissionResponse(toolUseId, decision),
-            editText,
-            interrupt,
-          },
-        ),
-      };
-    }
-    const dialog = permissionDialog(
-      ask.request,
-      { cwd: this.agentState.cwd, style: ANSI_STYLE },
-      this.planEdits.get(toolUseId),
-    );
-    return {
-      kind: "permissionPrompt",
-      toolUseId,
-      prompt: new PermissionPromptComponent(
-        { ...dialog, title: `${dialog.title}${titleSuffix ?? ""}` },
-        pendingCount,
-        {
-          decide: (decision, feedback) =>
-            this.sendPermissionResponse(toolUseId, decision, feedback),
-          editText,
-          editPlan: (planFilePath) =>
-            void this.openPlanEditor(toolUseId, planFilePath),
-          interrupt,
-        },
+    const head = asks[0]!;
+    this.occupyInputSlot(
+      askPromptOccupant(
+        head,
+        asks.length,
+        this.agentState.cwd,
+        this.planEdits.get(head.request.toolUseId),
+        this.askPromptHandlers,
       ),
-    };
+    );
   }
 
   /** Send `interrupt`; failures are ignored. */
@@ -966,7 +818,10 @@ export class InteractiveMode {
         ...(feedback !== undefined && { feedback }),
       })
       .catch((error: unknown) => {
-        this.addBanner(`permission response failed: ${String(error)}`, "error");
+        this.transcript.addBanner({
+          text: `permission response failed: ${String(error)}`,
+          color: "error",
+        });
         this.ui.requestRender();
       });
   }
@@ -989,39 +844,29 @@ export class InteractiveMode {
           if (this.pendingSelectorRequest !== token) return;
           this.pendingSelectorRequest = undefined;
         }
-        const models = data as ModelInfo[];
-        // agentState.model holds a set-model request value or the SDK init
-        // message's resolved id, depending on history — so match both.
-        const current = this.agentState.model;
-        const matched = models.find(
-          (model) =>
-            current !== undefined &&
-            (model.value === current || model.resolvedModel === current),
+        const effortLevels = effortLevelsOf(
+          data as ModelInfo[],
+          this.agentState.model,
         );
-        if (matched === undefined) {
-          this.addBanner(
-            "cannot determine effort levels for the current model",
-            "warning",
-          );
+        if (effortLevels.kind !== "levels") {
+          this.transcript.addBanner({
+            text:
+              effortLevels.kind === "unknownModel"
+                ? "cannot determine effort levels for the current model"
+                : "current model does not support effort levels",
+            color: "warning",
+          });
           this.ui.requestRender();
           return;
         }
-        const levels = matched.supportedEffortLevels ?? [];
-        if (levels.length === 0) {
-          this.addBanner(
-            "current model does not support effort levels",
-            "warning",
-          );
-          this.ui.requestRender();
-          return;
-        }
+        const { model, levels } = effortLevels;
         if (level !== undefined) {
           const validated = levels.find((candidate) => candidate === level);
           if (validated === undefined) {
-            this.addBanner(
-              `invalid effort level ${level}; ${matched.displayName} supports: ${levels.join(", ")}`,
-              "warning",
-            );
+            this.transcript.addBanner({
+              text: `invalid effort level ${level}; ${model.displayName} supports: ${levels.join(", ")}`,
+              color: "warning",
+            });
             this.ui.requestRender();
           } else {
             this.sendSetEffort(validated);
@@ -1042,7 +887,10 @@ export class InteractiveMode {
         if (token !== undefined && this.pendingSelectorRequest === token) {
           this.pendingSelectorRequest = undefined;
         }
-        this.addBanner(`supported-models failed: ${String(error)}`, "error");
+        this.transcript.addBanner({
+          text: `supported-models failed: ${String(error)}`,
+          color: "error",
+        });
         this.ui.requestRender();
       },
     );
@@ -1056,7 +904,10 @@ export class InteractiveMode {
         settings: { effortLevel: level },
       })
       .catch((error: unknown) => {
-        this.addBanner(`apply-flag-settings failed: ${String(error)}`, "error");
+        this.transcript.addBanner({
+          text: `apply-flag-settings failed: ${String(error)}`,
+          color: "error",
+        });
         this.ui.requestRender();
       });
   }
@@ -1065,7 +916,10 @@ export class InteractiveMode {
     this.pendingSelectorRequest = undefined;
     const fileSessionModel = this.fileSessionModel();
     if (fileSessionModel === undefined) {
-      this.addBanner("no session file to navigate yet", "warning");
+      this.transcript.addBanner({
+        text: "no session file to navigate yet",
+        color: "warning",
+      });
       this.ui.requestRender();
       return;
     }
@@ -1120,7 +974,10 @@ export class InteractiveMode {
         this.ui.requestRender();
       },
       (error: unknown) => {
-        this.addBanner(`set-context failed: ${String(error)}`, "error");
+        this.transcript.addBanner({
+          text: `set-context failed: ${String(error)}`,
+          color: "error",
+        });
         this.ui.requestRender();
       },
     );
@@ -1157,25 +1014,17 @@ export class InteractiveMode {
   }
 
   private cyclePermissionMode(): void {
-    const cycle: PermissionMode[] = [];
-    for (const mode of [
-      "default" as const,
-      "plan" as const,
-      "acceptEdits" as const,
-      "auto" as const,
-      ...this.agentState.observedPermissionModes,
-    ]) {
-      if (!cycle.includes(mode)) {
-        cycle.push(mode);
-      }
-    }
-    const current = this.agentState.permissionMode ?? "default";
-    const next = cycle[(cycle.indexOf(current) + 1) % cycle.length]!;
     // No optimistic footer update: it follows from the controlApplied event.
     void this.client
-      .request({ type: "set-permission-mode", mode: next })
+      .request({
+        type: "set-permission-mode",
+        mode: nextPermissionMode(this.agentState),
+      })
       .catch((error: unknown) => {
-        this.addBanner(`set-permission-mode failed: ${String(error)}`, "error");
+        this.transcript.addBanner({
+          text: `set-permission-mode failed: ${String(error)}`,
+          color: "error",
+        });
         this.ui.requestRender();
       });
   }
@@ -1208,26 +1057,5 @@ export class InteractiveMode {
     } else {
       this.loader.setMessage(this.agentState.activity);
     }
-  }
-}
-
-/** The component that represents `occupant` in the input slot. */
-function occupantComponent(
-  occupant: InputSlotOccupant,
-  editor: PromptEditor,
-): Component {
-  switch (occupant.kind) {
-    case "editor":
-      return editor;
-    case "modelSelector":
-      return occupant.selector;
-    case "effortSelector":
-      return occupant.selector;
-    case "treeSelector":
-      return occupant.selector;
-    case "permissionPrompt":
-      return occupant.prompt;
-    case "questionPrompt":
-      return occupant.prompt;
   }
 }

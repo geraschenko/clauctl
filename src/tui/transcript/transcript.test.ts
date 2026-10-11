@@ -6,9 +6,9 @@ import type {
   SDKMessage,
   SDKUserMessage,
 } from "@anthropic-ai/claude-agent-sdk";
-import { allowFeedbackContext } from "../core/protocol/index.ts";
-import type { SessionEntry } from "../core/session/file.ts";
-import { TranscriptRenderer } from "./transcript.ts";
+import { allowFeedbackContext } from "../../core/protocol/index.ts";
+import type { SessionEntry } from "../../core/session/file.ts";
+import { Transcript } from "./transcript.ts";
 
 // The Edit view's expanded diff reads pi's theme singleton; the TUI
 // entrypoints initialize it the same way.
@@ -78,11 +78,11 @@ function renderedText(container: Container): string {
 }
 
 function makeRenderer(): {
-  renderer: TranscriptRenderer;
+  renderer: Transcript;
   container: Container;
 } {
   const container = new Container();
-  return { renderer: new TranscriptRenderer(container), container };
+  return { renderer: new Transcript(container), container };
 }
 
 test("assistant text renders; a resolved Read folds by default and expands", () => {
@@ -692,7 +692,7 @@ test("claude layout: Edit header (claude shows Update), Added/removed summary, e
 
 test("banners keep their transcript position across fold rebuilds", () => {
   const { renderer, container } = makeRenderer();
-  renderer.addBanner("interrupted");
+  renderer.addBanner({ text: "interrupted" });
   renderer.append(
     assistantMessage([{ type: "thinking", thinking: "reasoning" }]),
   );
@@ -810,7 +810,7 @@ test("output entry attaches to its parent command even when a pending item follo
 
 test("showResolvedBoundary draws a full-width rule between the resolved and pending parts, also with nothing pending", () => {
   const container = new Container();
-  const renderer = new TranscriptRenderer(container, true);
+  const renderer = new Transcript(container, true);
   renderer.appendEntry(userEntry("r1", "resolved prompt"));
   const rule = "─".repeat(80);
   assert.equal(renderedText(container).split("\n").at(-1), rule);
@@ -1223,7 +1223,7 @@ test("resolve: a frame's item moves into the resolved part and re-renders from i
 
 test("resolve: an unkeyed banner joins the resolved part when nothing is pending, else waits behind the pending items", () => {
   const withNothingPending = makeRenderer();
-  withNothingPending.renderer.addBanner("interrupted");
+  withNothingPending.renderer.addBanner({ text: "interrupted" });
   withNothingPending.renderer.append(assistantFrame("a2", "msg_2", TEXT_B));
   withNothingPending.renderer.resolve(
     "u1" as never,
@@ -1236,7 +1236,7 @@ test("resolve: an unkeyed banner joins the resolved part when nothing is pending
 
   const behindPending = makeRenderer();
   behindPending.renderer.append(assistantFrame("a2", "msg_2", TEXT_B));
-  behindPending.renderer.addBanner("interrupted");
+  behindPending.renderer.addBanner({ text: "interrupted" });
   behindPending.renderer.resolve("u1" as never, userEntry("u1", "a prompt"));
   assert.match(
     renderedText(behindPending.container),
@@ -1247,7 +1247,7 @@ test("resolve: an unkeyed banner joins the resolved part when nothing is pending
 test("resolve: the moved prefix carries the unkeyed items after the keyed one and stops at the next keyed item", () => {
   const { renderer, container } = makeRenderer();
   renderer.append(assistantFrame("a1", "msg_1", TEXT_A));
-  renderer.addBanner("interrupted");
+  renderer.addBanner({ text: "interrupted" });
   renderer.append(assistantFrame("a2", "msg_2", TEXT_B));
   renderer.resolve("a1" as never, assistantEntry("a1", "msg_1", TEXT_A));
   renderer.resolve("u3" as never, userEntry("u3", "a prompt"));
@@ -1276,7 +1276,7 @@ test("message_stop on a stream nothing precedes releases the banners behind it",
   const { renderer, container } = makeRenderer();
   renderer.append(messageStart("msg_2"));
   renderer.append(textDelta("partial B"));
-  renderer.addBanner("interrupted");
+  renderer.addBanner({ text: "interrupted" });
   renderer.append(assistantFrame("a2", "msg_2", TEXT_B));
   renderer.resolve("a2" as never, assistantEntry("a2", "msg_2", TEXT_B));
   // The stream, still open, holds the banner back from a2's resolution.
@@ -1321,7 +1321,7 @@ test("resolve: an open stream with nothing pending is still pending; a banner af
   const { renderer, container } = makeRenderer();
   renderer.append(messageStart("msg_2"));
   renderer.append(textDelta("partial B"));
-  renderer.addBanner("interrupted");
+  renderer.addBanner({ text: "interrupted" });
   renderer.resolve("u1" as never, userEntry("u1", "a prompt"));
   assert.match(
     renderedText(container),
