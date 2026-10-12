@@ -69,5 +69,5 @@ case "$answer" in
 esac
 
 run npm publish
-run git tag "v$VERSION"
+run git push origin
 run git push origin "v$VERSION"
